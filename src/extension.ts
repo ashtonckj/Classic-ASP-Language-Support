@@ -109,7 +109,7 @@ function getIndentString(level: number, style: string, size: number): string {
 
 // Add spacing around operators
 function formatOperators(code: string): string {
-    // Operators that should have spaces around them
+    // Operators that should have spaces around them to look better
     const operators = [
         { pattern: /\s*=\s*/g, replacement: ' = ' },      // x=1 → x = 1
         { pattern: /\s*<>\s*/g, replacement: ' <> ' },    // x<>1 → x <> 1
