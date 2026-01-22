@@ -41,18 +41,18 @@ end if
 ```asp
 <!DOCTYPE html>
 <html>
-  <body>
-    <div>
-      <h1>Welcome <%= username %>!</h1>
-      <%
-      Dim age
-      age = Request.Form("age")
-      If age >= 18 Then
-          Response.Write("adult")
-      End If
-      %>
-    </div>
-  </body>
+    <body>
+        <div>
+            <h1>Welcome <%= username %>!</h1>
+            <%
+            Dim age
+            age = Request.Form("age")
+            If age >= 18 Then
+              Response.Write("adult")
+            End If
+            %>
+        </div>
+    </body>
 </html>
 ```
 
@@ -85,7 +85,7 @@ Access settings via `File → Preferences → Settings` and search for "ASP Form
   "aspFormatter.keywordCase": "PascalCase",
   "aspFormatter.indentStyle": "spaces",
   "aspFormatter.indentSize": 4,
-  "aspFormatter.prettier.tabWidth": 2,
+  "aspFormatter.prettier.tabWidth": 4,
   "aspFormatter.prettier.semi": true
 }
 ```
