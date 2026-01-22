@@ -73,7 +73,7 @@ Access settings via `File → Preferences → Settings` and search for "ASP Form
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `aspFormatter.prettier.printWidth` | `80` | Maximum line length |
-| `aspFormatter.prettier.tabWidth` | `2` | Spaces per indentation level |
+| `aspFormatter.prettier.tabWidth` | `4` | Spaces per indentation level |
 | `aspFormatter.prettier.useTabs` | `false` | Use tabs instead of spaces |
 | `aspFormatter.prettier.semi` | `true` | Add semicolons in JavaScript |
 | `aspFormatter.prettier.singleQuote` | `false` | Use single quotes in JavaScript |
