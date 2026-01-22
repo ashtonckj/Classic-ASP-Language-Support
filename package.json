@@ -4,6 +4,10 @@
   "description": "A comprehensive formatter for Classic ASP files with HTML, CSS, JavaScript, and VBScript support.",
   "version": "0.0.1",
   "publisher": "ashtonckj",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ashtonckj/Classic-ASP-Formatter.git"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
