@@ -1,0 +1,9 @@
+# Node / VS Code stuff
+node_modules/
+.vscode/
+
+# Compiled output
+out/
+
+# VSIX package
+*.vsix
