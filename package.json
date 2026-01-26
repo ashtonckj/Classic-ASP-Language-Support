@@ -3,6 +3,7 @@
     "displayName": "Classic ASP Language Support",
     "description": "Complete language support for Classic ASP files with formatting, IntelliSense, snippets, and auto-completion for HTML, CSS, JavaScript, and VBScript.",
     "version": "0.0.2",
+    "icon": "icon.png",
     "publisher": "ashtonckj",
     "repository": {
         "type": "git",
