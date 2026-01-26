@@ -18,12 +18,14 @@
         "Other"
     ],
     "keywords": [
-        "asp",
-        "classic asp",
-        "vbscript",
-        "formatter",
-        "intellisense",
-        "autocomplete"
+        "ASP",
+        "Classic",
+        "Classic ASP",
+        "Active Server Pages",
+        "Formatter",
+        "Intellisense",
+        "Autocomplete",
+        "Snippets"
     ],
     "license": "MIT",
     "activationEvents": [

@@ -79,7 +79,7 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
                 item.insertText = new vscode.SnippetString(`${tag.tag} $0/>`);
             } else {
                 // Regular tag with closing tag
-                item.insertText = new vscode.SnippetString(`${tag.tag}>$0</${tag.tag}>`);
+                item.insertText = new vscode.SnippetString(`${tag.tag}>\n\t$0\n</${tag.tag}>`);
             }
             
             return item;
