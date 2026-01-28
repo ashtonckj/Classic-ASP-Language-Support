@@ -204,7 +204,7 @@ function calculateContinuationColumn(line: string, htmlIndent: string, aspIndent
     if (continuationOnlyMatch) {
         const tabSize = aspIndent.includes('\t') ? 1 : (aspIndent.match(/  /g) || []).length * 2;
         const useTab = aspIndent.includes('\t');
-        const extraIndent = useTab ? '\t' : '  ';
+        const extraIndent = useTab ? '\t' : '    ';
         return fullIndent.length + extraIndent.length;
     }
     
@@ -226,7 +226,7 @@ function calculateContinuationColumn(line: string, htmlIndent: string, aspIndent
     
     // Default: one tab more than current indent
     const tabSize = aspIndent.includes('\t') ? 1 : 2;
-    const extraIndent = aspIndent.includes('\t') ? '\t' : '  ';
+    const extraIndent = aspIndent.includes('\t') ? '\t' : '    ';
     return fullIndent.length + extraIndent.length;
 }
 
@@ -299,6 +299,9 @@ function applyKeywordCase(code: string, caseStyle: string): string {
     // Format operators only outside strings
     result = formatOperators(result);
     
+    // Add space after commas (e.g., Dim name,age,city -> Dim name, age, city)
+    result = formatCommas(result);
+    
     return result + comment;
 }
 
@@ -353,22 +356,22 @@ function formatKeywordOutsideStrings(code: string, keyword: string, caseStyle: s
     
     // Use a different approach: split by strings, format each part
     const stringParts = splitByStrings(code);
-    result = stringParts.map((part, index) => {
-        if (index % 2 === 0) {
+    result = stringParts.map(part => {
+        if (!part.isString) {
             // Not in string, format it
-            return part.replace(regex, (match) => formatKeyword(keyword, caseStyle));
+            return part.text.replace(regex, (match) => formatKeyword(keyword, caseStyle));
         } else {
             // Inside string, keep as-is
-            return part;
+            return part.text;
         }
     }).join('');
     
     return result;
 }
 
-// Split code by strings, returning array of [nonString, string, nonString, string, ...]
-function splitByStrings(code: string): string[] {
-    const parts: string[] = [];
+// Split code by strings, returning array of {text, isString}
+function splitByStrings(code: string): Array<{text: string, isString: boolean}> {
+    const parts: Array<{text: string, isString: boolean}> = [];
     let current = '';
     let inString = false;
     
@@ -386,13 +389,13 @@ function splitByStrings(code: string): string[] {
             if (inString) {
                 // Ending string
                 current += char;
-                parts.push(current);
+                parts.push({text: current, isString: true});
                 current = '';
                 inString = false;
             } else {
                 // Starting string
                 if (current) {
-                    parts.push(current);
+                    parts.push({text: current, isString: false});
                 }
                 current = char;
                 inString = true;
@@ -403,7 +406,7 @@ function splitByStrings(code: string): string[] {
     }
     
     if (current) {
-        parts.push(current);
+        parts.push({text: current, isString: inString});
     }
     
     return parts;
@@ -497,6 +500,23 @@ function formatOperatorsInText(text: string): string {
     result = result.replace(/ < > /g, ' <> ');
     result = result.replace(/ < = /g, ' <= ');
     result = result.replace(/ > = /g, ' >= ');
+    
+    return result;
+}
+
+// Format commas - add space after commas outside strings
+function formatCommas(code: string): string {
+    // Split by strings, format only non-string parts
+    const stringParts = splitByStrings(code);
+    const result = stringParts.map(part => {
+        if (!part.isString) {
+            // Not in string, add space after commas
+            return part.text.replace(/,(?!\s)/g, ', ');
+        } else {
+            // Inside string, keep as-is
+            return part.text;
+        }
+    }).join('');
     
     return result;
 }

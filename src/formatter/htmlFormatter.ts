@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as prettier from 'prettier';
-import { formatSingleAspBlock, getAspSettings } from './aspFormatter';
+import { formatSingleAspBlock, getAspSettings, AspFormatterSettings } from './aspFormatter';
 
 // Prettier settings interface
 export interface PrettierSettings {
@@ -86,89 +86,61 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         prettifiedCode = maskedCode;
     }
     
-    // Step 3: Analyze blocks for cross-block context (If/Else detection)
-    const blockContexts = analyzeBlockContexts(aspBlocks);
-    
-    // Step 4: Restore ASP blocks with context-aware formatting
+    // Step 3: Combine ASP blocks virtually for formatting, then restore them
     let restoredCode = prettifiedCode;
-    
+
+    // Virtually combine all ASP blocks
+    const combinedAspCode = aspBlocks.map(block => block.code).join('\n');
+    const combinedFormatted = formatSingleAspBlock(combinedAspCode, aspSettings, '', false);
+
+    // Split the formatted combined code back into individual blocks
+    const formattedBlockLines = combinedFormatted.split('\n');
+    let currentLineIndex = 0;
+    const formattedBlocks: string[] = [];
+
+    for (let i = 0; i < aspBlocks.length; i++) {
+        const originalBlock = aspBlocks[i];
+        const originalLineCount = originalBlock.code.split('\n').length;
+        
+        // Extract the corresponding lines from formatted combined code
+        const blockLines = formattedBlockLines.slice(currentLineIndex, currentLineIndex + originalLineCount);
+        formattedBlocks.push(blockLines.join('\n'));
+        currentLineIndex += originalLineCount;
+    }
+
+    // Restore each formatted block with its HTML indent
     for (let i = 0; i < aspBlocks.length; i++) {
         const block = aspBlocks[i];
-        const context = blockContexts[i];
+        const formattedBlock = formattedBlocks[i];
         
         const placeholderRegex = new RegExp(`^([ \\t]*)<!--${block.id}-->`, 'gm');
         const match = placeholderRegex.exec(restoredCode);
         
         if (match) {
             const htmlIndent = match[1];
-            const formattedBlock = formatSingleAspBlockWithContext(block.code, aspSettings, htmlIndent, context);
+            
+            // Add HTML indent to each line of the formatted block
+            const indentedBlock = formattedBlock.split('\n').map(line => {
+                if (line.trim()) {
+                    return htmlIndent + line;
+                }
+                return line;
+            }).join('\n');
+            
             restoredCode = restoredCode.replace(
                 new RegExp(`^[ \\t]*<!--${block.id}-->`, 'gm'),
-                formattedBlock
+                indentedBlock
             );
         } else {
             console.warn(`Warning: Placeholder ${block.id} not found`);
-            const formattedBlock = formatSingleAspBlock(block.code, aspSettings, '');
             restoredCode = restoredCode.replace(
                 new RegExp(`<!--${block.id}-->`, 'g'),
                 formattedBlock
             );
         }
     }
-    
+
     return restoredCode;
-}
-
-// Analyze blocks to detect cross-block control structures
-function analyzeBlockContexts(blocks: Array<{ code: string; indent: string; id: string; lineNumber: number }>): Array<{ continuesFromPrevious: boolean; openControlStructures: number }> {
-    const contexts: Array<{ continuesFromPrevious: boolean; openControlStructures: number }> = [];
-    let openStructures = 0; // Track open If/For/While/etc.
-    
-    for (const block of blocks) {
-        const trimmedCode = block.code.trim();
-        const firstLine = trimmedCode.split('\n')[0].toLowerCase();
-        
-        // Check if this block starts with Else/ElseIf/End If/Loop/Wend/Next
-        const continuesFromPrevious = /^<%\s*(else|elseif|end\s+if|end\s+sub|end\s+function|loop|wend|next|end\s+select)/i.test(firstLine);
-        
-        contexts.push({
-            continuesFromPrevious: continuesFromPrevious,
-            openControlStructures: openStructures
-        });
-        
-        // Update open structures count based on this block's content
-        const codeWithoutStrings = removeStringsFromCode(block.code);
-        const ifCount = (codeWithoutStrings.match(/\bif\b.*\bthen\b/gi) || []).length;
-        const endIfCount = (codeWithoutStrings.match(/\bend\s+if\b/gi) || []).length;
-        const forCount = (codeWithoutStrings.match(/\bfor\b/gi) || []).length;
-        const nextCount = (codeWithoutStrings.match(/\bnext\b/gi) || []).length;
-        const whileCount = (codeWithoutStrings.match(/\bwhile\b/gi) || []).length;
-        const wendCount = (codeWithoutStrings.match(/\bwend\b/gi) || []).length;
-        const doCount = (codeWithoutStrings.match(/\bdo\b/gi) || []).length;
-        const loopCount = (codeWithoutStrings.match(/\bloop\b/gi) || []).length;
-        
-        openStructures += ifCount - endIfCount;
-        openStructures += forCount - nextCount;
-        openStructures += whileCount - wendCount;
-        openStructures += doCount - loopCount;
-        openStructures = Math.max(0, openStructures);
-    }
-    
-    return contexts;
-}
-
-// Remove strings from code for analysis
-function removeStringsFromCode(code: string): string {
-    return code.replace(/"[^"]*"/g, '""');
-}
-
-// Format ASP block with context awareness
-function formatSingleAspBlockWithContext(block: string, settings: any, htmlIndent: string, context: { continuesFromPrevious: boolean; openControlStructures: number }): string {
-    // If this block continues from previous (starts with Else/End If/etc), don't decrease indent at start
-    if (context.continuesFromPrevious) {
-        return formatSingleAspBlock(block, settings, htmlIndent, true);
-    }
-    return formatSingleAspBlock(block, settings, htmlIndent, false);
 }
 
 // Fix closing brackets
