@@ -38,16 +38,26 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     const aspSettings = getAspSettings();
     const prettierSettings = getPrettierSettings();
     
-    // Step 1: Extract and mask ASP blocks
-    const aspBlocks: { code: string; indent: string; id: string }[] = [];
+    // Step 1: Extract and mask ASP blocks with unique identifiers
+    const aspBlocks: { code: string; indent: string; id: string; lineNumber: number }[] = [];
     let blockCounter = 0;
     
-    const maskedCode = code.replace(/^([ \t]*)(<%[\s\S]*?%>)/gm, (match, indent, aspBlock) => {
+    const lines = code.split('\n');
+    let maskedCode = code;
+    
+    // Track line numbers for context awareness
+    let currentLine = 0;
+    maskedCode = code.replace(/^([ \t]*)(<%[\s\S]*?%>)/gm, (match, indent, aspBlock, offset) => {
+        // Calculate line number
+        const textBefore = code.substring(0, offset);
+        const lineNumber = textBefore.split('\n').length - 1;
+        
         const uniqueId = `ASP_PLACEHOLDER_${blockCounter}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         aspBlocks.push({ 
             code: aspBlock, 
             indent: indent,
-            id: uniqueId
+            id: uniqueId,
+            lineNumber: lineNumber
         });
         blockCounter++;
         return indent + `<!--${uniqueId}-->`;
@@ -76,16 +86,22 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         prettifiedCode = maskedCode;
     }
     
-    // Step 3: Restore ASP blocks
+    // Step 3: Analyze blocks for cross-block context (If/Else detection)
+    const blockContexts = analyzeBlockContexts(aspBlocks);
+    
+    // Step 4: Restore ASP blocks with context-aware formatting
     let restoredCode = prettifiedCode;
     
-    for (const block of aspBlocks) {
+    for (let i = 0; i < aspBlocks.length; i++) {
+        const block = aspBlocks[i];
+        const context = blockContexts[i];
+        
         const placeholderRegex = new RegExp(`^([ \\t]*)<!--${block.id}-->`, 'gm');
         const match = placeholderRegex.exec(restoredCode);
         
         if (match) {
             const htmlIndent = match[1];
-            const formattedBlock = formatSingleAspBlock(block.code, aspSettings, htmlIndent);
+            const formattedBlock = formatSingleAspBlockWithContext(block.code, aspSettings, htmlIndent, context);
             restoredCode = restoredCode.replace(
                 new RegExp(`^[ \\t]*<!--${block.id}-->`, 'gm'),
                 formattedBlock
@@ -101,6 +117,58 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     }
     
     return restoredCode;
+}
+
+// Analyze blocks to detect cross-block control structures
+function analyzeBlockContexts(blocks: Array<{ code: string; indent: string; id: string; lineNumber: number }>): Array<{ continuesFromPrevious: boolean; openControlStructures: number }> {
+    const contexts: Array<{ continuesFromPrevious: boolean; openControlStructures: number }> = [];
+    let openStructures = 0; // Track open If/For/While/etc.
+    
+    for (const block of blocks) {
+        const trimmedCode = block.code.trim();
+        const firstLine = trimmedCode.split('\n')[0].toLowerCase();
+        
+        // Check if this block starts with Else/ElseIf/End If/Loop/Wend/Next
+        const continuesFromPrevious = /^<%\s*(else|elseif|end\s+if|end\s+sub|end\s+function|loop|wend|next|end\s+select)/i.test(firstLine);
+        
+        contexts.push({
+            continuesFromPrevious: continuesFromPrevious,
+            openControlStructures: openStructures
+        });
+        
+        // Update open structures count based on this block's content
+        const codeWithoutStrings = removeStringsFromCode(block.code);
+        const ifCount = (codeWithoutStrings.match(/\bif\b.*\bthen\b/gi) || []).length;
+        const endIfCount = (codeWithoutStrings.match(/\bend\s+if\b/gi) || []).length;
+        const forCount = (codeWithoutStrings.match(/\bfor\b/gi) || []).length;
+        const nextCount = (codeWithoutStrings.match(/\bnext\b/gi) || []).length;
+        const whileCount = (codeWithoutStrings.match(/\bwhile\b/gi) || []).length;
+        const wendCount = (codeWithoutStrings.match(/\bwend\b/gi) || []).length;
+        const doCount = (codeWithoutStrings.match(/\bdo\b/gi) || []).length;
+        const loopCount = (codeWithoutStrings.match(/\bloop\b/gi) || []).length;
+        
+        openStructures += ifCount - endIfCount;
+        openStructures += forCount - nextCount;
+        openStructures += whileCount - wendCount;
+        openStructures += doCount - loopCount;
+        openStructures = Math.max(0, openStructures);
+    }
+    
+    return contexts;
+}
+
+// Remove strings from code for analysis
+function removeStringsFromCode(code: string): string {
+    return code.replace(/"[^"]*"/g, '""');
+}
+
+// Format ASP block with context awareness
+function formatSingleAspBlockWithContext(block: string, settings: any, htmlIndent: string, context: { continuesFromPrevious: boolean; openControlStructures: number }): string {
+    // If this block continues from previous (starts with Else/End If/etc), don't decrease indent at start
+    if (context.continuesFromPrevious) {
+        return formatSingleAspBlock(block, settings, htmlIndent, true);
+    }
+    return formatSingleAspBlock(block, settings, htmlIndent, false);
 }
 
 // Fix closing brackets

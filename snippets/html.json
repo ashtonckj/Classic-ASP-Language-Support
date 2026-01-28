@@ -1,47 +1,124 @@
 {
-    "HTML5 Boilerplate": {
-        "prefix": "html5",
-        "body": ["<!DOCTYPE html>", "<html lang=\"en\">", "<head>", "\t<meta charset=\"UTF-8\">", "\t<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">", "\t<title>${1:Document}</title>", "</head>", "<body>", "\t$0", "</body>", "</html>"],
-        "description": "HTML5 boilerplate template"
-    },
-    "Div with class": {
-        "prefix": "divc",
-        "body": "<div class=\"${1:classname}\">$0</div>",
-        "description": "Div with class"
-    },
-    "Form": {
-        "prefix": "form",
-        "body": ["<form action=\"${1:action}\" method=\"${2|GET,POST|}\">", "\t$0", "</form>"],
-        "description": "HTML form"
-    },
-    "Input text": {
-        "prefix": "input",
-        "body": "<input type=\"${1|text,password,email,number|}\" name=\"${2:name}\" placeholder=\"${3:placeholder}\">",
-        "description": "Input field"
-    },
-    "Link": {
-        "prefix": "a",
-        "body": "<a href=\"${1:url}\">${2:text}</a>",
-        "description": "Anchor link"
-    },
-    "Image": {
-        "prefix": "img",
-        "body": "<img src=\"${1:url}\" alt=\"${2:description}\">",
-        "description": "Image tag"
-    },
-    "Table": {
-        "prefix": "table",
-        "body": ["<table>", "\t<thead>", "\t\t<tr>", "\t\t\t<th>$1</th>", "\t\t</tr>", "\t</thead>", "\t<tbody>", "\t\t<tr>", "\t\t\t<td>$0</td>", "\t\t</tr>", "\t</tbody>", "</table>"],
-        "description": "HTML table"
-    },
-    "Script tag": {
-        "prefix": "script",
-        "body": ["<script>", "\t$0", "</script>"],
-        "description": "Script tag"
-    },
-    "Style tag": {
-        "prefix": "style",
-        "body": ["<style>", "\t$0", "</style>"],
-        "description": "Style tag"
-    }
+  "DOCTYPE": {
+    "prefix": ["!", "doctype", "!doctype"],
+    "body": "<!DOCTYPE html>",
+    "description": "HTML5 doctype declaration"
+  },
+  "HTML5 Boilerplate": {
+    "prefix": "html5",
+    "body": [
+      "<!DOCTYPE html>",
+      "<html lang=\"en\">",
+      "<head>",
+      "\t<meta charset=\"UTF-8\">",
+      "\t<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">",
+      "\t<title>${1:Document}</title>",
+      "</head>",
+      "<body>",
+      "\t$0",
+      "</body>",
+      "</html>"
+    ],
+    "description": "HTML5 boilerplate template"
+  },
+  "Meta Viewport": {
+    "prefix": ["meta:vp", "meta:viewport"],
+    "body": "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">",
+    "description": "Viewport meta tag"
+  },
+  "Meta Charset": {
+    "prefix": ["meta:charset", "meta:utf"],
+    "body": "<meta charset=\"UTF-8\">",
+    "description": "Character encoding meta tag"
+  },
+  "Meta Description": {
+    "prefix": "meta:desc",
+    "body": "<meta name=\"description\" content=\"$0\">",
+    "description": "Description meta tag"
+  },
+  "Link CSS": {
+    "prefix": ["link:css", "link"],
+    "body": "<link rel=\"stylesheet\" href=\"$0\">",
+    "description": "Link to external CSS"
+  },
+  "Link Favicon": {
+    "prefix": "link:favicon",
+    "body": "<link rel=\"icon\" type=\"image/x-icon\" href=\"$0\">",
+    "description": "Favicon link"
+  },
+  "Script Source": {
+    "prefix": "script:src",
+    "body": "<script src=\"$0\"></script>",
+    "description": "External JavaScript file"
+  },
+  "Div with class": {
+    "prefix": "divc",
+    "body": "<div class=\"${1:classname}\">$0</div>",
+    "description": "Div with class"
+  },
+  "Div with ID": {
+    "prefix": "divid",
+    "body": "<div id=\"${1:idname}\">$0</div>",
+    "description": "Div with ID"
+  },
+  "Form": {
+    "prefix": "form",
+    "body": [
+      "<form action=\"${1:action}\" method=\"${2|GET,POST|}\">",
+      "\t$0",
+      "</form>"
+    ],
+    "description": "HTML form"
+  },
+  "Input text": {
+    "prefix": "input",
+    "body": "<input type=\"${1|text,password,email,number|}\" name=\"${2:name}\" placeholder=\"${3:placeholder}\">",
+    "description": "Input field"
+  },
+  "Link": {
+    "prefix": "a",
+    "body": "<a href=\"${1:url}\">${2:text}</a>",
+    "description": "Anchor link"
+  },
+  "Image": {
+    "prefix": "img",
+    "body": "<img src=\"${1:url}\" alt=\"${2:description}\">",
+    "description": "Image tag"
+  },
+  "Table": {
+    "prefix": "table",
+    "body": [
+      "<table>",
+      "\t<thead>",
+      "\t\t<tr>",
+      "\t\t\t<th>$1</th>",
+      "\t\t</tr>",
+      "\t</thead>",
+      "\t<tbody>",
+      "\t\t<tr>",
+      "\t\t\t<td>$0</td>",
+      "\t\t</tr>",
+      "\t</tbody>",
+      "</table>"
+    ],
+    "description": "HTML table"
+  },
+  "Script tag": {
+    "prefix": "script",
+    "body": [
+      "<script>",
+      "\t$0",
+      "</script>"
+    ],
+    "description": "Script tag"
+  },
+  "Style tag": {
+    "prefix": "style",
+    "body": [
+      "<style>",
+      "\t$0",
+      "</style>"
+    ],
+    "description": "Style tag"
+  }
 }

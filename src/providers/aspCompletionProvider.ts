@@ -35,9 +35,12 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
             }
         }
         
+        // Don't show "If" snippet if "End" is right before cursor
+        const isAfterEnd = /\bend\s+i?f?$/i.test(textBefore.trim());
+        
         // Provide ASP objects, keywords, and functions
         completions.push(...this.provideAspObjectCompletions());
-        completions.push(...this.provideKeywordCompletions());
+        completions.push(...this.provideKeywordCompletions(isAfterEnd));
         completions.push(...this.provideFunctionCompletions());
         
         return completions;
@@ -126,11 +129,17 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
     }
     
     // Provide VBScript keyword completions
-    private provideKeywordCompletions(): vscode.CompletionItem[] {
+    private provideKeywordCompletions(isAfterEnd: boolean = false): vscode.CompletionItem[] {
         return VBSCRIPT_KEYWORDS.map(kw => {
             const item = new vscode.CompletionItem(kw.keyword, vscode.CompletionItemKind.Keyword);
             item.detail = kw.description;
             item.documentation = new vscode.MarkdownString(`**${kw.keyword}**\n\n${kw.description}`);
+            
+            // Don't show control structure snippets if after "End"
+            if (isAfterEnd && (kw.keyword === 'If' || kw.keyword === 'Sub' || kw.keyword === 'Function' || kw.keyword === 'Select Case')) {
+                // Just insert the keyword, no snippet
+                return item;
+            }
             
             // Add snippets for control structures
             if (kw.keyword === 'If') {

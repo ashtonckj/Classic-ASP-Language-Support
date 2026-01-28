@@ -78,7 +78,7 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
                 // Self-closing tag like <img />
                 item.insertText = new vscode.SnippetString(`${tag.tag} $0/>`);
             } else {
-                // Regular tag with closing tag
+                // Regular tag with closing tag and blank lines
                 item.insertText = new vscode.SnippetString(`${tag.tag}>\n\t$0\n</${tag.tag}>`);
             }
             
@@ -172,7 +172,6 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
     const disposable = vscode.commands.registerCommand('asp.insertLineBreak', () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor || editor.document.languageId !== 'asp') {
-            // Fallback to default Enter behavior
             return vscode.commands.executeCommand('default:type', { text: '\n' });
         }
 
@@ -187,27 +186,52 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         if (justClosedTagMatch) {
             const tagName = justClosedTagMatch[1];
             
-            // Check if it's not self-closing and doesn't already have a closing tag
             if (!isSelfClosingTag(tagName)) {
                 const closingTag = `</${tagName}>`;
                 
-                // Check if closing tag already exists after cursor
-                if (!textAfter.trim().startsWith(closingTag)) {
-                    // Insert newline, indented line, and closing tag
+                // Check if closing tag exists anywhere after cursor (not just same line)
+                const textAfterCursor = editor.document.getText(
+                    new vscode.Range(position, editor.document.positionAt(editor.document.getText().length))
+                );
+                
+                // Look for the closing tag (allowing for whitespace and other content)
+                const closingTagRegex = new RegExp(`</${tagName}>`, 'i');
+                if (closingTagRegex.test(textAfterCursor)) {
+                    // Closing tag already exists, just insert newline with indent
                     const indent = textBefore.match(/^\s*/)?.[0] || '';
                     const tabSize = editor.options.tabSize as number || 4;
                     const useSpaces = editor.options.insertSpaces !== false;
                     const indentChar = useSpaces ? ' '.repeat(tabSize) : '\t';
                     
-                    editor.edit(editBuilder => {
-                        editBuilder.insert(position, `\n${indent}${indentChar}\n${indent}${closingTag}`);
-                    }).then(() => {
-                        // Move cursor to indented position
-                        const newPosition = new vscode.Position(position.line + 1, indent.length + indentChar.length);
-                        editor.selection = new vscode.Selection(newPosition, newPosition);
+                    return vscode.commands.executeCommand('default:type', { text: '\n' }).then(() => {
+                        // Add indentation
+                        editor.edit(editBuilder => {
+                            const newPos = editor.selection.active;
+                            editBuilder.insert(newPos, indent + indentChar);
+                        }).then(() => {
+                            // Move cursor to end of indent
+                            const newPos = editor.selection.active;
+                            const finalPos = new vscode.Position(newPos.line, newPos.character + indent.length + indentChar.length);
+                            editor.selection = new vscode.Selection(finalPos, finalPos);
+                        });
                     });
-                    return;
                 }
+                
+                // No closing tag exists - create it with blank line below cursor
+                const indent = textBefore.match(/^\s*/)?.[0] || '';
+                const tabSize = editor.options.tabSize as number || 4;
+                const useSpaces = editor.options.insertSpaces !== false;
+                const indentChar = useSpaces ? ' '.repeat(tabSize) : '\t';
+                
+                editor.edit(editBuilder => {
+                    // Insert: newline, indent+tab for cursor, blank line, closing tag
+                    editBuilder.insert(position, `\n${indent}${indentChar}\n\n${indent}${closingTag}`);
+                }).then(() => {
+                    // Move cursor to the first indented line (line after opening tag)
+                    const newPosition = new vscode.Position(position.line + 1, indent.length + indentChar.length);
+                    editor.selection = new vscode.Selection(newPosition, newPosition);
+                });
+                return;
             }
         }
 
@@ -217,7 +241,6 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         if (incompleteTagMatch && !textBefore.endsWith('>')) {
             const tagName = incompleteTagMatch[1];
             
-            // Check if it's not self-closing
             if (!isSelfClosingTag(tagName)) {
                 const closingTag = `</${tagName}>`;
                 const indent = textBefore.match(/^\s*/)?.[0] || '';
@@ -226,10 +249,8 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
                 const indentChar = useSpaces ? ' '.repeat(tabSize) : '\t';
                 
                 editor.edit(editBuilder => {
-                    // Complete the opening tag and add closing tag
-                    editBuilder.insert(position, `>\n${indent}${indentChar}\n${indent}${closingTag}`);
+                    editBuilder.insert(position, `>\n${indent}${indentChar}\n\n${indent}${closingTag}`);
                 }).then(() => {
-                    // Move cursor to indented position
                     const newPosition = new vscode.Position(position.line + 1, indent.length + indentChar.length);
                     editor.selection = new vscode.Selection(newPosition, newPosition);
                 });
@@ -237,7 +258,6 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             }
         }
 
-        // Default: just insert newline
         return vscode.commands.executeCommand('default:type', { text: '\n' });
     });
 

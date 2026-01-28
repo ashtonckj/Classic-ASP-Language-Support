@@ -1,112 +1,173 @@
 {
-    "ASP Code Block": {
-        "prefix": "asp",
-        "body": ["<%", "\t$0", "%>"],
-        "description": "ASP code block"
-    },
-    "ASP Output": {
-        "prefix": "aspo",
-        "body": "<%= $0 %>",
-        "description": "ASP output expression"
-    },
-    "Response.Write": {
-        "prefix": "rw",
-        "body": "Response.Write(\"$0\")",
-        "description": "Write output to page"
-    },
-    "Response.Redirect": {
-        "prefix": "rr",
-        "body": "Response.Redirect(\"$0\")",
-        "description": "Redirect to another page"
-    },
-    "Request.Form": {
-        "prefix": "rf",
-        "body": "Request.Form(\"$0\")",
-        "description": "Get form data"
-    },
-    "Request.QueryString": {
-        "prefix": "rq",
-        "body": "Request.QueryString(\"$0\")",
-        "description": "Get query string parameter"
-    },
-    "Server.MapPath": {
-        "prefix": "smp",
-        "body": "Server.MapPath(\"$0\")",
-        "description": "Map virtual path to physical path"
-    },
-    "Server.CreateObject": {
-        "prefix": "sco",
-        "body": "Server.CreateObject(\"$0\")",
-        "description": "Create COM object"
-    },
-    "If Then": {
-        "prefix": "if",
-        "body": ["If ${1:condition} Then", "\t$0", "End If"],
-        "description": "If statement"
-    },
-    "If Then Else": {
-        "prefix": "ife",
-        "body": ["If ${1:condition} Then", "\t$2", "Else", "\t$0", "End If"],
-        "description": "If-Else statement"
-    },
-    "For Loop": {
-        "prefix": "for",
-        "body": ["For ${1:i} = ${2:0} To ${3:10}", "\t$0", "Next"],
-        "description": "For loop"
-    },
-    "For Each": {
-        "prefix": "fore",
-        "body": ["For Each ${1:item} In ${2:collection}", "\t$0", "Next"],
-        "description": "For Each loop"
-    },
-    "While Loop": {
-        "prefix": "while",
-        "body": ["While ${1:condition}", "\t$0", "Wend"],
-        "description": "While loop"
-    },
-    "Do While": {
-        "prefix": "dow",
-        "body": ["Do While ${1:condition}", "\t$0", "Loop"],
-        "description": "Do While loop"
-    },
-    "Select Case": {
-        "prefix": "select",
-        "body": ["Select Case ${1:expression}", "\tCase ${2:value}", "\t\t$0", "End Select"],
-        "description": "Select Case statement"
-    },
-    "Function": {
-        "prefix": "function",
-        "body": ["Function ${1:FunctionName}(${2:parameters})", "\t$0", "\t${1:FunctionName} = returnValue", "End Function"],
-        "description": "Function declaration"
-    },
-    "Sub": {
-        "prefix": "sub",
-        "body": ["Sub ${1:SubName}(${2:parameters})", "\t$0", "End Sub"],
-        "description": "Subroutine declaration"
-    },
-    "Dim Variable": {
-        "prefix": "dim",
-        "body": "Dim ${1:variableName}",
-        "description": "Declare variable"
-    },
-    "Database Connection": {
-        "prefix": "dbconn",
-        "body": ["Dim conn, rs", "Set conn = Server.CreateObject(\"ADODB.Connection\")", "conn.Open \"${1:connectionString}\"", "$0", "conn.Close", "Set conn = Nothing"],
-        "description": "Database connection template"
-    },
-    "Recordset": {
-        "prefix": "rs",
-        "body": ["Dim rs", "Set rs = Server.CreateObject(\"ADODB.Recordset\")", "rs.Open \"${1:SQL}\", conn", "Do While Not rs.EOF", "\t$0", "\trs.MoveNext", "Loop", "rs.Close", "Set rs = Nothing"],
-        "description": "ADO Recordset template"
-    },
-    "Option Explicit": {
-        "prefix": "opt",
-        "body": "Option Explicit",
-        "description": "Require variable declaration"
-    },
-    "Include File": {
-        "prefix": "inc",
-        "body": "<!--#include file=\"${0:filename.asp}\"-->",
-        "description": "Include another ASP file"
-    }
+  "ASP Code Block": {
+    "prefix": "asp",
+    "body": [
+      "<%",
+      "\t$0",
+      "%>"
+    ],
+    "description": "ASP code block"
+  },
+  "ASP Output": {
+    "prefix": "aspo",
+    "body": "<%= $0 %>",
+    "description": "ASP output expression"
+  },
+  "Response.Write": {
+    "prefix": "rw",
+    "body": "Response.Write(\"$0\")",
+    "description": "Write output to page"
+  },
+  "Response.Redirect": {
+    "prefix": "rr",
+    "body": "Response.Redirect(\"$0\")",
+    "description": "Redirect to another page"
+  },
+  "Request.Form": {
+    "prefix": "rf",
+    "body": "Request.Form(\"$0\")",
+    "description": "Get form data"
+  },
+  "Request.QueryString": {
+    "prefix": "rq",
+    "body": "Request.QueryString(\"$0\")",
+    "description": "Get query string parameter"
+  },
+  "Server.MapPath": {
+    "prefix": "smp",
+    "body": "Server.MapPath(\"$0\")",
+    "description": "Map virtual path to physical path"
+  },
+  "Server.CreateObject": {
+    "prefix": "sco",
+    "body": "Server.CreateObject(\"$0\")",
+    "description": "Create COM object"
+  },
+  "If Then": {
+    "prefix": "if",
+    "body": [
+      "If ${1:condition} Then",
+      "\t$0",
+      "End If"
+    ],
+    "description": "If statement"
+  },
+  "If Then Else": {
+    "prefix": ["ife", "ifelse"],
+    "body": [
+      "If ${1:condition} Then",
+      "\t${2:trueCode}",
+      "Else",
+      "\t${0:falseCode}",
+      "End If"
+    ],
+    "description": "If-Else statement"
+  },
+  "For Loop": {
+    "prefix": "for",
+    "body": [
+      "For ${1:i} = ${2:0} To ${3:10}",
+      "\t$0",
+      "Next"
+    ],
+    "description": "For loop"
+  },
+  "For Each": {
+    "prefix": "fore",
+    "body": [
+      "For Each ${1:item} In ${2:collection}",
+      "\t$0",
+      "Next"
+    ],
+    "description": "For Each loop"
+  },
+  "While Loop": {
+    "prefix": "while",
+    "body": [
+      "While ${1:condition}",
+      "\t$0",
+      "Wend"
+    ],
+    "description": "While loop"
+  },
+  "Do While": {
+    "prefix": "dow",
+    "body": [
+      "Do While ${1:condition}",
+      "\t$0",
+      "Loop"
+    ],
+    "description": "Do While loop"
+  },
+  "Select Case": {
+    "prefix": "select",
+    "body": [
+      "Select Case ${1:expression}",
+      "\tCase ${2:value}",
+      "\t\t$0",
+      "End Select"
+    ],
+    "description": "Select Case statement"
+  },
+  "Function": {
+    "prefix": "function",
+    "body": [
+      "Function ${1:FunctionName}(${2:parameters})",
+      "\t$0",
+      "\t${1:FunctionName} = returnValue",
+      "End Function"
+    ],
+    "description": "Function declaration"
+  },
+  "Sub": {
+    "prefix": "sub",
+    "body": [
+      "Sub ${1:SubName}(${2:parameters})",
+      "\t$0",
+      "End Sub"
+    ],
+    "description": "Subroutine declaration"
+  },
+  "Dim Variable": {
+    "prefix": "dim",
+    "body": "Dim ${1:variableName}",
+    "description": "Declare variable"
+  },
+  "Database Connection": {
+    "prefix": "dbconn",
+    "body": [
+      "Dim conn, rs",
+      "Set conn = Server.CreateObject(\"ADODB.Connection\")",
+      "conn.Open \"${1:connectionString}\"",
+      "$0",
+      "conn.Close",
+      "Set conn = Nothing"
+    ],
+    "description": "Database connection template"
+  },
+  "Recordset": {
+    "prefix": "rs",
+    "body": [
+      "Dim rs",
+      "Set rs = Server.CreateObject(\"ADODB.Recordset\")",
+      "rs.Open \"${1:SQL}\", conn",
+      "Do While Not rs.EOF",
+      "\t$0",
+      "\trs.MoveNext",
+      "Loop",
+      "rs.Close",
+      "Set rs = Nothing"
+    ],
+    "description": "ADO Recordset template"
+  },
+  "Option Explicit": {
+    "prefix": "opt",
+    "body": "Option Explicit",
+    "description": "Require variable declaration"
+  },
+  "Include File": {
+    "prefix": "inc",
+    "body": "<!--#include file=\"${0:filename.asp}\"-->",
+    "description": "Include another ASP file"
+  }
 }
