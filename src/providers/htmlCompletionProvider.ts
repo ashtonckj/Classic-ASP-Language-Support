@@ -197,35 +197,58 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
                 // Look for the closing tag (allowing for whitespace and other content)
                 const closingTagRegex = new RegExp(`</${tagName}>`, 'i');
                 if (closingTagRegex.test(textAfterCursor)) {
-                    // Closing tag already exists, just insert newline with indent
-                    const indent = textBefore.match(/^\s*/)?.[0] || '';
-                    const tabSize = editor.options.tabSize as number || 4;
-                    const useSpaces = editor.options.insertSpaces !== false;
-                    const indentChar = useSpaces ? ' '.repeat(tabSize) : '\t';
-                    
-                    return vscode.commands.executeCommand('default:type', { text: '\n' }).then(() => {
-                        // Add indentation
+                    // Closing tag already exists
+                    // Check if closing tag is on the same line immediately after cursor
+                    if (textAfter.trim().startsWith(closingTag)) {
+                        // Closing tag is right after cursor: <style>|</style>
+                        // Insert newline, indented line for cursor, newline, then closing tag with original indent
+                        const indent = textBefore.match(/^\s*/)?.[0] || '';
+                        const tabSize = editor.options.tabSize as number || 4;
+                        const useSpaces = editor.options.insertSpaces !== false;
+                        const indentChar = useSpaces ? ' '.repeat(tabSize) : '\t';
+                        
                         editor.edit(editBuilder => {
-                            const newPos = editor.selection.active;
-                            editBuilder.insert(newPos, indent + indentChar);
+                            // Delete the closing tag from current position
+                            const endOfLine = line.range.end;
+                            editBuilder.delete(new vscode.Range(position, endOfLine));
+                            
+                            // Insert: newline, indent+tab for cursor, newline, closing tag
+                            editBuilder.insert(position, `\n${indent}${indentChar}\n${indent}${closingTag}`);
                         }).then(() => {
-                            // Move cursor to end of indent
-                            const newPos = editor.selection.active;
-                            const finalPos = new vscode.Position(newPos.line, newPos.character + indent.length + indentChar.length);
-                            editor.selection = new vscode.Selection(finalPos, finalPos);
+                            // Move cursor to the indented line
+                            const newPosition = new vscode.Position(position.line + 1, indent.length + indentChar.length);
+                            editor.selection = new vscode.Selection(newPosition, newPosition);
                         });
-                    });
+                        return;
+                    } else {
+                        // Closing tag exists elsewhere, just add newline with indent
+                        const indent = textBefore.match(/^\s*/)?.[0] || '';
+                        const tabSize = editor.options.tabSize as number || 4;
+                        const useSpaces = editor.options.insertSpaces !== false;
+                        const indentChar = useSpaces ? ' '.repeat(tabSize) : '\t';
+                        
+                        return vscode.commands.executeCommand('default:type', { text: '\n' }).then(() => {
+                            editor.edit(editBuilder => {
+                                const newPos = editor.selection.active;
+                                editBuilder.insert(newPos, indent + indentChar);
+                            }).then(() => {
+                                const newPos = editor.selection.active;
+                                const finalPos = new vscode.Position(newPos.line, newPos.character + indent.length + indentChar.length);
+                                editor.selection = new vscode.Selection(finalPos, finalPos);
+                            });
+                        });
+                    }
                 }
                 
-                // No closing tag exists - create it with blank line below cursor
+                // No closing tag exists - create it
                 const indent = textBefore.match(/^\s*/)?.[0] || '';
                 const tabSize = editor.options.tabSize as number || 4;
                 const useSpaces = editor.options.insertSpaces !== false;
                 const indentChar = useSpaces ? ' '.repeat(tabSize) : '\t';
-                
+
                 editor.edit(editBuilder => {
-                    // Insert: newline, indent+tab for cursor, blank line, closing tag
-                    editBuilder.insert(position, `\n${indent}${indentChar}\n\n${indent}${closingTag}`);
+                    // Insert: newline, indent+tab for cursor, newline, closing tag
+                    editBuilder.insert(position, `\n${indent}${indentChar}\n${indent}${closingTag}`);
                 }).then(() => {
                     // Move cursor to the first indented line (line after opening tag)
                     const newPosition = new vscode.Position(position.line + 1, indent.length + indentChar.length);
