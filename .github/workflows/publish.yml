@@ -1,1 +1,26 @@
+name: Publish VS Code Extension
+
+on:
+    push:
+        branches: ["main"]
+
+jobs:
+    push:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: action/checkout@v3
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: '18'
+
+            - name: Install VSCE
+              run: npm install -g @vscode/vsce
+
+            - name: Publish Extension
+              env:
+                  VSCE_PAT: ${{ secrets.VSCE_TOKEN }}
+              run: vsce publish -p $VSCE_PAT
 
