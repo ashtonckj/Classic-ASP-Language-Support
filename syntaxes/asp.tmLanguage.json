@@ -1,218 +1,222 @@
 {
-  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-  "name": "Classic ASP",
-  "scopeName": "text.html.asp",
-  "patterns": [
-    {
-      "include": "#asp-code-block"
-    },
-    {
-      "include": "#asp-output-block"
-    },
-    {
-      "include": "text.html.basic"
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Classic ASP",
+    "scopeName": "text.html.asp",
+    "patterns": [
+        {
+            "include": "#asp-code-block"
+        },
+        {
+            "include": "#asp-output-block"
+        },
+        {
+            "include": "text.html.basic"
+        }
+    ],
+    "repository": {
+        "asp-code-block": {
+            "name": "meta.embedded.block.asp",
+            "begin": "<%(?!=)",
+            "end": "%>",
+            "beginCaptures": {
+                "0": {
+                    "name": "punctuation.definition.tag.begin.asp"
+                }
+            },
+            "endCaptures": {
+                "0": {
+                    "name": "punctuation.definition.tag.end.asp"
+                }
+            },
+            "patterns": [
+                {
+                    "include": "#vbscript-code"
+                }
+            ],
+            "contentName": "source.vbscript.embedded.asp"
+        },
+        "asp-output-block": {
+            "name": "meta.embedded.expression.asp",
+            "begin": "<%=",
+            "end": "%>",
+            "beginCaptures": {
+                "0": {
+                    "name": "punctuation.definition.tag.begin.asp"
+                }
+            },
+            "endCaptures": {
+                "0": {
+                    "name": "punctuation.definition.tag.end.asp"
+                }
+            },
+            "patterns": [
+                {
+                    "include": "#vbscript-code"
+                }
+            ],
+            "contentName": "source.vbscript.embedded.asp"
+        },
+        "vbscript-code": {
+            "patterns": [
+                {
+                    "include": "#comments"
+                },
+                {
+                    "include": "#strings"
+                },
+                {
+                    "include": "#keywords"
+                },
+                {
+                    "include": "#asp-objects"
+                },
+                {
+                    "include": "#operators"
+                },
+                {
+                    "include": "#numbers"
+                },
+                {
+                    "include": "#functions"
+                }
+            ]
+        },
+        "comments": {
+            "patterns": [
+                {
+                    "name": "comment.line.apostrophe.vbscript",
+                    "match": "'.*$"
+                },
+                {
+                    "name": "comment.block.asp",
+                    "begin": "<%--",
+                    "end": "--%>"
+                }
+            ]
+        },
+        "strings": {
+            "patterns": [
+                {
+                    "name": "string.quoted.double.sql.vbscript",
+                    "begin": "\"(?=(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|FROM|WHERE|JOIN|ORDER BY|GROUP BY))",
+                    "end": "\"",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.vbscript"
+                        }
+                    },
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.vbscript"
+                        }
+                    },
+                    "patterns": [
+                        {
+                            "name": "constant.character.escape.vbscript",
+                            "match": "\"\""
+                        },
+                        {
+                            "name": "keyword.other.DML.sql",
+                            "match": "\\b(?i)(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|INNER|LEFT|RIGHT|OUTER|ON|ORDER BY|GROUP BY|HAVING|DISTINCT|TOP|AS)\\b"
+                        },
+                        {
+                            "name": "keyword.other.DDL.sql",
+                            "match": "\\b(?i)(CREATE|DROP|ALTER|TABLE|INDEX|VIEW|DATABASE)\\b"
+                        },
+                        {
+                            "name": "keyword.other.sql",
+                            "match": "\\b(?i)(AND|OR|NOT|IN|LIKE|BETWEEN|IS|NULL|ASC|DESC|SET|VALUES)\\b"
+                        },
+                        {
+                            "name": "constant.numeric.sql",
+                            "match": "\\b\\d+\\b"
+                        }
+                    ]
+                },
+                {
+                    "name": "string.quoted.double.vbscript",
+                    "begin": "\"",
+                    "end": "\"",
+                    "patterns": [
+                        {
+                            "name": "constant.character.escape.vbscript",
+                            "match": "\"\""
+                        }
+                    ]
+                }
+            ]
+        },
+        "keywords": {
+            "patterns": [
+                {
+                    "name": "keyword.control.vbscript",
+                    "match": "\\b(?i)(if|then|else|elseif|end\\s+if|select|case|end\\s+select|for|to|each|in|step|next|while|wend|do|loop|until|exit|goto)\\b"
+                },
+                {
+                    "name": "keyword.other.vbscript",
+                    "match": "\\b(?i)(dim|redim|const|private|public|sub|end\\s+sub|function|end\\s+function|property|get|let|set|end\\s+property|class|end\\s+class|new|with|end\\s+with|option|explicit|call|on|error|resume)\\b"
+                },
+                {
+                    "name": "keyword.operator.logical.vbscript",
+                    "match": "\\b(?i)(and|or|not|xor|eqv|imp)\\b"
+                },
+                {
+                    "name": "constant.language.vbscript",
+                    "match": "\\b(?i)(true|false|null|nothing|empty)\\b"
+                }
+            ]
+        },
+        "asp-objects": {
+            "patterns": [
+                {
+                    "name": "support.class.asp",
+                    "match": "\\b(?i)(Response|Request|Server|Session|Application)\\b"
+                },
+                {
+                    "name": "support.function.asp",
+                    "match": "\\b(?i)(Write|Redirect|End|CreateObject|MapPath|HTMLEncode|URLEncode)\\b"
+                },
+                {
+                    "name": "support.variable.asp",
+                    "match": "\\b(?i)(Form|QueryString|ServerVariables|Cookies)\\b"
+                }
+            ]
+        },
+        "operators": {
+            "patterns": [
+                {
+                    "name": "keyword.operator.comparison.vbscript",
+                    "match": "(<>|<=|>=|<|>|=)"
+                },
+                {
+                    "name": "keyword.operator.arithmetic.vbscript",
+                    "match": "(\\+|-|\\*|/|\\\\|mod|\\^)"
+                },
+                {
+                    "name": "keyword.operator.concatenation.vbscript",
+                    "match": "&"
+                },
+                {
+                    "name": "keyword.operator.vbscript",
+                    "match": "\\b(?i)is\\b"
+                }
+            ]
+        },
+        "numbers": {
+            "patterns": [
+                {
+                    "name": "constant.numeric.vbscript",
+                    "match": "\\b\\d+(\\.\\d+)?\\b"
+                }
+            ]
+        },
+        "functions": {
+            "patterns": [
+                {
+                    "name": "support.function.vbscript",
+                    "match": "\\b(?i)(Abs|Array|Asc|Atn|CBool|CByte|CCur|CDate|CDbl|Chr|CInt|CLng|Cos|CreateObject|CSng|CStr|Date|DateAdd|DateDiff|DatePart|DateSerial|DateValue|Day|Exp|Filter|Fix|FormatCurrency|FormatDateTime|FormatNumber|FormatPercent|GetObject|Hex|Hour|InputBox|InStr|InStrRev|Int|IsArray|IsDate|IsEmpty|IsNull|IsNumeric|IsObject|Join|LBound|LCase|Left|Len|LoadPicture|Log|LTrim|Mid|Minute|Month|MonthName|MsgBox|Now|Oct|Replace|RGB|Right|Rnd|Round|RTrim|ScriptEngine|ScriptEngineBuildVersion|ScriptEngineMajorVersion|ScriptEngineMinorVersion|Second|Sgn|Sin|Space|Split|Sqr|StrComp|String|StrReverse|Tan|Time|Timer|TimeSerial|TimeValue|Trim|TypeName|UBound|UCase|VarType|Weekday|WeekdayName|Year)\\b"
+                }
+            ]
+        }
     }
-  ],
-  "repository": {
-    "asp-code-block": {
-      "name": "meta.embedded.block.asp",
-      "begin": "<%(?!=)",
-      "end": "%>",
-      "beginCaptures": {
-        "0": {
-          "name": "punctuation.definition.tag.begin.asp"
-        }
-      },
-      "endCaptures": {
-        "0": {
-          "name": "punctuation.definition.tag.end.asp"
-        }
-      },
-      "patterns": [
-        {
-          "include": "#vbscript-code"
-        }
-      ],
-      "contentName": "source.vbscript.embedded.asp"
-    },
-    "asp-output-block": {
-      "name": "meta.embedded.expression.asp",
-      "begin": "<%=",
-      "end": "%>",
-      "beginCaptures": {
-        "0": {
-          "name": "punctuation.definition.tag.begin.asp"
-        }
-      },
-      "endCaptures": {
-        "0": {
-          "name": "punctuation.definition.tag.end.asp"
-        }
-      },
-      "patterns": [
-        {
-          "include": "#vbscript-code"
-        }
-      ],
-      "contentName": "source.vbscript.embedded.asp"
-    },
-    "vbscript-code": {
-      "patterns": [
-        {
-          "include": "#comments"
-        },
-        {
-          "include": "#strings"
-        },
-        {
-          "include": "#keywords"
-        },
-        {
-          "include": "#asp-objects"
-        },
-        {
-          "include": "#operators"
-        },
-        {
-          "include": "#numbers"
-        },
-        {
-          "include": "#functions"
-        }
-      ]
-    },
-    "comments": {
-      "patterns": [
-        {
-          "name": "comment.line.apostrophe.vbscript",
-          "match": "'.*$"
-        },
-        {
-          "name": "comment.block.asp",
-          "begin": "<%--",
-          "end": "--%>"
-        }
-      ]
-    },
-    "strings": {
-      "patterns": [
-        {
-          "name": "string.quoted.double.sql.vbscript",
-          "begin": "\"(?=(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|FROM|WHERE|JOIN|ORDER BY|GROUP BY))",
-          "end": "\"",
-          "beginCaptures": {
-            "0": { "name": "punctuation.definition.string.begin.vbscript" }
-          },
-          "endCaptures": {
-            "0": { "name": "punctuation.definition.string.end.vbscript" }
-          },
-          "patterns": [
-            {
-              "name": "constant.character.escape.vbscript",
-              "match": "\"\""
-            },
-            {
-              "name": "keyword.other.DML.sql",
-              "match": "\\b(?i)(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|INNER|LEFT|RIGHT|OUTER|ON|ORDER BY|GROUP BY|HAVING|DISTINCT|TOP|AS)\\b"
-            },
-            {
-              "name": "keyword.other.DDL.sql",
-              "match": "\\b(?i)(CREATE|DROP|ALTER|TABLE|INDEX|VIEW|DATABASE)\\b"
-            },
-            {
-              "name": "keyword.other.sql",
-              "match": "\\b(?i)(AND|OR|NOT|IN|LIKE|BETWEEN|IS|NULL|ASC|DESC|SET|VALUES)\\b"
-            },
-            {
-              "name": "constant.numeric.sql",
-              "match": "\\b\\d+\\b"
-            }
-          ]
-        },
-        {
-          "name": "string.quoted.double.vbscript",
-          "begin": "\"",
-          "end": "\"",
-          "patterns": [
-            {
-              "name": "constant.character.escape.vbscript",
-              "match": "\"\""
-            }
-          ]
-        }
-      ]
-    },
-    "keywords": {
-      "patterns": [
-        {
-          "name": "keyword.control.vbscript",
-          "match": "\\b(?i)(if|then|else|elseif|end\\s+if|select|case|end\\s+select|for|to|each|in|step|next|while|wend|do|loop|until|exit|goto)\\b"
-        },
-        {
-          "name": "keyword.other.vbscript",
-          "match": "\\b(?i)(dim|redim|const|private|public|sub|end\\s+sub|function|end\\s+function|property|get|let|set|end\\s+property|class|end\\s+class|new|with|end\\s+with|option|explicit|call|on|error|resume)\\b"
-        },
-        {
-          "name": "keyword.operator.logical.vbscript",
-          "match": "\\b(?i)(and|or|not|xor|eqv|imp)\\b"
-        },
-        {
-          "name": "constant.language.vbscript",
-          "match": "\\b(?i)(true|false|null|nothing|empty)\\b"
-        }
-      ]
-    },
-    "asp-objects": {
-      "patterns": [
-        {
-          "name": "support.class.asp",
-          "match": "\\b(?i)(Response|Request|Server|Session|Application)\\b"
-        },
-        {
-          "name": "support.function.asp",
-          "match": "\\b(?i)(Write|Redirect|End|CreateObject|MapPath|HTMLEncode|URLEncode)\\b"
-        },
-        {
-          "name": "support.variable.asp",
-          "match": "\\b(?i)(Form|QueryString|ServerVariables|Cookies)\\b"
-        }
-      ]
-    },
-    "operators": {
-      "patterns": [
-        {
-          "name": "keyword.operator.comparison.vbscript",
-          "match": "(<>|<=|>=|<|>|=)"
-        },
-        {
-          "name": "keyword.operator.arithmetic.vbscript",
-          "match": "(\\+|-|\\*|/|\\\\|mod|\\^)"
-        },
-        {
-          "name": "keyword.operator.concatenation.vbscript",
-          "match": "&"
-        },
-        {
-          "name": "keyword.operator.vbscript",
-          "match": "\\b(?i)is\\b"
-        }
-      ]
-    },
-    "numbers": {
-      "patterns": [
-        {
-          "name": "constant.numeric.vbscript",
-          "match": "\\b\\d+(\\.\\d+)?\\b"
-        }
-      ]
-    },
-    "functions": {
-      "patterns": [
-        {
-          "name": "support.function.vbscript",
-          "match": "\\b(?i)(Abs|Array|Asc|Atn|CBool|CByte|CCur|CDate|CDbl|Chr|CInt|CLng|Cos|CreateObject|CSng|CStr|Date|DateAdd|DateDiff|DatePart|DateSerial|DateValue|Day|Exp|Filter|Fix|FormatCurrency|FormatDateTime|FormatNumber|FormatPercent|GetObject|Hex|Hour|InputBox|InStr|InStrRev|Int|IsArray|IsDate|IsEmpty|IsNull|IsNumeric|IsObject|Join|LBound|LCase|Left|Len|LoadPicture|Log|LTrim|Mid|Minute|Month|MonthName|MsgBox|Now|Oct|Replace|RGB|Right|Rnd|Round|RTrim|ScriptEngine|ScriptEngineBuildVersion|ScriptEngineMajorVersion|ScriptEngineMinorVersion|Second|Sgn|Sin|Space|Split|Sqr|StrComp|String|StrReverse|Tan|Time|Timer|TimeSerial|TimeValue|Trim|TypeName|UBound|UCase|VarType|Weekday|WeekdayName|Year)\\b"
-        }
-      ]
-    }
-  }
 }

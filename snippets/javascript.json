@@ -16,7 +16,11 @@
     },
     "For Loop": {
         "prefix": "for",
-        "body": ["for (let ${1:i} = 0; ${1:i} < ${2:array}.length; ${1:i}++) {", "\t$0", "}"],
+        "body": [
+            "for (let ${1:i} = 0; ${1:i} < ${2:array}.length; ${1:i}++) {",
+            "\t$0",
+            "}"
+        ],
         "description": "For loop"
     },
     "If Statement": {
@@ -26,7 +30,11 @@
     },
     "Event Listener": {
         "prefix": "listener",
-        "body": ["document.getElementById('${1:id}').addEventListener('${2:click}', function(e) {", "\t$0", "});"],
+        "body": [
+            "document.getElementById('${1:id}').addEventListener('${2:click}', function(e) {",
+            "\t$0",
+            "});"
+        ],
         "description": "Add event listener"
     },
     "Get Element By ID": {
@@ -41,7 +49,14 @@
     },
     "Fetch API": {
         "prefix": "fetch",
-        "body": ["fetch('${1:url}')", "\t.then(response => response.json())", "\t.then(data => {", "\t\t$0", "\t})", "\t.catch(error => console.error('Error:', error));"],
+        "body": [
+            "fetch('${1:url}')",
+            "\t.then(response => response.json())",
+            "\t.then(data => {",
+            "\t\t$0",
+            "\t})",
+            "\t.catch(error => console.error('Error:', error));"
+        ],
         "description": "Fetch API call"
     },
     "SetTimeout": {
