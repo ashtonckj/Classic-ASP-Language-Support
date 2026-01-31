@@ -64,29 +64,29 @@ Access settings via `File → Preferences → Settings` and search for "ASP Form
 
 | Setting | Default | Options | Description |
 |---------|---------|---------|-------------|
-| `aspFormatter.keywordCase` | `PascalCase` | `lowercase`, `UPPERCASE`, `PascalCase` | How to format VBScript keywords |
-| `aspFormatter.indentStyle` | `spaces` | `spaces`, `tabs` | Indentation style for ASP code |
-| `aspFormatter.indentSize` | `2` | `2`, `4`, `8` | Number of spaces per indent level |
+| `aspLanguageSupport.keywordCase` | `PascalCase` | `lowercase`, `UPPERCASE`, `PascalCase` | How to format VBScript keywords |
+| `aspLanguageSupport.indentStyle` | `spaces` | `spaces`, `tabs` | Indentation style for ASP code |
+| `aspLanguageSupport.indentSize` | `2` | `2`, `4`, `8` | Number of spaces per indent level |
 
 ### Prettier (HTML/CSS/JS) Formatter Settings
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `aspFormatter.prettier.printWidth` | `80` | Maximum line length |
-| `aspFormatter.prettier.tabWidth` | `2` | Spaces per indentation level |
-| `aspFormatter.prettier.useTabs` | `false` | Use tabs instead of spaces |
-| `aspFormatter.prettier.semi` | `true` | Add semicolons in JavaScript |
-| `aspFormatter.prettier.singleQuote` | `false` | Use single quotes in JavaScript |
+| `aspLanguageSupport.prettier.printWidth` | `80` | Maximum line length |
+| `aspLanguageSupport.prettier.tabWidth` | `2` | Spaces per indentation level |
+| `aspLanguageSupport.prettier.useTabs` | `false` | Use tabs instead of spaces |
+| `aspLanguageSupport.prettier.semi` | `true` | Add semicolons in JavaScript |
+| `aspLanguageSupport.prettier.singleQuote` | `false` | Use single quotes in JavaScript |
 
 ### Example Configuration
 
 ```json
 {
-  "aspFormatter.keywordCase": "PascalCase",
-  "aspFormatter.indentStyle": "spaces",
-  "aspFormatter.indentSize": 2,
-  "aspFormatter.prettier.tabWidth": 2,
-  "aspFormatter.prettier.semi": true
+  "aspLanguageSupport.keywordCase": "PascalCase",
+  "aspLanguageSupport.indentStyle": "spaces",
+  "aspLanguageSupport.indentSize": 2,
+  "aspLanguageSupport.prettier.tabWidth": 2,
+  "aspLanguageSupport.prettier.semi": true
 }
 ```
 
@@ -135,7 +135,7 @@ npm run compile
 
 ## 🤝 Contributing
 
-Contributions are welcome! 
+Contributions are welcome!
 
 ## 📄 License
 

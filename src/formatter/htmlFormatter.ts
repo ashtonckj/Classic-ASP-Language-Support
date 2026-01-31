@@ -18,7 +18,7 @@ export interface PrettierSettings {
 
 // Get Prettier settings from workspace config
 export function getPrettierSettings(): PrettierSettings {
-    const config = vscode.workspace.getConfiguration('aspFormatter.prettier');
+    const config = vscode.workspace.getConfiguration('aspLanguageSupport.prettier');
     return {
         printWidth: config.get<number>('printWidth', 80),
         tabWidth: config.get<number>('tabWidth', 2),
@@ -37,24 +37,24 @@ export function getPrettierSettings(): PrettierSettings {
 export async function formatCompleteAspFile(code: string): Promise<string> {
     const aspSettings = getAspSettings();
     const prettierSettings = getPrettierSettings();
-    
+
     // Step 1: Extract and mask ASP blocks with unique identifiers
     const aspBlocks: { code: string; indent: string; id: string; lineNumber: number }[] = [];
     let blockCounter = 0;
-    
+
     const lines = code.split('\n');
     let maskedCode = code;
-    
+
     // Track line numbers for context awareness
     let currentLine = 0;
     maskedCode = code.replace(/([ \t]*)(<%[\s\S]*?%>)/g, (match, indent, aspBlock, offset) => {
         // Calculate line number
         const textBefore = code.substring(0, offset);
         const lineNumber = textBefore.split('\n').length - 1;
-        
+
         const uniqueId = `ASP_PLACEHOLDER_${blockCounter}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        aspBlocks.push({ 
-            code: aspBlock, 
+        aspBlocks.push({
+            code: aspBlock,
             indent: indent,
             id: uniqueId,
             lineNumber: lineNumber
@@ -62,7 +62,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         blockCounter++;
         return indent + `<!--${uniqueId}-->`;
     });
-    
+
     // Step 2: Format HTML/CSS/JS with Prettier
     let prettifiedCode: string;
     try {
@@ -85,7 +85,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         console.error('Prettier formatting failed:', error);
         prettifiedCode = maskedCode;
     }
-        
+
     // Step 3: Separate single-line and multi-line blocks
     const singleLineBlocks: number[] = [];
     const multiLineBlocks: number[] = [];
@@ -113,15 +113,15 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         // Combine only multi-line blocks for context-aware formatting
         const combinedAspCode = multiLineBlocks.map(i => aspBlocks[i].code).join('\n');
         const combinedFormatted = formatSingleAspBlock(combinedAspCode, aspSettings, '', false);
-        
+
         // Split back into individual blocks
         const formattedBlockLines = combinedFormatted.split('\n');
         let currentLineIndex = 0;
-        
+
         for (const i of multiLineBlocks) {
             const originalBlock = aspBlocks[i];
             const originalLineCount = originalBlock.code.split('\n').length;
-            
+
             const blockLines = formattedBlockLines.slice(currentLineIndex, currentLineIndex + originalLineCount);
             formattedBlocks[i] = blockLines.join('\n');
             currentLineIndex += originalLineCount;
@@ -134,17 +134,17 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     for (let i = 0; i < aspBlocks.length; i++) {
         const block = aspBlocks[i];
         const formattedBlock = formattedBlocks[i];
-        
+
         // Escape special regex characters in the ID
         const escapedId = block.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        
+
         // Find the placeholder with its surrounding whitespace and indentation
         const placeholderPattern = `([ \\t]*)<!--${escapedId}-->`;
         const match = restoredCode.match(new RegExp(placeholderPattern));
-        
+
         if (match) {
             const htmlIndent = match[1];
-            
+
             // Add HTML indent to each line of the formatted block
             const indentedBlock = formattedBlock.split('\n').map(line => {
                 if (line.trim()) {
@@ -152,7 +152,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                 }
                 return line;
             }).join('\n');
-            
+
             // Replace the placeholder (without the g flag to replace only first occurrence)
             restoredCode = restoredCode.replace(
                 new RegExp(`[ \\t]*<!--${escapedId}-->`),

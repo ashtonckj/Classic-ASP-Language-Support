@@ -20,7 +20,7 @@ src/formatter/
 │   └── Extracts ASP blocks before formatting
 │   └── Restores ASP blocks after formatting
 │
-└── aspFormatter.ts                       ← 🎨 ASP Code Formatting
+└── aspLanguageSupport.ts                       ← 🎨 ASP Code Formatting
     └── Formats VBScript code inside <% %>
     └── Handles indentation, keyword casing
     └── Formats operators and keywords
@@ -36,7 +36,7 @@ src/formatter/
 ```
 src/providers/
 ├── htmlCompletionProvider.ts             ← 💡 HTML Autocomplete
-│   └── Shows HTML tag suggestions when you type 
+│   └── Shows HTML tag suggestions when you type
 │   └── Shows HTML attribute suggestions inside tags
 │   └── Handles auto-closing tags when you type >
 │   └── Handles Enter key for smart tag closing

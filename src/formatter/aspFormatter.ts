@@ -9,7 +9,7 @@ export interface AspFormatterSettings {
 
 // Get ASP formatter settings
 export function getAspSettings(): AspFormatterSettings {
-    const config = vscode.workspace.getConfiguration('aspFormatter');
+    const config = vscode.workspace.getConfiguration('aspLanguageSupport');
     return {
         keywordCase: config.get<string>('keywordCase', 'PascalCase'),
         useTabs: config.get<boolean>('useTabs', false),
@@ -33,14 +33,14 @@ export function formatSingleAspBlock(block: string, settings: AspFormatterSettin
         const formattedContent = applyKeywordCase(content, settings.keywordCase);
         return htmlIndent + '<%= ' + formattedContent + ' %>';
     }
-    
+
     // Check if it's a single-line block
     if (!block.includes('\n')) {
         const content = block.substring(2, block.length - 2).trim();
         const formattedContent = applyKeywordCase(content, settings.keywordCase);
         return htmlIndent + '<% ' + formattedContent + ' %>';
     }
-    
+
     // Multi-line block: format with indentation
     return formatMultiLineAspBlock(block, settings, htmlIndent, continuesFromPrevious);
 }
@@ -52,11 +52,11 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
     let aspIndentLevel = 0;
     let previousLineHadContinuation = false;
     let continuationAlignColumn = 0;
-    
+
     for (let i = 0; i < lines.length; i++) {
         let line = lines[i];
         const trimmedLine = line.trim();
-        
+
         // Opening tag
         if (trimmedLine === '<%' || trimmedLine.startsWith('<%')) {
             if (trimmedLine === '<%') {
@@ -67,16 +67,16 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
             const content = trimmedLine.substring(2).trim();
             if (content) {
                 const indentChange = getIndentChange(content);
-                
+
                 if (continuesFromPrevious && i === 0 && /^(else|elseif|end\s+if|loop|wend|next)/i.test(content)) {
                     aspIndentLevel = Math.max(0, aspIndentLevel);
                 } else if (indentChange.before < 0) {
                     aspIndentLevel = Math.max(0, aspIndentLevel + indentChange.before);
                 }
-                
+
                 const aspIndent = getIndentString(aspIndentLevel, settings.useTabs, settings.indentSize);
                 const formattedContent = applyKeywordCase(content, settings.keywordCase);
-                
+
                 // Check for line continuation
                 const hasContinuation = formattedContent.trim().endsWith('_');
                 if (hasContinuation) {
@@ -85,7 +85,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
                 } else {
                     previousLineHadContinuation = false;
                 }
-                
+
                 formattedLines.push(htmlIndent + aspIndent + formattedContent);
                 if (indentChange.after > 0) {
                     aspIndentLevel += indentChange.after;
@@ -93,7 +93,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
             }
             continue;
         }
-        
+
         // Closing tag
         if (trimmedLine === '%>' || trimmedLine.endsWith('%>')) {
             if (trimmedLine === '%>') {
@@ -118,7 +118,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
             previousLineHadContinuation = false;
             continue;
         }
-        
+
         // Regular line inside ASP block
         if (trimmedLine) {
             // Special handling for comments
@@ -126,20 +126,20 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
                 // Look ahead to see what's on the next line
                 const nextLineIndex = i + 1;
                 let commentIndent = htmlIndent;
-                
+
                 if (nextLineIndex < lines.length) {
                     const nextLine = lines[nextLineIndex].trim();
-                    
+
                     // If next line is not empty and not another comment, inherit its indent
                     if (nextLine && !nextLine.startsWith("'") && nextLine !== '%>') {
                         // Calculate what the next line's indent will be
                         const nextIndentChange = getIndentChange(nextLine);
                         let nextAspIndentLevel = aspIndentLevel;
-                        
+
                         if (nextIndentChange.before < 0) {
                             nextAspIndentLevel = Math.max(0, nextAspIndentLevel + nextIndentChange.before);
                         }
-                        
+
                         commentIndent = htmlIndent + getIndentString(nextAspIndentLevel, settings.useTabs, settings.indentSize);
                     } else {
                         // Next line is empty or another comment, keep current indent
@@ -149,36 +149,36 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
                     // No next line, keep current indent
                     commentIndent = htmlIndent + getIndentString(aspIndentLevel, settings.useTabs, settings.indentSize);
                 }
-                
+
                 formattedLines.push(commentIndent + trimmedLine);
                 previousLineHadContinuation = false;
                 continue;
             }
-            
+
             // Check if this is a continuation line
             if (previousLineHadContinuation && trimmedLine.startsWith('"')) {
                 const alignIndent = ' '.repeat(continuationAlignColumn);
                 const formattedContent = applyKeywordCase(trimmedLine, settings.keywordCase);
                 formattedLines.push(alignIndent + formattedContent);
-                
+
                 const hasContinuation = formattedContent.trim().endsWith('_');
                 if (!hasContinuation) {
                     previousLineHadContinuation = false;
                 }
                 continue;
             }
-            
+
             const indentChange = getIndentChange(trimmedLine);
-            
+
             if (continuesFromPrevious && i === 0 && /^(else|elseif|end\s+if|loop|wend|next)/i.test(trimmedLine)) {
                 aspIndentLevel = Math.max(0, aspIndentLevel);
             } else if (indentChange.before < 0) {
                 aspIndentLevel = Math.max(0, aspIndentLevel + indentChange.before);
             }
-            
+
             const aspIndent = getIndentString(aspIndentLevel, settings.useTabs, settings.indentSize);
             const formattedContent = applyKeywordCase(trimmedLine, settings.keywordCase);
-            
+
             // Check for line continuation
             const hasContinuation = formattedContent.trim().endsWith('_');
             if (hasContinuation) {
@@ -187,7 +187,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
             } else {
                 previousLineHadContinuation = false;
             }
-            
+
             formattedLines.push(htmlIndent + aspIndent + formattedContent);
             if (indentChange.after > 0) {
                 aspIndentLevel += indentChange.after;
@@ -197,7 +197,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
             previousLineHadContinuation = false;
         }
     }
-    
+
     return formattedLines.join('\n');
 }
 
@@ -205,7 +205,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
 function calculateContinuationColumn(line: string, htmlIndent: string, aspIndent: string): number {
     const fullIndent = htmlIndent + aspIndent;
     const trimmed = line.trim();
-    
+
     // Pattern: variable = _ (continuation only)
     // Next line should be: one tab more than variable
     const continuationOnlyMatch = trimmed.match(/^[^=]+=\s*_$/);
@@ -215,15 +215,15 @@ function calculateContinuationColumn(line: string, htmlIndent: string, aspIndent
         const extraIndent = useTab ? '\t' : '    ';
         return fullIndent.length + extraIndent.length;
     }
-    
-    // Pattern: variable = "..." & _ 
+
+    // Pattern: variable = "..." & _
     // Next line quote should align with first quote
     const assignmentMatch = trimmed.match(/^[^=]+=\s*"/);
     if (assignmentMatch) {
         const quotePos = line.indexOf('"');
         return quotePos;
     }
-    
+
     // Pattern: "..." & _ (continuation of concatenation)
     // Next line quote should align with previous quote
     const concatenationMatch = trimmed.match(/^"[^"]*"\s*&\s*_$/);
@@ -231,7 +231,7 @@ function calculateContinuationColumn(line: string, htmlIndent: string, aspIndent
         const firstQuotePos = line.indexOf('"');
         return firstQuotePos;
     }
-    
+
     // Default: one tab more than current indent
     const tabSize = aspIndent.includes('\t') ? 1 : 2;
     const extraIndent = aspIndent.includes('\t') ? '\t' : '    ';
@@ -253,24 +253,24 @@ function applyKeywordCase(code: string, caseStyle: string): string {
     if (code.trim().startsWith("'")) {
         return code;
     }
-    
+
     // Split by comments first, only format the non-comment part
     const commentIndex = code.indexOf("'");
     let codeToFormat = code;
     let comment = "";
-    
+
     if (commentIndex !== -1) {
         // Check if the ' is inside a string
         const beforeComment = code.substring(0, commentIndex);
         const quoteCount = (beforeComment.match(/"/g) || []).length;
-        
+
         // If odd number of quotes before ', it's inside a string, so don't split
         if (quoteCount % 2 === 0) {
             codeToFormat = code.substring(0, commentIndex);
             comment = code.substring(commentIndex);
         }
     }
-    
+
     const keywords = [
         'if', 'then', 'else', 'elseif', 'end if',
         'for', 'to', 'step', 'next', 'each', 'in',
@@ -285,7 +285,7 @@ function applyKeywordCase(code: string, caseStyle: string): string {
         'and', 'or', 'not', 'xor', 'eqv', 'imp',
         'is', 'mod', 'true', 'false', 'null', 'nothing', 'empty'
     ];
-    
+
     const aspObjects = [
         'response', 'request', 'server', 'session', 'application',
         'write', 'redirect', 'end', 'form', 'querystring', 'cookies',
@@ -293,23 +293,23 @@ function applyKeywordCase(code: string, caseStyle: string): string {
     ];
 
     let result = codeToFormat;
-    
+
     // Format keywords only outside strings
     for (const keyword of keywords) {
         result = formatKeywordOutsideStrings(result, keyword, caseStyle);
     }
-    
+
     // Format ASP objects in PascalCase only outside strings
     for (const obj of aspObjects) {
         result = formatKeywordOutsideStrings(result, obj, 'PascalCase');
     }
-    
+
     // Format operators only outside strings
     result = formatOperators(result);
-    
+
     // Add space after commas (e.g., Dim name,age,city -> Dim name, age, city)
     result = formatCommas(result);
-    
+
     return result + comment;
 }
 
@@ -318,10 +318,10 @@ function formatKeywordOutsideStrings(code: string, keyword: string, caseStyle: s
     const parts: string[] = [];
     let currentPos = 0;
     let inString = false;
-    
+
     for (let i = 0; i < code.length; i++) {
         const char = code[i];
-        
+
         if (char === '"') {
             // Check if it's escaped (double quotes)
             if (i + 1 < code.length && code[i + 1] === '"') {
@@ -330,13 +330,13 @@ function formatKeywordOutsideStrings(code: string, keyword: string, caseStyle: s
             }
             inString = !inString;
         }
-        
+
         // Only match keywords when not in string
         if (!inString && i === currentPos) {
             const remaining = code.substring(i);
             const regex = new RegExp('^\\b' + keyword + '\\b', 'i');
             const match = remaining.match(regex);
-            
+
             if (match) {
                 parts.push(formatKeyword(keyword, caseStyle));
                 currentPos = i + match[0].length;
@@ -345,13 +345,13 @@ function formatKeywordOutsideStrings(code: string, keyword: string, caseStyle: s
             }
         }
     }
-    
+
     // If no matches found, try simple replace outside strings
     const regex = new RegExp('\\b' + keyword + '\\b', 'gi');
     let result = '';
     let lastIndex = 0;
     inString = false;
-    
+
     for (let i = 0; i < code.length; i++) {
         if (code[i] === '"') {
             if (i + 1 < code.length && code[i + 1] === '"') {
@@ -361,7 +361,7 @@ function formatKeywordOutsideStrings(code: string, keyword: string, caseStyle: s
             inString = !inString;
         }
     }
-    
+
     // Use a different approach: split by strings, format each part
     const stringParts = splitByStrings(code);
     result = stringParts.map(part => {
@@ -373,7 +373,7 @@ function formatKeywordOutsideStrings(code: string, keyword: string, caseStyle: s
             return part.text;
         }
     }).join('');
-    
+
     return result;
 }
 
@@ -382,10 +382,10 @@ function splitByStrings(code: string): Array<{text: string, isString: boolean}> 
     const parts: Array<{text: string, isString: boolean}> = [];
     let current = '';
     let inString = false;
-    
+
     for (let i = 0; i < code.length; i++) {
         const char = code[i];
-        
+
         if (char === '"') {
             // Check for escaped quote
             if (i + 1 < code.length && code[i + 1] === '"') {
@@ -393,7 +393,7 @@ function splitByStrings(code: string): Array<{text: string, isString: boolean}> 
                 i++;
                 continue;
             }
-            
+
             if (inString) {
                 // Ending string
                 current += char;
@@ -412,11 +412,11 @@ function splitByStrings(code: string): Array<{text: string, isString: boolean}> 
             current += char;
         }
     }
-    
+
     if (current) {
         parts.push({text: current, isString: inString});
     }
-    
+
     return parts;
 }
 
@@ -428,7 +428,7 @@ function formatKeyword(keyword: string, caseStyle: string): string {
         case 'UPPERCASE':
             return keyword.toUpperCase();
         case 'PascalCase':
-            return keyword.split(' ').map(word => 
+            return keyword.split(' ').map(word =>
                 word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
             ).join(' ');
         default:
@@ -444,10 +444,10 @@ function formatOperators(code: string): string {
     let currentPos = 0;
     let inString = false;
     let stringChar = '';
-    
+
     for (let i = 0; i < code.length; i++) {
         const char = code[i];
-        
+
         if (!inString && char === '"') {
             // Entering string
             if (currentPos < i) {
@@ -470,7 +470,7 @@ function formatOperators(code: string): string {
             currentPos = i + 1;
         }
     }
-    
+
     // Add remaining part
     if (currentPos < code.length) {
         if (inString) {
@@ -479,7 +479,7 @@ function formatOperators(code: string): string {
             parts.push(formatOperatorsInText(code.substring(currentPos)));
         }
     }
-    
+
     return parts.join('');
 }
 
@@ -498,17 +498,17 @@ function formatOperatorsInText(text: string): string {
         { pattern: /\s*<=\s*/g, replacement: ' <= ' },
         { pattern: /\s*>=\s*/g, replacement: ' >= ' }
     ];
-    
+
     let result = text;
-    
+
     for (const op of operators) {
         result = result.replace(op.pattern, op.replacement);
     }
-    
+
     result = result.replace(/ < > /g, ' <> ');
     result = result.replace(/ < = /g, ' <= ');
     result = result.replace(/ > = /g, ' >= ');
-    
+
     return result;
 }
 
@@ -525,18 +525,18 @@ function formatCommas(code: string): string {
             return part.text;
         }
     }).join('');
-    
+
     return result;
 }
 
 // Get indent change
 function getIndentChange(line: string): { before: number; after: number } {
     const lowerLine = line.toLowerCase().trim();
-    
+
     if (/\bif\b.*\bthen\b\s+\S+/.test(lowerLine)) {
         return { before: 0, after: 0 };
     }
-    
+
     const decreaseBeforePatterns = [
         /^\s*end\s+(if|sub|function|with|select|class|property)/,
         /^\s*loop(\s|$)/,
@@ -547,7 +547,7 @@ function getIndentChange(line: string): { before: number; after: number } {
         /^\s*case\s+/,
         /^\s*case\s+else(\s|$)/
     ];
-    
+
     const increaseAfterPatterns = [
         /\bif\b.*\bthen\b/,
         /\bfor\b\s+\w+\s*=/,
@@ -565,23 +565,23 @@ function getIndentChange(line: string): { before: number; after: number } {
         /^\s*case\s+/,
         /^\s*case\s+else(\s|$)/
     ];
-    
+
     let before = 0;
     let after = 0;
-    
+
     for (const pattern of decreaseBeforePatterns) {
         if (pattern.test(lowerLine)) {
             before = -1;
             break;
         }
     }
-    
+
     for (const pattern of increaseAfterPatterns) {
         if (pattern.test(lowerLine)) {
             after = 1;
             break;
         }
     }
-    
+
     return { before, after };
 }
