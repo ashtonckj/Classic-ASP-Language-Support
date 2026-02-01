@@ -52,6 +52,10 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
     let aspIndentLevel = 0;
     let previousLineHadContinuation = false;
     let continuationAlignColumn = 0;
+    let inMultilineString = false;
+    let preservedStringIndent = '';
+    let sqlBaseIndent = 0; // Track the base indent for SQL strings
+    let isInSQLBlock = false; // Track if we're in a SQL block
 
     for (let i = 0; i < lines.length; i++) {
         let line = lines[i];
@@ -62,6 +66,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
             if (trimmedLine === '<%') {
                 formattedLines.push(htmlIndent + '<%');
                 previousLineHadContinuation = false;
+                isInSQLBlock = false;
                 continue;
             }
             const content = trimmedLine.substring(2).trim();
@@ -82,8 +87,17 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
                 if (hasContinuation) {
                     continuationAlignColumn = calculateContinuationColumn(formattedContent, htmlIndent, aspIndent);
                     previousLineHadContinuation = true;
+                    inMultilineString = true;
+
+                    // Check if this line starts a SQL block
+                    if (isSQLStatement(formattedContent)) {
+                        isInSQLBlock = true;
+                        sqlBaseIndent = (htmlIndent + aspIndent).length;
+                    }
                 } else {
                     previousLineHadContinuation = false;
+                    inMultilineString = false;
+                    isInSQLBlock = false;
                 }
 
                 formattedLines.push(htmlIndent + aspIndent + formattedContent);
@@ -99,6 +113,8 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
             if (trimmedLine === '%>') {
                 formattedLines.push(htmlIndent + '%>');
                 previousLineHadContinuation = false;
+                inMultilineString = false;
+                isInSQLBlock = false;
                 continue;
             }
             const content = trimmedLine.substring(0, trimmedLine.length - 2).trim();
@@ -116,6 +132,15 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
             }
             formattedLines.push(htmlIndent + '%>');
             previousLineHadContinuation = false;
+            inMultilineString = false;
+            isInSQLBlock = false;
+            continue;
+        }
+
+        // Handle empty lines within multiline strings
+        if (!trimmedLine && inMultilineString) {
+            // Preserve empty lines but don't reset continuation state
+            formattedLines.push('');
             continue;
         }
 
@@ -152,18 +177,46 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
 
                 formattedLines.push(commentIndent + trimmedLine);
                 previousLineHadContinuation = false;
+                isInSQLBlock = false;
                 continue;
             }
 
             // Check if this is a continuation line
             if (previousLineHadContinuation && trimmedLine.startsWith('"')) {
-                const alignIndent = ' '.repeat(continuationAlignColumn);
-                const formattedContent = applyKeywordCase(trimmedLine, settings.keywordCase);
-                formattedLines.push(alignIndent + formattedContent);
+                const isSQLString = isInSQLBlock || isSQLStatement(trimmedLine);
+                const formattedContent = isSQLString ? trimmedLine : applyKeywordCase(trimmedLine, settings.keywordCase);
+
+                if (isSQLString) {
+                    // Get the original indentation of this line
+                    const originalIndent = line.substring(0, line.indexOf(line.trim()));
+                    const originalIndentSize = originalIndent.length;
+
+                    if (!isInSQLBlock) {
+                        // First SQL line in continuation - set base indent and format with one tab from assignment
+                        sqlBaseIndent = originalIndentSize;
+                        isInSQLBlock = true;
+                        const aspIndent = getIndentString(aspIndentLevel + 1, settings.useTabs, settings.indentSize);
+                        formattedLines.push(htmlIndent + aspIndent + trimmedLine);
+                    } else {
+                        // Already in SQL block (either started here or on previous line with assignment)
+                        const relativeIndent = originalIndentSize - sqlBaseIndent;
+                        // If there's ANY indentation (even 1 space), use +1 tab. Otherwise use base.
+                        const extraLevel = relativeIndent > 0 ? 1 : 0;
+
+                        const aspIndent = getIndentString(aspIndentLevel + 1 + extraLevel, settings.useTabs, settings.indentSize);
+                        formattedLines.push(htmlIndent + aspIndent + trimmedLine);
+                    }
+                } else {
+                    // For non-SQL strings, use the calculated alignment
+                    const alignIndent = ' '.repeat(continuationAlignColumn);
+                    formattedLines.push(alignIndent + formattedContent);
+                }
 
                 const hasContinuation = formattedContent.trim().endsWith('_');
                 if (!hasContinuation) {
                     previousLineHadContinuation = false;
+                    inMultilineString = false;
+                    isInSQLBlock = false;
                 }
                 continue;
             }
@@ -184,8 +237,19 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
             if (hasContinuation) {
                 continuationAlignColumn = calculateContinuationColumn(formattedContent, htmlIndent, aspIndent);
                 previousLineHadContinuation = true;
+                inMultilineString = true;
+
+                // Check if this line starts a SQL block
+                if (isSQLStatement(formattedContent)) {
+                    isInSQLBlock = true;
+                    // Set the base indent as the current line's indent (for next lines to compare against)
+                    // Since this is the assignment line, continuation lines should be indented from HERE
+                    sqlBaseIndent = (htmlIndent + aspIndent).length;
+                }
             } else {
                 previousLineHadContinuation = false;
+                inMultilineString = false;
+                isInSQLBlock = false;
             }
 
             formattedLines.push(htmlIndent + aspIndent + formattedContent);
@@ -194,7 +258,11 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
             }
         } else {
             formattedLines.push('');
-            previousLineHadContinuation = false;
+            // Don't reset continuation state for empty lines
+            if (!inMultilineString) {
+                previousLineHadContinuation = false;
+                isInSQLBlock = false;
+            }
         }
     }
 
@@ -206,178 +274,116 @@ function calculateContinuationColumn(line: string, htmlIndent: string, aspIndent
     const fullIndent = htmlIndent + aspIndent;
     const trimmed = line.trim();
 
-    // Pattern: variable = _ (continuation only)
-    // Next line should be: one tab more than variable
-    const continuationOnlyMatch = trimmed.match(/^[^=]+=\s*_$/);
-    if (continuationOnlyMatch) {
-        const tabSize = aspIndent.includes('\t') ? 1 : (aspIndent.match(/  /g) || []).length * 2;
-        const useTab = aspIndent.includes('\t');
-        const extraIndent = useTab ? '\t' : '    ';
-        return fullIndent.length + extraIndent.length;
+    // Find the position of the equals sign or opening quote
+    const equalsPos = trimmed.indexOf('=');
+    if (equalsPos !== -1) {
+        // If there's an equals sign, find the opening quote after it
+        const afterEquals = trimmed.substring(equalsPos + 1).trim();
+        if (afterEquals.startsWith('"')) {
+            // Align with the opening quote (not after it)
+            const quoteOffset = trimmed.substring(equalsPos).indexOf('"');
+            return fullIndent.length + equalsPos + quoteOffset;
+        }
     }
 
-    // Pattern: variable = "..." & _
-    // Next line quote should align with first quote
-    const assignmentMatch = trimmed.match(/^[^=]+=\s*"/);
-    if (assignmentMatch) {
-        const quotePos = line.indexOf('"');
-        return quotePos;
+    // If no equals sign or no quote after equals, align with first quote
+    const quotePos = trimmed.indexOf('"');
+    if (quotePos !== -1) {
+        return fullIndent.length + quotePos;
     }
 
-    // Pattern: "..." & _ (continuation of concatenation)
-    // Next line quote should align with previous quote
-    const concatenationMatch = trimmed.match(/^"[^"]*"\s*&\s*_$/);
-    if (concatenationMatch) {
-        const firstQuotePos = line.indexOf('"');
-        return firstQuotePos;
-    }
-
-    // Default: one tab more than current indent
-    const tabSize = aspIndent.includes('\t') ? 1 : 2;
-    const extraIndent = aspIndent.includes('\t') ? '\t' : '    ';
-    return fullIndent.length + extraIndent.length;
+    // Default: align with underscore
+    return fullIndent.length + trimmed.lastIndexOf('_');
 }
 
-// Generate indent string
-function getIndentString(level: number, useTabs: boolean, size: number): string {
+// Get indent string (tabs or spaces)
+function getIndentString(level: number, useTabs: boolean, indentSize: number): string {
     if (useTabs) {
         return '\t'.repeat(level);
     } else {
-        return ' '.repeat(level * size);
+        return ' '.repeat(level * indentSize);
     }
 }
 
-// Apply keyword case formatting
+// Apply keyword case
 function applyKeywordCase(code: string, caseStyle: string): string {
-    // Don't format if entire line is a comment
-    if (code.trim().startsWith("'")) {
+    // Don't format if it's inside a string
+    if (code.trim().startsWith('"')) {
         return code;
     }
 
-    // Split by comments first, only format the non-comment part
-    const commentIndex = code.indexOf("'");
-    let codeToFormat = code;
-    let comment = "";
+    // Split by strings first
+    const parts = splitByStrings(code);
 
-    if (commentIndex !== -1) {
-        // Check if the ' is inside a string
-        const beforeComment = code.substring(0, commentIndex);
-        const quoteCount = (beforeComment.match(/"/g) || []).length;
-
-        // If odd number of quotes before ', it's inside a string, so don't split
-        if (quoteCount % 2 === 0) {
-            codeToFormat = code.substring(0, commentIndex);
-            comment = code.substring(commentIndex);
+    // Format each non-string part
+    const formattedParts = parts.map(part => {
+        if (part.isString) {
+            return part.text;
+        } else {
+            // Format keywords and operators in non-string parts
+            let formatted = formatKeywordsInText(part.text, caseStyle);
+            formatted = formatOperators(formatted);
+            formatted = formatCommas(formatted);
+            return formatted;
         }
-    }
+    });
 
-    const keywords = [
-        'if', 'then', 'else', 'elseif', 'end if',
-        'for', 'to', 'step', 'next', 'each', 'in',
-        'while', 'wend', 'do', 'loop', 'until',
-        'select', 'case', 'end select',
-        'dim', 'redim', 'const', 'private', 'public',
-        'sub', 'end sub', 'function', 'end function', 'call', 'exit',
-        'property', 'get', 'let', 'set', 'end property',
-        'class', 'end class', 'new',
-        'with', 'end with', 'option', 'explicit',
-        'on', 'error', 'resume', 'goto',
-        'and', 'or', 'not', 'xor', 'eqv', 'imp',
-        'is', 'mod', 'true', 'false', 'null', 'nothing', 'empty'
-    ];
-
-    const aspObjects = [
-        'response', 'request', 'server', 'session', 'application',
-        'write', 'redirect', 'end', 'form', 'querystring', 'cookies',
-        'servervariables', 'mappath', 'createobject', 'htmlencode', 'urlencode'
-    ];
-
-    let result = codeToFormat;
-
-    // Format keywords only outside strings
-    for (const keyword of keywords) {
-        result = formatKeywordOutsideStrings(result, keyword, caseStyle);
-    }
-
-    // Format ASP objects in PascalCase only outside strings
-    for (const obj of aspObjects) {
-        result = formatKeywordOutsideStrings(result, obj, 'PascalCase');
-    }
-
-    // Format operators only outside strings
-    result = formatOperators(result);
-
-    // Add space after commas (e.g., Dim name,age,city -> Dim name, age, city)
-    result = formatCommas(result);
-
-    return result + comment;
+    return formattedParts.join('');
 }
 
-// Format keyword only when it's outside strings
-function formatKeywordOutsideStrings(code: string, keyword: string, caseStyle: string): string {
-    const parts: string[] = [];
-    let currentPos = 0;
-    let inString = false;
+// Format keywords in non-string text
+function formatKeywordsInText(text: string, caseStyle: string): string {
+    const keywords = [
+        // Control structures
+        'if', 'then', 'else', 'elseif', 'end if', 'select case', 'case', 'case else', 'end select',
+        'for', 'to', 'step', 'next', 'for each', 'in', 'while', 'wend', 'do', 'loop', 'until', 'exit do', 'exit for',
+        // Functions and subroutines
+        'sub', 'end sub', 'function', 'end function', 'call', 'exit sub', 'exit function',
+        // Variable declarations
+        'dim', 'redim', 'preserve', 'const', 'private', 'public', 'static',
+        // Object-oriented
+        'class', 'end class', 'new', 'set', 'property get', 'property let', 'property set', 'end property',
+        // Error handling
+        'on error resume next', 'on error goto 0', 'err', 'error',
+        // Logical operators
+        'and', 'or', 'not', 'xor', 'eqv', 'imp',
+        // Comparison
+        'is', 'like',
+        // Data types
+        'nothing', 'null', 'empty', 'true', 'false',
+        // Other
+        'option explicit', 'randomize', 'with', 'end with', 'exit', 'mod', 'byval', 'byref',
+        'default', 'erase', 'let', 'resume', 'stop', 'get', 'put', 'open', 'close', 'input',
+        'output', 'append', 'binary', 'random', 'as', 'len', 'mid', 'left', 'right', 'ucase',
+        'lcase', 'trim', 'ltrim', 'rtrim', 'replace', 'split', 'join', 'filter', 'instr',
+        'instrrev', 'string', 'space', 'chr', 'asc', 'cint', 'clng', 'csng', 'cdbl', 'cdate',
+        'cbool', 'cstr', 'cbyte', 'ccur', 'cvar', 'int', 'fix', 'abs', 'sgn', 'sqr', 'exp',
+        'log', 'sin', 'cos', 'tan', 'atn', 'round', 'rnd', 'createobject', 'getobject',
+        'msgbox', 'inputbox', 'isarray', 'isdate', 'isempty', 'isnull', 'isnumeric', 'isobject',
+        'vartype', 'typename', 'ubound', 'lbound', 'array', 'date', 'time', 'now', 'timer',
+        'dateserial', 'timeserial', 'datevalue', 'timevalue', 'year', 'month', 'day', 'weekday',
+        'hour', 'minute', 'second', 'dateadd', 'datediff', 'datepart', 'formatdatetime',
+        'formatnumber', 'formatcurrency', 'formatpercent', 'response', 'request', 'server',
+        'session', 'application', 'write', 'redirect', 'querystring', 'form', 'servervariables',
+        'cookies', 'mappath', 'createtextfile', 'opentextfile', 'writeline', 'readline',
+        'readall', 'atendofstream', 'filesystemobject', 'scripting', 'dictionary', 'add',
+        'exists', 'items', 'keys', 'remove', 'removeall', 'count', 'item', 'key'
+    ];
 
-    for (let i = 0; i < code.length; i++) {
-        const char = code[i];
+    let result = text;
 
-        if (char === '"') {
-            // Check if it's escaped (double quotes)
-            if (i + 1 < code.length && code[i + 1] === '"') {
-                i++; // Skip the escaped quote
-                continue;
-            }
-            inString = !inString;
-        }
+    // Sort keywords by length (longest first) to avoid partial replacements
+    const sortedKeywords = keywords.sort((a, b) => b.length - a.length);
 
-        // Only match keywords when not in string
-        if (!inString && i === currentPos) {
-            const remaining = code.substring(i);
-            const regex = new RegExp('^\\b' + keyword + '\\b', 'i');
-            const match = remaining.match(regex);
-
-            if (match) {
-                parts.push(formatKeyword(keyword, caseStyle));
-                currentPos = i + match[0].length;
-                i = currentPos - 1;
-                continue;
-            }
-        }
+    for (const keyword of sortedKeywords) {
+        const regex = new RegExp('\\b' + keyword.replace(/\s+/g, '\\s+') + '\\b', 'gi');
+        result = result.replace(regex, (match) => formatKeyword(match, caseStyle));
     }
-
-    // If no matches found, try simple replace outside strings
-    const regex = new RegExp('\\b' + keyword + '\\b', 'gi');
-    let result = '';
-    let lastIndex = 0;
-    inString = false;
-
-    for (let i = 0; i < code.length; i++) {
-        if (code[i] === '"') {
-            if (i + 1 < code.length && code[i + 1] === '"') {
-                i++;
-                continue;
-            }
-            inString = !inString;
-        }
-    }
-
-    // Use a different approach: split by strings, format each part
-    const stringParts = splitByStrings(code);
-    result = stringParts.map(part => {
-        if (!part.isString) {
-            // Not in string, format it
-            return part.text.replace(regex, (match) => formatKeyword(keyword, caseStyle));
-        } else {
-            // Inside string, keep as-is
-            return part.text;
-        }
-    }).join('');
 
     return result;
 }
 
-// Split code by strings, returning array of {text, isString}
+// Split code by strings (to avoid formatting inside strings)
 function splitByStrings(code: string): Array<{text: string, isString: boolean}> {
     const parts: Array<{text: string, isString: boolean}> = [];
     let current = '';
@@ -527,6 +533,14 @@ function formatCommas(code: string): string {
     }).join('');
 
     return result;
+}
+
+// Check if a line is part of a SQL statement
+function isSQLStatement(line: string): boolean {
+    const trimmed = line.trim();
+    // Check if it's a string that contains SQL keywords
+    const sqlKeywords = /\b(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|ORDER BY|GROUP BY|UNION|CREATE|DROP|ALTER|AND|OR|ON|INNER|LEFT|RIGHT|OUTER|HAVING|DISTINCT|TOP|AS|LIKE|BETWEEN|IN|EXISTS|CASE|WHEN|THEN|ELSE|END|SET|VALUES|INTO)\b/i;
+    return sqlKeywords.test(trimmed);
 }
 
 // Get indent change
