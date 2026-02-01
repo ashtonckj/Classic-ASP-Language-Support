@@ -16,15 +16,15 @@
     "repository": {
         "asp-code-block": {
             "name": "meta.embedded.block.asp",
-            "begin": "<%(?!=)",
-            "end": "%>",
+            "begin": "(<%(?!=))",
+            "end": "(%>)",
             "beginCaptures": {
-                "0": {
+                "1": {
                     "name": "punctuation.definition.tag.begin.asp"
                 }
             },
             "endCaptures": {
-                "0": {
+                "1": {
                     "name": "punctuation.definition.tag.end.asp"
                 }
             },
@@ -32,20 +32,19 @@
                 {
                     "include": "#vbscript-code"
                 }
-            ],
-            "contentName": "source.vbscript.embedded.asp"
+            ]
         },
         "asp-output-block": {
             "name": "meta.embedded.expression.asp",
-            "begin": "<%=",
-            "end": "%>",
+            "begin": "(<%=)",
+            "end": "(%>)",
             "beginCaptures": {
-                "0": {
+                "1": {
                     "name": "punctuation.definition.tag.begin.asp"
                 }
             },
             "endCaptures": {
-                "0": {
+                "1": {
                     "name": "punctuation.definition.tag.end.asp"
                 }
             },
@@ -53,8 +52,7 @@
                 {
                     "include": "#vbscript-code"
                 }
-            ],
-            "contentName": "source.vbscript.embedded.asp"
+            ]
         },
         "vbscript-code": {
             "patterns": [
