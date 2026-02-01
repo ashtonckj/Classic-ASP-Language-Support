@@ -7,9 +7,12 @@ Complete language support for Classic ASP files with formatting, IntelliSense, s
 ### 🎨 Multi-Language Formatting
 - **VBScript**: Smart indentation for all control structures (If/For/While/Select Case/Sub/Function)
 - **HTML/CSS/JavaScript**: Professional formatting powered by Prettier
+- **SQL**: Proper indentation for SQL queries inside ASP strings
 - **Customisable keyword casing**: Choose lowercase, UPPERCASE, or PascalCase for VBScript keywords
 - **Automatic operator spacing**: Adds proper spacing around operators (`=`, `+`, `&`, etc.)
 - **Multi-block support**: Handles If/Else/Loops that span across multiple `<% %>` blocks
+- **Inline ASP support**: Formats ASP expressions in HTML attributes (e.g., `<div class="<%= className %>">`)
+
 
 ### 💡 IntelliSense & Auto-Completion
 - **HTML**: Tag and attribute suggestions with smart auto-closing
@@ -23,7 +26,7 @@ Complete language support for Classic ASP files with formatting, IntelliSense, s
 
 ### 🌈 Syntax Highlighting
 - ASP code region highlighting with customisable colours
-- SQL syntax colouring for database queries in ASP strings
+- Comprehensive SQL syntax colouring (keywords, functions, data types, operators, parameters)
 - Toggleable region highlighting for `<% %>` blocks
 
 ## 🚀 Installation
