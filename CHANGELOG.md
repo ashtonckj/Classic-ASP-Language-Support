@@ -5,6 +5,17 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2025-02-01
+
+### ✨ Added
+- **Enhanced SQL syntax colouring** with comprehensive highlighting for SQL keywords, functions, data types, operators, and multi-word phrases
+- **Support for ASP blocks in HTML tags** - Inline ASP expressions in HTML attributes now format correctly
+
+### 🛠️ Fixed
+- **Fixed SQL indentation** - SQL queries inside ASP strings now format with proper indentation
+
+---
+
 ## [0.2.0-beta] - 2025-02-01
 
 ### ✨ Added
@@ -17,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved IntelliSense suggestions for HTML, CSS, JavaScript, and ASP
 
 ### 🙏 Credits
-- **Zachary Becknell** ([ASP Classic Support](LINK_PLACEHOLDER)) - ASP region highlighting implementation
+- **Zachary Becknell** ([ASP Classic Support](https://github.com/zbecknell/asp-classic-support)) - ASP region highlighting implementation
 
 ---
 
@@ -45,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved formatter stability for complex ASP file structures
 
 ### 🙏 Credits
-- **Jintae Joo** ([Classic ASP Syntaxes and Snippets](LINK_PLACEHOLDER)) - Snippets inspiration
+- **Jintae Joo** ([Classic ASP Syntaxes and Snippets](https://github.com/jtjoo/vscode-classic-asp-extension)) - Snippets inspiration
 
 ---
 
@@ -80,6 +91,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[0.2.1]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.1
 [0.2.0-beta]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.0-beta
 [0.2.0-alpha]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.0-alpha
 [0.1.0-alpha]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.1.0-alpha
