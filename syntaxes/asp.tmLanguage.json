@@ -97,8 +97,9 @@
         "strings": {
             "patterns": [
                 {
+                    "comment": "SQL strings - detect by SQL keywords anywhere in string",
                     "name": "string.quoted.double.sql.vbscript",
-                    "begin": "\"(?=.*\\b(?i)(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|FROM|WHERE|JOIN|ORDER|GROUP|AND|OR|SET|HAVING|UNION|VALUES|INTO|ON|INNER|LEFT|RIGHT|OUTER|DISTINCT|TOP|AS|LIKE|BETWEEN|IN|EXISTS|CASE)\\b)",
+                    "begin": "\"(?=.*(?i)\\b(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|FROM|WHERE|AND|OR|AS|ON|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ORDER BY|GROUP BY|UNION|WITH|HAVING|IS NULL|IS NOT NULL|SET|VALUES|INTO|LIMIT|OFFSET|DISTINCT|TOP)\\b)",
                     "end": "\"",
                     "beginCaptures": {
                         "0": {
@@ -112,32 +113,49 @@
                     },
                     "patterns": [
                         {
-                            "name": "constant.character.escape.vbscript",
-                            "match": "\"\""
-                        },
+                            "include": "#sql-syntax"
+                        }
+                    ]
+                },
+                {
+                    "comment": "SQL strings - detect by table/column patterns [schema].[table].[column]",
+                    "name": "string.quoted.double.sql.vbscript",
+                    "begin": "\"(?=.*\\[[^\\]]+\\]\\.\\[[^\\]]+\\])",
+                    "end": "\"",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.vbscript"
+                        }
+                    },
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.vbscript"
+                        }
+                    },
+                    "patterns": [
                         {
-                            "name": "keyword.other.DML.sql",
-                            "match": "\\b(?i)(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|INNER|LEFT|RIGHT|OUTER|FULL|CROSS|ON|ORDER\\s+BY|GROUP\\s+BY|HAVING|DISTINCT|TOP|AS|UNION|ALL)\\b"
-                        },
+                            "include": "#sql-syntax"
+                        }
+                    ]
+                },
+                {
+                    "comment": "SQL strings - detect by common SQL patterns like aliases (a.Column, b.Field)",
+                    "name": "string.quoted.double.sql.vbscript",
+                    "begin": "\"(?=.*\\b[a-z]\\.[A-Z][a-zA-Z0-9_]*)",
+                    "end": "\"",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.vbscript"
+                        }
+                    },
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.vbscript"
+                        }
+                    },
+                    "patterns": [
                         {
-                            "name": "keyword.other.DDL.sql",
-                            "match": "\\b(?i)(CREATE|DROP|ALTER|TABLE|INDEX|VIEW|DATABASE|PROCEDURE|TRIGGER)\\b"
-                        },
-                        {
-                            "name": "keyword.other.sql",
-                            "match": "\\b(?i)(AND|OR|NOT|IN|LIKE|BETWEEN|IS|NULL|ASC|DESC|SET|VALUES|INTO|EXISTS|CASE|WHEN|THEN|ELSE|END)\\b"
-                        },
-                        {
-                            "name": "storage.type.sql",
-                            "match": "\\b(?i)(VARCHAR|INT|INTEGER|CHAR|TEXT|DATE|DATETIME|FLOAT|DECIMAL|BIT|NVARCHAR|BIGINT|SMALLINT|TINYINT)\\b"
-                        },
-                        {
-                            "name": "support.function.sql",
-                            "match": "\\b(?i)(COUNT|SUM|AVG|MAX|MIN|GETDATE|CONVERT|CAST|ISNULL|COALESCE|LEN|SUBSTRING|UPPER|LOWER|TRIM|LTRIM|RTRIM)\\b"
-                        },
-                        {
-                            "name": "constant.numeric.sql",
-                            "match": "\\b\\d+\\b"
+                            "include": "#sql-syntax"
                         }
                     ]
                 },
@@ -151,6 +169,104 @@
                             "match": "\"\""
                         }
                     ]
+                }
+            ]
+        },
+        "sql-syntax": {
+            "patterns": [
+                {
+                    "name": "constant.character.escape.vbscript",
+                    "match": "\"\""
+                },
+                {
+                    "comment": "Multi-word SQL phrases - must come before single keywords",
+                    "name": "storage.modifier.sql",
+                    "match": "\\b(?i)(IS\\s+NOT\\s+NULL|IS\\s+NULL|NOT\\s+NULL|ORDER\\s+BY|GROUP\\s+BY|UNION\\s+ALL|LEFT\\s+JOIN|RIGHT\\s+JOIN|INNER\\s+JOIN|OUTER\\s+JOIN|FULL\\s+JOIN|CROSS\\s+JOIN|LEFT\\s+OUTER\\s+JOIN|RIGHT\\s+OUTER\\s+JOIN)\\b"
+                },
+                {
+                    "comment": "SQL DML commands",
+                    "name": "keyword.other.DML.sql",
+                    "match": "\\b(?i)(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|ON|HAVING|DISTINCT|TOP|LIMIT|OFFSET)\\b"
+                },
+                {
+                    "comment": "SQL DDL commands",
+                    "name": "keyword.other.DDL.sql",
+                    "match": "\\b(?i)(CREATE|DROP|ALTER|TABLE|INDEX|VIEW|DATABASE|PROCEDURE|TRIGGER|SCHEMA)\\b"
+                },
+                {
+                    "comment": "SQL logical operators",
+                    "name": "keyword.operator.logical.sql",
+                    "match": "\\b(?i)(AND|OR|NOT|IN|LIKE|BETWEEN|EXISTS)\\b"
+                },
+                {
+                    "comment": "SQL comparison operators",
+                    "name": "keyword.operator.comparison.sql",
+                    "match": "(<>|!=|<=|>=|<|>|=)"
+                },
+                {
+                    "comment": "SQL keywords",
+                    "name": "keyword.other.sql",
+                    "match": "\\b(?i)(AS|ASC|DESC|SET|VALUES|INTO|CASE|WHEN|THEN|ELSE|END|WITH|NOLOCK|DEFAULT|CONSTRAINT|PRIMARY|FOREIGN|KEY|UNIQUE|REFERENCES|CHECK|COLLATE)\\b"
+                },
+                {
+                    "comment": "SQL aggregate and window functions",
+                    "name": "support.function.aggregate.sql",
+                    "match": "\\b(?i)(COUNT|SUM|AVG|MAX|MIN|ROW_NUMBER|RANK|DENSE_RANK|PARTITION|OVER)\\b"
+                },
+                {
+                    "comment": "SQL string functions",
+                    "name": "support.function.string.sql",
+                    "match": "\\b(?i)(SUBSTRING|LEN|LENGTH|UPPER|LOWER|TRIM|LTRIM|RTRIM|CONCAT|CONCAT_WS|REPLACE|CHARINDEX|PATINDEX|STUFF|LEFT|RIGHT|REVERSE|REPLICATE|SPACE)\\b"
+                },
+                {
+                    "comment": "SQL date/time functions",
+                    "name": "support.function.datetime.sql",
+                    "match": "\\b(?i)(GETDATE|GETUTCDATE|DATEADD|DATEDIFF|DATEPART|DATENAME|YEAR|MONTH|DAY|HOUR|MINUTE|SECOND|DAYOFWEEK|DAYOFYEAR|WEEK|QUARTER|CONVERT|CAST|FORMAT)\\b"
+                },
+                {
+                    "comment": "SQL mathematical functions",
+                    "name": "support.function.math.sql",
+                    "match": "\\b(?i)(ABS|CEILING|FLOOR|ROUND|POWER|SQRT|EXP|LOG|LOG10|SIN|COS|TAN|SIGN|RAND)\\b"
+                },
+                {
+                    "comment": "SQL NULL-handling functions",
+                    "name": "support.function.null.sql",
+                    "match": "\\b(?i)(ISNULL|COALESCE|NULLIF|IFNULL)\\b"
+                },
+                {
+                    "comment": "SQL conditional functions",
+                    "name": "support.function.conditional.sql",
+                    "match": "\\b(?i)(IIF|CHOOSE)\\b"
+                },
+                {
+                    "comment": "NULL constant - special highlighting",
+                    "name": "constant.language.null.sql",
+                    "match": "\\b(?i)NULL\\b"
+                },
+                {
+                    "comment": "SQL data types",
+                    "name": "storage.type.sql",
+                    "match": "\\b(?i)(VARCHAR|NVARCHAR|CHAR|NCHAR|TEXT|NTEXT|INT|INTEGER|BIGINT|SMALLINT|TINYINT|DECIMAL|NUMERIC|FLOAT|REAL|MONEY|SMALLMONEY|BIT|DATE|DATETIME|DATETIME2|SMALLDATETIME|TIME|TIMESTAMP|UNIQUEIDENTIFIER|XML|VARBINARY|BINARY|IMAGE)\\b"
+                },
+                {
+                    "comment": "SQL boolean literals",
+                    "name": "constant.language.boolean.sql",
+                    "match": "\\b(?i)(TRUE|FALSE)\\b"
+                },
+                {
+                    "comment": "SQL numeric literals",
+                    "name": "constant.numeric.sql",
+                    "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b"
+                },
+                {
+                    "comment": "SQL wildcard",
+                    "name": "keyword.operator.wildcard.sql",
+                    "match": "\\*"
+                },
+                {
+                    "comment": "SQL parameter/variable prefix",
+                    "name": "variable.parameter.sql",
+                    "match": "@[a-zA-Z_][a-zA-Z0-9_]*"
                 }
             ]
         },
