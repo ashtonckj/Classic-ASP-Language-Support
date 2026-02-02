@@ -25,8 +25,8 @@ Complete language support for Classic ASP files with formatting, IntelliSense, s
 - Quick insertion for common structures (loops, conditionals, database connections)
 
 ### 🌈 Syntax Highlighting
-- ASP code region highlighting with customisable colours
-- Comprehensive SQL syntax colouring (keywords, functions, data types, operators, parameters)
+- ASP code region highlighting with customisable colours (compatible with all VS Code themes)
+- Comprehensive SQL syntax colouring (keywords, functions, data types, operators, parameters) with full theme support
 - Toggleable region highlighting for `<% %>` blocks
 
 ## 🚀 Installation

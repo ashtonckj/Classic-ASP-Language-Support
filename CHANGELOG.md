@@ -5,6 +5,17 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2025-02-01
+
+### 🛠️ Fixed
+- **Fixed ASP code colour highlighting** - Resolved broken colours for ASP code blocks across different VS Code themes
+- **Fixed SQL syntax colouring in strings** - SQL highlighting now works correctly with both default VS Code themes and custom themes (e.g., Catppuccin)
+
+### ✨ Added
+- **Additional SQL keyword support** - Expanded SQL keyword coverage for improved syntax highlighting
+
+---
+
 ## [0.2.1] - 2025-02-01
 
 ### ✨ Added

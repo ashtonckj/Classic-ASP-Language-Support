@@ -2,7 +2,7 @@
     "name": "classic-asp-language-support",
     "displayName": "Classic ASP Language Support",
     "description": "Complete language support for Classic ASP files with formatting, IntelliSense, snippets, and auto-completion for HTML, CSS, JavaScript, and VBScript.",
-    "version": "0.2.1",
+    "version": "0.2.2",
     "icon": "icon.png",
     "publisher": "ashtonckj",
     "repository": {
@@ -24,6 +24,9 @@
         "Classic ASP",
         "Active Server Pages",
         "VBScript",
+        "HTML",
+        "CSS",
+        "JavaScript",
         "SQL",
         "Syntax Highlighting",
         "Formatter",
