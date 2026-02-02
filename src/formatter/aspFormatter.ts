@@ -333,6 +333,43 @@ function applyKeywordCase(code: string, caseStyle: string): string {
 
 // Format keywords in non-string text
 function formatKeywordsInText(text: string, caseStyle: string): string {
+    // VBScript built-in functions with their exact proper casing
+    const vbscriptFunctions: { [key: string]: string } = {
+        // Type conversion functions
+        'cbool': 'CBool', 'cbyte': 'CByte', 'ccur': 'CCur', 'cdate': 'CDate',
+        'cdbl': 'CDbl', 'cint': 'CInt', 'clng': 'CLng', 'csng': 'CSng',
+        'cstr': 'CStr', 'cvar': 'CVar',
+        // Type checking functions
+        'isarray': 'IsArray', 'isdate': 'IsDate', 'isempty': 'IsEmpty',
+        'isnull': 'IsNull', 'isnumeric': 'IsNumeric', 'isobject': 'IsObject',
+        // String functions
+        'lcase': 'LCase', 'ucase': 'UCase', 'ltrim': 'LTrim', 'rtrim': 'RTrim',
+        'instr': 'InStr', 'instrrev': 'InStrRev', 'strreverse': 'StrReverse',
+        'strcomp': 'StrComp',
+        // Date/Time functions
+        'dateserial': 'DateSerial', 'timeserial': 'TimeSerial',
+        'datevalue': 'DateValue', 'timevalue': 'TimeValue',
+        'dateadd': 'DateAdd', 'datediff': 'DateDiff', 'datepart': 'DatePart',
+        'formatdatetime': 'FormatDateTime', 'formatnumber': 'FormatNumber',
+        'formatcurrency': 'FormatCurrency', 'formatpercent': 'FormatPercent',
+        'monthname': 'MonthName', 'weekdayname': 'WeekdayName',
+        // Array functions
+        'lbound': 'LBound', 'ubound': 'UBound',
+        // Object creation
+        'createobject': 'CreateObject', 'getobject': 'GetObject',
+        // UI functions
+        'msgbox': 'MsgBox', 'inputbox': 'InputBox',
+        // Other functions
+        'typename': 'TypeName', 'vartype': 'VarType',
+        'getref': 'GetRef', 'eval': 'Eval',
+        'loadpicture': 'LoadPicture', 'scriptengine': 'ScriptEngine',
+        'scriptenginebuildversion': 'ScriptEngineBuildVersion',
+        'scriptenginemajorversion': 'ScriptEngineMajorVersion',
+        'scriptengineminorversion': 'ScriptEngineMinorVersion',
+        'rgb': 'RGB', 'escape': 'Escape', 'unescape': 'Unescape',
+        'getlocale': 'GetLocale', 'setlocale': 'SetLocale'
+    };
+
     const keywords = [
         // Control structures
         'if', 'then', 'else', 'elseif', 'end if', 'select case', 'case', 'case else', 'end select',
@@ -354,16 +391,15 @@ function formatKeywordsInText(text: string, caseStyle: string): string {
         // Other
         'option explicit', 'randomize', 'with', 'end with', 'exit', 'mod', 'byval', 'byref',
         'default', 'erase', 'let', 'resume', 'stop', 'get', 'put', 'open', 'close', 'input',
-        'output', 'append', 'binary', 'random', 'as', 'len', 'mid', 'left', 'right', 'ucase',
-        'lcase', 'trim', 'ltrim', 'rtrim', 'replace', 'split', 'join', 'filter', 'instr',
-        'instrrev', 'string', 'space', 'chr', 'asc', 'cint', 'clng', 'csng', 'cdbl', 'cdate',
-        'cbool', 'cstr', 'cbyte', 'ccur', 'cvar', 'int', 'fix', 'abs', 'sgn', 'sqr', 'exp',
-        'log', 'sin', 'cos', 'tan', 'atn', 'round', 'rnd', 'createobject', 'getobject',
-        'msgbox', 'inputbox', 'isarray', 'isdate', 'isempty', 'isnull', 'isnumeric', 'isobject',
-        'vartype', 'typename', 'ubound', 'lbound', 'array', 'date', 'time', 'now', 'timer',
-        'dateserial', 'timeserial', 'datevalue', 'timevalue', 'year', 'month', 'day', 'weekday',
-        'hour', 'minute', 'second', 'dateadd', 'datediff', 'datepart', 'formatdatetime',
-        'formatnumber', 'formatcurrency', 'formatpercent', 'response', 'request', 'server',
+        'output', 'append', 'binary', 'random', 'as', 'len', 'mid', 'left', 'right',
+        'trim', 'replace', 'split', 'join', 'filter',
+        'string', 'space', 'chr', 'asc',
+        'int', 'fix', 'abs', 'sgn', 'sqr', 'exp',
+        'log', 'sin', 'cos', 'tan', 'atn', 'round', 'rnd',
+        'array', 'date', 'time', 'now', 'timer',
+        'year', 'month', 'day', 'weekday',
+        'hour', 'minute', 'second',
+        'response', 'request', 'server',
         'session', 'application', 'write', 'redirect', 'querystring', 'form', 'servervariables',
         'cookies', 'mappath', 'createtextfile', 'opentextfile', 'writeline', 'readline',
         'readall', 'atendofstream', 'filesystemobject', 'scripting', 'dictionary', 'add',
@@ -372,10 +408,20 @@ function formatKeywordsInText(text: string, caseStyle: string): string {
 
     let result = text;
 
-    // Sort keywords by length (longest first) to avoid partial replacements
+    // First, preserve VBScript built-in functions with exact casing
+    for (const [lower, proper] of Object.entries(vbscriptFunctions)) {
+        const regex = new RegExp('\\b' + lower + '\\b', 'gi');
+        result = result.replace(regex, proper);
+    }
+
+    // Then format regular keywords
     const sortedKeywords = keywords.sort((a, b) => b.length - a.length);
 
     for (const keyword of sortedKeywords) {
+        // Skip if this keyword is a VBScript function (already handled)
+        if (vbscriptFunctions[keyword.toLowerCase()]) {
+            continue;
+        }
         const regex = new RegExp('\\b' + keyword.replace(/\s+/g, '\\s+') + '\\b', 'gi');
         result = result.replace(regex, (match) => formatKeyword(match, caseStyle));
     }
