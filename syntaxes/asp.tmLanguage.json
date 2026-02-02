@@ -1,14 +1,27 @@
 {
     "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-    "name": "Classic ASP",
+    "name": "ASP",
     "scopeName": "text.html.asp",
+    "comment": "Classic ASP with HTML",
+    "fileTypes": [
+        "asp",
+        "asa"
+    ],
+    "foldingStartMarker": "(?i)^\\s*(Public|Private)?\\s*(Class|Function|Sub|Property)\\s*([a-zA-Z_]\\w*)\\s*(\\(.*\\)\\s*)?$",
+    "foldingStopMarker": "(?i)^\\s*End (Class|Function|Sub|Property)\\s*$",
+    "injections": {
+        "text.html.asp": {
+            "patterns": [
+                {
+                    "include": "#asp-output-block"
+                },
+                {
+                    "include": "#asp-code-block"
+                }
+            ]
+        }
+    },
     "patterns": [
-        {
-            "include": "#asp-code-block"
-        },
-        {
-            "include": "#asp-output-block"
-        },
         {
             "include": "text.html.basic"
         }
@@ -16,18 +29,19 @@
     "repository": {
         "asp-code-block": {
             "name": "meta.embedded.block.asp",
-            "begin": "(<%(?!=))",
-            "end": "(%>)",
+            "begin": "\\s*<%(?!=)",
+            "end": "%>",
             "beginCaptures": {
-                "1": {
-                    "name": "punctuation.definition.tag.begin.asp"
+                "0": {
+                    "name": "punctuation.section.embedded.begin.asp"
                 }
             },
             "endCaptures": {
-                "1": {
-                    "name": "punctuation.definition.tag.end.asp"
+                "0": {
+                    "name": "punctuation.section.embedded.end.asp"
                 }
             },
+            "contentName": "source.asp",
             "patterns": [
                 {
                     "include": "#vbscript-code"
@@ -36,18 +50,19 @@
         },
         "asp-output-block": {
             "name": "meta.embedded.expression.asp",
-            "begin": "(<%=)",
-            "end": "(%>)",
+            "begin": "\\s*<%=",
+            "end": "%>",
             "beginCaptures": {
-                "1": {
-                    "name": "punctuation.definition.tag.begin.asp"
+                "0": {
+                    "name": "punctuation.section.embedded.begin.asp"
                 }
             },
             "endCaptures": {
-                "1": {
-                    "name": "punctuation.definition.tag.end.asp"
+                "0": {
+                    "name": "punctuation.section.embedded.end.asp"
                 }
             },
+            "contentName": "source.asp",
             "patterns": [
                 {
                     "include": "#vbscript-code"
@@ -63,7 +78,13 @@
                     "include": "#strings"
                 },
                 {
+                    "include": "#function-declaration"
+                },
+                {
                     "include": "#keywords"
+                },
+                {
+                    "include": "#constants"
                 },
                 {
                     "include": "#asp-objects"
@@ -82,88 +103,96 @@
         "comments": {
             "patterns": [
                 {
-                    "name": "comment.line.apostrophe.vbscript",
-                    "match": "'.*$"
+                    "name": "comment.line.apostrophe.asp",
+                    "begin": "(^[ \\t]+)?(?=')",
+                    "beginCaptures": {
+                        "1": {
+                            "name": "punctuation.whitespace.comment.leading.asp"
+                        }
+                    },
+                    "end": "(?!\\G)",
+                    "patterns": [
+                        {
+                            "name": "comment.line.apostrophe.asp",
+                            "begin": "'",
+                            "beginCaptures": {
+                                "0": {
+                                    "name": "punctuation.definition.comment.asp"
+                                }
+                            },
+                            "end": "\\n|(?=%>)"
+                        }
+                    ]
                 },
                 {
-                    "name": "comment.block.asp",
-                    "begin": "<%--",
-                    "end": "--%>"
+                    "name": "comment.line.rem.asp",
+                    "begin": "(^[ \\t]+)?(?i:(?=REM ))",
+                    "beginCaptures": {
+                        "1": {
+                            "name": "punctuation.whitespace.comment.leading.asp"
+                        }
+                    },
+                    "end": "(?!\\G)",
+                    "patterns": [
+                        {
+                            "name": "comment.line.rem.asp",
+                            "begin": "(?i:REM )",
+                            "beginCaptures": {
+                                "0": {
+                                    "name": "punctuation.definition.comment.asp"
+                                }
+                            },
+                            "end": "\\n|(?=%>)"
+                        }
+                    ]
                 }
             ]
         },
         "strings": {
             "patterns": [
                 {
-                    "comment": "SQL strings - detect by SQL keywords anywhere in string",
-                    "name": "string.quoted.double.sql.vbscript",
-                    "begin": "\"(?=.*(?i)\\b(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|FROM|WHERE|AND|OR|AS|ON|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ORDER BY|GROUP BY|UNION|WITH|HAVING|IS NULL|IS NOT NULL|SET|VALUES|INTO|LIMIT|OFFSET|DISTINCT|TOP)\\b)",
-                    "end": "\"",
+                    "comment": "SQL strings - detect by any SQL keyword (liberal matching for best colors)",
+                    "name": "string.quoted.double.asp",
+                    "begin": "\"(?=(?i).*?(\\b(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|FROM|WHERE|AND|OR|JOIN|SET|INTO|UNION|ORDER|GROUP|HAVING|AS|LIKE|IS|NOT|CASE|WHEN|THEN|ELSE|END|VALUES)|\\[[^\\]]+\\]\\.|WITH\\s*\\(|\\bAS\\b.*?,))",
+                    "end": "\"(?!\")",
                     "beginCaptures": {
                         "0": {
-                            "name": "punctuation.definition.string.begin.vbscript"
+                            "name": "punctuation.definition.string.begin.asp"
                         }
                     },
                     "endCaptures": {
                         "0": {
-                            "name": "punctuation.definition.string.end.vbscript"
+                            "name": "punctuation.definition.string.end.asp"
                         }
                     },
                     "patterns": [
                         {
                             "include": "#sql-syntax"
-                        }
-                    ]
-                },
-                {
-                    "comment": "SQL strings - detect by table/column patterns [schema].[table].[column]",
-                    "name": "string.quoted.double.sql.vbscript",
-                    "begin": "\"(?=.*\\[[^\\]]+\\]\\.\\[[^\\]]+\\])",
-                    "end": "\"",
-                    "beginCaptures": {
-                        "0": {
-                            "name": "punctuation.definition.string.begin.vbscript"
-                        }
-                    },
-                    "endCaptures": {
-                        "0": {
-                            "name": "punctuation.definition.string.end.vbscript"
-                        }
-                    },
-                    "patterns": [
+                        },
                         {
-                            "include": "#sql-syntax"
+                            "name": "constant.character.escape.apostrophe.asp",
+                            "match": "\"\""
                         }
                     ]
                 },
                 {
-                    "comment": "SQL strings - detect by common SQL patterns like aliases (a.Column, b.Field)",
-                    "name": "string.quoted.double.sql.vbscript",
-                    "begin": "\"(?=.*\\b[a-z]\\.[A-Z][a-zA-Z0-9_]*)",
-                    "end": "\"",
-                    "beginCaptures": {
-                        "0": {
-                            "name": "punctuation.definition.string.begin.vbscript"
-                        }
-                    },
-                    "endCaptures": {
-                        "0": {
-                            "name": "punctuation.definition.string.end.vbscript"
-                        }
-                    },
-                    "patterns": [
-                        {
-                            "include": "#sql-syntax"
-                        }
-                    ]
-                },
-                {
-                    "name": "string.quoted.double.vbscript",
+                    "comment": "Regular strings - fallback for non-SQL strings",
+                    "name": "string.quoted.double.asp",
                     "begin": "\"",
-                    "end": "\"",
+                    "end": "\"(?!\")",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.asp"
+                        }
+                    },
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.asp"
+                        }
+                    },
                     "patterns": [
                         {
-                            "name": "constant.character.escape.vbscript",
+                            "name": "constant.character.escape.apostrophe.asp",
                             "match": "\"\""
                         }
                     ]
@@ -173,28 +202,33 @@
         "sql-syntax": {
             "patterns": [
                 {
-                    "name": "constant.character.escape.vbscript",
+                    "name": "constant.character.escape.apostrophe.asp",
                     "match": "\"\""
                 },
                 {
-                    "comment": "Multi-word SQL phrases - must come before single keywords",
-                    "name": "storage.modifier.sql",
-                    "match": "\\b(?i)(IS\\s+NOT\\s+NULL|IS\\s+NULL|NOT\\s+NULL|ORDER\\s+BY|GROUP\\s+BY|UNION\\s+ALL|LEFT\\s+JOIN|RIGHT\\s+JOIN|INNER\\s+JOIN|OUTER\\s+JOIN|FULL\\s+JOIN|CROSS\\s+JOIN|LEFT\\s+OUTER\\s+JOIN|RIGHT\\s+OUTER\\s+JOIN)\\b"
+                    "comment": "WITH (NOLOCK) and other table hints - must come early",
+                    "name": "keyword.other.sql",
+                    "match": "(?i)\\bWITH\\s*\\(\\s*(NOLOCK|READUNCOMMITTED|UPDLOCK|ROWLOCK|TABLOCK|HOLDLOCK)\\s*\\)"
+                },
+                {
+                    "comment": "Multi-word SQL phrases - MUST come before single keywords",
+                    "name": "keyword.other.DML.sql",
+                    "match": "(?i)\\b(IS\\s+NOT\\s+NULL|IS\\s+NULL|NOT\\s+NULL|AND\\s+LIKE|ORDER\\s+BY|GROUP\\s+BY|UNION\\s+ALL|LEFT\\s+OUTER\\s+JOIN|RIGHT\\s+OUTER\\s+JOIN|FULL\\s+OUTER\\s+JOIN|LEFT\\s+JOIN|RIGHT\\s+JOIN|INNER\\s+JOIN|OUTER\\s+JOIN|FULL\\s+JOIN|CROSS\\s+JOIN|CROSS\\s+APPLY|OUTER\\s+APPLY|INSERT\\s+INTO|DELETE\\s+FROM)\\b"
                 },
                 {
                     "comment": "SQL DML commands",
                     "name": "keyword.other.DML.sql",
-                    "match": "\\b(?i)(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|ON|HAVING|DISTINCT|TOP|LIMIT|OFFSET)\\b"
+                    "match": "(?i)\\b(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|ON|HAVING|DISTINCT|TOP|LIMIT|OFFSET|FETCH|UNION|INTERSECT|EXCEPT|BY|ORDER|GROUP|APPLY)\\b"
                 },
                 {
                     "comment": "SQL DDL commands",
                     "name": "keyword.other.DDL.sql",
-                    "match": "\\b(?i)(CREATE|DROP|ALTER|TABLE|INDEX|VIEW|DATABASE|PROCEDURE|TRIGGER|SCHEMA)\\b"
+                    "match": "(?i)\\b(CREATE|DROP|ALTER|TRUNCATE|TABLE|INDEX|VIEW|DATABASE|PROCEDURE|FUNCTION|TRIGGER|SCHEMA)\\b"
                 },
                 {
                     "comment": "SQL logical operators",
                     "name": "keyword.operator.logical.sql",
-                    "match": "\\b(?i)(AND|OR|NOT|IN|LIKE|BETWEEN|EXISTS)\\b"
+                    "match": "(?i)\\b(AND|OR|NOT|IN|IS|LIKE|BETWEEN|EXISTS|ANY|ALL|SOME)\\b"
                 },
                 {
                     "comment": "SQL comparison operators",
@@ -204,52 +238,57 @@
                 {
                     "comment": "SQL keywords",
                     "name": "keyword.other.sql",
-                    "match": "\\b(?i)(AS|ASC|DESC|SET|VALUES|INTO|CASE|WHEN|THEN|ELSE|END|WITH|NOLOCK|DEFAULT|CONSTRAINT|PRIMARY|FOREIGN|KEY|UNIQUE|REFERENCES|CHECK|COLLATE)\\b"
+                    "match": "(?i)\\b(AS|ASC|DESC|SET|VALUES|INTO|CASE|WHEN|THEN|ELSE|END|WITH|NOLOCK|DEFAULT|CONSTRAINT|PRIMARY|FOREIGN|KEY|UNIQUE|REFERENCES|CHECK|COLLATE|BEGIN|COMMIT|ROLLBACK|TRANSACTION|DECLARE|CURSOR|OPEN|CLOSE|DEALLOCATE)\\b"
                 },
                 {
                     "comment": "SQL aggregate and window functions",
                     "name": "support.function.aggregate.sql",
-                    "match": "\\b(?i)(COUNT|SUM|AVG|MAX|MIN|ROW_NUMBER|RANK|DENSE_RANK|PARTITION|OVER)\\b"
+                    "match": "(?i)\\b(COUNT|SUM|AVG|MAX|MIN|ROW_NUMBER|RANK|DENSE_RANK|NTILE|PARTITION|OVER|LEAD|LAG|FIRST_VALUE|LAST_VALUE)\\b"
                 },
                 {
                     "comment": "SQL string functions",
                     "name": "support.function.string.sql",
-                    "match": "\\b(?i)(SUBSTRING|LEN|LENGTH|UPPER|LOWER|TRIM|LTRIM|RTRIM|CONCAT|CONCAT_WS|REPLACE|CHARINDEX|PATINDEX|STUFF|LEFT|RIGHT|REVERSE|REPLICATE|SPACE)\\b"
+                    "match": "(?i)\\b(SUBSTRING|LEN|LENGTH|UPPER|LOWER|TRIM|LTRIM|RTRIM|CONCAT|CONCAT_WS|REPLACE|CHARINDEX|PATINDEX|STUFF|LEFT|RIGHT|REVERSE|REPLICATE|SPACE|SOUNDEX|DIFFERENCE|ASCII|CHAR|NCHAR|UNICODE|QUOTENAME)\\b"
                 },
                 {
                     "comment": "SQL date/time functions",
                     "name": "support.function.datetime.sql",
-                    "match": "\\b(?i)(GETDATE|GETUTCDATE|DATEADD|DATEDIFF|DATEPART|DATENAME|YEAR|MONTH|DAY|HOUR|MINUTE|SECOND|DAYOFWEEK|DAYOFYEAR|WEEK|QUARTER|CONVERT|CAST|FORMAT)\\b"
+                    "match": "(?i)\\b(GETDATE|GETUTCDATE|SYSDATETIME|SYSUTCDATETIME|SYSDATETIMEOFFSET|CURRENT_TIMESTAMP|DATEADD|DATEDIFF|DATEDIFF_BIG|DATEPART|DATENAME|YEAR|MONTH|DAY|HOUR|MINUTE|SECOND|MILLISECOND|MICROSECOND|NANOSECOND|DAYOFWEEK|DAYOFYEAR|WEEK|WEEKDAY|QUARTER|CONVERT|CAST|FORMAT|TRY_CAST|TRY_CONVERT|PARSE|TRY_PARSE|EOMONTH|DATEFROMPARTS|DATETIME2FROMPARTS|DATETIMEFROMPARTS|DATETIMEOFFSETFROMPARTS|SMALLDATETIMEFROMPARTS|TIMEFROMPARTS|ISDATE)\\b"
                 },
                 {
                     "comment": "SQL mathematical functions",
                     "name": "support.function.math.sql",
-                    "match": "\\b(?i)(ABS|CEILING|FLOOR|ROUND|POWER|SQRT|EXP|LOG|LOG10|SIN|COS|TAN|SIGN|RAND)\\b"
+                    "match": "(?i)\\b(ABS|CEILING|FLOOR|ROUND|POWER|SQRT|EXP|LOG|LOG10|PI|SIN|COS|TAN|ASIN|ACOS|ATAN|ATN2|DEGREES|RADIANS|SIGN|RAND|SQUARE)\\b"
                 },
                 {
                     "comment": "SQL NULL-handling functions",
                     "name": "support.function.null.sql",
-                    "match": "\\b(?i)(ISNULL|COALESCE|NULLIF|IFNULL)\\b"
+                    "match": "(?i)\\b(ISNULL|COALESCE|NULLIF|IFNULL)\\b"
                 },
                 {
                     "comment": "SQL conditional functions",
                     "name": "support.function.conditional.sql",
-                    "match": "\\b(?i)(IIF|CHOOSE)\\b"
+                    "match": "(?i)\\b(IIF|CHOOSE)\\b"
                 },
                 {
-                    "comment": "NULL constant - special highlighting",
+                    "comment": "SQL conversion functions",
+                    "name": "support.function.conversion.sql",
+                    "match": "(?i)\\b(CAST|CONVERT|TRY_CAST|TRY_CONVERT|PARSE|TRY_PARSE)\\b"
+                },
+                {
+                    "comment": "NULL constant",
                     "name": "constant.language.null.sql",
-                    "match": "\\b(?i)NULL\\b"
+                    "match": "(?i)\\bNULL\\b"
                 },
                 {
                     "comment": "SQL data types",
                     "name": "storage.type.sql",
-                    "match": "\\b(?i)(VARCHAR|NVARCHAR|CHAR|NCHAR|TEXT|NTEXT|INT|INTEGER|BIGINT|SMALLINT|TINYINT|DECIMAL|NUMERIC|FLOAT|REAL|MONEY|SMALLMONEY|BIT|DATE|DATETIME|DATETIME2|SMALLDATETIME|TIME|TIMESTAMP|UNIQUEIDENTIFIER|XML|VARBINARY|BINARY|IMAGE)\\b"
+                    "match": "(?i)\\b(VARCHAR|NVARCHAR|CHAR|NCHAR|TEXT|NTEXT|INT|INTEGER|BIGINT|SMALLINT|TINYINT|DECIMAL|NUMERIC|FLOAT|REAL|MONEY|SMALLMONEY|BIT|DATE|DATETIME|DATETIME2|SMALLDATETIME|TIME|DATETIMEOFFSET|TIMESTAMP|UNIQUEIDENTIFIER|GUID|XML|VARBINARY|BINARY|IMAGE|SQL_VARIANT|HIERARCHYID|GEOMETRY|GEOGRAPHY)\\b"
                 },
                 {
                     "comment": "SQL boolean literals",
                     "name": "constant.language.boolean.sql",
-                    "match": "\\b(?i)(TRUE|FALSE)\\b"
+                    "match": "(?i)\\b(TRUE|FALSE)\\b"
                 },
                 {
                     "comment": "SQL numeric literals",
@@ -257,34 +296,89 @@
                     "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b"
                 },
                 {
-                    "comment": "SQL wildcard",
-                    "name": "keyword.operator.wildcard.sql",
-                    "match": "\\*"
+                    "comment": "SQL wildcard (SELECT *)",
+                    "name": "keyword.operator.star.sql",
+                    "match": "(?<=\\s)\\*(?=\\s|,|$)"
                 },
                 {
-                    "comment": "SQL parameter/variable prefix",
+                    "comment": "SQL parameter/variable prefix (@var)",
                     "name": "variable.parameter.sql",
                     "match": "@[a-zA-Z_][a-zA-Z0-9_]*"
+                },
+                {
+                    "comment": "SQL table.column or alias.column pattern (a.RowID, b.Company)",
+                    "name": "meta.column-reference.sql",
+                    "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.(\\*|[a-zA-Z_][a-zA-Z0-9_]*)",
+                    "captures": {
+                        "1": {
+                            "name": "variable.other.table.sql"
+                        },
+                        "2": {
+                            "name": "variable.other.column.sql"
+                        }
+                    }
+                },
+                {
+                    "comment": "SQL identifier brackets [table], [column]",
+                    "name": "entity.name.identifier.sql",
+                    "match": "\\[[^\\]]+\\]"
+                }
+            ]
+        },
+        "function-declaration": {
+            "patterns": [
+                {
+                    "name": "meta.function.asp",
+                    "match": "(?i)^\\s*(function|sub)\\s+([a-zA-Z_]\\w*)\\s*(\\()([^)]*)(\\)).*\\n?",
+                    "captures": {
+                        "1": {
+                            "name": "storage.type.function.asp"
+                        },
+                        "2": {
+                            "name": "entity.name.function.asp"
+                        },
+                        "3": {
+                            "name": "punctuation.definition.parameters.asp"
+                        },
+                        "4": {
+                            "name": "variable.parameter.function.asp"
+                        },
+                        "5": {
+                            "name": "punctuation.definition.parameters.asp"
+                        }
+                    }
                 }
             ]
         },
         "keywords": {
             "patterns": [
                 {
-                    "name": "keyword.control.vbscript",
-                    "match": "\\b(?i)(if|then|else|elseif|end\\s+if|select|case|end\\s+select|for|to|each|in|step|next|while|wend|do|loop|until|exit|goto)\\b"
+                    "name": "keyword.control.asp",
+                    "match": "(?i)\\b(If|Then|Else|ElseIf|End\\s+If|While|Wend|For|To|Each|In|Step|Case|Select|End\\s+Select|Return|Continue|Do|Until|Loop|Next|With|End\\s+With|Exit\\s+Do|Exit\\s+For|Exit\\s+Function|Exit\\s+Property|Exit\\s+Sub|GoTo)\\b"
                 },
                 {
-                    "name": "keyword.other.vbscript",
-                    "match": "\\b(?i)(dim|redim|const|private|public|sub|end\\s+sub|function|end\\s+function|property|get|let|set|end\\s+property|class|end\\s+class|new|with|end\\s+with|option|explicit|call|on|error|resume)\\b"
+                    "name": "storage.type.asp",
+                    "match": "(?i)\\b(Call|Class|Const|Dim|ReDim|Function|Sub|Property|End\\s+Property|End\\s+Sub|End\\s+Function|End\\s+Class|Set|Let|Get|New|Randomize|Option\\s+Explicit|On\\s+Error\\s+Resume\\s+Next|On\\s+Error\\s+GoTo)\\b"
                 },
                 {
-                    "name": "keyword.operator.logical.vbscript",
-                    "match": "\\b(?i)(and|or|not|xor|eqv|imp)\\b"
+                    "name": "storage.modifier.asp",
+                    "match": "(?i)\\b(Private|Public|Default)\\b"
                 },
                 {
-                    "name": "constant.language.vbscript",
-                    "match": "\\b(?i)(true|false|null|nothing|empty)\\b"
+                    "name": "keyword.operator.logical.asp",
+                    "match": "(?i)\\b(And|Or|Not|Xor|Eqv|Imp|Is)\\b"
+                }
+            ]
+        },
+        "constants": {
+            "patterns": [
+                {
+                    "name": "constant.language.asp",
+                    "match": "(?i)\\b(Empty|False|Nothing|Null|True)\\b"
+                },
+                {
+                    "name": "support.type.vb.asp",
+                    "match": "(?i)\\b(vbTrue|vbFalse|vbCr|vbCrLf|vbFormFeed|vbLf|vbNewLine|vbNullChar|vbNullString|vbTab|vbVerticalTab|vbBinaryCompare|vbTextCompare|vbSunday|vbMonday|vbTuesday|vbWednesday|vbThursday|vbFriday|vbSaturday|vbUseSystemDayOfWeek|vbFirstJan1|vbFirstFourDays|vbFirstFullWeek|vbGeneralDate|vbLongDate|vbShortDate|vbLongTime|vbShortTime|vbObjectError|vbEmpty|vbNull|vbInteger|vbLong|vbSingle|vbDouble|vbCurrency|vbDate|vbString|vbObject|vbError|vbBoolean|vbVariant|vbDataObject|vbDecimal|vbByte|vbArray)\\b"
                 }
             ]
         },
@@ -292,51 +386,47 @@
             "patterns": [
                 {
                     "name": "support.class.asp",
-                    "match": "\\b(?i)(Response|Request|Server|Session|Application)\\b"
+                    "match": "(?i)\\b(Application|ObjectContext|Request|Response|Server|Session)\\b"
+                },
+                {
+                    "name": "support.class.collection.asp",
+                    "match": "(?i)\\b(Contents|StaticObjects|ClientCertificate|Cookies|Form|QueryString|ServerVariables)\\b"
+                },
+                {
+                    "name": "support.constant.asp",
+                    "match": "(?i)\\b(TotalBytes|Buffer|CacheControl|Charset|ContentType|Expires|ExpiresAbsolute|IsClientConnected|PICS|Status|ScriptTimeout|CodePage|LCID|SessionID|Timeout)\\b"
                 },
                 {
                     "name": "support.function.asp",
-                    "match": "\\b(?i)(Write|Redirect|End|CreateObject|MapPath|HTMLEncode|URLEncode)\\b"
+                    "match": "(?i)\\b(Lock|Unlock|SetAbort|SetComplete|BinaryRead|AddHeader|AppendToLog|BinaryWrite|Clear|End|Flush|Redirect|Write|CreateObject|HTMLEncode|MapPath|URLEncode|Abandon)\\b"
                 },
                 {
-                    "name": "support.variable.asp",
-                    "match": "\\b(?i)(Form|QueryString|ServerVariables|Cookies)\\b"
+                    "name": "support.function.event.asp",
+                    "match": "(?i)\\b(Application_OnEnd|Application_OnStart|OnTransactionAbort|OnTransactionCommit|Session_OnEnd|Session_OnStart|Class_Initialize|Class_Terminate)\\b"
                 }
             ]
         },
         "operators": {
             "patterns": [
                 {
-                    "name": "keyword.operator.comparison.vbscript",
-                    "match": "(<>|<=|>=|<|>|=)"
-                },
-                {
-                    "name": "keyword.operator.arithmetic.vbscript",
-                    "match": "(\\+|-|\\*|/|\\\\|mod|\\^)"
-                },
-                {
-                    "name": "keyword.operator.concatenation.vbscript",
-                    "match": "&"
-                },
-                {
-                    "name": "keyword.operator.vbscript",
-                    "match": "\\b(?i)is\\b"
+                    "name": "keyword.operator.asp",
+                    "match": "=|>=|<=|<>|<|>|\\+|-|\\*|/|\\\\|\\^|&|(?i)\\b(Mod)\\b"
                 }
             ]
         },
         "numbers": {
             "patterns": [
                 {
-                    "name": "constant.numeric.vbscript",
-                    "match": "\\b\\d+(\\.\\d+)?\\b"
+                    "name": "constant.numeric.asp",
+                    "match": "\\b((0(x|X)[0-9a-fA-F]*)|(([0-9]+\\.?[0-9]*)|(\\.[0-9]+))((e|E)(\\+|-)?[0-9]+)?)(L|l|UL|ul|u|U|F|f)?\\b"
                 }
             ]
         },
         "functions": {
             "patterns": [
                 {
-                    "name": "support.function.vbscript",
-                    "match": "\\b(?i)(Abs|Array|Asc|Atn|CBool|CByte|CCur|CDate|CDbl|Chr|CInt|CLng|Cos|CreateObject|CSng|CStr|Date|DateAdd|DateDiff|DatePart|DateSerial|DateValue|Day|Exp|Filter|Fix|FormatCurrency|FormatDateTime|FormatNumber|FormatPercent|GetObject|Hex|Hour|InputBox|InStr|InStrRev|Int|IsArray|IsDate|IsEmpty|IsNull|IsNumeric|IsObject|Join|LBound|LCase|Left|Len|LoadPicture|Log|LTrim|Mid|Minute|Month|MonthName|MsgBox|Now|Oct|Replace|RGB|Right|Rnd|Round|RTrim|ScriptEngine|ScriptEngineBuildVersion|ScriptEngineMajorVersion|ScriptEngineMinorVersion|Second|Sgn|Sin|Space|Split|Sqr|StrComp|String|StrReverse|Tan|Time|Timer|TimeSerial|TimeValue|Trim|TypeName|UBound|UCase|VarType|Weekday|WeekdayName|Year)\\b"
+                    "name": "support.function.vb.asp",
+                    "match": "(?i)\\b(Array|Add|Asc|Atn|CBool|CByte|CCur|CDate|CDbl|Chr|CInt|CLng|Conversions|Cos|CreateObject|CSng|CStr|Date|DateAdd|DateDiff|DatePart|DateSerial|DateValue|Day|Derived|Math|Escape|Eval|Exists|Exp|Filter|FormatCurrency|FormatDateTime|FormatNumber|FormatPercent|GetLocale|GetObject|GetRef|Hex|Hour|InputBox|InStr|InStrRev|Int|Fix|IsArray|IsDate|IsEmpty|IsNull|IsNumeric|IsObject|Item|Items|Join|Keys|LBound|LCase|Left|Len|LoadPicture|Log|LTrim|RTrim|Trim|Maths|Mid|Minute|Month|MonthName|MsgBox|Now|Oct|Remove|RemoveAll|Replace|RGB|Right|Rnd|Round|ScriptEngine|ScriptEngineBuildVersion|ScriptEngineMajorVersion|ScriptEngineMinorVersion|Second|SetLocale|Sgn|Sin|Space|Split|Sqr|StrComp|String|StrReverse|Tan|Time|Timer|TimeSerial|TimeValue|TypeName|UBound|UCase|Unescape|VarType|Weekday|WeekdayName|Year)\\b"
                 }
             ]
         }
