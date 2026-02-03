@@ -333,6 +333,149 @@ function applyKeywordCase(code: string, caseStyle: string): string {
 
 // Format keywords in non-string text
 function formatKeywordsInText(text: string, caseStyle: string): string {
+    // Special multi-word keywords that need specific casing in PascalCase mode
+    const KEYWORDS_WITH_PROPER_CASING: { [key: string]: string } = {
+        // Multi-word keywords that should maintain internal capitalization
+        'elseif': 'ElseIf',
+        'redim': 'ReDim',
+        'byval': 'ByVal',
+        'byref': 'ByRef',
+        'isnull': 'IsNull',
+        'isempty': 'IsEmpty',
+        'isnumeric': 'IsNumeric',
+        'isarray': 'IsArray',
+        'isobject': 'IsObject',
+        'isdate': 'IsDate',
+        'readonly': 'ReadOnly',
+        'writeonly': 'WriteOnly',
+        'typename': 'TypeName',
+        'vartype': 'VarType',
+        'getobject': 'GetObject',
+        'createobject': 'CreateObject',
+        'getref': 'GetRef',
+
+        // Compound keywords when typed together (user typed them as one word)
+        'endif': 'EndIf',
+        'endsub': 'EndSub',
+        'endfunction': 'EndFunction',
+        'endwith': 'EndWith',
+        'endselect': 'EndSelect',
+        'endclass': 'EndClass',
+        'endproperty': 'EndProperty',
+        'exitfor': 'ExitFor',
+        'exitdo': 'ExitDo',
+        'exitsub': 'ExitSub',
+        'exitfunction': 'ExitFunction',
+        'exitproperty': 'ExitProperty',
+        'onerror': 'OnError',
+        'selectcase': 'SelectCase',
+        'caseelse': 'CaseElse',
+
+        // ASP Request object properties and methods
+        'querystring': 'QueryString',
+        'servervariables': 'ServerVariables',
+        'totalbytes': 'TotalBytes',
+        'binaryread': 'BinaryRead',
+        'clientcertificate': 'ClientCertificate',
+
+        // ASP Response object properties and methods
+        'contenttype': 'ContentType',
+        'addheader': 'AddHeader',
+        'appendtolog': 'AppendToLog',
+        'binarywrite': 'BinaryWrite',
+        'cacheecontrol': 'CacheControl',
+        'charset': 'Charset',
+        'clearheaders': 'ClearHeaders',
+        'contentlength': 'ContentLength',
+        'expires': 'Expires',
+        'expiresabsolute': 'ExpiresAbsolute',
+        'isclientconnected': 'IsClientConnected',
+        'pics': 'PICS',
+        'status': 'Status',
+
+        // ASP Server object properties and methods
+        'mappath': 'MapPath',
+        'scripttimeout': 'ScriptTimeout',
+        'htmlencode': 'HTMLEncode',
+        'urlencode': 'URLEncode',
+        'createtextfile': 'CreateTextFile',
+        'opentextfile': 'OpenTextFile',
+        'getlasterror': 'GetLastError',
+
+        // ASP Session object properties and methods
+        'sessionid': 'SessionID',
+        'timeout': 'Timeout',
+        'codepage': 'CodePage',
+        'lcid': 'LCID',
+
+        // ASP Application object properties and methods
+        'statutecode': 'StatuteCode',
+
+        // FileSystemObject methods and properties
+        'filesystemobject': 'FileSystemObject',
+        'getfile': 'GetFile',
+        'getfolder': 'GetFolder',
+        'getdrive': 'GetDrive',
+        'fileexists': 'FileExists',
+        'folderexists': 'FolderExists',
+        'driveexists': 'DriveExists',
+        'getfilename': 'GetFileName',
+        'getbasename': 'GetBaseName',
+        'getextensionname': 'GetExtensionName',
+        'getparentfoldername': 'GetParentFolderName',
+        'getdrivename': 'GetDriveName',
+        'getabsolutepathname': 'GetAbsolutePathName',
+        'buildpath': 'BuildPath',
+        'getspecialfolder': 'GetSpecialFolder',
+        'gettempname': 'GetTempName',
+        'deletefile': 'DeleteFile',
+        'deletefolder': 'DeleteFolder',
+        'movefile': 'MoveFile',
+        'movefolder': 'MoveFolder',
+        'copyfile': 'CopyFile',
+        'copyfolder': 'CopyFolder',
+        'createfolder': 'CreateFolder',
+
+        // File object properties
+        'writeline': 'WriteLine',
+        'writeblanklines': 'WriteBlankLines',
+        'readline': 'ReadLine',
+        'readall': 'ReadAll',
+        'atendofstream': 'AtEndOfStream',
+        'atendofline': 'AtEndOfLine',
+        'skipline': 'SkipLine',
+        'closetext': 'CloseText',
+        'datelastmodified': 'DateLastModified',
+        'datelastaccessed': 'DateLastAccessed',
+        'datecreated': 'DateCreated',
+        'parentfolder': 'ParentFolder',
+        'shortname': 'ShortName',
+        'shortpath': 'ShortPath',
+        'rootfolder': 'RootFolder',
+
+        // ADO/Database related
+        'recordset': 'Recordset',
+        'movenext': 'MoveNext',
+        'movefirst': 'MoveFirst',
+        'movelast': 'MoveLast',
+        'moveprevious': 'MovePrevious',
+        'addnew': 'AddNew',
+        'recordcount': 'RecordCount',
+        'pagesize': 'PageSize',
+        'pagecount': 'PageCount',
+        'absolutepage': 'AbsolutePage',
+        'absoluteposition': 'AbsolutePosition',
+        'cursortype': 'CursorType',
+        'cursorlocation': 'CursorLocation',
+        'locktype': 'LockType',
+        'commandtext': 'CommandText',
+        'commandtype': 'CommandType',
+        'connectionstring': 'ConnectionString',
+        'begintrans': 'BeginTrans',
+        'committrans': 'CommitTrans',
+        'rollbacktrans': 'RollbackTrans',
+    };
+
     // VBScript built-in functions with their exact proper casing
     const vbscriptFunctions: { [key: string]: string } = {
         // Type conversion functions
@@ -408,6 +551,14 @@ function formatKeywordsInText(text: string, caseStyle: string): string {
 
     let result = text;
 
+    // Handle special multi-word keywords for PascalCase mode
+    if (caseStyle === 'PascalCase') {
+        for (const [lower, proper] of Object.entries(KEYWORDS_WITH_PROPER_CASING)) {
+            const regex = new RegExp('\\b' + lower + '\\b', 'gi');
+            result = result.replace(regex, proper);
+        }
+    }
+
     // First, preserve VBScript built-in functions with exact casing
     for (const [lower, proper] of Object.entries(vbscriptFunctions)) {
         const regex = new RegExp('\\b' + lower + '\\b', 'gi');
@@ -420,6 +571,10 @@ function formatKeywordsInText(text: string, caseStyle: string): string {
     for (const keyword of sortedKeywords) {
         // Skip if this keyword is a VBScript function (already handled)
         if (vbscriptFunctions[keyword.toLowerCase()]) {
+            continue;
+        }
+        // Skip if this keyword is in KEYWORDS_WITH_PROPER_CASING for PascalCase (already handled)
+        if (caseStyle === 'PascalCase' && KEYWORDS_WITH_PROPER_CASING[keyword.toLowerCase()]) {
             continue;
         }
         const regex = new RegExp('\\b' + keyword.replace(/\s+/g, '\\s+') + '\\b', 'gi');
