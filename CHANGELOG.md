@@ -5,6 +5,17 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2025-02-01
+
+### 🛠️ Fixed
+- **Fixed `ElseIf` formatting** - `ElseIf` keywords now maintain correct casing instead of being converted to `Elseif` ([#1](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/1))
+- **Fixed unexpected indentation in VBScript** - Resolved issue where lines containing certain words caused incorrect indentation ([#3](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/3))
+- **Fixed HTML tag indentation** - Resolved extra indentation being added after repeatedly pressing Enter after `<>` tags ([#2](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/2))
+- **Fixed autocomplete ranking** - Words and snippets are now properly ranked and suggested in the correct order ([#4](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/4))
+- **Fixed HTML comment auto-closing** - HTML comments now auto-close properly with improved Enter key behaviour ([#5](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/5))
+
+---
+
 ## [0.2.2] - 2025-02-01
 
 ### 🛠️ Fixed
@@ -102,6 +113,8 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[0.2.3]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.3
+[0.2.2]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.2
 [0.2.1]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.1
 [0.2.0-beta]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.0-beta
 [0.2.0-alpha]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.0-alpha
