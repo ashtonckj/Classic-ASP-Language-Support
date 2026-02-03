@@ -1,7 +1,11 @@
 {
     "ASP Code Block": {
         "prefix": "asp",
-        "body": ["<%", "\t$0", "%>"],
+        "body": [
+            "<%",
+            "\t$0",
+            "%>"
+        ],
         "description": "ASP code block"
     },
     "ASP Output": {
@@ -38,72 +42,6 @@
         "prefix": "sco",
         "body": "Server.CreateObject(\"$0\")",
         "description": "Create COM object"
-    },
-    "If Then": {
-        "prefix": "if",
-        "body": ["If ${1:condition} Then", "\t$0", "End If"],
-        "description": "If statement"
-    },
-    "If Then Else": {
-        "prefix": ["ife", "ifelse"],
-        "body": [
-            "If ${1:condition} Then",
-            "\t${2:trueCode}",
-            "Else",
-            "\t${0:falseCode}",
-            "End If"
-        ],
-        "description": "If-Else statement"
-    },
-    "For Loop": {
-        "prefix": "for",
-        "body": ["For ${1:i} = ${2:0} To ${3:10}", "\t$0", "Next"],
-        "description": "For loop"
-    },
-    "For Each": {
-        "prefix": "fore",
-        "body": ["For Each ${1:item} In ${2:collection}", "\t$0", "Next"],
-        "description": "For Each loop"
-    },
-    "While Loop": {
-        "prefix": "while",
-        "body": ["While ${1:condition}", "\t$0", "Wend"],
-        "description": "While loop"
-    },
-    "Do While": {
-        "prefix": "dow",
-        "body": ["Do While ${1:condition}", "\t$0", "Loop"],
-        "description": "Do While loop"
-    },
-    "Select Case": {
-        "prefix": "select",
-        "body": [
-            "Select Case ${1:expression}",
-            "\tCase ${2:value}",
-            "\t\t$0",
-            "End Select"
-        ],
-        "description": "Select Case statement"
-    },
-    "Function": {
-        "prefix": "function",
-        "body": [
-            "Function ${1:FunctionName}(${2:parameters})",
-            "\t$0",
-            "\t${1:FunctionName} = returnValue",
-            "End Function"
-        ],
-        "description": "Function declaration"
-    },
-    "Sub": {
-        "prefix": "sub",
-        "body": ["Sub ${1:SubName}(${2:parameters})", "\t$0", "End Sub"],
-        "description": "Subroutine declaration"
-    },
-    "Dim Variable": {
-        "prefix": "dim",
-        "body": "Dim ${1:variableName}",
-        "description": "Declare variable"
     },
     "Database Connection": {
         "prefix": "dbconn",

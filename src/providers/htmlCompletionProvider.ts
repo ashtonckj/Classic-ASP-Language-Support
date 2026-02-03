@@ -82,6 +82,7 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
                 item.insertText = new vscode.SnippetString(`${tag.tag}>\n\t$0\n</${tag.tag}>`);
             }
 
+            item.sortText = '2_' + tag.tag;
             return item;
         });
     }
@@ -103,6 +104,7 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
                 item.insertText = new vscode.SnippetString(`${attr.name}="$0"`);
             }
 
+            item.sortText = '2_' + attr.name;
             return item;
         });
     }

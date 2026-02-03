@@ -4,29 +4,10 @@
         "body": "console.log($0);",
         "description": "Log to console"
     },
-    "Function": {
-        "prefix": "func",
-        "body": ["function ${1:functionName}(${2:parameters}) {", "\t$0", "}"],
-        "description": "Function declaration"
-    },
     "Arrow Function": {
         "prefix": "arrow",
         "body": "const ${1:name} = (${2:params}) => {$0};",
         "description": "Arrow function"
-    },
-    "For Loop": {
-        "prefix": "for",
-        "body": [
-            "for (let ${1:i} = 0; ${1:i} < ${2:array}.length; ${1:i}++) {",
-            "\t$0",
-            "}"
-        ],
-        "description": "For loop"
-    },
-    "If Statement": {
-        "prefix": "if",
-        "body": ["if (${1:condition}) {", "\t$0", "}"],
-        "description": "If statement"
     },
     "Event Listener": {
         "prefix": "listener",
@@ -61,7 +42,11 @@
     },
     "SetTimeout": {
         "prefix": "timeout",
-        "body": ["setTimeout(() => {", "\t$0", "}, ${1:1000});"],
+        "body": [
+            "setTimeout(() => {",
+            "\t$0",
+            "}, ${1:1000});"
+        ],
         "description": "Set timeout"
     }
 }

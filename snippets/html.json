@@ -1,6 +1,10 @@
 {
     "DOCTYPE": {
-        "prefix": ["!", "doctype", "!doctype"],
+        "prefix": [
+            "!",
+            "doctype",
+            "!doctype"
+        ],
         "body": "<!DOCTYPE html>",
         "description": "HTML5 doctype declaration"
     },
@@ -22,12 +26,18 @@
         "description": "HTML5 boilerplate template"
     },
     "Meta Viewport": {
-        "prefix": ["meta:vp", "meta:viewport"],
+        "prefix": [
+            "meta:vp",
+            "meta:viewport"
+        ],
         "body": "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">",
         "description": "Viewport meta tag"
     },
     "Meta Charset": {
-        "prefix": ["meta:charset", "meta:utf"],
+        "prefix": [
+            "meta:charset",
+            "meta:utf"
+        ],
         "body": "<meta charset=\"UTF-8\">",
         "description": "Character encoding meta tag"
     },
@@ -37,7 +47,10 @@
         "description": "Description meta tag"
     },
     "Link CSS": {
-        "prefix": ["link:css", "link"],
+        "prefix": [
+            "link:css",
+            "link"
+        ],
         "body": "<link rel=\"stylesheet\" href=\"$0\">",
         "description": "Link to external CSS"
     },
@@ -76,12 +89,12 @@
         "description": "Input field"
     },
     "Link": {
-        "prefix": "a",
+        "prefix": "a:",
         "body": "<a href=\"${1:url}\">${2:text}</a>",
         "description": "Anchor link"
     },
     "Image": {
-        "prefix": "img",
+        "prefix": "img:",
         "body": "<img src=\"${1:url}\" alt=\"${2:description}\">",
         "description": "Image tag"
     },
@@ -105,12 +118,20 @@
     },
     "Script tag": {
         "prefix": "script",
-        "body": ["<script>", "\t$0", "</script>"],
+        "body": [
+            "<script>",
+            "\t$0",
+            "</script>"
+        ],
         "description": "Script tag"
     },
     "Style tag": {
         "prefix": "style",
-        "body": ["<style>", "\t$0", "</style>"],
+        "body": [
+            "<style>",
+            "\t$0",
+            "</style>"
+        ],
         "description": "Style tag"
     }
 }
