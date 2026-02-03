@@ -744,9 +744,44 @@ function isSQLStatement(line: string): boolean {
     return sqlKeywords.test(trimmed);
 }
 
+// Remove string literals from a line to avoid detecting keywords inside strings
+function removeStringsFromLine(line: string): string {
+    let result = '';
+    let inString = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+
+        if (char === '"') {
+            // Check for escaped quote (double quotes in VBScript)
+            if (i + 1 < line.length && line[i + 1] === '"') {
+                // Escaped quote, skip both
+                i++;
+                continue;
+            }
+
+            if (inString) {
+                // Exiting string
+                inString = false;
+            } else {
+                // Entering string
+                inString = true;
+            }
+        } else if (!inString) {
+            // Not in string, keep the character
+            result += char;
+        }
+        // If in string, skip the character (don't add to result)
+    }
+
+    return result;
+}
+
 // Get indent change
 function getIndentChange(line: string): { before: number; after: number } {
-    const lowerLine = line.toLowerCase().trim();
+    // Remove string content first to avoid detecting keywords inside strings
+    const lineWithoutStrings = removeStringsFromLine(line);
+    const lowerLine = lineWithoutStrings.toLowerCase().trim();
 
     if (/\bif\b.*\bthen\b\s+\S+/.test(lowerLine)) {
         return { before: 0, after: 0 };
