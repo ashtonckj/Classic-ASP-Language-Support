@@ -275,16 +275,13 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
                         const useSpaces = editor.options.insertSpaces !== false;
                         const indentChar = useSpaces ? ' '.repeat(tabSize) : '\t';
 
-                        return vscode.commands.executeCommand('default:type', { text: '\n' }).then(() => {
-                            editor.edit(editBuilder => {
-                                const newPos = editor.selection.active;
-                                editBuilder.insert(newPos, indent + indentChar);
-                            }).then(() => {
-                                const newPos = editor.selection.active;
-                                const finalPos = new vscode.Position(newPos.line, newPos.character + indent.length + indentChar.length);
-                                editor.selection = new vscode.Selection(finalPos, finalPos);
-                            });
+                        editor.edit(editBuilder => {
+                            editBuilder.insert(position, `\n${indent}${indentChar}`);
+                        }).then(() => {
+                            const newPosition = new vscode.Position(position.line + 1, indent.length + indentChar.length);
+                            editor.selection = new vscode.Selection(newPosition, newPosition);
                         });
+                        return;
                     }
                 }
 
