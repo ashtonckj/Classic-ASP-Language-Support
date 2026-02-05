@@ -5,6 +5,7 @@ export interface AspFormatterSettings {
     keywordCase: string;
     useTabs: boolean;
     indentSize: number;
+    aspTagsOnSameLine: boolean;
 }
 
 // Get ASP formatter settings
@@ -14,6 +15,7 @@ export function getAspSettings(): AspFormatterSettings {
         keywordCase: config.get<string>('keywordCase', 'PascalCase'),
         useTabs: config.get<boolean>('useTabs', false),
         indentSize: config.get<number>('indentSize', 2),
+        aspTagsOnSameLine: config.get<boolean>('aspTagsOnSameLine', false),
     };
 }
 
@@ -38,7 +40,14 @@ export function formatSingleAspBlock(block: string, settings: AspFormatterSettin
     if (!block.includes('\n')) {
         const content = block.substring(2, block.length - 2).trim();
         const formattedContent = applyKeywordCase(content, settings.keywordCase);
-        return htmlIndent + '<% ' + formattedContent + ' %>';
+
+        // Apply the aspTagsOnSameLine setting
+        if (settings.aspTagsOnSameLine) {
+            return htmlIndent + '<% ' + formattedContent + ' %>';
+        } else {
+            // Tags on separate lines
+            return htmlIndent + '<%\n' + htmlIndent + getIndentString(1, settings.useTabs, settings.indentSize) + formattedContent + '\n' + htmlIndent + '%>';
+        }
     }
 
     // Multi-line block: format with indentation
@@ -82,6 +91,16 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
                 const aspIndent = getIndentString(aspIndentLevel, settings.useTabs, settings.indentSize);
                 const formattedContent = applyKeywordCase(content, settings.keywordCase);
 
+                // Apply the aspTagsOnSameLine setting
+                if (settings.aspTagsOnSameLine) {
+                    // Keep opening tag and content on the same line
+                    formattedLines.push(htmlIndent + '<% ' + formattedContent);
+                } else {
+                    // Put opening tag on its own line, then the content
+                    formattedLines.push(htmlIndent + '<%');
+                    formattedLines.push(htmlIndent + aspIndent + formattedContent);
+                }
+
                 // Check for line continuation
                 const hasContinuation = formattedContent.trim().endsWith('_');
                 if (hasContinuation) {
@@ -100,7 +119,6 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
                     isInSQLBlock = false;
                 }
 
-                formattedLines.push(htmlIndent + aspIndent + formattedContent);
                 if (indentChange.after > 0) {
                     aspIndentLevel += indentChange.after;
                 }
@@ -125,12 +143,24 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
                 }
                 const aspIndent = getIndentString(aspIndentLevel, settings.useTabs, settings.indentSize);
                 const formattedContent = applyKeywordCase(content, settings.keywordCase);
-                formattedLines.push(htmlIndent + aspIndent + formattedContent);
+
+                // Apply the aspTagsOnSameLine setting
+                if (settings.aspTagsOnSameLine) {
+                    // Keep content and closing tag on the same line
+                    formattedLines.push(htmlIndent + aspIndent + formattedContent + ' %>');
+                } else {
+                    // Put them on separate lines
+                    formattedLines.push(htmlIndent + aspIndent + formattedContent);
+                    formattedLines.push(htmlIndent + '%>');
+                }
+
                 if (indentChange.after > 0) {
                     aspIndentLevel += indentChange.after;
                 }
+            } else {
+                // Just the closing tag with no content before it
+                formattedLines.push(htmlIndent + '%>');
             }
-            formattedLines.push(htmlIndent + '%>');
             previousLineHadContinuation = false;
             inMultilineString = false;
             isInSQLBlock = false;

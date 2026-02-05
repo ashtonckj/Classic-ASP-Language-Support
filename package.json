@@ -116,6 +116,12 @@
                     "description": "Number of spaces per indentation level for Classic ASP code",
                     "order": 3
                 },
+                "aspLanguageSupport.aspTagsOnSameLine": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Keep <% and %> tags on the same line as code (when checked). By default, tags are placed on separate lines for better readability.",
+                    "order": 4
+                },
                 "aspLanguageSupport.prettier.printWidth": {
                     "type": "number",
                     "default": 80,

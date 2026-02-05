@@ -128,21 +128,9 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     const multiLineNonInlineBlocks = multiLineBlocks.filter(i => !aspBlocks[i].isInline);
 
     if (multiLineNonInlineBlocks.length > 0) {
-        // Combine only multi-line blocks for context-aware formatting
-        const combinedAspCode = multiLineNonInlineBlocks.map(i => aspBlocks[i].code).join('\n');
-        const combinedFormatted = formatSingleAspBlock(combinedAspCode, aspSettings, '', false);
-
-        // Split back into individual blocks
-        const formattedBlockLines = combinedFormatted.split('\n');
-        let currentLineIndex = 0;
-
+        // Format each multi-line block individually
         for (const i of multiLineNonInlineBlocks) {
-            const originalBlock = aspBlocks[i];
-            const originalLineCount = originalBlock.code.split('\n').length;
-
-            const blockLines = formattedBlockLines.slice(currentLineIndex, currentLineIndex + originalLineCount);
-            formattedBlocks[i] = blockLines.join('\n');
-            currentLineIndex += originalLineCount;
+            formattedBlocks[i] = formatSingleAspBlock(aspBlocks[i].code, aspSettings, '', false);
         }
     }
 
