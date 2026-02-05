@@ -385,6 +385,19 @@
         "asp-objects": {
             "patterns": [
                 {
+                    "comment": "ASP object.method or object.property pattern - must come first",
+                    "name": "meta.object-access.asp",
+                    "match": "(?i)\\b(Application|ObjectContext|Request|Response|Server|Session)\\.(\\w+)",
+                    "captures": {
+                        "1": {
+                            "name": "support.class.asp"
+                        },
+                        "2": {
+                            "name": "support.function.asp"
+                        }
+                    }
+                },
+                {
                     "name": "support.class.asp",
                     "match": "(?i)\\b(Application|ObjectContext|Request|Response|Server|Session)\\b"
                 },
