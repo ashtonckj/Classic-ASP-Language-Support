@@ -74,6 +74,8 @@ end if
 ```
 
 ## ⚙️ Settings
+<details>
+<summary>⚙️ Settings (click to expand/collapse)</summary>
 
 Access settings via `File → Preferences → Settings` and search for "Classic ASP Language Support".
 
@@ -113,8 +115,11 @@ Access settings via `File → Preferences → Settings` and search for "Classic 
 | `aspLanguageSupport.bracketDarkColor` | `rgba(0, 100, 255, .2)` | ASP bracket colour for dark themes |
 | `aspLanguageSupport.codeBlockLightColor` | `rgba(100,100,100,0.1)` | ASP code block colour for light themes |
 | `aspLanguageSupport.codeBlockDarkColor` | `rgba(220,220,220,0.1)` | ASP code block colour for dark themes |
+</details>
 
 ## 🛠️ Development
+<details>
+<summary>🛠️ Development (click to expand/collapse)</summary>
 
 ### Prerequisites
 - Node.js 16.x or higher
@@ -135,6 +140,7 @@ npm run compile
 
 # Run extension in debug mode (Press F5 in VS Code)
 ```
+</details>
 
 ## 📋 Known Limitations
 
