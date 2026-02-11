@@ -2,7 +2,7 @@
     "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
     "name": "ASP",
     "scopeName": "text.html.asp",
-    "comment": "Classic ASP with HTML",
+    "comment": "Classic ASP with HTML (No SQL Highlighting in Strings)",
     "fileTypes": [
         "asp",
         "asa"
@@ -151,31 +151,6 @@
         "strings": {
             "patterns": [
                 {
-                    "comment": "SQL strings - detect by any SQL keyword (liberal matching for best colors)",
-                    "name": "string.quoted.double.asp",
-                    "begin": "\"(?=(?i).*?(\\b(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|MERGE|EXEC|EXECUTE|FROM|WHERE|AND|OR|JOIN|ON|SET|INTO|UNION|ORDER|GROUP|HAVING|AS|LIKE|IS|NOT|CASE|WHEN|THEN|ELSE|END|VALUES|BEGIN|COMMIT|ROLLBACK|TRANSACTION|DECLARE|PRINT|RAISERROR|USING|OUTPUT|MATCHED|IDENTITY|PRIMARY|FOREIGN|KEY|NULL|GO|INT|INTEGER|VARCHAR|NVARCHAR|DECIMAL|BIGINT|DATETIME|BIT)|\\[[^\\]]+\\]\\.|WITH\\s*\\(|\\bAS\\b.*?,|@[a-zA-Z_]))",
-                    "end": "\"(?!\")",
-                    "beginCaptures": {
-                        "0": {
-                            "name": "punctuation.definition.string.begin.asp"
-                        }
-                    },
-                    "endCaptures": {
-                        "0": {
-                            "name": "punctuation.definition.string.end.asp"
-                        }
-                    },
-                    "patterns": [
-                        {
-                            "include": "#sql-syntax"
-                        },
-                        {
-                            "name": "constant.character.escape.apostrophe.asp",
-                            "match": "\"\""
-                        }
-                    ]
-                },
-                {
                     "comment": "Regular strings - fallback for non-SQL strings",
                     "name": "string.quoted.double.asp",
                     "begin": "\"",
@@ -196,143 +171,6 @@
                             "match": "\"\""
                         }
                     ]
-                }
-            ]
-        },
-        "sql-syntax": {
-            "patterns": [
-                {
-                    "name": "constant.character.escape.apostrophe.asp",
-                    "match": "\"\""
-                },
-                {
-                    "comment": "WITH (NOLOCK) and other table hints - must come early",
-                    "name": "keyword.other.sql",
-                    "match": "(?i)\\bWITH\\s*\\(\\s*(NOLOCK|READUNCOMMITTED|UPDLOCK|ROWLOCK|TABLOCK|HOLDLOCK)\\s*\\)"
-                },
-                {
-                    "comment": "Multi-word SQL phrases - MUST come before single keywords",
-                    "name": "keyword.other.DML.sql",
-                    "match": "(?i)\\b(IS\\s+NOT\\s+NULL|IS\\s+NULL|NOT\\s+NULL|AND\\s+LIKE|ORDER\\s+BY|GROUP\\s+BY|UNION\\s+ALL|LEFT\\s+OUTER\\s+JOIN|RIGHT\\s+OUTER\\s+JOIN|FULL\\s+OUTER\\s+JOIN|LEFT\\s+JOIN|RIGHT\\s+JOIN|INNER\\s+JOIN|OUTER\\s+JOIN|FULL\\s+JOIN|CROSS\\s+JOIN|CROSS\\s+APPLY|OUTER\\s+APPLY|INSERT\\s+INTO|DELETE\\s+FROM|BEGIN\\s+TRANSACTION|COMMIT\\s+TRANSACTION|ROLLBACK\\s+TRANSACTION|PRIMARY\\s+KEY|FOREIGN\\s+KEY|WITH\\s+TIES)\\b"
-                },
-                {
-                    "comment": "SQL DML commands - including ON keyword for JOIN clauses",
-                    "name": "keyword.other.DML.sql",
-                    "match": "(?i)\\b(SELECT|INSERT|UPDATE|DELETE|MERGE|OUTPUT|EXEC|EXECUTE|FROM|WHERE|JOIN|ON|USING|HAVING|DISTINCT|TOP|LIMIT|OFFSET|FETCH|UNION|INTERSECT|EXCEPT|BY|ORDER|GROUP|APPLY|MATCHED|TIES)\\b"
-                },
-                {
-                    "comment": "SQL DDL commands",
-                    "name": "keyword.other.DDL.sql",
-                    "match": "(?i)\\b(CREATE|DROP|ALTER|TRUNCATE|ADD|TABLE|INDEX|VIEW|DATABASE|PROCEDURE|FUNCTION|TRIGGER|SCHEMA)\\b"
-                },
-                {
-                    "comment": "SQL logical operators",
-                    "name": "keyword.operator.logical.sql",
-                    "match": "(?i)\\b(AND|OR|NOT|IN|IS|LIKE|BETWEEN|EXISTS|ANY|ALL|SOME)\\b"
-                },
-                {
-                    "comment": "SQL comparison operators",
-                    "name": "keyword.operator.comparison.sql",
-                    "match": "(<>|!=|<=|>=|<|>|=)"
-                },
-                {
-                    "comment": "SQL keywords",
-                    "name": "keyword.other.sql",
-                    "match": "(?i)\\b(AS|ASC|DESC|SET|VALUES|INTO|CASE|WHEN|THEN|ELSE|END|WITH|NOLOCK|DEFAULT|CONSTRAINT|PRIMARY|FOREIGN|KEY|UNIQUE|REFERENCES|CHECK|COLLATE|BEGIN|COMMIT|ROLLBACK|TRANSACTION|DECLARE|CURSOR|OPEN|CLOSE|DEALLOCATE|IF|PRINT|RAISERROR|GO|IDENTITY)\\b"
-                },
-                {
-                    "comment": "SQL aggregate and window functions",
-                    "name": "support.function.aggregate.sql",
-                    "match": "(?i)\\b(COUNT|SUM|AVG|MAX|MIN|ROW_NUMBER|RANK|DENSE_RANK|NTILE|PARTITION|OVER|LEAD|LAG|FIRST_VALUE|LAST_VALUE)\\b"
-                },
-                {
-                    "comment": "SQL string functions",
-                    "name": "support.function.string.sql",
-                    "match": "(?i)\\b(SUBSTRING|LEN|LENGTH|UPPER|LOWER|TRIM|LTRIM|RTRIM|CONCAT|CONCAT_WS|REPLACE|CHARINDEX|PATINDEX|STUFF|LEFT|RIGHT|REVERSE|REPLICATE|SPACE|SOUNDEX|DIFFERENCE|ASCII|CHAR|NCHAR|UNICODE|QUOTENAME)\\b"
-                },
-                {
-                    "comment": "SQL date/time functions",
-                    "name": "support.function.datetime.sql",
-                    "match": "(?i)\\b(GETDATE|GETUTCDATE|SYSDATETIME|SYSUTCDATETIME|SYSDATETIMEOFFSET|CURRENT_TIMESTAMP|DATEADD|DATEDIFF|DATEDIFF_BIG|DATEPART|DATENAME|YEAR|MONTH|DAY|HOUR|MINUTE|SECOND|MILLISECOND|MICROSECOND|NANOSECOND|DAYOFWEEK|DAYOFYEAR|WEEK|WEEKDAY|QUARTER|CONVERT|CAST|FORMAT|TRY_CAST|TRY_CONVERT|PARSE|TRY_PARSE|EOMONTH|DATEFROMPARTS|DATETIME2FROMPARTS|DATETIMEFROMPARTS|DATETIMEOFFSETFROMPARTS|SMALLDATETIMEFROMPARTS|TIMEFROMPARTS|ISDATE)\\b"
-                },
-                {
-                    "comment": "SQL mathematical functions",
-                    "name": "support.function.math.sql",
-                    "match": "(?i)\\b(ABS|CEILING|FLOOR|ROUND|POWER|SQRT|EXP|LOG|LOG10|PI|SIN|COS|TAN|ASIN|ACOS|ATAN|ATN2|DEGREES|RADIANS|SIGN|RAND|SQUARE)\\b"
-                },
-                {
-                    "comment": "SQL NULL-handling functions",
-                    "name": "support.function.null.sql",
-                    "match": "(?i)\\b(ISNULL|COALESCE|NULLIF|IFNULL)\\b"
-                },
-                {
-                    "comment": "SQL conditional functions",
-                    "name": "support.function.conditional.sql",
-                    "match": "(?i)\\b(IIF|CHOOSE)\\b"
-                },
-                {
-                    "comment": "SQL conversion functions",
-                    "name": "support.function.conversion.sql",
-                    "match": "(?i)\\b(CAST|CONVERT|TRY_CAST|TRY_CONVERT|PARSE|TRY_PARSE)\\b"
-                },
-                {
-                    "comment": "NULL constant",
-                    "name": "constant.language.null.sql",
-                    "match": "(?i)\\bNULL\\b"
-                },
-                {
-                    "comment": "SQL data types",
-                    "name": "storage.type.sql",
-                    "match": "(?i)\\b(VARCHAR|NVARCHAR|CHAR|NCHAR|TEXT|NTEXT|INT|INTEGER|BIGINT|SMALLINT|TINYINT|DECIMAL|NUMERIC|FLOAT|REAL|MONEY|SMALLMONEY|BIT|DATE|DATETIME|DATETIME2|SMALLDATETIME|TIME|DATETIMEOFFSET|TIMESTAMP|UNIQUEIDENTIFIER|GUID|XML|VARBINARY|BINARY|IMAGE|SQL_VARIANT|HIERARCHYID|GEOMETRY|GEOGRAPHY)\\b"
-                },
-                {
-                    "comment": "SQL boolean literals",
-                    "name": "constant.language.boolean.sql",
-                    "match": "(?i)\\b(TRUE|FALSE)\\b"
-                },
-                {
-                    "comment": "SQL numeric literals",
-                    "name": "constant.numeric.sql",
-                    "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b"
-                },
-                {
-                    "comment": "SQL wildcard (SELECT *)",
-                    "name": "keyword.operator.star.sql",
-                    "match": "(?<=\\s)\\*(?=\\s|,|$)"
-                },
-                {
-                    "comment": "SQL parameter/variable prefix (@var)",
-                    "name": "variable.parameter.sql",
-                    "match": "@[a-zA-Z_][a-zA-Z0-9_]*"
-                },
-                {
-                    "comment": "SQL identifier brackets [table], [column] - brackets are orange, text inside is yellow - MUST come before table.column pattern",
-                    "name": "meta.brackets.sql",
-                    "match": "(\\[)([^\\]]+)(\\])",
-                    "captures": {
-                        "1": {
-                            "name": "constant.numeric.sql"
-                        },
-                        "2": {
-                            "name": "entity.name.type.class.sql"
-                        },
-                        "3": {
-                            "name": "constant.numeric.sql"
-                        }
-                    }
-                },
-                {
-                    "comment": "SQL table.column or alias.column pattern (a.RowID, b.Company) - MUST come after keywords and brackets",
-                    "name": "meta.column-reference.sql",
-                    "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.(\\*|[a-zA-Z_][a-zA-Z0-9_]*)",
-                    "captures": {
-                        "1": {
-                            "name": "variable.other.table.sql"
-                        },
-                        "2": {
-                            "name": "variable.other.column.sql"
-                        }
-                    }
                 }
             ]
         },
