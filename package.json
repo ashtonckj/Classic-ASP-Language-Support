@@ -2,7 +2,7 @@
     "name": "classic-asp-language-support",
     "displayName": "Classic ASP Language Support",
     "description": "Complete language support for Classic ASP files with formatting, IntelliSense, snippets, and auto-completion for HTML, CSS, JavaScript, and VBScript.",
-    "version": "0.2.4",
+    "version": "0.2.5",
     "icon": "icon.png",
     "publisher": "ashtonckj",
     "repository": {
@@ -260,9 +260,21 @@
                     "default": "rgba(220,220,220,0.1)",
                     "description": "The color to highlight ASP region code blocks when a dark theme is selected.",
                     "order": 28
+                },
+                "aspLanguageSupport.enableSQLHighlighting": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable colorful SQL syntax highlighting inside double-quoted strings. Toggle using the 'ASP: Toggle SQL Syntax Highlighting' command or change this setting and reload the window.",
+                    "order": 29
                 }
             }
-        }
+        },
+        "commands": [
+            {
+                "command": "asp.toggleSQLHighlighting",
+                "title": "ASP: Toggle SQL Syntax Highlighting in Strings"
+            }
+        ]
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
