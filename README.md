@@ -1,5 +1,3 @@
-<!-- Refer to https://github.com/catppuccin/vscode/blob/main/README.md?plain=1 -->
-
 <h3 align="center">
 	<img src="images/icon.png" alt="Classic ASP Language Support Logo" width="100" height="100"><br>
 	Classic ASP Language Support for <a href="https://code.visualstudio.com">VSCode</a><br>
