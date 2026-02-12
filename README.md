@@ -25,8 +25,8 @@ Complete language support for Classic ASP files with formatting, IntelliSense, s
 - Quick insertion for common structures (loops, conditionals, database connections)
 
 ### 🌈 Syntax Highlighting
-- ASP code region highlighting with customisable colours (compatible with all VS Code themes)
-- Comprehensive SQL syntax colouring (keywords, functions, data types, operators, parameters) with full theme support
+- ASP region highlighting with customisable colours (compatible with all VS Code themes)
+- Comprehensive SQL syntax colouring with advanced syntax support (keywords, functions, data types, operators, parameters) - toggleable
 - Toggleable region highlighting for `<% %>` blocks
 
 ## 🚀 Installation
@@ -115,6 +115,7 @@ Access settings via `File → Preferences → Settings` and search for "Classic 
 | `aspLanguageSupport.bracketDarkColor` | `rgba(0, 100, 255, .2)` | ASP bracket colour for dark themes |
 | `aspLanguageSupport.codeBlockLightColor` | `rgba(100,100,100,0.1)` | ASP code block colour for light themes |
 | `aspLanguageSupport.codeBlockDarkColor` | `rgba(220,220,220,0.1)` | ASP code block colour for dark themes |
+| `aspLanguageSupport.enableSQLHighlighting` | `true` | Enable/disable SQL syntax colouring in VBScript strings |
 </details>
 
 ## 🛠️ Development
