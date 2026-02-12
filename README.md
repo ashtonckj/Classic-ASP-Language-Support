@@ -36,9 +36,9 @@ Complete language support for Classic ASP files with formatting, IntelliSense, s
 
 ## 📖 Usage
 
-1. Open any `.asp` file
-2. Press `Alt + Shift + F` (Windows/Linux) or `Option + Shift + F` (Mac)
-3. Your code is formatted instantly!
+- **Format code**: `Alt + Shift + F` (Windows/Linux) or `Option + Shift + F` (Mac)
+- **Trigger IntelliSense**: Start typing or press `Ctrl + Space`
+- **Use snippets**: Type snippet prefix and press `Tab`
 
 ### Before:
 ```asp
