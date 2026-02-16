@@ -2,6 +2,7 @@
     "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
     "name": "ASP",
     "scopeName": "text.html.asp",
+    "injectionSelector": "L:text.html.derivative, L:text.html.basic",
     "comment": "Classic ASP with HTML (No SQL Highlighting in Strings)",
     "fileTypes": [
         "asp",
@@ -9,21 +10,12 @@
     ],
     "foldingStartMarker": "(?i)^\\s*(Public|Private)?\\s*(Class|Function|Sub|Property)\\s*([a-zA-Z_]\\w*)\\s*(\\(.*\\)\\s*)?$",
     "foldingStopMarker": "(?i)^\\s*End (Class|Function|Sub|Property)\\s*$",
-    "injections": {
-        "text.html.asp": {
-            "patterns": [
-                {
-                    "include": "#asp-output-block"
-                },
-                {
-                    "include": "#asp-code-block"
-                }
-            ]
-        }
-    },
     "patterns": [
         {
-            "include": "text.html.basic"
+            "include": "#asp-code-block"
+        },
+        {
+            "include": "#asp-output-block"
         }
     ],
     "repository": {
