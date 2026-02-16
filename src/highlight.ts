@@ -8,14 +8,19 @@ export function addRegionHighlights(context: ExtensionContext) {
 	let codeBlockDecorationType: TextEditorDecorationType;
 	let configurationDidChange = false;
 
+	function isAspFile(editor: { document: { languageId: string; fileName: string } } | undefined): boolean {
+		if (!editor) { return false; }
+		return editor.document.languageId === 'html' && editor.document.fileName.endsWith('.asp');
+	}
+
 	let activeEditor = window.activeTextEditor;
-	if (activeEditor) {
+	if (isAspFile(activeEditor)) {
 		triggerUpdateDecorations();
 	}
 
 	window.onDidChangeActiveTextEditor(editor => {
 		activeEditor = editor;
-		if (editor) {
+		if (isAspFile(editor)) {
 			triggerUpdateDecorations();
 		}
 	}, null, context.subscriptions);
@@ -26,7 +31,7 @@ export function addRegionHighlights(context: ExtensionContext) {
 	});
 
 	workspace.onDidChangeTextDocument(event => {
-		if (activeEditor && event.document === activeEditor.document) {
+		if (activeEditor && event.document === activeEditor.document && isAspFile(activeEditor)) {
 			triggerUpdateDecorations();
 		}
 	}, null, context.subscriptions);
@@ -67,6 +72,10 @@ export function addRegionHighlights(context: ExtensionContext) {
 
 	function updateDecorations() {
 		if (!activeEditor) {
+			return;
+		}
+
+		if (!isAspFile(activeEditor)) {
 			return;
 		}
 

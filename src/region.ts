@@ -44,7 +44,9 @@ export function getRegionsInsideRange(
 
 export function getAspRegions(doc: TextDocument): AspRegion[] {
     // If we're not in an ASP context, no need to decorate
-    if (doc.languageId != "asp") {
+    // Note: languageId is "html" when files.associations maps *.asp → html
+    const isAspFile = (doc.languageId === "asp" || doc.languageId === "html") && doc.fileName.endsWith(".asp");
+    if (!isAspFile) {
         return [];
     }
 
