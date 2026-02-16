@@ -1,6 +1,27 @@
 import * as vscode from 'vscode';
 import { ASP_OBJECTS, VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
-import { getContext, ContextType, getTextBeforeCursor } from '../utils/documentHelper';
+
+/**
+ * Check if cursor is inside <% %> block
+ */
+function isInsideAspBlock(document: vscode.TextDocument, position: vscode.Position): boolean {
+    const textBeforeCursor = document.getText(
+        new vscode.Range(new vscode.Position(0, 0), position)
+    );
+
+    const openTags = (textBeforeCursor.match(/<%/g) || []).length;
+    const closeTags = (textBeforeCursor.match(/%>/g) || []).length;
+
+    return openTags > closeTags;
+}
+
+/**
+ * Get text before cursor on current line
+ */
+function getTextBeforeCursor(document: vscode.TextDocument, position: vscode.Position): string {
+    const lineText = document.lineAt(position.line).text;
+    return lineText.substring(0, position.character);
+}
 
 export class AspCompletionProvider implements vscode.CompletionItemProvider {
 
@@ -16,24 +37,27 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
             return [];
         }
 
-        const docContext = getContext(document, position);
-
-        // Only provide ASP completions inside ASP blocks
-        if (docContext !== ContextType.ASP) {
+        // Only provide ASP completions inside <% %> blocks
+        if (!isInsideAspBlock(document, position)) {
             return [];
         }
 
         const textBefore = getTextBeforeCursor(document, position);
-        const completions: vscode.CompletionItem[] = [];
 
         // Check if we're accessing a method (e.g., "Response.")
+        // IMPORTANT: Return ONLY methods, not all completions!
         if (textBefore.match(/\b(Response|Request|Server|Session|Application)\.\s*$/i)) {
             const objectMatch = textBefore.match(/\b(Response|Request|Server|Session|Application)\.\s*$/i);
             if (objectMatch) {
                 const objectName = objectMatch[1];
+                console.log(`✅ Detected "${objectName}." - returning ONLY methods`);
+                // Return ONLY methods, not the full list
                 return this.provideMethodCompletions(objectName);
             }
         }
+
+        // Otherwise, provide all ASP completions
+        const completions: vscode.CompletionItem[] = [];
 
         // Don't show "If" snippet if "End" is right before cursor
         const isAfterEnd = /\bend\s+i?f?$/i.test(textBefore.trim());
