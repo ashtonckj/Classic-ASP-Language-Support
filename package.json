@@ -2,7 +2,7 @@
     "name": "classic-asp-language-support",
     "displayName": "Classic ASP Language Support",
     "description": "Complete language support for Classic ASP files with formatting, IntelliSense, snippets, and auto-completion for HTML, CSS, JavaScript, and VBScript.",
-    "version": "0.2.5",
+    "version": "0.3.0",
     "icon": "images/icon.png",
     "publisher": "ashtonckj",
     "repository": {
@@ -36,7 +36,7 @@
     ],
     "license": "MIT",
     "activationEvents": [
-        "onLanguage:asp"
+        "onLanguage:html"
     ],
     "main": "./out/extension.js",
     "contributes": {
@@ -50,43 +50,39 @@
         ],
         "grammars": [
             {
-                "language": "asp",
                 "scopeName": "text.html.asp",
                 "path": "./syntaxes/asp.tmLanguage.json",
+                "injectTo": ["text.html.basic", "text.html.derivative"],
+                "injectionSelector": "L:text.html.derivative, L:text.html.basic",
                 "embeddedLanguages": {
-                    "text.html.basic": "html",
-                    "source.css": "css",
-                    "source.js": "javascript",
-                    "source.vbscript.embedded.asp": "vb"
+                    "meta.embedded.block.asp": "vbscript",
+                    "source.asp": "vbscript"
                 }
-            },
-            {
-                "scopeName": "asp.injection",
-                "path": "./syntaxes/asp-injections.tmLanguage.json",
-                "injectTo": ["text.html.basic"]
             }
         ],
         "snippets": [
             {
-                "language": "asp",
+                "language": "html",
                 "path": "./snippets/html.json"
             },
             {
-                "language": "asp",
+                "language": "html",
                 "path": "./snippets/asp.json"
             },
             {
-                "language": "asp",
+                "language": "html",
                 "path": "./snippets/javascript.json"
             }
         ],
-        "keybindings": [
-            {
-                "command": "asp.insertLineBreak",
-                "key": "enter",
-                "when": "editorTextFocus && editorLangId == asp && !editorHasSelection && !suggestWidgetVisible && !renameInputVisible && !inSnippetMode"
+        "configurationDefaults": {
+            "[html]": {
+                "editor.quickSuggestions": {
+                    "other": true,
+                    "comments": false,
+                    "strings": true
+                }
             }
-        ],
+        },
         "configuration": {
             "type": "object",
             "title": "Classic ASP Language Support",
@@ -206,24 +202,6 @@
                     ],
                     "description": "Prettier: How to handle whitespace in HTML",
                     "order": 19
-                },
-                "aspLanguageSupport.enableHTMLCompletion": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Enable HTML tag and attribute auto-completion",
-                    "order": 20
-                },
-                "aspLanguageSupport.enableCSSCompletion": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Enable CSS property auto-completion in <style> tags",
-                    "order": 21
-                },
-                "aspLanguageSupport.enableJSCompletion": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Enable JavaScript auto-completion in <script> tags",
-                    "order": 22
                 },
                 "aspLanguageSupport.enableASPCompletion": {
                     "type": "boolean",
