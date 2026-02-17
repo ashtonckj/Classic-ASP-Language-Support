@@ -63,15 +63,7 @@
         "snippets": [
             {
                 "language": "html",
-                "path": "./snippets/html.json"
-            },
-            {
-                "language": "html",
                 "path": "./snippets/asp.json"
-            },
-            {
-                "language": "html",
-                "path": "./snippets/javascript.json"
             }
         ],
         "configurationDefaults": {
