@@ -43,8 +43,14 @@
         "languages": [
             {
                 "id": "asp",
-                "aliases": ["ASP", "Classic ASP", "asp"],
-                "extensions": [".asp"],
+                "aliases": [
+                    "ASP",
+                    "Classic ASP",
+                    "asp"
+                ],
+                "extensions": [
+                    ".asp"
+                ],
                 "configuration": "./language-configuration.json"
             }
         ],
@@ -52,7 +58,10 @@
             {
                 "scopeName": "text.html.asp",
                 "path": "./syntaxes/asp.tmLanguage.json",
-                "injectTo": ["text.html.basic", "text.html.derivative"],
+                "injectTo": [
+                    "text.html.basic",
+                    "text.html.derivative"
+                ],
                 "injectionSelector": "L:text.html.derivative, L:text.html.basic",
                 "embeddedLanguages": {
                     "meta.embedded.block.asp": "vbscript",
@@ -76,176 +85,203 @@
             },
             "html.validate.scripts": false
         },
-        "configuration": {
-            "type": "object",
-            "title": "Classic ASP Language Support",
-            "properties": {
-                "aspLanguageSupport.keywordCase": {
-                    "type": "string",
-                    "default": "PascalCase",
-                    "enum": ["lowercase", "UPPERCASE", "PascalCase"],
-                    "enumDescriptions": [
-                        "Format keywords in lowercase (if, then, end if, dim)",
-                        "Format keywords in UPPERCASE (IF, THEN, END IF, DIM)",
-                        "Format keywords in PascalCase (If, Then, End If, Dim)"
-                    ],
-                    "description": "Choose how Classic ASP code keywords should be formatted",
-                    "order": 1
-                },
-                "aspLanguageSupport.useTabs": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Indent Classic ASP code with tabs instead of spaces",
-                    "order": 2
-                },
-                "aspLanguageSupport.indentSize": {
-                    "type": "number",
-                    "default": 2,
-                    "enum": [2, 4, 8],
-                    "description": "Number of spaces per indentation level for Classic ASP code",
-                    "order": 3
-                },
-                "aspLanguageSupport.aspTagsOnSameLine": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Keep <% and %> tags on the same line as code (when checked). By default, tags are placed on separate lines for better readability.",
-                    "order": 4
-                },
-                "aspLanguageSupport.prettier.printWidth": {
-                    "type": "number",
-                    "default": 80,
-                    "description": "Prettier: Maximum line length for HTML/CSS/JS code",
-                    "order": 10
-                },
-                "aspLanguageSupport.prettier.tabWidth": {
-                    "type": "number",
-                    "default": 2,
-                    "enum": [2, 4, 8],
-                    "description": "Prettier: Number of spaces per indentation level for HTML/CSS/JS",
-                    "order": 11
-                },
-                "aspLanguageSupport.prettier.useTabs": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Prettier: Indent HTML/CSS/JS with tabs instead of spaces",
-                    "order": 12
-                },
-                "aspLanguageSupport.prettier.bracketSameLine": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Prettier: Put the > of multi-line HTML elements at the end of the last line instead of on a new line",
-                    "order": 13
-                },
-                "aspLanguageSupport.prettier.semi": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Prettier: Add semicolons at the end of JavaScript statements",
-                    "order": 14
-                },
-                "aspLanguageSupport.prettier.singleQuote": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Prettier: Use single quotes instead of double quotes in JavaScript",
-                    "order": 15
-                },
-                "aspLanguageSupport.prettier.arrowParens": {
-                    "type": "string",
-                    "default": "always",
-                    "enum": ["always", "avoid"],
-                    "enumDescriptions": [
-                        "Always include parentheses around arrow function parameters: (x) => x",
-                        "Omit parentheses when possible: x => x"
-                    ],
-                    "description": "Prettier: Include parentheses around a sole arrow function parameter",
-                    "order": 16
-                },
-                "aspLanguageSupport.prettier.trailingComma": {
-                    "type": "string",
-                    "default": "es5",
-                    "enum": ["none", "es5", "all"],
-                    "enumDescriptions": [
-                        "No trailing commas",
-                        "Trailing commas where valid in ES5 (objects, arrays, etc.)",
-                        "Trailing commas wherever possible (including function parameters)"
-                    ],
-                    "description": "Prettier: Print trailing commas wherever possible in JavaScript",
-                    "order": 17
-                },
-                "aspLanguageSupport.prettier.endOfLine": {
-                    "type": "string",
-                    "default": "lf",
-                    "enum": ["lf", "crlf", "cr", "auto"],
-                    "enumDescriptions": [
-                        "Line Feed only (\\n), common on Linux and macOS",
-                        "Carriage Return + Line Feed (\\r\\n), common on Windows",
-                        "Carriage Return only (\\r), rare",
-                        "Maintain existing line endings"
-                    ],
-                    "description": "Prettier: Line ending style",
-                    "order": 18
-                },
-                "aspLanguageSupport.prettier.htmlWhitespaceSensitivity": {
-                    "type": "string",
-                    "default": "css",
-                    "enum": ["css", "strict", "ignore"],
-                    "enumDescriptions": [
-                        "Respect the default value of CSS display property",
-                        "Whitespace is considered significant",
-                        "Whitespace is considered insignificant"
-                    ],
-                    "description": "Prettier: How to handle whitespace in HTML",
-                    "order": 19
-                },
-                "aspLanguageSupport.enableASPCompletion": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Enable ASP object and VBScript keyword auto-completion",
-                    "order": 23
-                },
-                "aspLanguageSupport.highlightAspRegions": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "When true, ASP code regions are highlighted.",
-                    "order": 24
-                },
-                "aspLanguageSupport.bracketLightColor": {
-                    "type": "string",
-                    "default": "rgba(255, 100, 0, 0.2)",
-                    "description": "The color to highlight ASP region brackets `<% %>` when a light theme is selected.",
-                    "order": 25
-                },
-                "aspLanguageSupport.bracketDarkColor": {
-                    "type": "string",
-                    "default": "rgba(0, 100, 255, 0.2)",
-                    "description": "The color to highlight ASP region brackets `<% %>` when a dark theme is selected.",
-                    "order": 26
-                },
-                "aspLanguageSupport.codeBlockLightColor": {
-                    "type": "string",
-                    "default": "rgba(100, 100, 100, 0.1)",
-                    "description": "The color to highlight ASP region code blocks when a light theme is selected.",
-                    "order": 27
-                },
-                "aspLanguageSupport.codeBlockDarkColor": {
-                    "type": "string",
-                    "default": "rgba(220, 220, 220, 0.1)",
-                    "description": "The color to highlight ASP region code blocks when a dark theme is selected.",
-                    "order": 28
-                },
-                "aspLanguageSupport.enableSQLHighlighting": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Enable colorful SQL syntax highlighting inside double-quoted strings. Toggle using the 'ASP: Toggle SQL Syntax Highlighting' command or change this setting and reload the window.",
-                    "order": 29
-                },
-                "aspLanguageSupport.disableHtmlValidation": {
-                    "type": "boolean",
-                    "default": true,
-                    "markdownDescription": "When enabled, the extension sets `html.validate.scripts` to `false` globally to prevent HTML validation errors in ASP code (like `Response.Write(\"<script>\")` or VBScript's `<>` operator). **Note:** This affects ALL HTML files in VS Code, not just .asp files.",
-                    "order": 30
+        "configuration": [
+            {
+                "title": "ASP Formatting",
+                "properties": {
+                    "aspLanguageSupport.keywordCase": {
+                        "type": "string",
+                        "default": "PascalCase",
+                        "enum": [
+                            "lowercase",
+                            "UPPERCASE",
+                            "PascalCase"
+                        ],
+                        "enumDescriptions": [
+                            "if, then, end if, dim",
+                            "IF, THEN, END IF, DIM",
+                            "If, Then, End If, Dim"
+                        ],
+                        "description": "ASP/VBScript keyword formatting style"
+                    },
+                    "aspLanguageSupport.useTabs": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Use tabs instead of spaces for ASP code indentation"
+                    },
+                    "aspLanguageSupport.indentSize": {
+                        "type": "number",
+                        "default": 2,
+                        "enum": [
+                            2,
+                            4,
+                            8
+                        ],
+                        "description": "Number of spaces per indentation level for ASP code"
+                    },
+                    "aspLanguageSupport.tagsOnSameLine": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Keep <% and %> on same line as code (default: separate lines)"
+                    }
+                }
+            },
+            {
+                "title": "HTML, CSS & JavaScript Formatting",
+                "properties": {
+                    "aspLanguageSupport.prettier.printWidth": {
+                        "type": "number",
+                        "default": 80,
+                        "description": "Maximum line length (Prettier)"
+                    },
+                    "aspLanguageSupport.prettier.tabWidth": {
+                        "type": "number",
+                        "default": 2,
+                        "enum": [
+                            2,
+                            4,
+                            8
+                        ],
+                        "description": "Spaces per indentation level (Prettier)"
+                    },
+                    "aspLanguageSupport.prettier.useTabs": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Use tabs instead of spaces (Prettier)"
+                    },
+                    "aspLanguageSupport.prettier.bracketSameLine": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Put > of multi-line elements on last line (Prettier)"
+                    },
+                    "aspLanguageSupport.prettier.semi": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Add semicolons to JavaScript statements (Prettier)"
+                    },
+                    "aspLanguageSupport.prettier.singleQuote": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Use single quotes in JavaScript (Prettier)"
+                    },
+                    "aspLanguageSupport.prettier.arrowParens": {
+                        "type": "string",
+                        "default": "always",
+                        "enum": [
+                            "always",
+                            "avoid"
+                        ],
+                        "enumDescriptions": [
+                            "(x) => x",
+                            "x => x"
+                        ],
+                        "description": "Arrow function parameter parentheses (Prettier)"
+                    },
+                    "aspLanguageSupport.prettier.trailingComma": {
+                        "type": "string",
+                        "default": "es5",
+                        "enum": [
+                            "none",
+                            "es5",
+                            "all"
+                        ],
+                        "enumDescriptions": [
+                            "No trailing commas",
+                            "ES5-valid locations only",
+                            "Everywhere possible"
+                        ],
+                        "description": "Trailing comma style (Prettier)"
+                    },
+                    "aspLanguageSupport.prettier.endOfLine": {
+                        "type": "string",
+                        "default": "lf",
+                        "enum": [
+                            "lf",
+                            "crlf",
+                            "cr",
+                            "auto"
+                        ],
+                        "enumDescriptions": [
+                            "\\n (Linux/macOS)",
+                            "\\r\\n (Windows)",
+                            "\\r (rare)",
+                            "Keep existing"
+                        ],
+                        "description": "Line ending style (Prettier)"
+                    },
+                    "aspLanguageSupport.prettier.htmlWhitespaceSensitivity": {
+                        "type": "string",
+                        "default": "css",
+                        "enum": [
+                            "css",
+                            "strict",
+                            "ignore"
+                        ],
+                        "enumDescriptions": [
+                            "Respect CSS display property",
+                            "Whitespace significant",
+                            "Whitespace insignificant"
+                        ],
+                        "description": "HTML whitespace handling (Prettier)"
+                    }
+                }
+            },
+            {
+                "title": "Syntax Highlighting",
+                "properties": {
+                    "aspLanguageSupport.enableSqlInStrings": {
+                        "type": "boolean",
+                        "default": true,
+                        "markdownDescription": "Enable SQL syntax highlighting inside double-quoted strings. Toggle with `ASP: Toggle SQL Syntax Highlighting` command (requires reload)."
+                    },
+                    "aspLanguageSupport.enableAspRegions": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Highlight ASP code regions with background colors"
+                    },
+                    "aspLanguageSupport.bracketLightColor": {
+                        "type": "string",
+                        "default": "rgba(255, 100, 0, 0.2)",
+                        "description": "ASP bracket <% %> color (light theme)"
+                    },
+                    "aspLanguageSupport.bracketDarkColor": {
+                        "type": "string",
+                        "default": "rgba(0, 100, 255, 0.2)",
+                        "description": "ASP bracket <% %> color (dark theme)"
+                    },
+                    "aspLanguageSupport.codeBlockLightColor": {
+                        "type": "string",
+                        "default": "rgba(100, 100, 100, 0.1)",
+                        "description": "ASP code block background (light theme)"
+                    },
+                    "aspLanguageSupport.codeBlockDarkColor": {
+                        "type": "string",
+                        "default": "rgba(220, 220, 220, 0.1)",
+                        "description": "ASP code block background (dark theme)"
+                    }
+                }
+            },
+            {
+                "title": "Validation & Diagnostics",
+                "properties": {
+                    "aspLanguageSupport.disableHtml": {
+                        "type": "boolean",
+                        "default": true,
+                        "markdownDescription": "Disable HTML validation errors globally to prevent false errors from ASP code like `Response.Write(\"<script>\")` or VBScript's `<>` operator. **Note:** Affects all HTML files, not just .asp. CSS and JavaScript validation remain active."
+                    }
+                }
+            },
+            {
+                "title": "IntelliSense & Completion",
+                "properties": {
+                    "aspLanguageSupport.enableAspCompletion": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Enable ASP object and VBScript keyword auto-completion"
+                    }
                 }
             }
-        },
+        ],
         "commands": [
             {
                 "command": "asp.toggleSQLHighlighting",
