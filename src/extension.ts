@@ -37,9 +37,18 @@ export function activate(context: vscode.ExtensionContext) {
     const extensionPath = context.extensionPath;
     const config = vscode.workspace.getConfiguration('aspLanguageSupport');
     const enableSQL = config.get<boolean>('enableSQLHighlighting', true);
+    const disableHtmlValidation = config.get<boolean>('disableHtmlValidation', true);
 
     // Update grammar file for syntax highlighting
     updateGrammarFile(extensionPath, enableSQL);
+
+    // Apply HTML validation setting
+    if (disableHtmlValidation) {
+        const htmlConfig = vscode.workspace.getConfiguration('html');
+        htmlConfig.update('validate.scripts', false, vscode.ConfigurationTarget.Global).then(() => {
+            console.log('✅ HTML script validation disabled (ASP-friendly mode)');
+        });
+    }
 
     // Add ASP region highlighting (colored backgrounds for <% %>)
     try {
@@ -116,6 +125,17 @@ export function activate(context: vscode.ExtensionContext) {
                 if (selection === 'Reload Window') {
                     vscode.commands.executeCommand('workbench.action.reloadWindow');
                 }
+            });
+        }
+
+        if (e.affectsConfiguration('aspLanguageSupport.disableHtmlValidation')) {
+            const aspConfig = vscode.workspace.getConfiguration('aspLanguageSupport');
+            const disableValidation = aspConfig.get<boolean>('disableHtmlValidation', true);
+            const htmlConfig = vscode.workspace.getConfiguration('html');
+
+            // Update the html.validate.scripts setting
+            htmlConfig.update('validate.scripts', !disableValidation, vscode.ConfigurationTarget.Global).then(() => {
+                console.log(`✅ HTML script validation ${disableValidation ? 'disabled' : 'enabled'}`);
             });
         }
     });
