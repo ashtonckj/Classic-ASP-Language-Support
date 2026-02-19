@@ -76,6 +76,13 @@
                 "path": "./snippets/asp.json"
             }
         ],
+        "keybindings": [
+            {
+                "key": "enter",
+                "command": "asp.handleEnterKey",
+                "when": "editorTextFocus && resourceExtname == .asp && !suggestWidgetVisible && !inSnippetMode"
+            }
+        ],
         "configurationDefaults": {
             "[html]": {
                 "editor.quickSuggestions": {
