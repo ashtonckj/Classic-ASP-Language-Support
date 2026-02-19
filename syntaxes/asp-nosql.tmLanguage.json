@@ -265,6 +265,11 @@
                 {
                     "name": "keyword.operator.asp",
                     "match": "=|>=|<=|<>|<|>|\\+|-|\\*|/|\\\\|\\^|&|(?i)\\b(Mod)\\b"
+                },
+                {
+                    "comment": "Parentheses and square brackets — gives them bracket-pair colours in VBScript",
+                    "name": "punctuation.bracket.asp",
+                    "match": "[()\\[\\]]"
                 }
             ]
         },

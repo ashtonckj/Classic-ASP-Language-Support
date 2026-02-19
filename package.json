@@ -64,8 +64,9 @@
                 ],
                 "injectionSelector": "L:text.html.derivative, L:text.html.basic",
                 "embeddedLanguages": {
-                    "meta.embedded.block.asp": "vbscript",
-                    "source.asp": "vbscript"
+                    "meta.embedded.block.asp": "asp",
+                    "meta.embedded.expression.asp": "asp",
+                    "source.asp": "asp"
                 }
             }
         ],
