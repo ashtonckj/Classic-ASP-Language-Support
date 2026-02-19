@@ -27,5 +27,41 @@
         ["'", "'"],
         ["`", "`"]
     ],
-    "wordPattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/?\\s]+)"
+    "wordPattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/?\\s]+)",
+    "indentationRules": {
+        "increaseIndentPattern": "(?i)^\\s*(If\\b.*\\bThen\\s*$|ElseIf\\b.*\\bThen\\s*$|Else\\s*$|For\\b.*\\bTo\\b.*$|For\\s+Each\\b.*\\bIn\\b.*$|Do\\s*$|Do\\s+(While|Until)\\b.*$|While\\b.*$|Select\\s+Case\\b.*$|Case\\b.*$|Sub\\s+\\w.*$|Function\\s+\\w.*$|Class\\s+\\w.*$|With\\s+\\w.*$|Property\\s+(Get|Let|Set)\\b.*$)",
+        "decreaseIndentPattern": "(?i)^\\s*(End\\s+(If|Sub|Function|Select|With|Class|Property)|Next\\b|Loop\\b|Wend\\b|ElseIf\\b|Else\\s*$|Case\\b)"
+    },
+    "onEnterRules": [
+        {
+            "beforeText": "(?i)^\\s*(?:If\\s+.+\\s+Then|ElseIf\\s+.+\\s+Then|Else|For\\s.+To.+|For\\s+Each\\s.+In.+|Do|Do\\s+(?:While|Until).+|While\\s+.+|Select\\s+Case\\s+.+|Sub\\s+\\w[^']*|Function\\s+\\w[^']*|Class\\s+\\w[^']*|With\\s+\\S+|Property\\s+(?:Get|Let|Set)\\s+\\w[^']*)\\s*$",
+            "action": {
+                "indent": "indent"
+            }
+        },
+        {
+            "beforeText": "(?i)^\\s*(?:Case\\s+.+)\\s*$",
+            "action": {
+                "indent": "indent"
+            }
+        },
+        {
+            "beforeText": "(?i)^\\s*(?:End\\s+If|End\\s+Sub|End\\s+Function|End\\s+Select|End\\s+With|End\\s+Class|End\\s+Property|Next|Loop|Wend)\\s*$",
+            "action": {
+                "indent": "outdent"
+            }
+        },
+        {
+            "beforeText": "(?i)^\\s*(?:Else|ElseIf\\s+.+\\s+Then)\\s*$",
+            "action": {
+                "indent": "indentOutdent"
+            }
+        },
+        {
+            "beforeText": "(?i)^\\s*(?:Case\\s+(?!Else).+|Case\\s+Else)\\s*$",
+            "action": {
+                "indent": "indentOutdent"
+            }
+        }
+    ]
 }

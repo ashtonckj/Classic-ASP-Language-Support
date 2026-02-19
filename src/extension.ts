@@ -58,8 +58,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     const extensionPath = context.extensionPath;
     const config = vscode.workspace.getConfiguration('aspLanguageSupport');
-    const enableSQL = config.get<boolean>('enableSQLHighlighting', true);
-    const disableHtmlValidation = config.get<boolean>('disableHtmlValidation', true);
+    const enableSQL = config.get<boolean>('enableSqlInStrings', true);
+    const disableHtmlValidation = config.get<boolean>('disableHtml', true);
 
     // Update grammar file for syntax highlighting
     updateGrammarFile(extensionPath, enableSQL);
@@ -135,9 +135,9 @@ export function activate(context: vscode.ExtensionContext) {
     // Register command to toggle SQL highlighting
     const toggleCommand = vscode.commands.registerCommand('asp.toggleSQLHighlighting', async () => {
         const config = vscode.workspace.getConfiguration('aspLanguageSupport');
-        const currentValue = config.get<boolean>('enableSQLHighlighting', true);
+        const currentValue = config.get<boolean>('enableSqlInStrings', true);
 
-        await config.update('enableSQLHighlighting', !currentValue, vscode.ConfigurationTarget.Global);
+        await config.update('enableSqlInStrings', !currentValue, vscode.ConfigurationTarget.Global);
         updateGrammarFile(extensionPath, !currentValue);
 
         const action = await vscode.window.showInformationMessage(
@@ -154,9 +154,9 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Watch for setting changes
     const configWatcher = vscode.workspace.onDidChangeConfiguration(e => {
-        if (e.affectsConfiguration('aspLanguageSupport.enableSQLHighlighting')) {
+        if (e.affectsConfiguration('aspLanguageSupport.enableSqlInStrings')) {
             const config = vscode.workspace.getConfiguration('aspLanguageSupport');
-            const enableSQL = config.get<boolean>('enableSQLHighlighting', true);
+            const enableSQL = config.get<boolean>('enableSqlInStrings', true);
 
             updateGrammarFile(extensionPath, enableSQL);
 
@@ -171,9 +171,9 @@ export function activate(context: vscode.ExtensionContext) {
             });
         }
 
-        if (e.affectsConfiguration('aspLanguageSupport.disableHtmlValidation')) {
+        if (e.affectsConfiguration('aspLanguageSupport.disableHtml')) {
             const aspConfig = vscode.workspace.getConfiguration('aspLanguageSupport');
-            const disableValidation = aspConfig.get<boolean>('disableHtmlValidation', true);
+            const disableValidation = aspConfig.get<boolean>('disableHtml', true);
             const htmlConfig = vscode.workspace.getConfiguration('html');
 
             htmlConfig.update('validate.scripts', !disableValidation, vscode.ConfigurationTarget.Global).then(() => {

@@ -33,7 +33,7 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
         const config = vscode.workspace.getConfiguration('aspLanguageSupport');
-        if (!config.get<boolean>('enableASPCompletion', true)) {
+        if (!config.get<boolean>('enableAspCompletion', true)) {
             return [];
         }
 
@@ -51,16 +51,23 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
             if (objectMatch) {
                 const objectName = objectMatch[1];
                 console.log(`✅ Detected "${objectName}." - returning ONLY methods`);
-                // Return ONLY methods, not the full list
                 return this.provideMethodCompletions(objectName);
             }
+        }
+
+        // Don't provide completions if the line is a complete End-block statement.
+        // This prevents Enter from accidentally committing a snippet after typing e.g. "End If".
+        const trimmedBefore = textBefore.trim();
+        const isCompleteEndStatement = /^(?:End\s+If|End\s+Sub|End\s+Function|End\s+Select|End\s+With|End\s+Class|End\s+Property|Next|Loop|Wend)$/i.test(trimmedBefore);
+        if (isCompleteEndStatement) {
+            return [];
         }
 
         // Otherwise, provide all ASP completions
         const completions: vscode.CompletionItem[] = [];
 
-        // Don't show "If" snippet if "End" is right before cursor
-        const isAfterEnd = /\bend\s+i?f?$/i.test(textBefore.trim());
+        // Detect if "End" is right before cursor (partial end statement like "End I")
+        const isAfterEnd = /\bend\s+i?f?$/i.test(trimmedBefore);
 
         // Provide ASP objects, keywords, and functions
         completions.push(...this.provideAspObjectCompletions());
@@ -165,7 +172,6 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
 
             // Don't show control structure snippets if after "End"
             if (isAfterEnd && (kw.keyword === 'If' || kw.keyword === 'Sub' || kw.keyword === 'Function' || kw.keyword === 'Select Case')) {
-                // Just insert the keyword, no snippet
                 item.sortText = '1_' + kw.keyword;
                 return item;
             }

@@ -21,7 +21,7 @@
     "repository": {
         "asp-code-block": {
             "name": "meta.embedded.block.asp",
-            "begin": "\\s*<%(?!=)",
+            "begin": "<%(?!=)",
             "end": "%>",
             "beginCaptures": {
                 "0": {
@@ -42,7 +42,7 @@
         },
         "asp-output-block": {
             "name": "meta.embedded.expression.asp",
-            "begin": "\\s*<%=",
+            "begin": "<%=",
             "end": "%>",
             "beginCaptures": {
                 "0": {
