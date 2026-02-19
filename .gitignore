@@ -6,4 +6,5 @@ node_modules/
 out/
 
 # VSIX package
+releases/
 *.vsix
