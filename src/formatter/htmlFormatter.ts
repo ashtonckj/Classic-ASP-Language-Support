@@ -114,31 +114,24 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
     const formattedBlocks: string[] = new Array(aspBlocks.length);
 
-    // Format single-line blocks individually (but not inline ones)
-    for (const i of singleLineBlocks) {
-        if (aspBlocks[i].isInline) {
-            // Don't format inline blocks - keep them as-is
-            formattedBlocks[i] = aspBlocks[i].code;
-        } else {
-            formattedBlocks[i] = formatSingleAspBlock(aspBlocks[i].code, aspSettings, '', false);
-        }
-    }
+    // Thread indent level across consecutive non-inline ASP blocks so that
+    // If/Else/End If split across multiple <% %> blocks indent correctly.
+    // We process blocks in document order (by index = insertion order).
+    let runningIndentLevel = 0;
 
-    // Format multi-line blocks with context if they exist (skip inline ones)
-    const multiLineNonInlineBlocks = multiLineBlocks.filter(i => !aspBlocks[i].isInline);
+    for (let i = 0; i < aspBlocks.length; i++) {
+        const block = aspBlocks[i];
 
-    if (multiLineNonInlineBlocks.length > 0) {
-        // Format each multi-line block individually
-        for (const i of multiLineNonInlineBlocks) {
-            formattedBlocks[i] = formatSingleAspBlock(aspBlocks[i].code, aspSettings, '', false);
+        if (block.isInline) {
+            // Inline blocks (inside HTML tags) don't affect VBScript indent state
+            formattedBlocks[i] = block.code;
+            continue;
         }
-    }
 
-    // Handle inline multi-line blocks (shouldn't happen often, but just in case)
-    for (const i of multiLineBlocks) {
-        if (aspBlocks[i].isInline && !formattedBlocks[i]) {
-            formattedBlocks[i] = aspBlocks[i].code;
-        }
+        const result = formatSingleAspBlock(block.code, aspSettings, '', runningIndentLevel);
+        formattedBlocks[i] = result.code;
+        // Carry the ending indent level into the next block
+        runningIndentLevel = result.endIndentLevel;
     }
 
     // Step 4: Restore each formatted block

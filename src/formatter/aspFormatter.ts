@@ -20,7 +20,7 @@ export function getAspSettings(): AspFormatterSettings {
 }
 
 // Format a single ASP block (either <% ... %> or <%= ... %>)
-export function formatSingleAspBlock(block: string, settings: AspFormatterSettings, htmlIndent: string = '', continuesFromPrevious: boolean = false): string {
+export function formatSingleAspBlock(block: string, settings: AspFormatterSettings, htmlIndent: string = '', startIndentLevel: number = 0): { code: string; endIndentLevel: number } {
     // Check if it's an inline expression <%= %>
     const trimmedBlock = block.trim();
     if (trimmedBlock.startsWith('<%=') || trimmedBlock.startsWith('<% =')) {
@@ -33,32 +33,27 @@ export function formatSingleAspBlock(block: string, settings: AspFormatterSettin
             content = trimmedBlock.substring(4, trimmedBlock.length - 2).trim();
         }
         const formattedContent = applyKeywordCase(content, settings.keywordCase);
-        return htmlIndent + '<%= ' + formattedContent + ' %>';
+        return { code: htmlIndent + '<%= ' + formattedContent + ' %>', endIndentLevel: startIndentLevel };
     }
 
     // Check if it's a single-line block
+    // Single-line blocks always stay on one line — the aspTagsOnSameLine setting
+    // only controls how multi-line blocks are opened/closed, not single-liners.
     if (!block.includes('\n')) {
         const content = block.substring(2, block.length - 2).trim();
         const formattedContent = applyKeywordCase(content, settings.keywordCase);
-
-        // Apply the aspTagsOnSameLine setting
-        if (settings.aspTagsOnSameLine) {
-            return htmlIndent + '<% ' + formattedContent + ' %>';
-        } else {
-            // Tags on separate lines
-            return htmlIndent + '<%\n' + htmlIndent + getIndentString(1, settings.useTabs, settings.indentSize) + formattedContent + '\n' + htmlIndent + '%>';
-        }
+        return { code: htmlIndent + '<% ' + formattedContent + ' %>', endIndentLevel: startIndentLevel };
     }
 
     // Multi-line block: format with indentation
-    return formatMultiLineAspBlock(block, settings, htmlIndent, continuesFromPrevious);
+    return formatMultiLineAspBlock(block, settings, htmlIndent, startIndentLevel);
 }
 
 // Format multi-line ASP block
-function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, htmlIndent: string = '', continuesFromPrevious: boolean = false): string {
+function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, htmlIndent: string = '', startIndentLevel: number = 0): { code: string; endIndentLevel: number } {
     const lines = block.split('\n');
     const formattedLines: string[] = [];
-    let aspIndentLevel = 0;
+    let aspIndentLevel = startIndentLevel;
     let previousLineHadContinuation = false;
     let continuationAlignColumn = 0;
     let inMultilineString = false;
@@ -82,9 +77,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
             if (content) {
                 const indentChange = getIndentChange(content);
 
-                if (continuesFromPrevious && i === 0 && /^(else|elseif|end\s+if|loop|wend|next)/i.test(content)) {
-                    aspIndentLevel = Math.max(0, aspIndentLevel);
-                } else if (indentChange.before < 0) {
+                if (indentChange.before < 0) {
                     aspIndentLevel = Math.max(0, aspIndentLevel + indentChange.before);
                 }
 
@@ -253,9 +246,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
 
             const indentChange = getIndentChange(trimmedLine);
 
-            if (continuesFromPrevious && i === 0 && /^(else|elseif|end\s+if|loop|wend|next)/i.test(trimmedLine)) {
-                aspIndentLevel = Math.max(0, aspIndentLevel);
-            } else if (indentChange.before < 0) {
+            if (indentChange.before < 0) {
                 aspIndentLevel = Math.max(0, aspIndentLevel + indentChange.before);
             }
 
@@ -296,7 +287,24 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
         }
     }
 
-    return formattedLines.join('\n');
+    // Collapse runs of more than one consecutive blank line down to a single blank line,
+    // matching how Prettier handles extra whitespace in HTML/JS blocks.
+    const collapsed: string[] = [];
+    let blankCount = 0;
+    for (const line of formattedLines) {
+        if (line.trim() === '') {
+            blankCount++;
+            if (blankCount <= 1) {
+                collapsed.push(line);
+            }
+            // skip any blank beyond the first in a run
+        } else {
+            blankCount = 0;
+            collapsed.push(line);
+        }
+    }
+
+    return { code: collapsed.join('\n'), endIndentLevel: aspIndentLevel };
 }
 
 // Calculate where the next line should align for line continuation
