@@ -58,29 +58,7 @@
 
 ### 🌈 Syntax Highlighting
 <!-- PLACEHOLDER: Add GIF showing syntax highlighting for ASP regions and SQL -->
-<!-- ![Syntax Highlighting Demo](images/syntax-demo.gif) -->
-<details>
-<summary>📝 <b>What you'll see in this demo</b></summary>
-
-- ASP region highlighting with customisable background colours
-- SQL syntax colouring inside VBScript strings
-- Theme compatibility (light and dark modes)
-</details>
-
-<br>
-
-### 📋 Snippets Quick Insert
-<!-- PLACEHOLDER: Add GIF showing snippet usage -->
-<!-- ![Snippets Demo](images/snippets-demo.gif) -->
-<details>
-<summary>📝 <b>What you'll see in this demo</b></summary>
-
-- Quick insertion of common ASP patterns
-- Database connection templates
-- Loop and conditional structures
-</details>
-
-<br>
+<img src="images/sql.gif" width="600">
 
 ### ⚙️ Multi-Block Formatting
 <!-- PLACEHOLDER: Add GIF showing complex multi-block ASP formatting -->
