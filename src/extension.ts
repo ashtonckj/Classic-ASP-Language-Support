@@ -123,6 +123,35 @@ export function activate(context: vscode.ExtensionContext) {
     });
     console.log('✅ Formatter registered');
 
+    // Apply VBScript indent/dedent rules to the 'html' language so they work in .asp files.
+    // language-configuration.json is only read for the 'asp' language ID, but since .asp files
+    // are associated as 'html', we must set these rules programmatically at runtime.
+    vscode.languages.setLanguageConfiguration('html', {
+        indentationRules: {
+            increaseIndentPattern: /^\s*(?:If\b.*\bThen|ElseIf\b.*\bThen|Else|For\b.*\bTo\b.*|For\s+Each\b.*\bIn\b.*|Do|Do\s+(?:While|Until)\b.*|While\b.*|Select\s+Case\b.*|Case\b.*|Sub\s+\w.*|Function\s+\w.*|Class\s+\w.*|With\s+\w.*|Property\s+(?:Get|Let|Set)\b.*)\s*$/i,
+            decreaseIndentPattern: /^\s*(?:End\s+(?:If|Sub|Function|Select|With|Class|Property)|Next|Loop|Wend|ElseIf\b|Else|Case\b)\s*$/i
+        },
+        onEnterRules: [
+            {
+                beforeText: /^\s*(?:If\s+.+\s+Then|ElseIf\s+.+\s+Then|Else|For\s.+To.+|For\s+Each\s.+In.+|Do|Do\s+(?:While|Until).+|While\s+.+|Select\s+Case\s+.+|Sub\s+\w[^']*|Function\s+\w[^']*|Class\s+\w[^']*|With\s+\S+|Property\s+(?:Get|Let|Set)\s+\w[^']*)\s*$/i,
+                action: { indentAction: vscode.IndentAction.Indent }
+            },
+            {
+                beforeText: /^\s*(?:End\s+(?:If|Sub|Function|Select|With|Class|Property)|Next|Loop|Wend)\s*$/i,
+                action: { indentAction: vscode.IndentAction.None }
+            },
+            {
+                beforeText: /^\s*(?:Else|ElseIf\s+.+\s+Then)\s*$/i,
+                action: { indentAction: vscode.IndentAction.IndentOutdent }
+            },
+            {
+                beforeText: /^\s*(?:Case\s+(?!Else).+|Case\s+Else)\s*$/i,
+                action: { indentAction: vscode.IndentAction.IndentOutdent }
+            }
+        ]
+    });
+    console.log('✅ VBScript indent rules applied to html language');
+
     // Register ASP completion provider for BOTH 'asp' AND 'html' languages
     const aspCompletionProvider = vscode.languages.registerCompletionItemProvider(
         ['asp', 'html'],
