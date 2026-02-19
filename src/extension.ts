@@ -156,8 +156,7 @@ export function activate(context: vscode.ExtensionContext) {
     const aspCompletionProvider = vscode.languages.registerCompletionItemProvider(
         ['asp', 'html'],
         new AspCompletionProvider(),
-        '.',  // Trigger on dot
-        ' '   // Trigger on space
+        '.'   // Trigger on dot only (space removed — caused completions to fire inside strings)
     );
     console.log('✅ ASP Completion Provider registered for: asp, html');
 

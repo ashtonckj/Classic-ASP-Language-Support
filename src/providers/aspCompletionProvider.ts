@@ -23,6 +23,25 @@ function getTextBeforeCursor(document: vscode.TextDocument, position: vscode.Pos
     return lineText.substring(0, position.character);
 }
 
+/**
+ * Check if cursor is currently inside a VBScript string (between unescaped double quotes).
+ * VBScript strings use "" as an escaped quote inside a string.
+ */
+function isInsideString(textBeforeCursor: string): boolean {
+    let inString = false;
+    for (let i = 0; i < textBeforeCursor.length; i++) {
+        if (textBeforeCursor[i] === '"') {
+            // Check for escaped double-quote ("") — skip both characters
+            if (inString && i + 1 < textBeforeCursor.length && textBeforeCursor[i + 1] === '"') {
+                i++; // skip the second quote
+                continue;
+            }
+            inString = !inString;
+        }
+    }
+    return inString;
+}
+
 // Keywords that only appear mid-expression and should NOT be standalone completions
 const SKIP_KEYWORDS = new Set(['Then', 'To', 'In', 'Step', 'Wend', 'Loop']);
 
@@ -47,6 +66,11 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
 
         const textBefore = getTextBeforeCursor(document, position);
         const trimmedBefore = textBefore.trim();
+
+        // Don't provide completions inside strings — e.g. stmt="|" should show nothing
+        if (isInsideString(textBefore)) {
+            return [];
+        }
 
         // Check if we're accessing a method (e.g., "Response.")
         if (textBefore.match(/\b(Response|Request|Server|Session|Application)\.\s*$/i)) {
