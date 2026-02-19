@@ -44,32 +44,23 @@
 ## 📸 See It In Action
 
 ### 🎨 Formatting Before & After
-<!-- PLACEHOLDER: Add GIF showing messy ASP code being formatted -->
-<!-- ![Formatting Demo](images/formatting-demo.gif) -->
-<details>
-<summary>📝 <b>What you'll see in this demo</b></summary>
-
-- Unformatted ASP code with inconsistent indentation
-- One-click formatting with `Alt + Shift + F`
-- Clean, properly indented VBScript, HTML, and inline ASP
-</details>
-
 <br>
+<img src="images/format.gif" height="600">
 
 ### 🌈 Syntax Highlighting
-<!-- PLACEHOLDER: Add GIF showing syntax highlighting for ASP regions and SQL -->
 <img src="images/sql.gif" width="600">
 
+<!-- Add GIF showing complex multi-block ASP formatting -->
+<!--
 ### ⚙️ Multi-Block Formatting
-<!-- PLACEHOLDER: Add GIF showing complex multi-block ASP formatting -->
-<!-- ![Multi-Block Demo](images/multiblock-demo.gif) -->
 <details>
-<summary>📝 <b>What you'll see in this demo</b></summary>
+<summary>📝 <b>Open Me For A Gif</b></summary>
 
 - If/Else/Loop structures spanning multiple `<% %>` blocks
 - Inline ASP expressions in HTML attributes
 - Complex mixed HTML/ASP structures
 </details>
+-->
 
 ---
 
@@ -102,38 +93,6 @@
 - ✅ **Automatic operator spacing**: Proper spacing around `=`, `+`, `&`, etc.
 - ✅ **Multi-block support**: Handles structures that span across multiple `<% %>` blocks
 - ✅ **Inline ASP support**: Formats ASP expressions in HTML attributes
-
-**Example:**
-```asp
-<!-- Before -->
-<!DOCTYPE html><html><body>
-<div><h1>Welcome <%=username%>!</h1>
-<%
-dim age
-age=request.form("age")
-if age>=18 then
-response.write("adult")
-end if
-%>
-</div></body></html>
-
-<!-- After -->
-<!DOCTYPE html>
-<html>
-  <body>
-    <div>
-      <h1>Welcome <%= username %>!</h1>
-      <%
-      Dim age
-      age = Request.Form("age")
-      If age >= 18 Then
-        Response.Write("adult")
-      End If
-      %>
-    </div>
-  </body>
-</html>
-```
 </details>
 
 <details>
