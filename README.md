@@ -86,7 +86,7 @@
 <details open>
 <summary><strong>🎨 Multi-Language Formatting</strong></summary>
 
-- ✅ **VBScript**: Smart indentation for all control structures (If/For/While/Select Case/Sub/Function)
+- ✅ **VBScript**: Smart indentation for all control structures
 - ✅ **HTML/CSS/JavaScript**: Professional formatting powered by Prettier
 - ✅ **SQL**: Proper indentation for SQL queries inside ASP strings
 - ✅ **Customisable keyword casing**: Choose lowercase, UPPERCASE, or PascalCase
@@ -98,18 +98,17 @@
 <details>
 <summary><strong>💡 IntelliSense & Auto-Completion</strong></summary>
 
-- ✅ **HTML**: Tag and attribute suggestions with smart auto-closing
-- ✅ **CSS**: Property completion inside `<style>` tags
-- ✅ **JavaScript**: Keyword and object completion inside `<script>` tags
-- ✅ **ASP/VBScript**: Response, Request, Server, Session, Application objects and VBScript keywords
+- **Full native HTML IntelliSense** from VS Code - Complete tag, attribute, and structure support
+- **Full native CSS IntelliSense** from VS Code - Complete property suggestions and validation
+- **Full native JavaScript IntelliSense** from VS Code - Complete keyword, method, and API support
+- **Enhanced VBScript support** - Improved variable suggestions and keyword prioritisation for ASP objects (Response, Request, Server, Session, Application)
 </details>
 
 <details>
 <summary><strong>📝 Snippets</strong></summary>
 
-- ✅ Pre-built snippets for HTML, ASP, and JavaScript patterns
+- ✅ Pre-built snippets for ASP patterns
 - ✅ Quick insertion for common structures (loops, conditionals, database connections)
-- ✅ Customisable templates for your workflow
 </details>
 
 <details>
@@ -133,26 +132,27 @@ Access settings via `File → Preferences → Settings` and search for "Classic 
 
 | Setting | Default | Options | Description |
 |---------|---------|---------|-------------|
-| `aspLanguageSupport.keywordCase` | `PascalCase` | `lowercase`, `UPPERCASE`, `PascalCase` | VBScript keyword formatting style |
-| `aspLanguageSupport.useTabs` | `false` | `true`, `false` | Use tabs instead of spaces for ASP code |
-| `aspLanguageSupport.indentSize` | `2` | `2`, `4`, `8` | Number of spaces per indent level for ASP code |
+| `aspLanguageSupport.keywordCase` | `PascalCase` | `lowercase`, `UPPERCASE`, `PascalCase` | ASP/VBScript keyword formatting style |
+| `aspLanguageSupport.useTabs` | `false` | `true`, `false` | Use tabs instead of spaces for ASP code indentation |
+| `aspLanguageSupport.indentSize` | `2` | `2`, `4`, `8` | Number of spaces per indentation level for ASP code |
+| `aspLanguageSupport.tagsOnSameLine` | `false` | `true`, `false` | Keep `<% %>` on same line as code (default: separate lines) |
 </details>
 
 <details>
 <summary><strong>🎨 Prettier Settings (HTML/CSS/JS)</strong></summary>
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `aspLanguageSupport.prettier.printWidth` | `80` | Maximum line length |
-| `aspLanguageSupport.prettier.tabWidth` | `2` | Spaces per indentation level |
-| `aspLanguageSupport.prettier.useTabs` | `false` | Use tabs instead of spaces |
-| `aspLanguageSupport.prettier.bracketSameLine` | `true` | Put `>` of multi-line HTML elements on last line |
-| `aspLanguageSupport.prettier.semi` | `true` | Add semicolons at end of JavaScript statements |
-| `aspLanguageSupport.prettier.singleQuote` | `false` | Use single quotes instead of double quotes in JavaScript |
-| `aspLanguageSupport.prettier.arrowParens` | `always` | Include parentheses around arrow function parameters |
-| `aspLanguageSupport.prettier.trailingComma` | `es5` | Print trailing commas where valid in ES5 |
-| `aspLanguageSupport.prettier.endOfLine` | `lf` | Line ending style |
-| `aspLanguageSupport.prettier.htmlWhitespaceSensitivity` | `css` | How to handle whitespace in HTML |
+| Setting | Default | Options | Description |
+|---------|---------|---------|-------------|
+| `aspLanguageSupport.prettier.printWidth` | `80` | number | Maximum line length (Prettier) |
+| `aspLanguageSupport.prettier.tabWidth` | `2` | `2`, `4`, `8` | Spaces per indentation level (Prettier) |
+| `aspLanguageSupport.prettier.useTabs` | `false` | `true`, `false` | Use tabs instead of spaces (Prettier) |
+| `aspLanguageSupport.prettier.bracketSameLine` | `true` | `true`, `false` | Put `>` of multi-line elements on last line (Prettier) |
+| `aspLanguageSupport.prettier.semi` | `true` | `true`, `false` | Add semicolons to JavaScript statements (Prettier) |
+| `aspLanguageSupport.prettier.singleQuote` | `false` | `true`, `false` | Use single quotes in JavaScript (Prettier) |
+| `aspLanguageSupport.prettier.arrowParens` | `always` | `always`, `avoid` | Arrow function parameter parentheses (Prettier) |
+| `aspLanguageSupport.prettier.trailingComma` | `es5` | `none`, `es5`, `all` | Trailing comma style (Prettier) |
+| `aspLanguageSupport.prettier.endOfLine` | `lf` | `lf`, `crlf`, `cr`, `auto` | Line ending style (Prettier) |
+| `aspLanguageSupport.prettier.htmlWhitespaceSensitivity` | `css` | `css`, `strict`, `ignore` | HTML whitespace handling (Prettier) |
 </details>
 
 <details>
@@ -160,27 +160,40 @@ Access settings via `File → Preferences → Settings` and search for "Classic 
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `aspLanguageSupport.enableHTMLCompletion` | `true` | Enable HTML tag and attribute auto-completion |
-| `aspLanguageSupport.enableCSSCompletion` | `true` | Enable CSS property auto-completion |
-| `aspLanguageSupport.enableJSCompletion` | `true` | Enable JavaScript auto-completion |
-| `aspLanguageSupport.enableASPCompletion` | `true` | Enable ASP object and VBScript keyword auto-completion |
-| `aspLanguageSupport.highlightAspRegions` | `true` | Highlight ASP code regions with background colours |
-| `aspLanguageSupport.bracketLightColor` | `rgba(255, 100, 0, .2)` | ASP bracket colour for light themes |
-| `aspLanguageSupport.bracketDarkColor` | `rgba(0, 100, 255, .2)` | ASP bracket colour for dark themes |
-| `aspLanguageSupport.codeBlockLightColor` | `rgba(100,100,100,0.1)` | ASP code block colour for light themes |
-| `aspLanguageSupport.codeBlockDarkColor` | `rgba(220,220,220,0.1)` | ASP code block colour for dark themes |
-| `aspLanguageSupport.enableSQLHighlighting` | `true` | Enable/disable SQL syntax colouring in VBScript strings |
+| `aspLanguageSupport.enableSqlInStrings` | `true` | Enable SQL syntax highlighting inside double-quoted strings (requires reload) |
+| `aspLanguageSupport.enableAspRegions` | `true` | Highlight ASP code regions with background colours |
+| `aspLanguageSupport.bracketLightColor` | `rgba(255, 100, 0, 0.2)` | ASP bracket `<% %>` colour (light theme) |
+| `aspLanguageSupport.bracketDarkColor` | `rgba(0, 100, 255, 0.2)` | ASP bracket `<% %>` colour (dark theme) |
+| `aspLanguageSupport.codeBlockLightColor` | `rgba(100, 100, 100, 0.1)` | ASP code block background (light theme) |
+| `aspLanguageSupport.codeBlockDarkColor` | `rgba(220, 220, 220, 0.1)` | ASP code block background (dark theme) |
+
+> **Tip:** Toggle SQL highlighting quickly with the command `ASP: Toggle SQL Syntax Highlighting in Strings`.
+</details>
+
+<details>
+<summary><strong>🖥️ Validation & Diagnostics</strong></summary>
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `aspLanguageSupport.disableHtml` | `true` | Disable HTML validation errors to prevent false errors from ASP code (e.g., `Response.Write("<script>")` or VBScript's `<>` operator). **Note:** Affects all HTML files globally, not just .asp files. |
+</details>
+
+<details>
+<summary><strong>💡 IntelliSense & Completion</strong></summary>
+    
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `aspLanguageSupport.enableAspCompletion` | `true` | Enable ASP object and VBScript keyword auto-completion |
 </details>
 
 ---
 
 ## 📋 Known Limitations
 
-> **Note:** These are edge cases that may require manual adjustment
-
 - ASP blocks must be properly closed (`<% ... %>`)
 - Complex mixed HTML/ASP structures may require manual adjustment
 - Prettier settings only apply to HTML/CSS/JS, not VBScript
+- **JavaScript validation**: `html.javascript.validate` is automatically set to `false` to prevent errors when `<script>` tags appear inside ASP code (e.g., `Response.Write("<script></script>")`). This is a temporary workaround while a proper fix is being investigated.
 
 ---
 
