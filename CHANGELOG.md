@@ -5,7 +5,29 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.5] - 2025-02-02
+## [1.0.0] - 2026-02-19
+
+### 🎉 Major Release
+
+This version introduces a significant architectural change that unlocks full native HTML, CSS, and JavaScript support from VS Code.
+
+### ✨ Added
+- **Full native HTML IntelliSense** - Complete HTML tag, attribute, and structure support from VS Code
+- **Full native CSS IntelliSense** - Complete CSS property suggestions and validation
+- **Full native JavaScript IntelliSense** - Complete JavaScript keyword, method, and API support
+- **Enhanced VBScript support** - Improved variable suggestions and keyword prioritisation
+
+### 🛠️ Fixed
+- **Fixed #9** - Added support for CSS properties with full native IntelliSense ([#9](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/9))
+- **Fixed #11** - Added missing colours for advanced SQL syntaxes ([#11](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/11))
+- **Fixed #13** - Improved variable suggestions and keyword prioritisation in VBScript code blocks ([#13](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/13))
+
+### ⚠️ Known Issues
+- **JavaScript validation in ASP strings**: `html.javascript.validate` is automatically set to `false` to prevent errors when `<script>` tags appear inside ASP code (e.g., `Response.Write("<script></script>")`). A proper fix is being investigated for future releases.
+
+---
+
+## [0.2.5] - 2025-02-12
 
 ### ✨ Added
 - **Added colours for advanced SQL syntaxes** - Enhanced syntax highlighting for advanced SQL patterns and keywords ([#11](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/11))
@@ -13,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.2.4] - 2025-02-02
+## [0.2.4] - 2025-02-06
 
 ### 🛠️ Fixed
 - **Fixed inline ASP delimiter handling** - `<% %>` delimiters now stay on the same line with code instead of being incorrectly removed in multi-line code ([#6](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/6))
@@ -21,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.2.3] - 2025-02-01
+## [0.2.3] - 2025-02-03
 
 ### 🛠️ Fixed
 - **Fixed `ElseIf` formatting** - `ElseIf` keywords now maintain correct casing instead of being converted to `Elseif` ([#1](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/1))
@@ -32,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.2.2] - 2025-02-01
+## [0.2.2] - 2025-02-02
 
 ### 🛠️ Fixed
 - **Fixed ASP code colour highlighting** - Resolved broken colours for ASP code blocks across different VS Code themes
@@ -129,6 +151,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[1.0.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v1.0.0
 [0.2.5]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.5
 [0.2.4]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.4
 [0.2.3]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.3
