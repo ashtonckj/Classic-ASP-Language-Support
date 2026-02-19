@@ -29,6 +29,28 @@ function updateGrammarFile(extensionPath: string, enableSQL: boolean): void {
     }
 }
 
+/**
+ * Ensures *.asp files are associated with HTML so VSCode provides
+ * full HTML, CSS and JavaScript IntelliSense.
+ * Returns true if the association was newly added (reload required).
+ */
+function ensureAspFileAssociation(): boolean {
+    const filesConfig = vscode.workspace.getConfiguration('files');
+    const associations: Record<string, string> = filesConfig.get('associations') ?? {};
+
+    if (associations['*.asp'] === 'html') {
+        return false; // already set, no reload needed
+    }
+
+    filesConfig.update(
+        'associations',
+        { ...associations, '*.asp': 'html' },
+        vscode.ConfigurationTarget.Global
+    );
+
+    return true; // newly added, reload required
+}
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('═══════════════════════════════════════════════════════════════════');
     console.log('🚀 Classic ASP Language Support ACTIVATED');
@@ -42,12 +64,33 @@ export function activate(context: vscode.ExtensionContext) {
     // Update grammar file for syntax highlighting
     updateGrammarFile(extensionPath, enableSQL);
 
+    // Ensure *.asp files are treated as HTML for full IntelliSense
+    const associationAdded = ensureAspFileAssociation();
+    console.log(`✅ ASP file association: ${associationAdded ? 'newly set (reload needed)' : 'already active'}`);
+
     // Apply HTML validation setting
     if (disableHtmlValidation) {
         const htmlConfig = vscode.workspace.getConfiguration('html');
         htmlConfig.update('validate.scripts', false, vscode.ConfigurationTarget.Global).then(() => {
             console.log('✅ HTML script validation disabled (ASP-friendly mode)');
         });
+    }
+
+    // Prompt user to reload if the file association was just added
+    if (associationAdded) {
+        vscode.window.showInformationMessage(
+            'ASP Language Support: Reload VS Code to activate full HTML, CSS & JS IntelliSense for .asp files.',
+            'Reload Now',
+            'Later'
+        ).then(choice => {
+            if (choice === 'Reload Now') {
+                vscode.commands.executeCommand('workbench.action.reloadWindow');
+            }
+        });
+    } else {
+        vscode.window.showInformationMessage(
+            'Classic ASP Language Support active — full HTML, CSS & JS IntelliSense enabled.'
+        );
     }
 
     // Add ASP region highlighting (colored backgrounds for <% %>)
@@ -109,7 +152,7 @@ export function activate(context: vscode.ExtensionContext) {
     });
     console.log('✅ SQL toggle command registered');
 
-    // Watch for SQL highlighting setting changes
+    // Watch for setting changes
     const configWatcher = vscode.workspace.onDidChangeConfiguration(e => {
         if (e.affectsConfiguration('aspLanguageSupport.enableSQLHighlighting')) {
             const config = vscode.workspace.getConfiguration('aspLanguageSupport');
@@ -133,7 +176,6 @@ export function activate(context: vscode.ExtensionContext) {
             const disableValidation = aspConfig.get<boolean>('disableHtmlValidation', true);
             const htmlConfig = vscode.workspace.getConfiguration('html');
 
-            // Update the html.validate.scripts setting
             htmlConfig.update('validate.scripts', !disableValidation, vscode.ConfigurationTarget.Global).then(() => {
                 console.log(`✅ HTML script validation ${disableValidation ? 'disabled' : 'enabled'}`);
             });
@@ -154,4 +196,21 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
     console.log('Classic ASP Language Support deactivated');
+
+    // Remove *.asp file association on uninstall/deactivate
+    const filesConfig = vscode.workspace.getConfiguration('files');
+    const associations: Record<string, string> = filesConfig.get('associations') ?? {};
+
+    if (associations['*.asp'] === 'html') {
+        delete associations['*.asp'];
+        filesConfig.update('associations', associations, vscode.ConfigurationTarget.Global);
+        console.log('✅ ASP file association removed');
+    }
+
+    // Re-enable HTML script validation
+    vscode.workspace.getConfiguration('html').update(
+        'validate.scripts',
+        true,
+        vscode.ConfigurationTarget.Global
+    );
 }
