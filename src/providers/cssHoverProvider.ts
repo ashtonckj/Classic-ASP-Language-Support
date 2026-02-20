@@ -12,7 +12,6 @@ export class CssHoverProvider implements vscode.HoverProvider {
         const content = document.getText();
         const offset = document.offsetAt(position);
 
-        // Only fire inside a <style> block
         if (getZone(content, offset) !== 'css') return null;
 
         const lsDoc = buildCssDoc(document.uri.toString(), content, document.version, offset);
