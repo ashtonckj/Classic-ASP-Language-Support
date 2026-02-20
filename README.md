@@ -3,10 +3,10 @@
 	Classic ASP Language Support for <a href="https://code.visualstudio.com">VSCode</a><br>
     <img src="https://raw.githubusercontent.com/catppuccin/catppuccin/main/assets/misc/transparent.png" height="30" width="0px"/>
     
-[![Version](https://img.shields.io/visual-studio-marketplace/v/ashtonckj.classic-asp-language-support?style=for-the-badge&colorA=363a4f&colorB=b7bdf8&logo=visual-studio-code&cacheSeconds=3600)](https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support)
+<a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img alt="Version: 1.0.0" src="https://img.shields.io/badge/Version-1.0.0-b7bdf8?style=for-the-badge&labelColor=363a4f&logo=visual-studio-code&cacheSeconds=86400"/></a>
 [![Downloads](https://img.shields.io/visual-studio-marketplace/d/ashtonckj.classic-asp-language-support?style=for-the-badge&colorA=363a4f&colorB=8aadf4&cacheSeconds=3600)](https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support)
-    <a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/issues"><img src="https://img.shields.io/github/issues/ashtonckj/Classic-ASP-Language-Support?colorA=363a4f&colorB=f5a97f&style=for-the-badge&cacheSeconds=3600"></a>
-    <a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/LICENSE"><img src="https://img.shields.io/static/v1.svg?style=for-the-badge&label=License&message=MIT&logoColor=d9e0ee&colorA=363a4f&colorB=b7bdf8&cacheSeconds=3600"/></a>
+<a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/issues"><img src="https://img.shields.io/github/issues/ashtonckj/Classic-ASP-Language-Support?colorA=363a4f&colorB=f5a97f&style=for-the-badge&cacheSeconds=3600"></a>
+<a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-b7bdf8?style=for-the-badge&labelColor=363a4f&cacheSeconds=86400"/></a>
 </h3>
 
 ---
@@ -44,11 +44,12 @@
 ## 📸 See It In Action
 
 ### 🎨 Formatting Before & After
-<br>
-<img src="images/format.gif" height="600">
+> *Colours in these previews are made possible by the **[Catppuccin Theme](https://github.com/catppuccin/vscode)***
+<img src="images/format.gif" height="480">
+
 
 ### 🌈 Syntax Highlighting
-<img src="images/sql.gif" width="600">
+<img src="images/sql.gif" width="500">
 
 <!-- Add GIF showing complex multi-block ASP formatting -->
 <!--
