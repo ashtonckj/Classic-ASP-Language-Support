@@ -5,6 +5,7 @@ import { formatCompleteAspFile } from './formatter/htmlFormatter';
 import { HtmlCompletionProvider, registerAutoClosingTag, registerEnterKeyHandler } from './providers/htmlCompletionProvider';
 import { AspCompletionProvider } from './providers/aspCompletionProvider';
 import { CssCompletionProvider } from './providers/cssCompletionProvider';
+import { CssHoverProvider } from './providers/cssHoverProvider';
 import { JsCompletionProvider } from './providers/jsCompletionProvider';
 import { addRegionHighlights } from './highlight';
 
@@ -84,7 +85,12 @@ export function activate(context: vscode.ExtensionContext) {
     const cssCompletionProvider = vscode.languages.registerCompletionItemProvider(
         'asp',
         new CssCompletionProvider(),
-        ':', ';'  // Trigger characters
+        ':', ';', ' '  // Trigger characters
+    );
+
+    const cssHoverProvider = vscode.languages.registerHoverProvider(
+        'asp',
+        new CssHoverProvider()
     );
 
     const jsCompletionProvider = vscode.languages.registerCompletionItemProvider(
@@ -150,6 +156,7 @@ export function activate(context: vscode.ExtensionContext) {
         htmlCompletionProvider,
         aspCompletionProvider,
         cssCompletionProvider,
+        cssHoverProvider,
         jsCompletionProvider,
         toggleCommand,
         configWatcher

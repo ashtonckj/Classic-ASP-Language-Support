@@ -43,8 +43,14 @@
         "languages": [
             {
                 "id": "asp",
-                "aliases": ["ASP", "Classic ASP", "asp"],
-                "extensions": [".asp"],
+                "aliases": [
+                    "ASP",
+                    "Classic ASP",
+                    "asp"
+                ],
+                "extensions": [
+                    ".asp"
+                ],
                 "configuration": "./language-configuration.json"
             }
         ],
@@ -63,7 +69,9 @@
             {
                 "scopeName": "asp.injection",
                 "path": "./syntaxes/asp-injections.tmLanguage.json",
-                "injectTo": ["text.html.basic"]
+                "injectTo": [
+                    "text.html.basic"
+                ]
             }
         ],
         "snippets": [
@@ -94,7 +102,11 @@
                 "aspLanguageSupport.keywordCase": {
                     "type": "string",
                     "default": "PascalCase",
-                    "enum": ["lowercase", "UPPERCASE", "PascalCase"],
+                    "enum": [
+                        "lowercase",
+                        "UPPERCASE",
+                        "PascalCase"
+                    ],
                     "enumDescriptions": [
                         "Format keywords in lowercase (if, then, end if, dim)",
                         "Format keywords in UPPERCASE (IF, THEN, END IF, DIM)",
@@ -112,7 +124,11 @@
                 "aspLanguageSupport.indentSize": {
                     "type": "number",
                     "default": 2,
-                    "enum": [2, 4, 8],
+                    "enum": [
+                        2,
+                        4,
+                        8
+                    ],
                     "description": "Number of spaces per indentation level for Classic ASP code",
                     "order": 3
                 },
@@ -131,7 +147,11 @@
                 "aspLanguageSupport.prettier.tabWidth": {
                     "type": "number",
                     "default": 2,
-                    "enum": [2, 4, 8],
+                    "enum": [
+                        2,
+                        4,
+                        8
+                    ],
                     "description": "Prettier: Number of spaces per indentation level for HTML/CSS/JS",
                     "order": 11
                 },
@@ -162,7 +182,10 @@
                 "aspLanguageSupport.prettier.arrowParens": {
                     "type": "string",
                     "default": "always",
-                    "enum": ["always", "avoid"],
+                    "enum": [
+                        "always",
+                        "avoid"
+                    ],
                     "enumDescriptions": [
                         "Always include parentheses around arrow function parameters: (x) => x",
                         "Omit parentheses when possible: x => x"
@@ -173,7 +196,11 @@
                 "aspLanguageSupport.prettier.trailingComma": {
                     "type": "string",
                     "default": "es5",
-                    "enum": ["none", "es5", "all"],
+                    "enum": [
+                        "none",
+                        "es5",
+                        "all"
+                    ],
                     "enumDescriptions": [
                         "No trailing commas",
                         "Trailing commas where valid in ES5 (objects, arrays, etc.)",
@@ -185,7 +212,12 @@
                 "aspLanguageSupport.prettier.endOfLine": {
                     "type": "string",
                     "default": "lf",
-                    "enum": ["lf", "crlf", "cr", "auto"],
+                    "enum": [
+                        "lf",
+                        "crlf",
+                        "cr",
+                        "auto"
+                    ],
                     "enumDescriptions": [
                         "Line Feed only (\\n), common on Linux and macOS",
                         "Carriage Return + Line Feed (\\r\\n), common on Windows",
@@ -198,7 +230,11 @@
                 "aspLanguageSupport.prettier.htmlWhitespaceSensitivity": {
                     "type": "string",
                     "default": "css",
-                    "enum": ["css", "strict", "ignore"],
+                    "enum": [
+                        "css",
+                        "strict",
+                        "ignore"
+                    ],
                     "enumDescriptions": [
                         "Respect the default value of CSS display property",
                         "Whitespace is considered significant",
@@ -285,7 +321,9 @@
         "test": "node ./out/test/runTest.js"
     },
     "dependencies": {
-        "prettier": "^3.8.1"
+        "prettier": "^3.8.1",
+        "vscode-css-languageservice": "^6.3.9",
+        "vscode-languageserver-textdocument": "^1.0.12"
     },
     "devDependencies": {
         "@types/mocha": "^10.0.10",
