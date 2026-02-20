@@ -6,6 +6,7 @@ import { HtmlCompletionProvider, registerAutoClosingTag, registerEnterKeyHandler
 import { AspCompletionProvider } from './providers/aspCompletionProvider';
 import { CssCompletionProvider } from './providers/cssCompletionProvider';
 import { CssHoverProvider } from './providers/cssHoverProvider';
+import { registerCssDiagnostics } from './providers/cssDiagnosticsProvider';
 import { JsCompletionProvider } from './providers/jsCompletionProvider';
 import { addRegionHighlights } from './highlight';
 
@@ -51,6 +52,9 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Add ASP region highlighting
     addRegionHighlights(context);
+
+    // Register CSS diagnostics (validate as you type)
+    registerCssDiagnostics(context);
 
     // Register formatter
     const formatter = vscode.languages.registerDocumentFormattingEditProvider('asp', {
