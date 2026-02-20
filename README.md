@@ -45,11 +45,11 @@
 
 ### 🎨 Formatting Before & After
 > *Colours in these previews are made possible by the **[Catppuccin Theme](https://github.com/catppuccin/vscode)***
-<img src="images/format.gif" height="500">
+<img src="images/format.gif" height="480">
 
 
 ### 🌈 Syntax Highlighting
-<img src="images/sql.gif" width="500">
+<img src="images/sql.gif" width="480">
 
 <!-- Add GIF showing complex multi-block ASP formatting -->
 <!--
