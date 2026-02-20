@@ -1,49 +1,11 @@
-import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-
-export type Zone = 'asp' | 'css' | 'js' | 'html';
-
 /**
- * Detects which language zone the cursor is in within a .asp file.
- * Returns 'asp', 'css', 'js', or 'html'.
+ * cssUtils.ts
+ * CSS-specific utilities for building virtual CSS documents from .asp files.
+ * Imports shared zone detection from aspUtils.ts.
  */
-export function getZone(content: string, offset: number): Zone {
-    // Check if inside <% ... %> (ASP/VBScript zone)
-    let i = 0;
-    while (i < offset) {
-        const openIdx = content.indexOf('<%', i);
-        if (openIdx === -1 || openIdx >= offset) break;
-        const closeIdx = content.indexOf('%>', openIdx + 2);
-        if (closeIdx === -1) return 'asp';
-        if (offset > openIdx && offset < closeIdx + 2) return 'asp';
-        i = closeIdx + 2;
-    }
 
-    // Check if inside a <style> block (CSS zone)
-    let searchFrom = 0;
-    while (true) {
-        const styleOpen = content.indexOf('<style', searchFrom);
-        if (styleOpen === -1 || styleOpen >= offset) break;
-        const styleTagEnd = content.indexOf('>', styleOpen);
-        if (styleTagEnd === -1) break;
-        const styleClose = content.indexOf('</style>', styleTagEnd);
-        if (styleTagEnd < offset && (styleClose === -1 || offset <= styleClose)) return 'css';
-        searchFrom = styleClose === -1 ? content.length : styleClose + 8;
-    }
-
-    // Check if inside a <script> block (JS zone)
-    searchFrom = 0;
-    while (true) {
-        const scriptOpen = content.indexOf('<script', searchFrom);
-        if (scriptOpen === -1 || scriptOpen >= offset) break;
-        const scriptTagEnd = content.indexOf('>', scriptOpen);
-        if (scriptTagEnd === -1) break;
-        const scriptClose = content.indexOf('</script>', scriptTagEnd);
-        if (scriptTagEnd < offset && (scriptClose === -1 || offset <= scriptClose)) return 'js';
-        searchFrom = scriptClose === -1 ? content.length : scriptClose + 9;
-    }
-
-    return 'html';
-}
+export { getZone, Zone } from './aspUtils';
+import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
 
 /**
  * Builds a position-aligned virtual CSS TextDocument from the <style> block
@@ -72,7 +34,6 @@ export function buildCssDoc(
             const cssStart = styleTagEnd + 1;
             const cssEnd = styleClose === -1 ? content.length : styleClose;
 
-            // Replace everything before the CSS with spaces/newlines to keep positions aligned
             const prefix = content.slice(0, cssStart).replace(/[^\n]/g, ' ');
             const cssContent = prefix + content.slice(cssStart, cssEnd);
 
