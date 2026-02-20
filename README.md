@@ -49,7 +49,7 @@
 
 
 ### 🌈 Syntax Highlighting
-<img src="images/sql.gif" width="480">
+<img src="images/sql.gif" width="500">
 
 <!-- Add GIF showing complex multi-block ASP formatting -->
 <!--
