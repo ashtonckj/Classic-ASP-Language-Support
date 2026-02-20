@@ -44,7 +44,6 @@
 ## 📸 See It In Action
 
 ### 🎨 Formatting Before & After
-<br>
 <img src="images/format.gif" height="600">
 
 ### 🌈 Syntax Highlighting
