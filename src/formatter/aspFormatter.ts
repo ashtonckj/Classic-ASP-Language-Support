@@ -60,6 +60,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
     let preservedStringIndent = '';
     let sqlBaseIndent = 0; // Track the base indent for SQL strings
     let isInSQLBlock = false; // Track if we're in a SQL block
+    let sqlStartedWithString = false; // True when the assignment line already had a string (e.g. stmt = "SELECT..." & _)
 
     for (let i = 0; i < lines.length; i++) {
         let line = lines[i];
@@ -70,7 +71,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
             if (trimmedLine === '<%') {
                 formattedLines.push(htmlIndent + '<%');
                 previousLineHadContinuation = false;
-                isInSQLBlock = false;
+                isInSQLBlock = false; sqlStartedWithString = false;
                 continue;
             }
             const content = trimmedLine.substring(2).trim();
@@ -105,11 +106,12 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
                     if (isSQLStatement(formattedContent)) {
                         isInSQLBlock = true;
                         sqlBaseIndent = (htmlIndent + aspIndent).length;
+                        sqlStartedWithString = continuationAlignColumn > 0;
                     }
                 } else {
                     previousLineHadContinuation = false;
                     inMultilineString = false;
-                    isInSQLBlock = false;
+                    isInSQLBlock = false; sqlStartedWithString = false;
                 }
 
                 if (indentChange.after > 0) {
@@ -125,7 +127,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
                 formattedLines.push(htmlIndent + '%>');
                 previousLineHadContinuation = false;
                 inMultilineString = false;
-                isInSQLBlock = false;
+                isInSQLBlock = false; sqlStartedWithString = false;
                 continue;
             }
             const content = trimmedLine.substring(0, trimmedLine.length - 2).trim();
@@ -156,7 +158,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
             }
             previousLineHadContinuation = false;
             inMultilineString = false;
-            isInSQLBlock = false;
+            isInSQLBlock = false; sqlStartedWithString = false;
             continue;
         }
 
@@ -200,7 +202,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
 
                 formattedLines.push(commentIndent + trimmedLine);
                 previousLineHadContinuation = false;
-                isInSQLBlock = false;
+                isInSQLBlock = false; sqlStartedWithString = false;
                 continue;
             }
 
@@ -210,24 +212,29 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
                 const formattedContent = isSQLString ? trimmedLine : applyKeywordCase(trimmedLine, settings.keywordCase);
 
                 if (isSQLString) {
-                    // Get the original indentation of this line
-                    const originalIndent = line.substring(0, line.indexOf(line.trim()));
-                    const originalIndentSize = originalIndent.length;
-
-                    if (!isInSQLBlock) {
-                        // First SQL line in continuation - set base indent and format with one tab from assignment
-                        sqlBaseIndent = originalIndentSize;
-                        isInSQLBlock = true;
-                        const aspIndent = getIndentString(aspIndentLevel + 1, settings.useTabs, settings.indentSize);
-                        formattedLines.push(htmlIndent + aspIndent + trimmedLine);
+                    if (sqlStartedWithString) {
+                        // Assignment line had a string (e.g. stmt = "SELECT..." & _)
+                        // so align all continuation lines to that opening quote
+                        const alignIndent = ' '.repeat(continuationAlignColumn);
+                        formattedLines.push(alignIndent + trimmedLine);
                     } else {
-                        // Already in SQL block (either started here or on previous line with assignment)
-                        const relativeIndent = originalIndentSize - sqlBaseIndent;
-                        // If there's ANY indentation (even 1 space), use +1 tab. Otherwise use base.
-                        const extraLevel = relativeIndent > 0 ? 1 : 0;
+                        // Get the original indentation of this line
+                        const originalIndent = line.substring(0, line.indexOf(line.trim()));
+                        const originalIndentSize = originalIndent.length;
 
-                        const aspIndent = getIndentString(aspIndentLevel + 1 + extraLevel, settings.useTabs, settings.indentSize);
-                        formattedLines.push(htmlIndent + aspIndent + trimmedLine);
+                        if (!isInSQLBlock) {
+                            // First SQL line in continuation - set base indent and format with one tab from assignment
+                            sqlBaseIndent = originalIndentSize;
+                            isInSQLBlock = true;
+                            const aspIndent = getIndentString(aspIndentLevel + 1, settings.useTabs, settings.indentSize);
+                            formattedLines.push(htmlIndent + aspIndent + trimmedLine);
+                        } else {
+                            // Already in SQL block
+                            const relativeIndent = originalIndentSize - sqlBaseIndent;
+                            const extraLevel = relativeIndent > 0 ? 1 : 0;
+                            const aspIndent = getIndentString(aspIndentLevel + 1 + extraLevel, settings.useTabs, settings.indentSize);
+                            formattedLines.push(htmlIndent + aspIndent + trimmedLine);
+                        }
                     }
                 } else {
                     // For non-SQL strings, use the calculated alignment
@@ -239,7 +246,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
                 if (!hasContinuation) {
                     previousLineHadContinuation = false;
                     inMultilineString = false;
-                    isInSQLBlock = false;
+                    isInSQLBlock = false; sqlStartedWithString = false;
                 }
                 continue;
             }
@@ -263,14 +270,15 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
                 // Check if this line starts a SQL block
                 if (isSQLStatement(formattedContent)) {
                     isInSQLBlock = true;
-                    // Set the base indent as the current line's indent (for next lines to compare against)
-                    // Since this is the assignment line, continuation lines should be indented from HERE
                     sqlBaseIndent = (htmlIndent + aspIndent).length;
+                    // If the assignment line already has a string on it (e.g. stmt = "SELECT..." & _)
+                    // continuation lines should align to that quote, not use SQL indent levels
+                    sqlStartedWithString = continuationAlignColumn > 0;
                 }
             } else {
                 previousLineHadContinuation = false;
                 inMultilineString = false;
-                isInSQLBlock = false;
+                isInSQLBlock = false; sqlStartedWithString = false;
             }
 
             formattedLines.push(htmlIndent + aspIndent + formattedContent);
@@ -282,7 +290,7 @@ function formatMultiLineAspBlock(block: string, settings: AspFormatterSettings, 
             // Don't reset continuation state for empty lines
             if (!inMultilineString) {
                 previousLineHadContinuation = false;
-                isInSQLBlock = false;
+                isInSQLBlock = false; sqlStartedWithString = false;
             }
         }
     }
@@ -825,14 +833,21 @@ function getIndentChange(line: string): { before: number; after: number } {
         return { before: 0, after: 0 };
     }
 
+    // End Select needs a double dedent (-2) because Select Case does a double indent (+2)
+    if (/^\s*end\s+select(\s|$)/.test(lowerLine)) {
+        return { before: -2, after: 0 };
+    }
+
     const decreaseBeforePatterns = [
-        /^\s*end\s+(if|sub|function|with|select|class|property)/,
+        /^\s*end\s+(if|sub|function|with|class|property)/,
         /^\s*loop(\s|$)/,
         /^\s*next(\s|$)/,
         /^\s*wend(\s|$)/,
         /^\s*else(\s|$)/,
         /^\s*elseif\s+/,
-        /^\s*case\s+/,
+        // Use (\s+|$) instead of \s+ so that Case "string" still matches after
+        // removeStringsFromLine strips the string value, leaving just "case" with no trailing text
+        /^\s*case(\s+|$)/,
         /^\s*case\s+else(\s|$)/
     ];
 
@@ -842,7 +857,6 @@ function getIndentChange(line: string): { before: number; after: number } {
         /\bfor\s+each\b/,
         /\bwhile\b/,
         /\bdo\b(\s+while|\s+until)?(\s|$)/,
-        /\bselect\s+case\b/,
         /\bsub\b\s+\w+/,
         /\bfunction\b\s+\w+/,
         /\bwith\b/,
@@ -850,7 +864,8 @@ function getIndentChange(line: string): { before: number; after: number } {
         /\bproperty\s+(get|let|set)\b/,
         /^\s*else(\s|$)/,
         /^\s*elseif\s+.*\bthen\b/,
-        /^\s*case\s+/,
+        // Same fix as above for increaseAfter
+        /^\s*case(\s+|$)/,
         /^\s*case\s+else(\s|$)/
     ];
 
@@ -869,6 +884,11 @@ function getIndentChange(line: string): { before: number; after: number } {
             after = 1;
             break;
         }
+    }
+
+    // Select Case uses double indent (+2) so that Case lines sit at +1 and body lines at +2
+    if (/\bselect\s+case\b/.test(lowerLine)) {
+        after = 2;
     }
 
     return { before, after };

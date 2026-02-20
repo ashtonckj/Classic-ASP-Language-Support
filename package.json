@@ -36,7 +36,8 @@
     ],
     "license": "MIT",
     "activationEvents": [
-        "onLanguage:html"
+        "onLanguage:html",
+        "onLanguage:asp"
     ],
     "main": "./out/extension.js",
     "contributes": {

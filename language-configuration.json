@@ -54,5 +54,11 @@
         ["(", ")"],
         ["[", "]"],
         ["{", "}"]
-    ]
+    ],
+    "folding": {
+        "markers": {
+            "start": "(?i)^\\s*(?:If\\b.*\\bThen\\s*$|For\\b.*\\bTo\\b|For\\s+Each\\b|Do\\s*$|Do\\s+(?:While|Until)\\b|While\\b|Select\\s+Case\\b|Sub\\s+\\w|Function\\s+\\w|Class\\s+\\w|With\\s+\\S|Property\\s+(?:Get|Let|Set)\\b|<%)",
+            "end": "(?i)^\\s*(?:End\\s+(?:If|Sub|Function|Select|With|Class|Property)\\b|Next\\b|Loop\\b|Wend\\b|%>)"
+        }
+    }
 }
