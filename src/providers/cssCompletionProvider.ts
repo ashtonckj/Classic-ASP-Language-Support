@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { getCSSLanguageService, CompletionItemKind as LsKind, InsertTextFormat, TextEdit } from 'vscode-css-languageservice';
-import { getZone, buildCssDoc } from './cssUtils';
+import { getCSSLanguageService, CompletionItemKind as LsKind, InsertTextFormat } from 'vscode-css-languageservice';
+import { getZone, buildCssDoc, getInlineStyleContext, buildInlineCssDoc } from './cssUtils';
 
 const cssService = getCSSLanguageService();
 
@@ -34,26 +34,93 @@ function mapKind(lsKind: LsKind | undefined): vscode.CompletionItemKind {
  * not in insertText, so we need to check both places.
  */
 function getInsertText(item: any): string | undefined {
-    // First preference: textEdit.newText (where CSS service actually puts it)
     if (item.textEdit) {
         const newText = item.textEdit.newText ?? item.textEdit.insert?.newText;
         if (newText) return newText;
     }
-    // Fallback: insertText
     if (typeof item.insertText === 'string') return item.insertText;
-    // Last resort: use the label
     return typeof item.label === 'string' ? item.label : undefined;
+}
+
+/**
+ * Converts a list of CSS language service completion items to VS Code completion items.
+ * Shared between <style> block and inline style="" completions.
+ */
+function convertItems(lsItems: any[]): vscode.CompletionItem[] {
+    return lsItems.map(item => {
+        const vsItem = new vscode.CompletionItem(
+            typeof item.label === 'string' ? item.label : (item.label as any).label,
+            mapKind(item.kind)
+        );
+
+        if (item.detail) vsItem.detail = item.detail;
+
+        if (item.documentation) {
+            vsItem.documentation = typeof item.documentation === 'string'
+                ? item.documentation
+                : new vscode.MarkdownString(item.documentation.value);
+        }
+
+        const insertText = getInsertText(item);
+        if (insertText) {
+            vsItem.insertText = item.insertTextFormat === InsertTextFormat.Snippet
+                ? new vscode.SnippetString(insertText)
+                : insertText;
+        }
+
+        if (item.filterText) vsItem.filterText = item.filterText;
+        if (item.sortText) vsItem.sortText = item.sortText;
+
+        return vsItem;
+    });
 }
 
 export class CssCompletionProvider implements vscode.CompletionItemProvider {
     provideCompletionItems(
         document: vscode.TextDocument,
-        position: vscode.Position
+        position: vscode.Position,
+        token: vscode.CancellationToken,
+        context: vscode.CompletionContext
     ): vscode.CompletionItem[] {
         const content = document.getText();
         const offset = document.offsetAt(position);
+        const zone = getZone(content, offset);
 
-        if (getZone(content, offset) !== 'css') return [];
+        // ── Inline style="" attribute ──────────────────────────────────────────
+        // Run inline detection for html, asp, and js zones — style="" can appear
+        // anywhere in the HTML markup regardless of what other zones are nearby.
+        // Crucially we do NOT run this for the css zone (inside <style> blocks)
+        // because style="" never appears inside a <style> block.
+        if (zone !== 'css') {
+            const inlineCtx = getInlineStyleContext(content, offset);
+            if (inlineCtx) {
+                const lsDoc = buildInlineCssDoc(
+                    document.uri.toString(),
+                    content,
+                    document.version,
+                    inlineCtx.valueStart,
+                    inlineCtx.valueEnd
+                );
+
+                const stylesheet = cssService.parseStylesheet(lsDoc);
+                // Use the wrapped offset so the CSS service knows where we are
+                // inside the fake "* { ... }" ruleset
+                const lsPosition = lsDoc.positionAt(inlineCtx.wrappedOffset);
+                const lsItems = cssService.doComplete(lsDoc, lsPosition, stylesheet).items;
+
+                // For inline styles, filter out suggestions that only make sense
+                // inside a full stylesheet (e.g. @media, selectors)
+                const filtered = lsItems.filter(item => {
+                    const label = typeof item.label === 'string' ? item.label : (item.label as any).label;
+                    return !label.startsWith('@') && !label.startsWith('.');
+                });
+
+                return convertItems(filtered);
+            }
+        }
+
+        // ── <style> block ──────────────────────────────────────────────────────
+        if (zone !== 'css') return [];
 
         const lsDoc = buildCssDoc(document.uri.toString(), content, document.version, offset);
         if (!lsDoc) return [];
@@ -62,32 +129,6 @@ export class CssCompletionProvider implements vscode.CompletionItemProvider {
         const lsPosition = lsDoc.positionAt(offset);
         const lsItems = cssService.doComplete(lsDoc, lsPosition, stylesheet).items;
 
-        return lsItems.map(item => {
-            const vsItem = new vscode.CompletionItem(
-                typeof item.label === 'string' ? item.label : (item.label as any).label,
-                mapKind(item.kind)
-            );
-
-            if (item.detail) vsItem.detail = item.detail;
-
-            if (item.documentation) {
-                vsItem.documentation = typeof item.documentation === 'string'
-                    ? item.documentation
-                    : new vscode.MarkdownString(item.documentation.value);
-            }
-
-            const insertText = getInsertText(item);
-            if (insertText) {
-                // insertTextFormat 2 = Snippet, wrap in SnippetString so $1/$0 work correctly
-                vsItem.insertText = item.insertTextFormat === InsertTextFormat.Snippet
-                    ? new vscode.SnippetString(insertText)
-                    : insertText;
-            }
-
-            if (item.filterText) vsItem.filterText = item.filterText;
-            if (item.sortText) vsItem.sortText = item.sortText;
-
-            return vsItem;
-        });
+        return convertItems(lsItems);
     }
 }

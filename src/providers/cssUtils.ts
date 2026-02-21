@@ -10,10 +10,6 @@ import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocume
 /**
  * Builds a position-aligned virtual CSS TextDocument from the <style> block
  * the cursor is currently inside. Returns null if the offset is not in a CSS zone.
- *
- * "Position-aligned" means everything outside the CSS content is replaced with
- * spaces/newlines so that line/column numbers stay identical to the original file.
- * This lets vscode-css-languageservice return correct ranges without any translation.
  */
 export function buildCssDoc(
     uri: string,
@@ -42,4 +38,67 @@ export function buildCssDoc(
 
         searchFrom = styleClose === -1 ? content.length : styleClose + 8;
     }
+}
+
+/**
+ * Detects if the cursor is inside a style="" attribute value and returns
+ * the info needed to build a virtual CSS document for inline styles.
+ *
+ * Returns null if the cursor is not inside a style="" attribute.
+ */
+export function getInlineStyleContext(
+    content: string,
+    offset: number
+): { valueStart: number; valueEnd: number; wrappedOffset: number } | null {
+    // Search up to 500 chars before the cursor for style=" or style='
+    const searchStart = Math.max(0, offset - 500);
+    const searchArea = content.slice(searchStart, offset);
+
+    // Match style=" or style=' and capture the opening quote character
+    const styleAttrMatch = searchArea.match(/style\s*=\s*(["'])([\s\S]*)$/i);
+    if (!styleAttrMatch) return null;
+
+    const openingQuote = styleAttrMatch[1]; // " or '
+    const valueStart = searchStart + styleAttrMatch.index! + styleAttrMatch[0].length - styleAttrMatch[2].length;
+
+    // Find the closing quote — search forward from the cursor position
+    // but also check if the very next character IS the closing quote (cursor right before it)
+    let closeQuoteIdx = content.indexOf(openingQuote, offset);
+
+    // If no closing quote found at all, bail out
+    if (closeQuoteIdx === -1) return null;
+
+    // Make sure we haven't jumped past a tag boundary (> before the closing quote)
+    const tagClose = content.indexOf('>', offset);
+    if (tagClose !== -1 && tagClose < closeQuoteIdx) return null;
+
+    const valueEnd = closeQuoteIdx;
+
+    // Build wrapped offset — "* {  " is 5 chars (double space so CSS service
+    // sees whitespace and returns all property suggestions from the start)
+    const WRAPPER_PREFIX_LEN = 5; // "* {  "
+    const relativeOffset = offset - valueStart;
+    // Always add 1 to ensure we land inside the declaration list, not before it
+    const wrappedOffset = WRAPPER_PREFIX_LEN + relativeOffset + 1;
+
+    return { valueStart, valueEnd, wrappedOffset };
+}
+
+/**
+ * Builds a virtual CSS TextDocument for an inline style="" attribute.
+ * Wraps the declaration list in a fake ruleset so the CSS service
+ * can parse it as valid CSS and return property/value completions.
+ */
+export function buildInlineCssDoc(
+    uri: string,
+    content: string,
+    version: number,
+    valueStart: number,
+    valueEnd: number
+): LsTextDocument {
+    const declarations = content.slice(valueStart, valueEnd);
+    // Add a space after opening brace so the CSS service always sees
+    // at least one character of whitespace to anchor completions against
+    const wrappedCss = `* {  ${declarations} }`;
+    return LsTextDocument.create(uri + '.inline.css', 'css', version, wrappedCss);
 }
