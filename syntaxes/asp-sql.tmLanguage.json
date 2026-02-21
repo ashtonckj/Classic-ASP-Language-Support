@@ -3,10 +3,7 @@
     "name": "Classic ASP",
     "scopeName": "text.html.asp",
     "comment": "Classic ASP with HTML (SQL Highlighting in Strings)",
-    "fileTypes": [
-        "asp",
-        "asa"
-    ],
+    "fileTypes": ["asp", "asa"],
     "foldingStartMarker": "(?i)^\\s*(Public|Private)?\\s*(Class|Function|Sub|Property)\\s*([a-zA-Z_]\\w*)\\s*(\\(.*\\)\\s*)?$",
     "foldingStopMarker": "(?i)^\\s*End (Class|Function|Sub|Property)\\s*$",
     "injections": {
