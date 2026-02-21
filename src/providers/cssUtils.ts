@@ -1,5 +1,4 @@
 /**
- * cssUtils.ts
  * CSS-specific utilities for building virtual CSS documents from .asp files.
  * Imports shared zone detection from aspUtils.ts.
  */
@@ -41,9 +40,7 @@ export function buildCssDoc(
 }
 
 /**
- * Detects if the cursor is inside a style="" attribute value and returns
- * the info needed to build a virtual CSS document for inline styles.
- *
+ * Detects if the cursor is inside a style="" attribute value and returns the info needed to build a virtual CSS document for inline styles.
  * Returns null if the cursor is not inside a style="" attribute.
  */
 export function getInlineStyleContext(
@@ -60,8 +57,7 @@ export function getInlineStyleContext(
     const openingQuote = styleAttrMatch[1];
     const valueStart = searchStart + styleAttrMatch.index! + styleAttrMatch[0].length - styleAttrMatch[2].length;
 
-    // Find closing quote — search forward from valueStart (not offset)
-    // so that an empty value style="" where offset === closeQuoteIdx still works
+    // Find closing quote — search forward from valueStart (not offset) so that an empty value style="" where offset === closeQuoteIdx still works
     const closeQuoteIdx = content.indexOf(openingQuote, valueStart);
     if (closeQuoteIdx === -1) return null;
 
@@ -75,8 +71,7 @@ export function getInlineStyleContext(
     const valueEnd = closeQuoteIdx;
 
     // Wrap as "* {  <declarations> }" — prefix is 5 chars
-    // We pad the offset by 2 so the CSS service always lands inside
-    // the declaration list even when the value is completely empty
+    // We pad the offset by 2 so the CSS service always lands inside the declaration list even when the value is completely empty
     const WRAPPER_PREFIX_LEN = 5;
     const relativeOffset = offset - valueStart;
     const wrappedOffset = WRAPPER_PREFIX_LEN + relativeOffset + 2;
@@ -86,8 +81,7 @@ export function getInlineStyleContext(
 
 /**
  * Builds a virtual CSS TextDocument for an inline style="" attribute.
- * Wraps the declaration list in a fake ruleset so the CSS service
- * can parse it as valid CSS and return property/value completions.
+ * Wraps the declaration list in a fake ruleset so the CSS service can parse it as valid CSS and return property/value completions.
  */
 export function buildInlineCssDoc(
     uri: string,
@@ -97,8 +91,7 @@ export function buildInlineCssDoc(
     valueEnd: number
 ): LsTextDocument {
     const declarations = content.slice(valueStart, valueEnd);
-    // Add a space after opening brace so the CSS service always sees
-    // at least one character of whitespace to anchor completions against
+    // Add a space after opening brace so the CSS service always sees at least one character of whitespace to anchor completions against
     const wrappedCss = `* {  ${declarations} }`;
     return LsTextDocument.create(uri + '.inline.css', 'css', version, wrappedCss);
 }

@@ -30,8 +30,7 @@ function mapKind(lsKind: LsKind | undefined): vscode.CompletionItemKind {
 
 /**
  * Extracts the insert text from a CSS completion item.
- * The CSS language service puts the actual text in textEdit.newText,
- * not in insertText, so we need to check both places.
+ * The CSS language service puts the actual text in textEdit.newText, not in insertText, so we need to check both places.
  */
 function getInsertText(item: any): string | undefined {
     if (item.textEdit) {
@@ -87,10 +86,8 @@ export class CssCompletionProvider implements vscode.CompletionItemProvider {
         const zone = getZone(content, offset);
 
         // ── Inline style="" attribute ──────────────────────────────────────────
-        // Run inline detection for html, asp, and js zones — style="" can appear
-        // anywhere in the HTML markup regardless of what other zones are nearby.
-        // Crucially we do NOT run this for the css zone (inside <style> blocks)
-        // because style="" never appears inside a <style> block.
+        // Run inline detection for html, asp, and js zones — style="" can appear anywhere in the HTML markup regardless of what other zones are nearby.
+        // Crucially we do NOT run this for the css zone (inside <style> blocks) because style="" never appears inside a <style> block.
         if (zone !== 'css') {
             const inlineCtx = getInlineStyleContext(content, offset);
             if (inlineCtx) {
@@ -103,13 +100,11 @@ export class CssCompletionProvider implements vscode.CompletionItemProvider {
                 );
 
                 const stylesheet = cssService.parseStylesheet(lsDoc);
-                // Use the wrapped offset so the CSS service knows where we are
-                // inside the fake "* { ... }" ruleset
+                // Use the wrapped offset so the CSS service knows where we are inside the fake "* { ... }" ruleset
                 const lsPosition = lsDoc.positionAt(inlineCtx.wrappedOffset);
                 const lsItems = cssService.doComplete(lsDoc, lsPosition, stylesheet).items;
 
-                // For inline styles, filter out suggestions that only make sense
-                // inside a full stylesheet (e.g. @media, selectors)
+                // For inline styles, filter out suggestions that only make sense inside a full stylesheet (e.g. @media, selectors)
                 const filtered = lsItems.filter(item => {
                     const label = typeof item.label === 'string' ? item.label : (item.label as any).label;
                     return !label.startsWith('@') && !label.startsWith('.');

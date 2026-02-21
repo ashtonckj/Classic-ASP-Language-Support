@@ -1,7 +1,6 @@
 /**
  * cssDiagnosticsProvider.ts
- * Provides CSS validation diagnostics (errors and warnings) inside <style>
- * blocks in .asp files using vscode-css-languageservice.
+ * Provides CSS validation diagnostics (errors and warnings) inside <style> blocks in .asp files using vscode-css-languageservice.
  * Runs on every document change and on open/close.
  */
 
