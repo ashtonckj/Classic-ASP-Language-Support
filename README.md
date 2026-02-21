@@ -1,13 +1,15 @@
 <h3 align="center">
 	<img src="images/icon.png" alt="Classic ASP Language Support Logo" width="100" height="100"><br>
-	Classic ASP Language Support for <a href="https://code.visualstudio.com">VSCode</a><br>
-    <img src="https://raw.githubusercontent.com/catppuccin/catppuccin/main/assets/misc/transparent.png" height="30" width="0px"/>
-
-<a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img alt="Version: 1.0.0" src="https://img.shields.io/badge/Version-0.3.0-b7bdf8?style=for-the-badge&labelColor=363a4f&logo=visual-studio-code&cacheSeconds=86400"/></a>
-[![Downloads](https://img.shields.io/visual-studio-marketplace/d/ashtonckj.classic-asp-language-support?style=for-the-badge&colorA=363a4f&colorB=8aadf4&cacheSeconds=3600)](https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support)
-<a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/issues"><img src="https://img.shields.io/github/issues/ashtonckj/Classic-ASP-Language-Support?colorA=363a4f&colorB=f5a97f&style=for-the-badge&cacheSeconds=3600"></a>
-<a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-b7bdf8?style=for-the-badge&labelColor=363a4f&cacheSeconds=86400"/></a>
+	<strong>Classic ASP Language Support for <a href="https://code.visualstudio.com">VSCode</a></strong><br>
+    <img src="images/transparent.png" height="30" width="0px"/>
 </h3>
+
+<p align="center">
+    <a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img alt="Version: 1.0.0" src="https://img.shields.io/badge/Version-0.3.0-b7bdf8?style=for-the-badge&labelColor=363a4f&logo=visual-studio-code&cacheSeconds=86400"/></a>
+    <a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img src="https://img.shields.io/visual-studio-marketplace/d/ashtonckj.classic-asp-language-support?style=for-the-badge&colorA=363a4f&colorB=8aadf4&cacheSeconds=3600" alt="Downloads"/></a>
+    <a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/issues"><img src="https://img.shields.io/github/issues/ashtonckj/Classic-ASP-Language-Support?colorA=363a4f&colorB=f5a97f&style=for-the-badge&cacheSeconds=3600"></a>
+    <a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-b7bdf8?style=for-the-badge&labelColor=363a4f&cacheSeconds=86400"/></a>
+</p>
 
 ---
 
@@ -22,17 +24,17 @@
 <table>
     <tr>
         <td width="33%" align="center" valign="top">
-            <h3>🎨 Smart Formatting</h3>
+            <h3><strong>🎨 Smart Formatting</strong></h3>
             <p>Multi-language formatting for VBScript, HTML, CSS, and JavaScript with customisable keyword casing</p>
             <p></p>
         </td>
         <td width="33%" align="center" valign="top">
-            <h3>🌈 Syntax Highlighting</h3>
+            <h3><strong>🌈 Syntax Highlighting</strong></h3>
             <p>Beautiful, theme-compatible syntax colouring for ASP regions and SQL queries</p>
             <p></p>
         </td>
         <td width="33%" align="center" valign="top">
-            <h3>💡 IntelliSense</h3>
+            <h3><strong>💡 IntelliSense</strong></h3>
             <p>Auto-completion for ASP objects, VBScript keywords, HTML, CSS, and JavaScript</p>
             <p></p>
         </td>
