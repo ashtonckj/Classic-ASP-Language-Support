@@ -1,11 +1,11 @@
 <h3 align="center">
 	<img src="images/icon.png" alt="Classic ASP Language Support Logo" width="100" height="100"><br>
-	<strong>Classic ASP Language Support for <a href="https://code.visualstudio.com">VSCode</a></strong><br>
+	<strong>Classic ASP Language Support for <a href="https://code.visualstudio.com">VSCode</a></strong>
     <img src="images/transparent.png" height="30" width="0px"/>
 </h3>
 
 <p align="center">
-    <a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img alt="Version: 1.0.0" src="https://img.shields.io/badge/Version-0.3.0-b7bdf8?style=for-the-badge&labelColor=363a4f&logo=visual-studio-code&cacheSeconds=86400"/></a>
+    <a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img alt="Version: 0.3.0" src="https://img.shields.io/badge/Version-0.3.0-b7bdf8?style=for-the-badge&labelColor=363a4f&logo=visual-studio-code&cacheSeconds=86400"/></a>
     <a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img src="https://img.shields.io/visual-studio-marketplace/d/ashtonckj.classic-asp-language-support?style=for-the-badge&colorA=363a4f&colorB=8aadf4&cacheSeconds=3600" alt="Downloads"/></a>
     <a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/issues"><img src="https://img.shields.io/github/issues/ashtonckj/Classic-ASP-Language-Support?colorA=363a4f&colorB=f5a97f&style=for-the-badge&cacheSeconds=3600"></a>
     <a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-b7bdf8?style=for-the-badge&labelColor=363a4f&cacheSeconds=86400"/></a>
