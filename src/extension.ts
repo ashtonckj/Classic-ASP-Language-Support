@@ -89,7 +89,7 @@ export function activate(context: vscode.ExtensionContext) {
     const cssCompletionProvider = vscode.languages.registerCompletionItemProvider(
         'asp',
         new CssCompletionProvider(),
-        ':', ';', ' ', '"', "'", '-',
+        ':', ';', " ", '"', "'", '-',
         'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
         'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'  // Trigger characters
     );
@@ -156,6 +156,42 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    // Auto-trigger CSS suggestions when cursor lands inside an empty style="" value
+    // This fires when a completion (like the HTML provider inserting style="")
+    // places the cursor between the quotes with nothing typed yet.
+    const inlineStyleTrigger = vscode.window.onDidChangeTextEditorSelection(e => {
+        const editor = e.textEditor;
+        const doc = editor.document;
+        if (doc.languageId !== 'asp') return;
+
+        // Only act on single cursor, no selection
+        if (e.selections.length !== 1) return;
+        const selection = e.selections[0];
+        if (!selection.isEmpty) return;
+
+        const offset = doc.offsetAt(selection.active);
+        const content = doc.getText();
+
+        // Look back up to 200 chars for style=" with cursor right at the closing quote
+        const searchStart = Math.max(0, offset - 200);
+        const searchArea = content.slice(searchStart, offset);
+        const match = searchArea.match(/style\s*=\s*(["'])([\s\S]*)$/i);
+        if (!match) return;
+
+        const openingQuote = match[1];
+        const valueStart = searchStart + match.index! + match[0].length - match[2].length;
+        const charAtCursor = content[offset];
+
+        // Only trigger if cursor is right at the closing quote with empty value
+        // i.e. style="|" with nothing between the quotes
+        if (charAtCursor === openingQuote && offset === valueStart) {
+            // Small delay so the previous completion fully resolves first
+            setTimeout(() => {
+                vscode.commands.executeCommand('editor.action.triggerSuggest');
+            }, 50);
+        }
+    });
+
     // Add all to subscriptions
     context.subscriptions.push(
         formatter,
@@ -165,7 +201,8 @@ export function activate(context: vscode.ExtensionContext) {
         cssHoverProvider,
         jsCompletionProvider,
         toggleCommand,
-        configWatcher
+        configWatcher,
+        inlineStyleTrigger
     );
 }
 
