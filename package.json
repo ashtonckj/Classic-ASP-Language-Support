@@ -93,6 +93,11 @@
                 "command": "asp.insertLineBreak",
                 "key": "enter",
                 "when": "editorTextFocus && editorLangId == asp && !editorHasSelection && !suggestWidgetVisible && !renameInputVisible && !inSnippetMode"
+            },
+            {
+                "command": "asp.insertTab",
+                "key": "tab",
+                "when": "editorTextFocus && !editorReadonly && editorLangId == asp && !suggestWidgetVisible && !editorHasSelection"
             }
         ],
         "configuration": [
