@@ -5,25 +5,21 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-02-19
-
-### 🎉 Major Release
-
-This version introduces a significant architectural change that unlocks full native HTML, CSS, and JavaScript support from VS Code.
+## [0.3.0] - 2026-02-22
 
 ### ✨ Added
-- **Full native HTML IntelliSense** - Complete HTML tag, attribute, and structure support from VS Code
-- **Full native CSS IntelliSense** - Complete CSS property suggestions and validation
-- **Full native JavaScript IntelliSense** - Complete JavaScript keyword, method, and API support
-- **Enhanced VBScript support** - Improved variable suggestions and keyword prioritisation
+- **Full native CSS IntelliSense** - Complete CSS property suggestions and validation for inline styles and `<style>` blocks
+- **Improved VBScript keywords** - Enhanced VBScript keyword and attribute suggestions
+- **Improved JavaScript keywords** - Enhanced JavaScript keyword and attribute suggestions
+- **Smart indentation for VBScript** - Smarter indentation that automatically adjusts based on code context
+- **Smart deindent for closing tags** - Closing VBScript tags (`End If`, `End Sub`, etc.) automatically deindent correctly
+- **Context-aware indentation** - Empty lines receive proper indentation based on surrounding code structure
+- **Added .inc file support** - `.inc` files now have the same syntax highlighting and features as `.asp` files
 
 ### 🛠️ Fixed
 - **Fixed #9** - Added support for CSS properties with full native IntelliSense ([#9](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/9))
 - **Fixed #11** - Added missing colours for advanced SQL syntaxes ([#11](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/11))
 - **Fixed #13** - Improved variable suggestions and keyword prioritisation in VBScript code blocks ([#13](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/13))
-
-### ⚠️ Known Issues
-- **JavaScript validation in ASP strings**: `html.javascript.validate` is automatically set to `false` to prevent errors when `<script>` tags appear inside ASP code (e.g., `Response.Write("<script></script>")`). A proper fix is being investigated for future releases.
 
 ---
 
@@ -151,7 +147,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
-[1.0.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v1.0.0
+[0.3.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.0
 [0.2.5]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.5
 [0.2.4]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.4
 [0.2.3]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.3
