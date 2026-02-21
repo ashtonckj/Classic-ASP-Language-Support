@@ -99,6 +99,7 @@
 - ✅ **Multi-block support**: Handles structures that span across multiple `<% %>` blocks
 - ✅ **Inline ASP support**: Formats ASP expressions in HTML attributes
 </details>
+<br>
 
 <details open>
 <summary><strong>💡 IntelliSense & Auto-Completion</strong></summary>
@@ -108,6 +109,7 @@
 - **JavaScript**: Keyword and object completion inside `<script>` tags
 - **ASP/VBScript**: Response, Request, Server, Session, Application objects and VBScript keywords
 </details>
+<br>
 
 <details>
 <summary><strong>📝 Snippets</strong></summary>
@@ -115,6 +117,7 @@
 - ✅ Pre-built snippets for HTML, ASP, and JavaScript patterns
 - ✅ Quick insertion for common structures (loops, conditionals, database connections)
 </details>
+<br>
 
 <details>
 <summary><strong>🌈 Syntax Highlighting</strong></summary>
@@ -125,6 +128,7 @@
 - ✅ Toggleable highlighting for `<% %>` blocks
 - ✅ Distinct colours for keywords, functions, data types, operators, and parameters
 </details>
+<br>
 
 ---
 
@@ -142,6 +146,7 @@ Access settings via `File → Preferences → Settings` and search for "Classic 
 | `aspLanguageSupport.indentSize` | `2` | `2`, `4`, `8` | Number of spaces per indentation level for ASP code |
 | `aspLanguageSupport.asptagsOnSameLine` | `false` | `true`, `false` | Keep `<% %>` on same line as code (default: separate lines) |
 </details>
+<br>
 
 <details>
 <summary><strong>🎨 Prettier Settings (HTML/CSS/JS)</strong></summary>
@@ -159,6 +164,7 @@ Access settings via `File → Preferences → Settings` and search for "Classic 
 | `aspLanguageSupport.prettier.endOfLine` | `lf` | `lf`, `crlf`, `cr`, `auto` | Line ending style (Prettier) |
 | `aspLanguageSupport.prettier.htmlWhitespaceSensitivity` | `css` | `css`, `strict`, `ignore` | HTML whitespace handling (Prettier) |
 </details>
+<br>
 
 <details>
 <summary><strong>🌈 Completion & Highlighting Settings</strong></summary>
@@ -172,6 +178,7 @@ Access settings via `File → Preferences → Settings` and search for "Classic 
 | `aspLanguageSupport.codeBlockLightColor` | `rgba(100, 100, 100, 0.1)` | ASP code block background (light theme) |
 | `aspLanguageSupport.codeBlockDarkColor` | `rgba(220, 220, 220, 0.1)` | ASP code block background (dark theme) |
 </details>
+<br>
 
 <details>
 <summary><strong>💡 IntelliSense & Completion</strong></summary>
@@ -180,6 +187,7 @@ Access settings via `File → Preferences → Settings` and search for "Classic 
 |---------|---------|-------------|
 | `aspLanguageSupport.enableAspCompletion` | `true` | Enable ASP object and VBScript keyword auto-completion |
 </details>
+<br>
 
 ---
 
