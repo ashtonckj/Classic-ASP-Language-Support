@@ -5,6 +5,14 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-02-23
+
+### 🛠️ Fixed
+- **Fixed #19** - Resolved incorrect indentation caused by missing inner closing tags in VBScript ([#19](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/19))
+- **Fixed formatter issues** - Resolved various edge cases and improved formatter stability
+
+---
+
 ## [0.3.0] - 2026-02-22
 
 ### ✨ Added
@@ -147,6 +155,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[0.3.1]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.0
 [0.2.5]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.5
 [0.2.4]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.4
