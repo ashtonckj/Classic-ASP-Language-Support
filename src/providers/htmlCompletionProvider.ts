@@ -5,22 +5,21 @@ import {
     getContext,
     ContextType,
     getCurrentTagName,
-    isAfterOpenBracket,
     isInsideTagForAttributes,
-    getTextBeforeCursor,
     isInsideAspBlock
 } from '../utils/documentHelper';
 
-// VBScript keywords that open an indented block.
-// Note: Else/ElseIf appear here too because after them the next line should be +1.
-const VBSCRIPT_BLOCK_OPENERS = /^(If\b.*Then|ElseIf\b.*Then|Else\b|For\b|For\s+Each\b|Do\b|Do\s+While\b|Do\s+Until\b|While\b|Sub\b|Function\b|With\b|Select\s+Case\b|Class\b)/i;
+// ---------------------------------------------------------------------------
+// VBScript block keyword constants
+// ---------------------------------------------------------------------------
 
-// VBScript keywords that close a block — the line itself should be de-indented one level.
-// Note: Else/ElseIf appear here too because they close the previous If block before opening a new one.
+const VBSCRIPT_BLOCK_OPENERS = /^(If\b.*Then|ElseIf\b.*Then|Else\b|For\b|For\s+Each\b|Do\b|Do\s+While\b|Do\s+Until\b|While\b|Sub\b|Function\b|With\b|Select\s+Case\b|Class\b)/i;
 const VBSCRIPT_BLOCK_CLOSERS = /^(End\s+If\b|End\s+Sub\b|End\s+Function\b|End\s+With\b|End\s+Select\b|End\s+Class\b|Next\b|Loop\b|Wend\b|ElseIf\b|Else\b)/i;
 
-// Map each closer keyword to its corresponding opener keyword pattern.
-// Used so we can count balanced pairs when scanning upward.
+// Exact-match regex for auto-snap: line must be ONLY this keyword, nothing else after it
+const VBSCRIPT_EXACT_CLOSER =
+    /^(End\s+If|End\s+Sub|End\s+Function|End\s+With|End\s+Select|End\s+Class|Next|Loop|Wend|ElseIf(?:\s+.*Then)?|Else)$/i;
+
 const CLOSER_TO_OPENER: { closer: RegExp; opener: RegExp }[] = [
     { closer: /^End\s+If\b/i,       opener: /^If\b.*Then$/i },
     { closer: /^End\s+Sub\b/i,      opener: /^Sub\b/i },
@@ -31,27 +30,52 @@ const CLOSER_TO_OPENER: { closer: RegExp; opener: RegExp }[] = [
     { closer: /^Next\b/i,           opener: /^For\b|^For\s+Each\b/i },
     { closer: /^Loop\b/i,           opener: /^Do\b|^Do\s+While\b|^Do\s+Until\b/i },
     { closer: /^Wend\b/i,           opener: /^While\b/i },
-    // Else/ElseIf pair back to their If
     { closer: /^ElseIf\b/i,         opener: /^If\b.*Then$|^ElseIf\b.*Then$/i },
     { closer: /^Else\b/i,           opener: /^If\b.*Then$|^ElseIf\b.*Then$/i },
 ];
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 /**
- * Given a closer keyword line, scan upward through the document to find
- * the indent of its matching opener.
+ * Faster isInsideAspBlock that avoids fetching the entire document string.
+ * Reads only the text up to the position plus a small window ahead.
+ */
+function isInAspBlock(document: vscode.TextDocument, position: vscode.Position): boolean {
+    const before = document.getText(
+        new vscode.Range(new vscode.Position(0, 0), position)
+    );
+    const offset = document.offsetAt(position);
+    const docLen = document.getText().length;
+    const afterEnd = document.positionAt(Math.min(offset + 5000, docLen));
+    const after = document.getText(new vscode.Range(position, afterEnd));
+
+    const lastOpen  = before.lastIndexOf('<%');
+    const lastClose = before.lastIndexOf('%>');
+    const nextClose = after.indexOf('%>');
+
+    return lastOpen > lastClose && nextClose !== -1;
+}
+
+/**
+ * Returns the indent unit string from editor options.
+ * Shared by Enter and Tab handlers to avoid duplicating those 3 lines.
+ */
+function getIndentUnit(editor: vscode.TextEditor): string {
+    const tabSize  = editor.options.tabSize as number || 4;
+    const useSpaces = editor.options.insertSpaces !== false;
+    return useSpaces ? ' '.repeat(tabSize) : '\t';
+}
+
+/**
+ * Scans upward to find the indent of the opener matching a given closer keyword.
  *
- * Scans upward keeping a single nesting depth for our target type.
- * Any other block type that is opened but not yet closed (i.e. we've seen its
- * closer but not its opener yet) means we are "inside" that block — and any
- * opener of our target type found while inside a foreign block is shielded
- * and must be ignored.
- *
- * Example:
- *   If ...           ← outer, should match
- *     While ...      ← foreign opener — clears the Wend shield
- *       If ...       ← shielded by Wend above, must be skipped
- *   Wend             ← foreign closer — sets a shield
- *   End If           ← start here
+ * Uses per-type depth tracking with foreign-block shielding:
+ * - targetDepth counts unmatched closers of our type
+ * - foreignDepth[i] counts unmatched closers of every other type
+ * - While inside a foreign block, our target openers AND closers are shielded
+ *   (ignored), so they don't affect the count
  */
 function findMatchingOpenerIndent(
     document: vscode.TextDocument,
@@ -61,49 +85,36 @@ function findMatchingOpenerIndent(
     const targetIdx = CLOSER_TO_OPENER.findIndex(p => p.closer.test(closerText));
     if (targetIdx === -1) { return null; }
 
-    // Depth for our target type (how many unmatched closers of our type remain)
     let targetDepth = 1;
-
-    // Depth for every OTHER block type — if any of these > 0 we are "inside"
-    // a foreign block and our target opener should be skipped
     const foreignDepth: number[] = CLOSER_TO_OPENER.map(() => 0);
 
     for (let i = closerLineIndex - 1; i >= 0; i--) {
         const text = document.lineAt(i).text.trim();
         if (!text) { continue; }
 
-        // Is this line a closer of any type?
         const closerIdx = CLOSER_TO_OPENER.findIndex(p => p.closer.test(text));
         if (closerIdx !== -1) {
             if (closerIdx === targetIdx) {
-                // Only count this same-type closer if NOT inside a foreign block
-                // (if it IS inside a foreign block it's shielded and irrelevant)
-                const insideForeign = foreignDepth.some(d => d > 0);
-                if (!insideForeign) {
+                if (!foreignDepth.some(d => d > 0)) {
                     targetDepth++;
                 }
             } else {
-                foreignDepth[closerIdx]++;  // foreign closer — we are now inside it
+                foreignDepth[closerIdx]++;
             }
             continue;
         }
 
-        // Is this line an opener of any type?
         const openerIdx = CLOSER_TO_OPENER.findIndex(p => p.opener.test(text));
         if (openerIdx !== -1) {
             if (openerIdx === targetIdx) {
-                // Only count this opener if we are NOT inside any foreign block
-                const insideForeign = foreignDepth.some(d => d > 0);
-                if (!insideForeign) {
+                if (!foreignDepth.some(d => d > 0)) {
                     targetDepth--;
                     if (targetDepth === 0) {
                         const m = document.lineAt(i).text.match(/^(\s*)/);
                         return m ? m[1] : '';
                     }
                 }
-                // If inside a foreign block, this opener is shielded — skip it
             } else {
-                // Foreign opener — decrement its shield if one exists
                 if (foreignDepth[openerIdx] > 0) {
                     foreignDepth[openerIdx]--;
                 }
@@ -113,6 +124,53 @@ function findMatchingOpenerIndent(
 
     return null;
 }
+
+// ---------------------------------------------------------------------------
+// Cached completion items — built once, reused on every keystroke
+// ---------------------------------------------------------------------------
+
+let _cachedTagCompletions: vscode.CompletionItem[] | null = null;
+const _cachedAttrCompletions = new Map<string, vscode.CompletionItem[]>();
+
+function getTagCompletions(): vscode.CompletionItem[] {
+    if (_cachedTagCompletions) { return _cachedTagCompletions; }
+
+    _cachedTagCompletions = HTML_TAGS.map(tag => {
+        const item = new vscode.CompletionItem(tag.tag, vscode.CompletionItemKind.Property);
+        item.detail = tag.description;
+        item.documentation = new vscode.MarkdownString(`HTML <${tag.tag}> element\n\n${tag.description}`);
+        item.insertText = isSelfClosingTag(tag.tag)
+            ? new vscode.SnippetString(`${tag.tag} $0/>`)
+            : new vscode.SnippetString(`${tag.tag}>\n\t$0\n</${tag.tag}>`);
+        item.sortText = '2_' + tag.tag;
+        return item;
+    });
+
+    return _cachedTagCompletions;
+}
+
+function getAttributeCompletions(tagName: string): vscode.CompletionItem[] {
+    const key = tagName.toLowerCase();
+    if (_cachedAttrCompletions.has(key)) { return _cachedAttrCompletions.get(key)!; }
+
+    const items = getAttributesForTag(tagName).map(attr => {
+        const item = new vscode.CompletionItem(attr.name, vscode.CompletionItemKind.Property);
+        item.detail = attr.description;
+        item.documentation = new vscode.MarkdownString(`**${attr.name}** attribute\n\n${attr.description}`);
+        item.insertText = attr.name.endsWith('-')
+            ? new vscode.SnippetString(`${attr.name}$1="$2"`)
+            : new vscode.SnippetString(`${attr.name}="$0"`);
+        item.sortText = '2_' + attr.name;
+        return item;
+    });
+
+    _cachedAttrCompletions.set(key, items);
+    return items;
+}
+
+// ---------------------------------------------------------------------------
+// Completion provider
+// ---------------------------------------------------------------------------
 
 export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
 
@@ -124,222 +182,120 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
         const config = vscode.workspace.getConfiguration('aspLanguageSupport');
-        if (!config.get<boolean>('enableHTMLCompletion', true)) {
-            return [];
-        }
+        if (!config.get<boolean>('enableHTMLCompletion', true)) { return []; }
+        if (getContext(document, position) !== ContextType.HTML) { return []; }
 
-        const docContext = getContext(document, position);
+        const textBefore = document.lineAt(position.line).text.substring(0, position.character);
 
-        // Only provide HTML completions in HTML context
-        if (docContext !== ContextType.HTML) {
-            return [];
-        }
+        if (context.triggerCharacter === '<') { return getTagCompletions(); }
+        if (textBefore.match(/<(\w+)$/))      { return getTagCompletions(); }
 
-        const lineText = document.lineAt(position.line).text;
-        const textBefore = lineText.substring(0, position.character);
-
-        // Check if we should provide tag completions
-        // Only trigger if user typed '<' followed by at least one character
-        if (context.triggerCharacter === '<') {
-            return this.provideTagCompletions();
-        }
-
-        // For manual invocation, check if there's a partial tag
-        const partialTagMatch = textBefore.match(/<(\w+)$/);
-        if (partialTagMatch) {
-            return this.provideTagCompletions();
-        }
-
-        // Check if we should provide attribute completions
-        // Only if user is typing inside a tag AND has typed something
         if (isInsideTagForAttributes(document, position)) {
             const tagName = getCurrentTagName(document, position);
             if (tagName) {
-                // Check if there's some text being typed (not just space after tag name)
                 const afterTagName = textBefore.match(/<\w+\s+(.*)$/);
                 if (afterTagName && afterTagName[1].trim().length > 0) {
-                    return this.provideAttributeCompletions(tagName);
+                    return getAttributeCompletions(tagName);
                 }
-                // Or if triggered by space, show attributes
                 if (context.triggerCharacter === ' ') {
-                    return this.provideAttributeCompletions(tagName);
+                    return getAttributeCompletions(tagName);
                 }
             }
         }
 
         return [];
     }
-
-    // Provide HTML tag completions
-    private provideTagCompletions(): vscode.CompletionItem[] {
-        return HTML_TAGS.map(tag => {
-            const item = new vscode.CompletionItem(tag.tag, vscode.CompletionItemKind.Property);
-            item.detail = tag.description;
-            item.documentation = new vscode.MarkdownString(`HTML <${tag.tag}> element\n\n${tag.description}`);
-
-            // Create snippet for auto-closing tags
-            if (isSelfClosingTag(tag.tag)) {
-                // Self-closing tag like <img />
-                item.insertText = new vscode.SnippetString(`${tag.tag} $0/>`);
-            } else {
-                // Regular tag with closing tag and blank lines
-                item.insertText = new vscode.SnippetString(`${tag.tag}>\n\t$0\n</${tag.tag}>`);
-            }
-
-            item.sortText = '2_' + tag.tag;
-            return item;
-        });
-    }
-
-    // Provide HTML attribute completions
-    private provideAttributeCompletions(tagName: string): vscode.CompletionItem[] {
-        const attributes = getAttributesForTag(tagName);
-
-        return attributes.map(attr => {
-            const item = new vscode.CompletionItem(attr.name, vscode.CompletionItemKind.Property);
-            item.detail = attr.description;
-            item.documentation = new vscode.MarkdownString(`**${attr.name}** attribute\n\n${attr.description}`);
-
-            // Create snippet with quotes
-            if (attr.name.endsWith('-')) {
-                // For data- attributes, let user complete the name
-                item.insertText = new vscode.SnippetString(`${attr.name}$1="$2"`);
-            } else {
-                item.insertText = new vscode.SnippetString(`${attr.name}="$0"`);
-            }
-
-            item.sortText = '2_' + attr.name;
-            return item;
-        });
-    }
 }
 
-// Register auto-closing tag functionality
+// ---------------------------------------------------------------------------
+// Auto-closing tag + auto-snap VBScript closers
+// ---------------------------------------------------------------------------
+
 export function registerAutoClosingTag(context: vscode.ExtensionContext) {
     const disposable = vscode.workspace.onDidChangeTextDocument(event => {
         const editor = vscode.window.activeTextEditor;
-        if (!editor || event.document !== editor.document) {
-            return;
-        }
+        if (!editor || event.document !== editor.document) { return; }
+        if (event.document.languageId !== 'asp')           { return; }
+        if (event.contentChanges.length === 0)             { return; }
 
-        // Only work with .asp files
-        if (event.document.languageId !== 'asp') {
-            return;
-        }
+        const change = event.contentChanges[0];
 
-        const changes = event.contentChanges;
-        if (changes.length === 0) {
-            return;
-        }
-
-        const change = changes[0];
-
-        // Check if user just typed '<!--' (HTML comment start)
+        // ---- HTML comment auto-close: <!-- → <!-- | -->
         if (change.text === '-' && change.range.start.character >= 3) {
-            const position = change.range.start;
-            const line = event.document.lineAt(position.line);
+            const position  = change.range.start;
+            const line      = event.document.lineAt(position.line);
             const textBefore = line.text.substring(0, position.character + 1);
 
-            // Check if we just completed '<!--'
             if (textBefore.endsWith('<!--')) {
                 const textAfter = line.text.substring(position.character + 1);
-
-                // Only auto-close if '-->' doesn't already exist right after
                 if (!textAfter.trim().startsWith('-->')) {
-                    const insertPosition = new vscode.Position(position.line, position.character + 1);
-
-                    editor.edit(editBuilder => {
-                        editBuilder.insert(insertPosition, '  -->');
-                    }).then(() => {
-                        // Move cursor between the comment markers: <!-- | -->
-                        const newPosition = new vscode.Position(position.line, position.character + 2);
-                        editor.selection = new vscode.Selection(newPosition, newPosition);
+                    const insertPos = new vscode.Position(position.line, position.character + 1);
+                    editor.edit(eb => eb.insert(insertPos, '  -->')).then(() => {
+                        const p = new vscode.Position(position.line, position.character + 2);
+                        editor.selection = new vscode.Selection(p, p);
                     });
                 }
             }
             return;
         }
 
-        // Check if user just typed '>'
+        // ---- HTML tag auto-close: <div> → <div></div>
         if (change.text === '>') {
-            const position = change.range.start;
-            const line = event.document.lineAt(position.line);
-            const textBeforeClosing = line.text.substring(0, position.character);
+            const position       = change.range.start;
+            const line           = event.document.lineAt(position.line);
+            const textBefore     = line.text.substring(0, position.character);
             const textAfterCursor = line.text.substring(position.character + 1);
 
-            // Find the opening tag
-            const tagMatch = textBeforeClosing.match(/<(\w+)(?:\s+[^>]*)?$/);
-            if (tagMatch) {
-                const tagName = tagMatch[1];
-
-                // Check if it's not a self-closing tag and not already closed
-                if (!isSelfClosingTag(tagName)) {
-                    const expectedClosing = `</${tagName}>`;
-
-                    // Check if closing tag already exists right after
-                    if (textAfterCursor.trim().startsWith(expectedClosing)) {
-                        // Already has closing tag, don't add another
-                        return;
-                    }
-
-                    const insertPosition = new vscode.Position(position.line, position.character + 1);
-
-                    editor.edit(editBuilder => {
-                        editBuilder.insert(insertPosition, expectedClosing);
-                    }).then(() => {
-                        // Move cursor right after the > (before closing tag)
-                        const newPosition = new vscode.Position(position.line, position.character + 1);
-                        editor.selection = new vscode.Selection(newPosition, newPosition);
+            const tagMatch = textBefore.match(/<(\w+)(?:\s+[^>]*)?$/);
+            if (tagMatch && !isSelfClosingTag(tagMatch[1])) {
+                const expectedClosing = `</${tagMatch[1]}>`;
+                if (!textAfterCursor.trim().startsWith(expectedClosing)) {
+                    const insertPos = new vscode.Position(position.line, position.character + 1);
+                    editor.edit(eb => eb.insert(insertPos, expectedClosing)).then(() => {
+                        const p = new vscode.Position(position.line, position.character + 1);
+                        editor.selection = new vscode.Selection(p, p);
                     });
                 }
             }
+            return;
         }
 
-        // Auto-snap VBScript closer keywords to correct indent as user finishes typing.
-        // Fires on insertions only, and only when the whole line is exactly a closer keyword.
-        // Only snap when the user typed a real character (not tab/space-only indent changes)
-        if (change.text !== '' && /\S/.test(change.text)) {
-            const changePosition = change.range.start;
-            const currentLine = event.document.lineAt(changePosition.line);
-            const currentLineTrimmed = currentLine.text.trim();
-            const currentIndent = currentLine.text.match(/^(\s*)/)?.[1] ?? '';
+        // ---- Auto-snap VBScript closer to correct indent when fully typed
+        // Skip deletions and whitespace-only changes (Tab/Shift+Tab)
+        if (change.text === '' || !/\S/.test(change.text)) { return; }
 
-            const isExactCloser =
-                /^(End\s+If|End\s+Sub|End\s+Function|End\s+With|End\s+Select|End\s+Class|Next|Loop|Wend|ElseIf(?:\s+.*Then)?|Else)$/i
-                .test(currentLineTrimmed);
+        const changePos     = change.range.start;
+        const currentLine   = event.document.lineAt(changePos.line);
+        const currentTrimmed = currentLine.text.trim();
+        const currentIndent  = currentLine.text.match(/^(\s*)/)?.[1] ?? '';
 
-            if (
-                isExactCloser &&
-                isInsideAspBlock(event.document.getText(), event.document.offsetAt(
-                    new vscode.Position(changePosition.line, currentLine.text.length)
-                ))
-            ) {
-                const openerIndent = findMatchingOpenerIndent(event.document, changePosition.line, currentLineTrimmed);
+        if (!VBSCRIPT_EXACT_CLOSER.test(currentTrimmed)) { return; }
+        if (!isInAspBlock(event.document, new vscode.Position(changePos.line, currentLine.text.length))) { return; }
 
-                if (openerIndent !== null && openerIndent !== currentIndent) {
-                    editor.edit(editBuilder => {
-                        editBuilder.replace(
-                            new vscode.Range(
-                                new vscode.Position(changePosition.line, 0),
-                                new vscode.Position(changePosition.line, currentIndent.length)
-                            ),
-                            openerIndent
-                        );
-                    }).then(() => {
-                        const newCol = openerIndent.length + currentLineTrimmed.length;
-                        const newPos = new vscode.Position(changePosition.line, newCol);
-                        editor.selection = new vscode.Selection(newPos, newPos);
-                    });
-                }
-            }
-        }
+        const openerIndent = findMatchingOpenerIndent(event.document, changePos.line, currentTrimmed);
+        if (openerIndent === null || openerIndent === currentIndent) { return; }
 
+        editor.edit(eb => {
+            eb.replace(
+                new vscode.Range(
+                    new vscode.Position(changePos.line, 0),
+                    new vscode.Position(changePos.line, currentIndent.length)
+                ),
+                openerIndent
+            );
+        }).then(() => {
+            const p = new vscode.Position(changePos.line, openerIndent.length + currentTrimmed.length);
+            editor.selection = new vscode.Selection(p, p);
+        });
     });
 
     context.subscriptions.push(disposable);
 }
 
-// Register Enter key handler for auto-closing tags and smart ASP/VBScript indentation
+// ---------------------------------------------------------------------------
+// Enter key handler
+// ---------------------------------------------------------------------------
+
 export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
     const disposable = vscode.commands.registerCommand('asp.insertLineBreak', () => {
         const editor = vscode.window.activeTextEditor;
@@ -347,178 +303,138 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             return vscode.commands.executeCommand('default:type', { text: '\n' });
         }
 
-        const position = editor.selection.active;
-        const document = editor.document;
-        const line = document.lineAt(position.line);
-        const textBefore = line.text.substring(0, position.character);
-        const textAfter = line.text.substring(position.character);
+        const position        = editor.selection.active;
+        const document        = editor.document;
+        const line            = document.lineAt(position.line);
+        const textBefore      = line.text.substring(0, position.character);
+        const textAfter       = line.text.substring(position.character);
         const currentLineText = textBefore.trim();
-
-        const tabSize = editor.options.tabSize as number || 4;
-        const useSpaces = editor.options.insertSpaces !== false;
-        const indentUnit = useSpaces ? ' '.repeat(tabSize) : '\t';
-        const indent = textBefore.match(/^(\s*)/)?.[0] || '';
+        const indent          = textBefore.match(/^(\s*)/)?.[0] || '';
+        const indentUnit      = getIndentUnit(editor);
 
         // ----------------------------------------------------------------
         // ASP / VBScript block handling
         // ----------------------------------------------------------------
-        const inAspBlock = isInsideAspBlock(document.getText(), document.offsetAt(position));
+        if (isInAspBlock(document, position)) {
 
-        if (inAspBlock) {
-            // Pressing Enter right after <% or <%= → stay at same indent, no extra level
+            // After <% or <%= → same indent, no extra level
             if (/^<%=?$/.test(currentLineText)) {
-                editor.edit(editBuilder => {
-                    editBuilder.insert(position, `\n${indent}`);
-                }).then(() => {
-                    const newPos = new vscode.Position(position.line + 1, indent.length);
-                    editor.selection = new vscode.Selection(newPos, newPos);
+                editor.edit(eb => eb.insert(position, `\n${indent}`)).then(() => {
+                    const p = new vscode.Position(position.line + 1, indent.length);
+                    editor.selection = new vscode.Selection(p, p);
                 });
                 return;
             }
 
-            // VBScript block closer on current line → snap this line to its matching opener's
-            // indent, then put the next line at that same level.
+            // Block closer → snap to matching opener indent, newline at same level.
+            // Done in a single edit to avoid the two-step flicker.
             if (VBSCRIPT_BLOCK_CLOSERS.test(currentLineText)) {
                 const openerIndent = findMatchingOpenerIndent(document, position.line, currentLineText);
-
-                // Only reindent if we found a matching opener AND the current indent is wrong
                 const targetIndent = openerIndent !== null ? openerIndent : indent;
 
                 if (targetIndent !== indent) {
-                    // First edit: correct this line's indentation
-                    editor.edit(editBuilder => {
-                        editBuilder.replace(
-                            new vscode.Range(
-                                new vscode.Position(position.line, 0),
-                                new vscode.Position(position.line, indent.length)
-                            ),
-                            targetIndent
+                    const lineEnd = new vscode.Position(position.line, indent.length + currentLineText.length);
+                    editor.edit(eb => {
+                        eb.replace(
+                            new vscode.Range(new vscode.Position(position.line, 0), lineEnd),
+                            `${targetIndent}${currentLineText}\n${targetIndent}`
                         );
                     }).then(() => {
-                        // Second edit: insert newline with corrected indent
-                        const newLineStart = targetIndent.length + currentLineText.length;
-                        editor.edit(editBuilder => {
-                            editBuilder.insert(
-                                new vscode.Position(position.line, newLineStart),
-                                `\n${targetIndent}`
-                            );
-                        }).then(() => {
-                            const newPos = new vscode.Position(position.line + 1, targetIndent.length);
-                            editor.selection = new vscode.Selection(newPos, newPos);
-                        });
+                        const p = new vscode.Position(position.line + 1, targetIndent.length);
+                        editor.selection = new vscode.Selection(p, p);
                     });
                 } else {
-                    // Indent is already correct — just insert newline at same level
-                    editor.edit(editBuilder => {
-                        editBuilder.insert(position, `\n${indent}`);
-                    }).then(() => {
-                        const newPos = new vscode.Position(position.line + 1, indent.length);
-                        editor.selection = new vscode.Selection(newPos, newPos);
+                    editor.edit(eb => eb.insert(position, `\n${indent}`)).then(() => {
+                        const p = new vscode.Position(position.line + 1, indent.length);
+                        editor.selection = new vscode.Selection(p, p);
                     });
                 }
                 return;
             }
 
-            // VBScript block opener → next line gets +1 indent
+            // Block opener → next line +1
             if (VBSCRIPT_BLOCK_OPENERS.test(currentLineText)) {
-                editor.edit(editBuilder => {
-                    editBuilder.insert(position, `\n${indent}${indentUnit}`);
-                }).then(() => {
-                    const newPos = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
-                    editor.selection = new vscode.Selection(newPos, newPos);
+                editor.edit(eb => eb.insert(position, `\n${indent}${indentUnit}`)).then(() => {
+                    const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
+                    editor.selection = new vscode.Selection(p, p);
                 });
                 return;
             }
 
-            // Default inside ASP block → match current line's indent exactly
-            editor.edit(editBuilder => {
-                editBuilder.insert(position, `\n${indent}`);
-            }).then(() => {
-                const newPos = new vscode.Position(position.line + 1, indent.length);
-                editor.selection = new vscode.Selection(newPos, newPos);
+            // Default inside ASP → match current indent
+            editor.edit(eb => eb.insert(position, `\n${indent}`)).then(() => {
+                const p = new vscode.Position(position.line + 1, indent.length);
+                editor.selection = new vscode.Selection(p, p);
             });
             return;
         }
 
         // ----------------------------------------------------------------
-        // HTML context handling (original logic, unchanged)
+        // HTML context handling
         // ----------------------------------------------------------------
 
-        // Check if we're inside an HTML comment: <!-- | -->
+        // HTML comment: <!-- | -->
         if (textBefore.trim().endsWith('<!--') && textAfter.trim().startsWith('-->')) {
-            editor.edit(editBuilder => {
-                const endOfLine = line.range.end;
-                editBuilder.replace(new vscode.Range(position, endOfLine), `\n${indent}${indentUnit}\n${indent}-->`);
+            editor.edit(eb => {
+                eb.replace(new vscode.Range(position, line.range.end),
+                    `\n${indent}${indentUnit}\n${indent}-->`);
             }).then(() => {
-                const newPosition = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
-                editor.selection = new vscode.Selection(newPosition, newPosition);
+                const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
+                editor.selection = new vscode.Selection(p, p);
             });
             return;
         }
 
-        // Check if we just closed a tag: <html>|
+        // Closed tag: <div>|</div>  or  <div>| with closing tag elsewhere
         const justClosedTagMatch = textBefore.match(/<(\w+)([^>]*)>$/);
-
         if (justClosedTagMatch) {
             const tagName = justClosedTagMatch[1];
 
             if (!isSelfClosingTag(tagName)) {
-                const closingTag = `</${tagName}>`;
-
-                const textAfterCursor = document.getText(
-                    new vscode.Range(position, document.positionAt(document.getText().length))
+                const closingTag      = `</${tagName}>`;
+                const closingTagRegex = new RegExp(`</${tagName}>`, 'i');
+                // Only getText from cursor to end — avoids scanning the whole document
+                const afterCursorText = document.getText(
+                    new vscode.Range(position, document.lineAt(document.lineCount - 1).range.end)
                 );
 
-                const closingTagRegex = new RegExp(`</${tagName}>`, 'i');
-                if (closingTagRegex.test(textAfterCursor)) {
+                if (closingTagRegex.test(afterCursorText)) {
                     if (textAfter.trim().startsWith(closingTag)) {
-                        // Closing tag is right after cursor: <div>|</div>
-                        // Use replace in a single operation to avoid cursor flicker
-                        editor.edit(editBuilder => {
-                            const endOfLine = line.range.end;
-                            editBuilder.replace(new vscode.Range(position, endOfLine), `\n${indent}${indentUnit}\n${indent}${closingTag}`);
+                        // <div>|</div> → expand
+                        editor.edit(eb => {
+                            eb.replace(new vscode.Range(position, line.range.end),
+                                `\n${indent}${indentUnit}\n${indent}${closingTag}`);
                         }).then(() => {
-                            const newPosition = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
-                            editor.selection = new vscode.Selection(newPosition, newPosition);
+                            const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
+                            editor.selection = new vscode.Selection(p, p);
                         });
-                        return;
                     } else {
-                        // Closing tag exists elsewhere, just add newline with indent
-                        editor.edit(editBuilder => {
-                            editBuilder.insert(position, `\n${indent}${indentUnit}`);
-                        }).then(() => {
-                            const newPosition = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
-                            editor.selection = new vscode.Selection(newPosition, newPosition);
+                        editor.edit(eb => eb.insert(position, `\n${indent}${indentUnit}`)).then(() => {
+                            const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
+                            editor.selection = new vscode.Selection(p, p);
                         });
-                        return;
                     }
+                    return;
                 }
 
-                // No closing tag exists - create it
-                editor.edit(editBuilder => {
-                    editBuilder.insert(position, `\n${indent}${indentUnit}\n${indent}${closingTag}`);
-                }).then(() => {
-                    const newPosition = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
-                    editor.selection = new vscode.Selection(newPosition, newPosition);
+                // No closing tag — create it
+                editor.edit(eb => eb.insert(position, `\n${indent}${indentUnit}\n${indent}${closingTag}`)).then(() => {
+                    const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
+                    editor.selection = new vscode.Selection(p, p);
                 });
                 return;
             }
         }
 
-        // Check if we're after an incomplete tag: <html|
+        // Incomplete tag: <div|
         const incompleteTagMatch = textBefore.match(/<(\w+)([^>]*)$/);
-
         if (incompleteTagMatch && !textBefore.endsWith('>')) {
             const tagName = incompleteTagMatch[1];
-
             if (!isSelfClosingTag(tagName)) {
                 const closingTag = `</${tagName}>`;
-
-                editor.edit(editBuilder => {
-                    editBuilder.insert(position, `>\n${indent}${indentUnit}\n\n${indent}${closingTag}`);
-                }).then(() => {
-                    const newPosition = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
-                    editor.selection = new vscode.Selection(newPosition, newPosition);
+                editor.edit(eb => eb.insert(position, `>\n${indent}${indentUnit}\n\n${indent}${closingTag}`)).then(() => {
+                    const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
+                    editor.selection = new vscode.Selection(p, p);
                 });
                 return;
             }
@@ -530,7 +446,10 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
     context.subscriptions.push(disposable);
 }
 
-// Register Tab key handler for smart indentation
+// ---------------------------------------------------------------------------
+// Tab key handler
+// ---------------------------------------------------------------------------
+
 export function registerTabKeyHandler(context: vscode.ExtensionContext) {
     const disposable = vscode.commands.registerCommand('asp.insertTab', () => {
         const editor = vscode.window.activeTextEditor;
@@ -539,68 +458,51 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
         }
 
         const position = editor.selection.active;
-        const line = editor.document.lineAt(position.line);
-        const lineText = line.text;
+        const lineText = editor.document.lineAt(position.line).text;
 
-        // Only apply smart indent if the line is empty or only whitespace before cursor
-        const isLineBlankSoFar = lineText.trim() === '';
-        if (!isLineBlankSoFar) {
+        // Only apply smart indent on a completely blank line
+        if (lineText.trim() !== '') {
             return vscode.commands.executeCommand('tab');
         }
 
-        const tabSize = editor.options.tabSize as number || 4;
-        const useSpaces = editor.options.insertSpaces !== false;
-        const indentUnit = useSpaces ? ' '.repeat(tabSize) : '\t';
+        const indentUnit = getIndentUnit(editor);
 
-        // Find the nearest non-empty line above
-        let baseIndent = '';
+        // Find nearest non-empty line above
+        let baseIndent   = '';
         let prevLineText = '';
         for (let i = position.line - 1; i >= 0; i--) {
             const text = editor.document.lineAt(i).text;
             if (text.trim().length > 0) {
-                const match = text.match(/^(\s*)/);
-                baseIndent = match ? match[1] : '';
+                baseIndent   = text.match(/^(\s*)/)?.[1] ?? '';
                 prevLineText = text.trim();
                 break;
             }
         }
 
-        const inAspBlock = isInsideAspBlock(editor.document.getText(), editor.document.offsetAt(position));
-
-        // How much whitespace is already on this line
         const currentIndent = lineText.match(/^(\s*)/)?.[1] ?? '';
+        const inAsp = isInAspBlock(editor.document, position);
 
-        // The "correct" indent we'd suggest based on context
         let targetIndent: string;
         if (/^<%/.test(prevLineText)) {
             targetIndent = baseIndent;
-        } else if (inAspBlock && VBSCRIPT_BLOCK_OPENERS.test(prevLineText)) {
+        } else if (inAsp && VBSCRIPT_BLOCK_OPENERS.test(prevLineText)) {
             targetIndent = baseIndent + indentUnit;
-        } else if (inAspBlock) {
+        } else if (inAsp) {
             targetIndent = baseIndent;
         } else {
             targetIndent = baseIndent + indentUnit;
         }
 
-        let newIndent: string;
-        if (currentIndent.length < targetIndent.length) {
-            // Below the correct level → snap up to it
-            newIndent = targetIndent;
-        } else {
-            // Already at or beyond the correct level → just add one more level freely
-            newIndent = currentIndent + indentUnit;
-        }
+        // Snap up to correct level if below it, otherwise freely +1
+        const newIndent = currentIndent.length < targetIndent.length
+            ? targetIndent
+            : currentIndent + indentUnit;
 
-        editor.edit(editBuilder => {
-            // Replace whatever whitespace is already on this line before the cursor
-            const replaceRange = new vscode.Range(
-                new vscode.Position(position.line, 0),
-                position
-            );
-            editBuilder.replace(replaceRange, newIndent);
+        editor.edit(eb => {
+            eb.replace(new vscode.Range(new vscode.Position(position.line, 0), position), newIndent);
         }).then(() => {
-            const newPosition = new vscode.Position(position.line, newIndent.length);
-            editor.selection = new vscode.Selection(newPosition, newPosition);
+            const p = new vscode.Position(position.line, newIndent.length);
+            editor.selection = new vscode.Selection(p, p);
         });
     });
 
