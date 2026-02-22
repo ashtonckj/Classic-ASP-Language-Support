@@ -38,42 +38,80 @@ const CLOSER_TO_OPENER: { closer: RegExp; opener: RegExp }[] = [
 
 /**
  * Given a closer keyword line, scan upward through the document to find
- * the indent of its matching opener, counting nested pairs along the way.
- * Returns the opener's indent string, or null if no match found.
+ * the indent of its matching opener.
+ *
+ * Scans upward keeping a single nesting depth for our target type.
+ * Any other block type that is opened but not yet closed (i.e. we've seen its
+ * closer but not its opener yet) means we are "inside" that block — and any
+ * opener of our target type found while inside a foreign block is shielded
+ * and must be ignored.
+ *
+ * Example:
+ *   If ...           ← outer, should match
+ *     While ...      ← foreign opener — clears the Wend shield
+ *       If ...       ← shielded by Wend above, must be skipped
+ *   Wend             ← foreign closer — sets a shield
+ *   End If           ← start here
  */
 function findMatchingOpenerIndent(
     document: vscode.TextDocument,
     closerLineIndex: number,
     closerText: string
 ): string | null {
-    // Find which opener pattern to look for
-    const pair = CLOSER_TO_OPENER.find(p => p.closer.test(closerText));
-    if (!pair) { return null; }
+    const targetIdx = CLOSER_TO_OPENER.findIndex(p => p.closer.test(closerText));
+    if (targetIdx === -1) { return null; }
 
-    let depth = 1; // we start inside one unclosed block
+    // Depth for our target type (how many unmatched closers of our type remain)
+    let targetDepth = 1;
+
+    // Depth for every OTHER block type — if any of these > 0 we are "inside"
+    // a foreign block and our target opener should be skipped
+    const foreignDepth: number[] = CLOSER_TO_OPENER.map(() => 0);
 
     for (let i = closerLineIndex - 1; i >= 0; i--) {
         const text = document.lineAt(i).text.trim();
         if (!text) { continue; }
 
-        // If we find another closer of the same type, go deeper
-        if (pair.closer.test(text)) {
-            depth++;
+        // Is this line a closer of any type?
+        const closerIdx = CLOSER_TO_OPENER.findIndex(p => p.closer.test(text));
+        if (closerIdx !== -1) {
+            if (closerIdx === targetIdx) {
+                // Only count this same-type closer if NOT inside a foreign block
+                // (if it IS inside a foreign block it's shielded and irrelevant)
+                const insideForeign = foreignDepth.some(d => d > 0);
+                if (!insideForeign) {
+                    targetDepth++;
+                }
+            } else {
+                foreignDepth[closerIdx]++;  // foreign closer — we are now inside it
+            }
             continue;
         }
 
-        // If we find an opener of the matching type, come up one level
-        if (pair.opener.test(text)) {
-            depth--;
-            if (depth === 0) {
-                // This is the matching opener — return its indent
-                const match = document.lineAt(i).text.match(/^(\s*)/);
-                return match ? match[1] : '';
+        // Is this line an opener of any type?
+        const openerIdx = CLOSER_TO_OPENER.findIndex(p => p.opener.test(text));
+        if (openerIdx !== -1) {
+            if (openerIdx === targetIdx) {
+                // Only count this opener if we are NOT inside any foreign block
+                const insideForeign = foreignDepth.some(d => d > 0);
+                if (!insideForeign) {
+                    targetDepth--;
+                    if (targetDepth === 0) {
+                        const m = document.lineAt(i).text.match(/^(\s*)/);
+                        return m ? m[1] : '';
+                    }
+                }
+                // If inside a foreign block, this opener is shielded — skip it
+            } else {
+                // Foreign opener — decrement its shield if one exists
+                if (foreignDepth[openerIdx] > 0) {
+                    foreignDepth[openerIdx]--;
+                }
             }
         }
     }
 
-    return null; // no matching opener found
+    return null;
 }
 
 export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
