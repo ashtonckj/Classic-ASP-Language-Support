@@ -9,9 +9,7 @@ import {
     isInsideAspBlock
 } from '../utils/documentHelper';
 
-// ---------------------------------------------------------------------------
-// VBScript block keyword constants
-// ---------------------------------------------------------------------------
+// ── VBScript block keyword constants ───────────────────────────────────────
 
 const VBSCRIPT_BLOCK_OPENERS = /^(If\b.*Then|ElseIf\b.*Then|Else\b|For\b|For\s+Each\b|Do\b|Do\s+While\b|Do\s+Until\b|While\b|Sub\b|Function\b|With\b|Select\s+Case\b|Class\b)/i;
 const VBSCRIPT_BLOCK_CLOSERS = /^(End\s+If\b|End\s+Sub\b|End\s+Function\b|End\s+With\b|End\s+Select\b|End\s+Class\b|Next\b|Loop\b|Wend\b|ElseIf\b|Else\b)/i;
@@ -34,9 +32,7 @@ const CLOSER_TO_OPENER: { closer: RegExp; opener: RegExp }[] = [
     { closer: /^Else\b/i,           opener: /^If\b.*Then$|^ElseIf\b.*Then$/i },
 ];
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 /**
  * Faster isInsideAspBlock that avoids fetching the entire document string.
@@ -125,9 +121,7 @@ function findMatchingOpenerIndent(
     return null;
 }
 
-// ---------------------------------------------------------------------------
-// Cached completion items — built once, reused on every keystroke
-// ---------------------------------------------------------------------------
+// ── Cached completion items — built once, reused on every keystroke ────────
 
 let _cachedTagCompletions: vscode.CompletionItem[] | null = null;
 const _cachedAttrCompletions = new Map<string, vscode.CompletionItem[]>();
@@ -168,9 +162,7 @@ function getAttributeCompletions(tagName: string): vscode.CompletionItem[] {
     return items;
 }
 
-// ---------------------------------------------------------------------------
-// Completion provider
-// ---------------------------------------------------------------------------
+// ── Completion provider ────────────────────────────────────────────────────
 
 export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
 
@@ -207,9 +199,7 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Auto-closing tag + auto-snap VBScript closers
-// ---------------------------------------------------------------------------
+// ── Auto-closing tag + auto-snap VBScript closers ──────────────────────────
 
 export function registerAutoClosingTag(context: vscode.ExtensionContext) {
     const disposable = vscode.workspace.onDidChangeTextDocument(event => {
@@ -292,9 +282,7 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
     context.subscriptions.push(disposable);
 }
 
-// ---------------------------------------------------------------------------
-// Enter key handler
-// ---------------------------------------------------------------------------
+// ── Enter key handler ──────────────────────────────────────────────────────
 
 export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
     const disposable = vscode.commands.registerCommand('asp.insertLineBreak', () => {
@@ -312,9 +300,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         const indent          = textBefore.match(/^(\s*)/)?.[0] || '';
         const indentUnit      = getIndentUnit(editor);
 
-        // ----------------------------------------------------------------
-        // ASP / VBScript block handling
-        // ----------------------------------------------------------------
+        // ── ASP / VBScript block handling ───────────────────────────────
         if (isInAspBlock(document, position)) {
 
             // After <% or <%= → same indent, no extra level
@@ -369,9 +355,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             return;
         }
 
-        // ----------------------------------------------------------------
-        // HTML context handling
-        // ----------------------------------------------------------------
+        // ── HTML context handling ───────────────────────────────────────
 
         // HTML comment: <!-- | -->
         if (textBefore.trim().endsWith('<!--') && textAfter.trim().startsWith('-->')) {
@@ -446,9 +430,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
     context.subscriptions.push(disposable);
 }
 
-// ---------------------------------------------------------------------------
-// Tab key handler
-// ---------------------------------------------------------------------------
+// ── Tab key handler ────────────────────────────────────────────────────────
 
 export function registerTabKeyHandler(context: vscode.ExtensionContext) {
     const disposable = vscode.commands.registerCommand('asp.insertTab', () => {
