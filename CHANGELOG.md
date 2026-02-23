@@ -5,6 +5,14 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-02-24
+
+### 🛠️ Fixed
+- **Fixed formatter hotkey not working** - Resolved bundling issue that prevented the formatter from activating with `Alt + Shift + F` (Windows/Linux) or `Option + Shift + F` (Mac)
+- **Fixed #20** - Resolved deindentation failures with `ElseIf`, `Else`, and `Case` tags in VBScript ([#20](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/20))
+
+---
+
 ## [0.3.1] - 2026-02-23
 
 ### 🛠️ Fixed
@@ -155,6 +163,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[0.3.2]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.2
 [0.3.1]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.0
 [0.2.5]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.2.5
