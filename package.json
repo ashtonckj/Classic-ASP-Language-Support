@@ -66,13 +66,6 @@
                     "source.js": "javascript",
                     "source.vbscript.embedded.asp": "vb"
                 }
-            },
-            {
-                "scopeName": "asp.injection",
-                "path": "./syntaxes/asp-injections.tmLanguage.json",
-                "injectTo": [
-                    "text.html.basic"
-                ]
             }
         ],
         "snippets": [
@@ -245,12 +238,12 @@
             {
                 "title": "Syntax Highlighting",
                 "properties": {
-                    "aspLanguageSupport.enableSqlInStrings": {
+                    "aspLanguageSupport.enableSQLHighlighting": {
                         "type": "boolean",
                         "default": true,
                         "markdownDescription": "Enable SQL syntax highlighting inside double-quoted strings. Toggle with `ASP: Toggle SQL Syntax Highlighting` command (requires reload)."
                     },
-                    "aspLanguageSupport.enableAspRegions": {
+                    "aspLanguageSupport.highlightAspRegions": {
                         "type": "boolean",
                         "default": true,
                         "description": "Highlight ASP code regions with background colors"
@@ -296,10 +289,9 @@
         ]
     },
     "scripts": {
-        "vscode:prepublish": "npm run bundle",
-        "bundle": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
+        "vscode:prepublish": "npm run compile",
         "compile": "tsc -p ./",
-        "watch": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch",
+        "watch": "tsc -watch -p ./",
         "pretest": "npm run compile && npm run lint",
         "lint": "eslint src --ext ts",
         "test": "node ./out/test/runTest.js"

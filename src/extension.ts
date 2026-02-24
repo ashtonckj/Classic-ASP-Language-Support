@@ -39,6 +39,8 @@ function updateGrammarFile(extensionPath: string, enableSQL: boolean): void {
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('Classic ASP Language Support is now active!');
+    console.log('extensionPath:', context.extensionPath);
+    console.log('extensionUri:', context.extensionUri);
 
     // Get the extension path
     const extensionPath = context.extensionPath;
@@ -48,7 +50,11 @@ export function activate(context: vscode.ExtensionContext) {
     const enableSQL = config.get<boolean>('enableSQLHighlighting', true);
 
     // Update grammar file on activation
-    updateGrammarFile(extensionPath, enableSQL);
+    try {
+        updateGrammarFile(extensionPath, enableSQL);
+    } catch (error) {
+        console.error('ASP: Failed to update grammar file on activation:', error);
+    }
 
     // Add ASP region highlighting
     addRegionHighlights(context);

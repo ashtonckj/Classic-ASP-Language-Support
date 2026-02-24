@@ -171,8 +171,8 @@ Access settings via `File → Preferences → Settings` and search for "Classic 
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `aspLanguageSupport.enableSqlInStrings` | `true` | Enable SQL syntax highlighting inside double-quoted strings (requires reload) |
-| `aspLanguageSupport.enableAspRegions` | `true` | Highlight ASP code regions with background colours |
+| `aspLanguageSupport.enableSQLHighlighting` | `true` | Enable SQL syntax highlighting inside double-quoted strings (requires reload) |
+| `aspLanguageSupport.highlightAspRegions` | `true` | Highlight ASP code regions with background colours |
 | `aspLanguageSupport.bracketLightColor` | `rgba(255, 100, 0, 0.2)` | ASP bracket `<% %>` colour (light theme) |
 | `aspLanguageSupport.bracketDarkColor` | `rgba(0, 100, 255, 0.2)` | ASP bracket `<% %>` colour (dark theme) |
 | `aspLanguageSupport.codeBlockLightColor` | `rgba(100, 100, 100, 0.1)` | ASP code block background (light theme) |
