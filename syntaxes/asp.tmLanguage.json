@@ -153,7 +153,7 @@
                 {
                     "comment": "SQL strings - detect by any SQL keyword (liberal matching for best colors)",
                     "name": "string.quoted.double.asp",
-                    "begin": "\"(?=(?i).*?(\\b(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|MERGE|EXEC|EXECUTE|FROM|WHERE|AND|OR|JOIN|ON|SET|INTO|UNION|ORDER|GROUP|HAVING|AS|LIKE|IS|NOT|CASE|WHEN|THEN|ELSE|END|VALUES|BEGIN|COMMIT|ROLLBACK|TRANSACTION|DECLARE|PRINT|RAISERROR|USING|OUTPUT|MATCHED|IDENTITY|PRIMARY|FOREIGN|KEY|NULL|GO|INT|INTEGER|VARCHAR|NVARCHAR|DECIMAL|BIGINT|DATETIME|BIT)|\\[[^\\]]+\\]\\.|WITH\\s*\\(|\\bAS\\b.*?,|@[a-zA-Z_]))",
+                    "begin": "\"(?=(?i).*?(\\b(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|MERGE|EXEC|EXECUTE|FROM|WHERE|AND|OR|JOIN|ON|SET|INTO|UNION|ORDER|GROUP|HAVING|AS|LIKE|IS|NOT|CASE|WHEN|THEN|ELSE|END|VALUES|BEGIN|COMMIT|ROLLBACK|TRANSACTION|DECLARE|PRINT|RAISERROR|USING|OUTPUT|MATCHED|IDENTITY|PRIMARY|FOREIGN|KEY|NULL|GO|INT|INTEGER|VARCHAR|NVARCHAR|DECIMAL|BIGINT|DATETIME|BIT|WITH)|\\[[^\\]]+\\]\\.|WITH\\s*\\(|\\bAS\\b.*?,|@[a-zA-Z_]))",
                     "end": "\"(?!\")",
                     "beginCaptures": {
                         "0": {
@@ -216,9 +216,9 @@
                     "match": "(?i)\\b(IS\\s+NOT\\s+NULL|IS\\s+NULL|NOT\\s+NULL|AND\\s+LIKE|ORDER\\s+BY|GROUP\\s+BY|UNION\\s+ALL|LEFT\\s+OUTER\\s+JOIN|RIGHT\\s+OUTER\\s+JOIN|FULL\\s+OUTER\\s+JOIN|LEFT\\s+JOIN|RIGHT\\s+JOIN|INNER\\s+JOIN|OUTER\\s+JOIN|FULL\\s+JOIN|CROSS\\s+JOIN|CROSS\\s+APPLY|OUTER\\s+APPLY|INSERT\\s+INTO|DELETE\\s+FROM|BEGIN\\s+TRANSACTION|COMMIT\\s+TRANSACTION|ROLLBACK\\s+TRANSACTION|PRIMARY\\s+KEY|FOREIGN\\s+KEY|WITH\\s+TIES)\\b"
                 },
                 {
-                    "comment": "SQL DML commands",
+                    "comment": "SQL DML commands - including ON keyword for JOIN clauses",
                     "name": "keyword.other.DML.sql",
-                    "match": "(?i)\\b(SELECT|INSERT|UPDATE|DELETE|MERGE|OUTPUT|EXEC|EXECUTE|FROM|WHERE|JOIN|ON|USING|HAVING|DISTINCT|TOP|LIMIT|OFFSET|FETCH|UNION|INTERSECT|EXCEPT|BY|ORDER|GROUP|APPLY|MATCHED|TIES)\\b"
+                    "match": "(?i)\\b(SELECT|INSERT|UPDATE|DELETE|MERGE|OUTPUT|EXEC|EXECUTE|FROM|WHERE|JOIN|ON|USING|HAVING|DISTINCT|TOP|LIMIT|OFFSET|FETCH|UNION|INTERSECT|EXCEPT|BY|ORDER|GROUP|APPLY|MATCHED|TIES|WITH)\\b"
                 },
                 {
                     "comment": "SQL DDL commands",
@@ -238,7 +238,7 @@
                 {
                     "comment": "SQL keywords",
                     "name": "keyword.other.sql",
-                    "match": "(?i)\\b(AS|ASC|DESC|SET|VALUES|INTO|CASE|WHEN|THEN|ELSE|END|WITH|NOLOCK|DEFAULT|CONSTRAINT|PRIMARY|FOREIGN|KEY|UNIQUE|REFERENCES|CHECK|COLLATE|BEGIN|COMMIT|ROLLBACK|TRANSACTION|DECLARE|CURSOR|OPEN|CLOSE|DEALLOCATE|IF|PRINT|RAISERROR|GO|IDENTITY)\\b"
+                    "match": "(?i)\\b(AS|ASC|DESC|SET|VALUES|INTO|CASE|WHEN|THEN|ELSE|END|NOLOCK|DEFAULT|CONSTRAINT|PRIMARY|FOREIGN|KEY|UNIQUE|REFERENCES|CHECK|COLLATE|BEGIN|COMMIT|ROLLBACK|TRANSACTION|DECLARE|CURSOR|OPEN|CLOSE|DEALLOCATE|IF|PRINT|RAISERROR|GO|IDENTITY)\\b"
                 },
                 {
                     "comment": "SQL aggregate and window functions",
@@ -306,7 +306,7 @@
                     "match": "@[a-zA-Z_][a-zA-Z0-9_]*"
                 },
                 {
-                    "comment": "SQL identifier brackets [table], [column]",
+                    "comment": "SQL identifier brackets [table], [column] - brackets are orange, text inside is yellow - MUST come before table.column pattern",
                     "name": "meta.brackets.sql",
                     "match": "(\\[)([^\\]]+)(\\])",
                     "captures": {
@@ -322,7 +322,7 @@
                     }
                 },
                 {
-                    "comment": "SQL table.column or alias.column pattern",
+                    "comment": "SQL table.column or alias.column pattern (a.RowID, b.Company) - MUST come after keywords and brackets",
                     "name": "meta.column-reference.sql",
                     "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\.(\\*|[a-zA-Z_][a-zA-Z0-9_]*)",
                     "captures": {
@@ -435,6 +435,11 @@
                 {
                     "name": "keyword.operator.asp",
                     "match": "=|>=|<=|<>|<|>|\\+|-|\\*|/|\\\\|\\^|&|(?i)\\b(Mod)\\b"
+                },
+                {
+                    "comment": "Parentheses and square brackets \u2014 gives them bracket-pair colours in VBScript",
+                    "name": "punctuation.bracket.asp",
+                    "match": "[()\\[\\]]"
                 }
             ]
         },
