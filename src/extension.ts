@@ -39,8 +39,6 @@ function updateGrammarFile(extensionPath: string, enableSQL: boolean): void {
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('Classic ASP Language Support is now active!');
-    console.log('extensionPath:', context.extensionPath);
-    console.log('extensionUri:', context.extensionUri);
 
     // Get the extension path
     const extensionPath = context.extensionPath;
