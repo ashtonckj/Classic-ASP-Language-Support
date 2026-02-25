@@ -567,7 +567,9 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
         } else if (inAsp) {
             targetIndent = baseIndent;
         } else {
-            targetIndent = baseIndent + indentUnit;
+            // In <script>/<style> or plain HTML:
+            // A closing brace means we're already at the right dedented level — don't add another indent.
+            targetIndent = prevLineText.endsWith('}') ? baseIndent : baseIndent + indentUnit;
         }
 
         // Snap up to correct level if below it, otherwise freely +1
