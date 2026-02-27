@@ -10,6 +10,7 @@ import { registerCssDiagnostics } from './providers/cssDiagnosticsProvider';
 import { JsCompletionProvider } from './providers/jsCompletionProvider';
 import { IncludePathCompletionProvider, AspDefinitionProvider } from './providers/includeProvider';
 import { AspSemanticTokensProvider, ASP_SEMANTIC_LEGEND } from './providers/aspSemanticProvider';
+import { AspHoverProvider } from './providers/aspHoverProvider';
 import { addRegionHighlights } from './highlight';
 
 /**
@@ -127,6 +128,14 @@ export function activate(context: vscode.ExtensionContext) {
         ASP_SEMANTIC_LEGEND
     );
 
+    // ── Hover docs ────────────────────────────────────────────────────────────
+    // Shows documentation when hovering over functions, subs, variables,
+    // constants, COM object variables, COM members, and VBScript keywords.
+    const aspHoverProvider = vscode.languages.registerHoverProvider(
+        'asp',
+        new AspHoverProvider()
+    );
+
     // ── Register key handlers ─────────────────────────────────────────────────
     registerAutoClosingTag(context);
     registerEnterKeyHandler(context);
@@ -207,6 +216,7 @@ export function activate(context: vscode.ExtensionContext) {
         includePathProvider,
         definitionProvider,
         semanticProvider,
+        aspHoverProvider,
         toggleCommand,
         configWatcher,
         inlineStyleTrigger
