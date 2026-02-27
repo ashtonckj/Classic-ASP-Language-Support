@@ -90,6 +90,9 @@
                     "include": "#asp-objects"
                 },
                 {
+                    "include": "#com-members"
+                },
+                {
                     "include": "#operators"
                 },
                 {
@@ -456,6 +459,16 @@
                 {
                     "name": "support.function.vb.asp",
                     "match": "(?i)\\b(Array|Add|Asc|Atn|CBool|CByte|CCur|CDate|CDbl|Chr|CInt|CLng|Conversions|Cos|CreateObject|CSng|CStr|Date|DateAdd|DateDiff|DatePart|DateSerial|DateValue|Day|Derived|Math|Escape|Eval|Exists|Exp|Filter|FormatCurrency|FormatDateTime|FormatNumber|FormatPercent|GetLocale|GetObject|GetRef|Hex|Hour|InputBox|InStr|InStrRev|Int|Fix|IsArray|IsDate|IsEmpty|IsNull|IsNumeric|IsObject|Item|Items|Join|Keys|LBound|LCase|Left|Len|LoadPicture|Log|LTrim|RTrim|Trim|Maths|Mid|Minute|Month|MonthName|MsgBox|Now|Oct|Remove|RemoveAll|Replace|RGB|Right|Rnd|Round|ScriptEngine|ScriptEngineBuildVersion|ScriptEngineMajorVersion|ScriptEngineMinorVersion|Second|SetLocale|Sgn|Sin|Space|Split|Sqr|StrComp|String|StrReverse|Tan|Time|Timer|TimeSerial|TimeValue|TypeName|UBound|UCase|Unescape|VarType|Weekday|WeekdayName|Year)\\b"
+                }
+            ]
+        },
+        "com-members": {
+            "comment": "COM object members accessed via dot notation — covers ADODB.Recordset, ADODB.Connection, ADODB.Command, Scripting.Dictionary, Scripting.FileSystemObject, MSXML2, WScript.Shell. All share one colour (support.function.com.asp) so themes treat them consistently.",
+            "patterns": [
+                {
+                    "comment": "Matches the member name after any dot, e.g. rs.EOF, conn.Execute, dict.Add. Only the member after the dot gets this colour.",
+                    "name": "support.function.com.asp",
+                    "match": "(?i)(?<=\\.)\\b(EOF|BOF|MoveNext|MovePrev|MoveFirst|MoveLast|AddNew|Update|Delete|Fields|RecordCount|PageSize|PageCount|AbsolutePage|AbsolutePosition|CursorType|LockType|ActiveConnection|Source|Open|Close|Execute|BeginTrans|CommitTrans|RollbackTrans|ConnectionString|CommandTimeout|ConnectionTimeout|Errors|State|CursorLocation|CommandText|CommandType|Parameters|CreateParameter|Prepared|Add|Remove|RemoveAll|Exists|Item|Items|Keys|Count|CompareMode|CreateTextFile|OpenTextFile|FileExists|FolderExists|DeleteFile|DeleteFolder|CopyFile|MoveFile|GetFile|GetFolder|GetFileName|GetParentFolderName|BuildPath|Load|LoadXML|Save|SelectNodes|SelectSingleNode|CreateElement|CreateTextNode|DocumentElement|XML|ParseError|Send|SetRequestHeader|GetResponseHeader|ResponseText|ResponseXML|Status|StatusText|Run|Exec|ExpandEnvironmentStrings|RegRead|RegWrite|RegDelete|Environment)\\b"
                 }
             ]
         }

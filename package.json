@@ -68,6 +68,17 @@
                 }
             }
         ],
+        "semanticTokenScopes": [
+            {
+                "language": "asp",
+                "scopes": {
+                    "function":             ["entity.name.function.asp"],
+                    "function.declaration": ["entity.name.function.asp"],
+                    "namespace":            ["entity.name.function.asp"],
+                    "namespace.declaration":["entity.name.function.asp"]
+                }
+            }
+        ],
         "snippets": [
             {
                 "language": "asp",

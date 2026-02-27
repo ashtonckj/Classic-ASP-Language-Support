@@ -9,6 +9,7 @@ import { CssHoverProvider } from './providers/cssHoverProvider';
 import { registerCssDiagnostics } from './providers/cssDiagnosticsProvider';
 import { JsCompletionProvider } from './providers/jsCompletionProvider';
 import { IncludePathCompletionProvider, AspDefinitionProvider } from './providers/includeProvider';
+import { AspSemanticTokensProvider, ASP_SEMANTIC_LEGEND } from './providers/aspSemanticProvider';
 import { addRegionHighlights } from './highlight';
 
 /**
@@ -117,6 +118,15 @@ export function activate(context: vscode.ExtensionContext) {
         new AspDefinitionProvider()
     );
 
+    // ── Semantic tokens — smart highlighting of user-defined functions/subs ───
+    // Only highlights names that are actually defined in this file or an include.
+    // Uses VS Code's semantic token API so it works with all themes automatically.
+    const semanticProvider = vscode.languages.registerDocumentSemanticTokensProvider(
+        'asp',
+        new AspSemanticTokensProvider(),
+        ASP_SEMANTIC_LEGEND
+    );
+
     // ── Register key handlers ─────────────────────────────────────────────────
     registerAutoClosingTag(context);
     registerEnterKeyHandler(context);
@@ -196,6 +206,7 @@ export function activate(context: vscode.ExtensionContext) {
         jsCompletionProvider,
         includePathProvider,
         definitionProvider,
+        semanticProvider,
         toggleCommand,
         configWatcher,
         inlineStyleTrigger
