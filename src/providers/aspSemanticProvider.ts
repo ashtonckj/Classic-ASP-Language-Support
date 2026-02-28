@@ -434,35 +434,44 @@ function extractSqlGroup(
     const offsetMap: Array<{lineIndex: number; col: number}> = [];
 
     // Helper: read one "..." string fragment at lineText[col] (opening quote).
+    // Also returns colOffsets: one entry per content character mapping back to
+    // the original line column. Handles "" escaped quotes correctly — a ""
+    // produces one content char but advances the line by 2 columns.
     function readFragment(lineText: string, col: number): {
         content: string; colStart: number; colEnd: number; nextCol: number;
+        colOffsets: number[];
     } | null {
         if (col >= lineText.length || lineText[col] !== '"') { return null; }
         col++;
         const colStart = col;
         let content = '';
+        const colOffsets: number[] = [];
         while (col < lineText.length) {
             if (lineText[col] === '"') {
                 if (col + 1 < lineText.length && lineText[col + 1] === '"') {
+                    colOffsets.push(col);   // "" → one " in content, maps to first "
                     content += '"'; col += 2;
                 } else { break; }
             } else {
+                colOffsets.push(col);
                 content += lineText[col++];
             }
         }
         if (col >= lineText.length) { return null; }
-        return { content, colStart, colEnd: col, nextCol: col + 1 };
+        return { content, colStart, colEnd: col, nextCol: col + 1, colOffsets };
     }
 
     // Helper: append a fragment to stitched + offsetMap.
+    // Uses frag.colOffsets so each stitched character maps to its exact line column,
+    // even when "" escaped quotes make content shorter than the raw line span.
     function appendFragment(lineIndex: number, lineText: string, frag: {
-        content: string; colStart: number; colEnd: number;
+        content: string; colStart: number; colEnd: number; colOffsets: number[];
     }): void {
         if (stitched.length > 0) {
             offsetMap.push({ lineIndex, col: frag.colStart });
             stitched += ' ';
         }
-        for (let c = frag.colStart; c < frag.colEnd; c++) {
+        for (const c of frag.colOffsets) {
             offsetMap.push({ lineIndex, col: c });
         }
         stitched += frag.content;
