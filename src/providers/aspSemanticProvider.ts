@@ -5,40 +5,26 @@ import { isInsideAspBlock } from '../utils/documentHelper';
 // ─────────────────────────────────────────────────────────────────────────────
 // Semantic token legend — must match contributes.semanticTokenScopes in package.json
 //
-// Token types (index order matters — must match the array below):
+// Token types (index order matters):
 //   0  function         → user-defined Function names
 //   1  namespace        → user-defined Sub names
 //   2  variable         → Dim'd variables and COM object variables
-//   3  parameter        → function/sub parameters inside their own function body
+//   3  parameter        → function/sub parameters inside their own body
 //   4  enumMember       → Const values
 //
 // SQL token types (indices 5–16):
 //   5  sqlDml           → SELECT, INSERT, UPDATE, DELETE, FROM, WHERE, JOIN …
-//                         maps to → keyword.other.DML.sql
 //   6  sqlDdl           → CREATE, DROP, ALTER, TABLE …
-//                         maps to → keyword.other.DDL.sql
 //   7  sqlLogical       → AND, OR, NOT, IN, IS, LIKE, BETWEEN, EXISTS …
-//                         maps to → keyword.operator.logical.sql
 //   8  sqlKeyword       → AS, SET, VALUES, CASE, WHEN, THEN, BEGIN, DECLARE …
-//                         maps to → keyword.other.sql
 //   9  sqlFunction      → COUNT, SUM, AVG, CONVERT, GETDATE, ISNULL …
-//                         maps to → support.function.aggregate.sql
 //  10  sqlType          → VARCHAR, INT, DATETIME, BIT …
-//                         maps to → storage.type.sql
 //  11  sqlVariable      → @paramName
-//                         maps to → variable.parameter.sql
 //  12  sqlNumber        → numeric literals  1, 42, 3.14 …
-//                         maps to → constant.numeric.sql
-//  13  sqlBracketPunct  → the [ and ] characters themselves
-//                         maps to → constant.numeric.sql  (orange, same as tmLanguage)
+//  13  sqlBracketPunct  → the [ and ] characters
 //  14  sqlBracketContent → text inside [brackets] AND bare-word table names/aliases
-//                         maps to → entity.name.type.class.sql
-//  15  sqlTable         → left-hand side of table.column dot refs (alias.column)
-//                         maps to → variable.other.table.sql
-//  15  sqlTable         → bare-word table names and aliases (context-detected)
-//                         maps to → variable.other.table.sql
+//  15  sqlTable         → left-hand side of table.column dot refs / bare-word table names
 //  16  sqlColumn        → right-hand side of alias.column  e.g. "RowID" in u.RowID
-//                         maps to → variable.other.column.sql
 //
 // Token modifiers:
 //   0  declaration → where the symbol is defined/declared
@@ -69,7 +55,7 @@ const T_SQL_VAR          = 11;
 const T_SQL_NUMBER       = 12;
 const T_SQL_BRACKET_PUNC = 13;
 const T_SQL_BRACKET_CON  = 14;
-const T_SQL_TABLE        = 15;
+// T_SQL_TABLE = 15 (unused directly; coloured via T_SQL_BRACKET_CON)
 const T_SQL_COLUMN       = 16;
 
 // Token modifier bit masks
@@ -78,7 +64,7 @@ const M_READONLY    = 2;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SQL detection — requires BOTH a DML/DDL verb AND a clause keyword.
-// Extra guard: FROM followed by an English article (the/a/an/this/that/my/your etc.)
+// Guard: FROM followed by an English article (the/a/an/this/that/my/your etc.)
 // is plain English, not SQL — e.g. "Select an option from the list".
 // ─────────────────────────────────────────────────────────────────────────────
 const SQL_VERBS   = /\b(SELECT|INSERT|UPDATE|DELETE|EXEC|EXECUTE|CREATE|DROP|ALTER|TRUNCATE|MERGE)\b/i;
@@ -87,7 +73,6 @@ const ENGLISH_ARTICLES = /^(the|a|an|this|that|these|those|my|your|our|their|its
 
 function isSql(text: string): boolean {
     if (!SQL_VERBS.test(text) || !SQL_CLAUSES.test(text)) { return false; }
-    // If FROM is followed by an article, check if any other clause keyword exists
     const fromMatch = text.match(/\bFROM\s+(\w+)/i);
     if (fromMatch && ENGLISH_ARTICLES.test(fromMatch[1])) {
         const withoutFrom = text.replace(/\bFROM\s+\w+/gi, '');
@@ -97,8 +82,7 @@ function isSql(text: string): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SQL keyword sets — each mirrors the exact tmLanguage sql-syntax scope
-// so semantic tokens resolve to the same colour as the grammar would apply.
+// SQL keyword sets — mirrors tmLanguage sql-syntax scopes for consistent colours.
 // ─────────────────────────────────────────────────────────────────────────────
 const SQL_DML_WORDS = new Set([
     'select','insert','update','delete','merge','output','exec','execute',
@@ -149,138 +133,123 @@ const SQL_TYPE_WORDS = new Set([
     'sql_variant','hierarchyid','geometry','geography',
 ]);
 
-// All SQL keywords combined — used to prevent bare words from being
-// mistaken for table names or aliases when they are actually keywords.
+// Combined set — prevents bare words from being mistaken for table names.
 const ALL_SQL_KEYWORDS = new Set([
     ...SQL_DML_WORDS, ...SQL_DDL_WORDS, ...SQL_LOGICAL_WORDS,
     ...SQL_KEYWORD_WORDS, ...SQL_FUNCTION_WORDS, ...SQL_TYPE_WORDS,
     'temp','temporary','exists','table',
 ]);
 
-function sqlWordTokenType(word: string): number | null {
-    const w = word.toLowerCase();
-    if (SQL_DML_WORDS.has(w))      { return T_SQL_DML; }
-    if (SQL_DDL_WORDS.has(w))      { return T_SQL_DDL; }
-    if (SQL_LOGICAL_WORDS.has(w))  { return T_SQL_LOGICAL; }
-    if (SQL_KEYWORD_WORDS.has(w))  { return T_SQL_KEYWORD; }
-    if (SQL_FUNCTION_WORDS.has(w)) { return T_SQL_FUNC; }
-    if (SQL_TYPE_WORDS.has(w))     { return T_SQL_TYPE; }
-    return null;
+// Precomputed word→tokenType map for O(1) lookup instead of 6 sequential Set checks.
+const SQL_WORD_TOKEN_MAP = new Map<string, number>();
+for (const w of SQL_DML_WORDS)      { SQL_WORD_TOKEN_MAP.set(w, T_SQL_DML); }
+for (const w of SQL_DDL_WORDS)      { SQL_WORD_TOKEN_MAP.set(w, T_SQL_DDL); }
+for (const w of SQL_LOGICAL_WORDS)  { SQL_WORD_TOKEN_MAP.set(w, T_SQL_LOGICAL); }
+for (const w of SQL_KEYWORD_WORDS)  { SQL_WORD_TOKEN_MAP.set(w, T_SQL_KEYWORD); }
+for (const w of SQL_FUNCTION_WORDS) { SQL_WORD_TOKEN_MAP.set(w, T_SQL_FUNC); }
+for (const w of SQL_TYPE_WORDS)     { SQL_WORD_TOKEN_MAP.set(w, T_SQL_TYPE); }
+
+function sqlWordTokenType(word: string): number | undefined {
+    return SQL_WORD_TOKEN_MAP.get(word.toLowerCase());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SQL tokeniser — converts a raw SQL string into a flat token list.
 // Each token has: type, value, and offset (position in the original string).
+// Uses index-based scanning with pre-compiled sticky regexes to avoid
+// repeated `str.slice(i).match(...)` allocations on every character.
 // ─────────────────────────────────────────────────────────────────────────────
 type SqlTokType = 'bracket' | 'word' | 'dot' | 'num' | 'comma' | 'paren' | 'ws' | 'other';
 interface SqlTok { type: SqlTokType; val: string; off: number; }
 
+// Sticky regexes — set .lastIndex = i before each exec() to avoid slice().
+const RE_WORD  = /[a-zA-Z_#][a-zA-Z0-9_#]*/y;
+const RE_NUM   = /\d+(\.\d+)?([eE][+-]?\d+)?/y;
+const RE_WS    = /\s+/y;
+
 function tokeniseSql(sql: string): SqlTok[] {
     const tokens: SqlTok[] = [];
     let i = 0;
-    while (i < sql.length) {
+    const len = sql.length;
+
+    while (i < len) {
         const ch = sql[i];
 
-        // Bracketed identifier [...]
         if (ch === '[') {
             const close = sql.indexOf(']', i);
-            const end   = close === -1 ? sql.length : close + 1;
+            const end   = close === -1 ? len : close + 1;
             tokens.push({ type: 'bracket', val: sql.slice(i, end), off: i });
             i = end;
             continue;
         }
-        // Word (including # prefix for temp tables like #TempTable)
-        if (/[a-zA-Z_#]/.test(ch)) {
-            const m = sql.slice(i).match(/^[a-zA-Z_#][a-zA-Z0-9_#]*/);
-            const w = m![0];
-            tokens.push({ type: 'word', val: w, off: i });
-            i += w.length;
+
+        RE_WORD.lastIndex = i;
+        const wm = RE_WORD.exec(sql);
+        if (wm) {
+            tokens.push({ type: 'word', val: wm[0], off: i });
+            i += wm[0].length;
             continue;
         }
-        // Number
-        if (/\d/.test(ch)) {
-            const m = sql.slice(i).match(/^\d+(\.\d+)?([eE][+-]?\d+)?/);
-            const n = m![0];
-            tokens.push({ type: 'num', val: n, off: i });
-            i += n.length;
+
+        RE_NUM.lastIndex = i;
+        const nm = RE_NUM.exec(sql);
+        if (nm) {
+            tokens.push({ type: 'num', val: nm[0], off: i });
+            i += nm[0].length;
             continue;
         }
-        // Single-char tokens
-        if (ch === '.') { tokens.push({ type: 'dot',   val: ch, off: i }); i++; continue; }
-        if (ch === ',') { tokens.push({ type: 'comma', val: ch, off: i }); i++; continue; }
-        if (ch === '(' || ch === ')') { tokens.push({ type: 'paren', val: ch, off: i }); i++; continue; }
-        if (/\s/.test(ch)) {
-            const m = sql.slice(i).match(/^\s+/);
-            tokens.push({ type: 'ws', val: m![0], off: i });
-            i += m![0].length;
+
+        if (ch === '.') { tokens.push({ type: 'dot',   val: ch, off: i++ }); continue; }
+        if (ch === ',') { tokens.push({ type: 'comma', val: ch, off: i++ }); continue; }
+        if (ch === '(' || ch === ')') { tokens.push({ type: 'paren', val: ch, off: i++ }); continue; }
+
+        RE_WS.lastIndex = i;
+        const sm = RE_WS.exec(sql);
+        if (sm) {
+            tokens.push({ type: 'ws', val: sm[0], off: i });
+            i += sm[0].length;
             continue;
         }
-        tokens.push({ type: 'other', val: ch, off: i });
-        i++;
+
+        tokens.push({ type: 'other', val: ch, off: i++ });
     }
     return tokens;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Context-aware table name detector.
+// Scans the significant token stream and returns a Set of "off:len" strings
+// for every range confirmed as a table name or alias.
 //
-// Scans the significant (non-whitespace) token stream of a stitched SQL string
-// and returns a Set of [offset, length] pairs for every character range that
-// is a confirmed table name or table alias.
-//
-// Detects table names after:
-//   FROM   <table> [alias]
-//   JOIN   <table> [alias]   (all variants — LEFT/RIGHT/INNER/OUTER/FULL/CROSS)
-//   INTO   <table>           (INSERT INTO)
-//   UPDATE <table>           (UPDATE … SET)
-//   TRUNCATE TABLE <table>
-//   ALTER TABLE <table>
-//   DROP TABLE [IF EXISTS] <table>
-//   CREATE [TEMP|TEMPORARY] TABLE <table>
-//
-// WITH is intentionally excluded — the word after WITH is a CTE name, not a table.
-//
-// A table reference can be a dot-chain of bare words and/or [bracketed] parts,
-// e.g.: [ProductionDb].[dbo].[Users]  or  dbo.Orders  or  Orders
-// All parts of the chain are coloured as table names.
-// An optional alias (bare word that isn't a keyword, or AS <word>) after the
-// chain is also coloured as a table name.
+// Detects names after: FROM, JOIN (all variants), INTO (INSERT INTO),
+// UPDATE, TRUNCATE TABLE, ALTER TABLE, DROP TABLE [IF EXISTS],
+// CREATE [TEMP|TEMPORARY] TABLE.
+// WITH is excluded — the word after it is a CTE name, not a table.
 // ─────────────────────────────────────────────────────────────────────────────
-
-// join-prefix words that can appear before JOIN
 const JOIN_PREFIXES = new Set(['left','right','inner','outer','full','cross','natural']);
+const TEMP_WORDS    = new Set(['temp','temporary']);
 
-// Two-word intros where the second word is TABLE (or TEMP/TEMPORARY before TABLE)
-// Returns the index of the token AFTER "TABLE" if matched, or -1.
 function matchTwoWordTableIntro(sig: SqlTok[], i: number): number {
     const w = sig[i].val.toLowerCase();
     if (i + 1 >= sig.length) { return -1; }
     const w2 = sig[i + 1].val.toLowerCase();
 
-    // TRUNCATE TABLE / ALTER TABLE
-    if ((w === 'truncate' || w === 'alter') && w2 === 'table') {
-        return i + 2; // index after TABLE
-    }
-    // DROP TABLE [IF [NOT] EXISTS]
+    if ((w === 'truncate' || w === 'alter') && w2 === 'table') { return i + 2; }
+
     if (w === 'drop' && w2 === 'table') {
         let j = i + 2;
-        // skip optional IF [NOT] EXISTS
-        if (j < sig.length && sig[j].val.toLowerCase() === 'if') { j++; }
-        if (j < sig.length && sig[j].val.toLowerCase() === 'not') { j++; }
+        if (j < sig.length && sig[j].val.toLowerCase() === 'if')     { j++; }
+        if (j < sig.length && sig[j].val.toLowerCase() === 'not')    { j++; }
         if (j < sig.length && sig[j].val.toLowerCase() === 'exists') { j++; }
         return j;
     }
-    // CREATE [TEMP|TEMPORARY] TABLE
+
     if (w === 'create') {
         let j = i + 1;
-        if (j < sig.length && sig[j].val.toLowerCase() === 'table') {
-            return j + 1;
-        }
-        if (j < sig.length && sig[j].val.toLowerCase() in { temp: 1, temporary: 1 }) {
+        if (j < sig.length && sig[j].val.toLowerCase() === 'table') { return j + 1; }
+        if (j < sig.length && TEMP_WORDS.has(sig[j].val.toLowerCase())) {
             j++;
-            if (j < sig.length && sig[j].val.toLowerCase() === 'table') {
-                return j + 1;
-            }
+            if (j < sig.length && sig[j].val.toLowerCase() === 'table') { return j + 1; }
         }
     }
     return -1;
@@ -290,36 +259,26 @@ function isIdentifier(tok: SqlTok): boolean {
     return tok.type === 'bracket' || tok.type === 'word';
 }
 
-// Collect a dot-chain starting at sig[start] and the optional alias after it.
-// Returns an array of {off, len} for every table-name token found.
+// Collect a dot-chain starting at sig[start] and optional alias after it.
 function collectTableChain(sig: SqlTok[], start: number): Array<{off: number; len: number}> {
     const result: Array<{off: number; len: number}> = [];
     let i = start;
 
     if (i >= sig.length || !isIdentifier(sig[i])) { return result; }
 
-    // Collect dot-separated chain
     while (i < sig.length && isIdentifier(sig[i])) {
         const tok = sig[i];
         if (tok.type === 'bracket') {
-            // Whole bracketed token is a table name part — split into
-            // punc + content + punc so colours are applied per-character below.
             result.push({ off: tok.off, len: tok.val.length });
         } else {
-            // Bare word — only add if it isn't a SQL keyword
             if (!ALL_SQL_KEYWORDS.has(tok.val.toLowerCase())) {
                 result.push({ off: tok.off, len: tok.val.length });
             } else {
-                break; // hit a keyword — stop the chain
+                break;
             }
         }
         i++;
-        // Continue if followed by a dot
-        if (i < sig.length && sig[i].type === 'dot') {
-            i++; // consume the dot
-        } else {
-            break;
-        }
+        if (i < sig.length && sig[i].type === 'dot') { i++; } else { break; }
     }
 
     if (result.length === 0) { return result; }
@@ -344,7 +303,7 @@ function collectTableChain(sig: SqlTok[], start: number): Array<{off: number; le
 // Main entry: returns a Set of "off:len" strings for fast membership testing.
 function findTableRanges(sql: string): Set<string> {
     const all    = tokeniseSql(sql);
-    const sig    = all.filter(t => t.type !== 'ws'); // significant tokens only
+    const sig    = all.filter(t => t.type !== 'ws');
     const result = new Set<string>();
 
     function addRanges(ranges: Array<{off: number; len: number}>): void {
@@ -357,7 +316,6 @@ function findTableRanges(sql: string): Set<string> {
         if (tok.type !== 'word') { i++; continue; }
         const w = tok.val.toLowerCase();
 
-        // ── Two-word intros: TRUNCATE/ALTER/DROP/CREATE TABLE ─────────────────
         const afterTwoWord = matchTwoWordTableIntro(sig, i);
         if (afterTwoWord !== -1) {
             addRanges(collectTableChain(sig, afterTwoWord));
@@ -365,32 +323,14 @@ function findTableRanges(sql: string): Set<string> {
             continue;
         }
 
-        // ── JOIN (optionally prefixed: LEFT/RIGHT/INNER/OUTER/FULL/CROSS) ─────
+        // JOIN (optionally prefixed)
         if (JOIN_PREFIXES.has(w) && i + 1 < sig.length && sig[i+1].val.toLowerCase() === 'join') {
-            // advance past the prefix to JOIN, then fall through to FROM/JOIN handler
-            i++;
+            i++; // advance past prefix to JOIN
         }
         const w2 = sig[i].val.toLowerCase();
 
-        // ── FROM / JOIN ────────────────────────────────────────────────────────
-        if (w2 === 'from' || w2 === 'join') {
+        if (w2 === 'from' || w2 === 'join' || w2 === 'into' || w2 === 'update') {
             addRanges(collectTableChain(sig, i + 1));
-            i++;
-            continue;
-        }
-
-        // ── INTO (INSERT INTO <table>) ─────────────────────────────────────────
-        if (w2 === 'into') {
-            addRanges(collectTableChain(sig, i + 1));
-            i++;
-            continue;
-        }
-
-        // ── UPDATE <table> ─────────────────────────────────────────────────────
-        if (w2 === 'update') {
-            addRanges(collectTableChain(sig, i + 1));
-            i++;
-            continue;
         }
 
         i++;
@@ -401,10 +341,9 @@ function findTableRanges(sql: string): Set<string> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Stitch & _ continuation lines and collect per-segment ranges.
-// Returns null when the full stitched string is not confirmed SQL.
+// Returns null when the stitched string is not confirmed SQL.
 // Also returns the stitched string and a per-character offset map so
-// table ranges found in the stitched string can be mapped back to
-// original document line/column positions.
+// table ranges in the stitched string can be mapped back to document positions.
 // ─────────────────────────────────────────────────────────────────────────────
 interface SqlStringSegment {
     lineIndex: number;
@@ -415,7 +354,6 @@ interface SqlStringSegment {
 interface SqlStringGroup {
     segments: SqlStringSegment[];
     stitched: string;
-    // Maps each character index in `stitched` back to {lineIndex, col}
     offsetMap: Array<{lineIndex: number; col: number}>;
 }
 
@@ -425,18 +363,13 @@ function extractSqlGroup(
     startCol: number
 ): SqlStringGroup | null {
 
-    // Stitches all "..." string fragments on a line (and across & _ continuation
-    // lines) into one string, skipping & variable & gaps between them.
-
     const lineCount = document.lineCount;
     const segments: SqlStringSegment[] = [];
     let   stitched  = '';
     const offsetMap: Array<{lineIndex: number; col: number}> = [];
 
-    // Helper: read one "..." string fragment at lineText[col] (opening quote).
-    // Also returns colOffsets: one entry per content character mapping back to
-    // the original line column. Handles "" escaped quotes correctly — a ""
-    // produces one content char but advances the line by 2 columns.
+    // Read one "..." fragment at lineText[col]. Handles "" escaped quotes.
+    // colOffsets maps each content character back to its original column.
     function readFragment(lineText: string, col: number): {
         content: string; colStart: number; colEnd: number; nextCol: number;
         colOffsets: number[];
@@ -449,7 +382,7 @@ function extractSqlGroup(
         while (col < lineText.length) {
             if (lineText[col] === '"') {
                 if (col + 1 < lineText.length && lineText[col + 1] === '"') {
-                    colOffsets.push(col);   // "" → one " in content, maps to first "
+                    colOffsets.push(col);
                     content += '"'; col += 2;
                 } else { break; }
             } else {
@@ -461,9 +394,7 @@ function extractSqlGroup(
         return { content, colStart, colEnd: col, nextCol: col + 1, colOffsets };
     }
 
-    // Helper: append a fragment to stitched + offsetMap.
-    // Uses frag.colOffsets so each stitched character maps to its exact line column,
-    // even when "" escaped quotes make content shorter than the raw line span.
+    // Append a fragment to stitched + offsetMap.
     function appendFragment(lineIndex: number, lineText: string, frag: {
         content: string; colStart: number; colEnd: number; colOffsets: number[];
     }): void {
@@ -478,21 +409,21 @@ function extractSqlGroup(
         segments.push({ lineIndex, lineText, colStart: frag.colStart, colEnd: frag.colEnd });
     }
 
-    // Helper: check if the rest of a line after col ends with & _
+    // Check if the rest of a line (after col) ends with & _
     function lineEndsWithContinuation(lineText: string, col: number): boolean {
-        let rest = lineText.substring(col).trimEnd();
-        const cp = rest.indexOf("'");
-        if (cp !== -1) { rest = rest.substring(0, cp).trimEnd(); }
-        return /&\s*_$/.test(rest);
+        // Scan backwards from end of trimmed line, skipping any ' comment first
+        let end = lineText.length - 1;
+        while (end >= col && (lineText[end] === ' ' || lineText[end] === '\t')) { end--; }
+        // Check for _
+        if (end < col || lineText[end] !== '_') { return false; }
+        end--;
+        while (end >= col && (lineText[end] === ' ' || lineText[end] === '\t')) { end--; }
+        return end >= col && lineText[end] === '&';
     }
 
-    // Helper: advance past & variable & gaps looking for the next opening quote.
-    // Returns the col of the next " or -1 if none found before EOL.
-    // Note: we do NOT treat ' as a comment here because SQL strings commonly
-    // contain single quotes (e.g. WHERE x = '...') inside the variable gaps.
+    // Advance past & variable & gaps to find the next opening quote.
     function findNextQuote(lineText: string, col: number): number {
         while (col < lineText.length && lineText[col] === ' ') { col++; }
-        // Handle continuation lines that start directly with a quote (no & before it)
         if (col < lineText.length && lineText[col] === '"') { return col; }
         if (col >= lineText.length || lineText[col] !== '&') { return -1; }
         col++;
@@ -513,7 +444,7 @@ function extractSqlGroup(
         return -1;
     }
 
-    // ── Step 1: read the first fragment ──────────────────────────────────────
+    // Step 1: read first fragment
     const firstLine = document.lineAt(startLine).text;
     const firstFrag = readFragment(firstLine, startCol);
     if (!firstFrag) { return null; }
@@ -524,9 +455,8 @@ function extractSqlGroup(
     let scanText = firstLine;
     let scanCol  = firstFrag.nextCol;
 
-    // ── Steps 2–4: keep scanning for more fragments ───────────────────────────
+    // Steps 2–4: scan for more fragments on the same or continuation lines
     while (true) {
-        // Look for more string fragments on the current line after & var & gaps
         const nextQuoteCol = findNextQuote(scanText, scanCol);
         if (nextQuoteCol !== -1) {
             const frag = readFragment(scanText, nextQuoteCol);
@@ -537,7 +467,6 @@ function extractSqlGroup(
             }
         }
 
-        // No more fragments on this line — check for & _ continuation
         if (!lineEndsWithContinuation(scanText, scanCol)) { break; }
 
         scanLine++;
@@ -564,60 +493,46 @@ function emitSqlTokensForGroup(
 ): void {
     const { stitched, offsetMap } = group;
 
-    // claimed[stitchedOffset] = 1 means already emitted
     const claimed = new Uint8Array(stitched.length);
 
     function claim(start: number, len: number): void {
-        for (let i = start; i < start + len && i < claimed.length; i++) { claimed[i] = 1; }
+        claimed.fill(1, start, start + len);
     }
     function isClaimed(start: number, len: number): boolean {
         for (let i = start; i < start + len; i++) {
-            if (i < claimed.length && claimed[i]) { return true; }
+            if (claimed[i]) { return true; }
         }
         return false;
     }
 
-    // Emit one token, mapping stitched offset → real document line/col.
-    // Tokens are emitted character-by-character per line because a range might
-    // span a line boundary (e.g. continuation) — but in practice each segment
-    // is always on one line, so we just look up the first char's line/col.
     function emit(stitchedStart: number, len: number, tokenType: number): void {
         if (stitchedStart >= offsetMap.length) { return; }
         const { lineIndex, col } = offsetMap[stitchedStart];
         builder.push(lineIndex, col, len, tokenType, 0);
     }
 
-    // ── Pass 1: table names ───────────────────────────────────────────────────
+    // Pass 1: table names
     const tableRangeSet = findTableRanges(stitched);
-
     for (const key of tableRangeSet) {
-        const [offStr, lenStr] = key.split(':');
-        const off = parseInt(offStr, 10);
-        const len = parseInt(lenStr, 10);
+        const colon = key.indexOf(':');
+        const off   = parseInt(key.slice(0, colon), 10);
+        const len   = parseInt(key.slice(colon + 1), 10);
 
         if (isClaimed(off, len)) { continue; }
 
         const tok = stitched.slice(off, off + len);
-
         if (tok.startsWith('[') && tok.endsWith(']')) {
-            // Bracketed table name: [ and ] get sqlBracketPunct (orange),
-            // inner text gets sqlBracketContent (entity.name.type.class.sql).
-            emit(off,               1,           T_SQL_BRACKET_PUNC);
+            emit(off,           1,       T_SQL_BRACKET_PUNC);
             const innerLen = len - 2;
-            if (innerLen > 0) {
-                emit(off + 1,       innerLen,    T_SQL_BRACKET_CON);
-            }
-            emit(off + len - 1,     1,           T_SQL_BRACKET_PUNC);
+            if (innerLen > 0) { emit(off + 1, innerLen, T_SQL_BRACKET_CON); }
+            emit(off + len - 1, 1,       T_SQL_BRACKET_PUNC);
         } else {
-            // Bare-word table name or alias — same colour as bracketed inner content
             emit(off, len, T_SQL_BRACKET_CON);
         }
         claim(off, len);
     }
 
-    // ── Pass 2: alias.column dot references ──────────────────────────────────
-    // Left side uses T_SQL_BRACKET_CON so u.Name references match the colour
-    // of the alias declaration in "FROM dbo.Users u".
+    // Pass 2: alias.column dot references
     const dotPattern = /\b([a-zA-Z_][a-zA-Z0-9_]*)\.(\*|[a-zA-Z_][a-zA-Z0-9_]*)/g;
     let m: RegExpExecArray | null;
     while ((m = dotPattern.exec(stitched)) !== null) {
@@ -626,17 +541,11 @@ function emitSqlTokensForGroup(
         const columnStart = tableStart + tableLen + 1;
         const columnLen   = m[2].length;
 
-        if (!isClaimed(tableStart, tableLen)) {
-            emit(tableStart, tableLen, T_SQL_BRACKET_CON);
-            claim(tableStart, tableLen);
-        }
-        if (!isClaimed(columnStart, columnLen)) {
-            emit(columnStart, columnLen, T_SQL_COLUMN);
-            claim(columnStart, columnLen);
-        }
+        if (!isClaimed(tableStart, tableLen))  { emit(tableStart,  tableLen,  T_SQL_BRACKET_CON); claim(tableStart,  tableLen);  }
+        if (!isClaimed(columnStart, columnLen)) { emit(columnStart, columnLen, T_SQL_COLUMN);       claim(columnStart, columnLen); }
     }
 
-    // ── Pass 3: @variable parameters ─────────────────────────────────────────
+    // Pass 3: @variable parameters
     const atPattern = /@([a-zA-Z_][a-zA-Z0-9_]*)/g;
     while ((m = atPattern.exec(stitched)) !== null) {
         if (isClaimed(m.index, m[0].length)) { continue; }
@@ -644,7 +553,7 @@ function emitSqlTokensForGroup(
         claim(m.index, m[0].length);
     }
 
-    // ── Pass 4: numeric literals ──────────────────────────────────────────────
+    // Pass 4: numeric literals
     const numPattern = /\b\d+(\.\d+)?([eE][+-]?\d+)?\b/g;
     while ((m = numPattern.exec(stitched)) !== null) {
         if (isClaimed(m.index, m[0].length)) { continue; }
@@ -652,12 +561,12 @@ function emitSqlTokensForGroup(
         claim(m.index, m[0].length);
     }
 
-    // ── Pass 5: SQL keywords / functions / types ──────────────────────────────
+    // Pass 5: SQL keywords / functions / types
     const wordPattern = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
     while ((m = wordPattern.exec(stitched)) !== null) {
         if (isClaimed(m.index, m[1].length)) { continue; }
         const tokenType = sqlWordTokenType(m[1]);
-        if (tokenType !== null) {
+        if (tokenType !== undefined) {
             emit(m.index, m[1].length, tokenType);
             claim(m.index, m[1].length);
         }
@@ -669,7 +578,6 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
     private readonly _diagnostics: vscode.DiagnosticCollection;
 
     constructor() {
-        // Orange squiggly when a SQL variable is also assigned a plain string.
         this._diagnostics = vscode.languages.createDiagnosticCollection('asp-sql-vars');
     }
 
@@ -686,24 +594,21 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         const text       = document.getText();
         const allSymbols = collectAllSymbols(document);
 
-        // ── Build fast lookup sets / maps ─────────────────────────────────────
+        // Build fast lookup sets/maps from collected symbols
         const funcMap = new Map<string, 'function' | 'Sub'>();
         for (const fn of allSymbols.functions) {
             funcMap.set(fn.name.toLowerCase(), fn.kind === 'Function' ? 'function' : 'Sub');
         }
-        const varSet    = new Set<string>();
-        for (const v  of allSymbols.variables)   { varSet.add(v.name.toLowerCase()); }
-        const comVarSet = new Set<string>();
-        for (const cv of allSymbols.comVariables) { comVarSet.add(cv.name.toLowerCase()); }
-        const constSet  = new Set<string>();
-        for (const c  of allSymbols.constants)    { constSet.add(c.name.toLowerCase()); }
+        const varSet    = new Set<string>(allSymbols.variables.map(v => v.name.toLowerCase()));
+        const comVarSet = new Set<string>(allSymbols.comVariables.map(cv => cv.name.toLowerCase()));
+        const constSet  = new Set<string>(allSymbols.constants.map(c => c.name.toLowerCase()));
 
         // Parameter scoping: lineNumber → Set<paramName>
         const lineCount = document.lineCount;
         const lineParamSets: Map<number, Set<string>> = new Map();
         for (const fn of allSymbols.functions) {
-            if (fn.paramNames.length === 0)              { continue; }
-            if (fn.filePath !== document.uri.fsPath)     { continue; }
+            if (fn.paramNames.length === 0)          { continue; }
+            if (fn.filePath !== document.uri.fsPath)  { continue; }
             const start = fn.line;
             const end   = fn.endLine !== -1 ? fn.endLine : lineCount - 1;
             for (let l = start; l <= end; l++) {
@@ -713,26 +618,17 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         }
 
         // ── Pass A: SQL variable discovery ───────────────────────────────────
-        // Find all variables assigned a confirmed SQL string anywhere in the file.
-        // Sub-pass 1: direct SQL assignments. Sub-pass 2: self-append propagation.
-
-        // isSqlOrFragment: like isSql() but also accepts EXEC/EXECUTE without a clause,
-        // since stored procedure calls are valid SQL but have no FROM/WHERE etc.
-        function isSqlOrFragment(text: string): boolean {
-            if (isSql(text)) { return true; }
-            return /^\s*EXEC(?:UTE)?\s+/i.test(text);
+        // isSqlOrFragment: like isSql() but also accepts bare EXEC calls.
+        function isSqlOrFragment(t: string): boolean {
+            return isSql(t) || /^\s*EXEC(?:UTE)?\s+/i.test(t);
         }
 
-        // Collect every variable assignment that contains at least one string literal.
-        // For multi-line & _ continuations, stitch all fragments so isSql() sees
-        // the full query (e.g. SELECT on line 1, FROM on line 2).
         interface VarAssignment {
             isSelfAppend:  boolean;
             stitchedValue: string;
         }
-        const assignmentMap = new Map<string, VarAssignment[]>();
-
-        const assignPattern = /^\s*([a-zA-Z_]\w*)\s*=\s*(.+)$/;
+        const assignmentMap    = new Map<string, VarAssignment[]>();
+        const assignPattern    = /^\s*([a-zA-Z_]\w*)\s*=\s*(.+)$/;
         const processedAssignLines = new Set<number>();
 
         for (let li = 0; li < lineCount; li++) {
@@ -753,13 +649,10 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             const varName = am[1].toLowerCase();
             const rhs     = am[2].trim();
 
-            const selfAppendPattern = new RegExp(
-                '^\\b' + varName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\b\\s*&', 'i'
-            );
-            const isSelfAppend = selfAppendPattern.test(rhs);
+            // Cache escaped varName for self-append check
+            const escapedVar = varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const isSelfAppend = new RegExp('^\\b' + escapedVar + '\\b\\s*&', 'i').test(rhs);
 
-            // Find the first " on this line and use extractSqlGroup to stitch
-            // all string fragments including & _ continuations on following lines.
             const quoteCol = lineText.indexOf('"', lineText.indexOf(am[1]));
             let stitchedValue = '';
 
@@ -767,10 +660,8 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
                 const group = extractSqlGroup(document, li, quoteCol);
                 if (group !== null) {
                     stitchedValue = group.stitched;
-                    // Mark continuation lines as processed so we don't double-count
                     for (const seg of group.segments) { processedAssignLines.add(seg.lineIndex); }
                 } else {
-                    // Not a full SQL group — just collect literals from this line
                     const strPat = /"((?:[^"]|"")*)"/g;
                     let sm: RegExpExecArray | null;
                     const lits: string[] = [];
@@ -787,7 +678,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             assignmentMap.get(varName)!.push({ isSelfAppend, stitchedValue });
         }
 
-        // Sub-pass 1: find variables directly assigned confirmed SQL
+        // Sub-pass 1: direct SQL assignments
         const sqlVars = new Set<string>();
         for (const [varName, assignments] of assignmentMap) {
             for (const a of assignments) {
@@ -798,22 +689,16 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             }
         }
 
-        // Sub-pass 2: if all non-self assignments are SQL and at least one
-        // self-append exists, it's also a SQL var. Repeat until stable.
+        // Sub-pass 2: self-append propagation — repeat until stable
         let changed = true;
         while (changed) {
             changed = false;
             for (const [varName, assignments] of assignmentMap) {
                 if (sqlVars.has(varName)) { continue; }
-                // Check if ALL non-self-append assignments are SQL,
-                // and at least one self-append references a known SQL var
-                const nonSelfAssigns = assignments.filter(a => !a.isSelfAppend);
                 const selfAssigns    = assignments.filter(a =>  a.isSelfAppend);
                 if (selfAssigns.length === 0) { continue; }
-                // All non-self assignments (if any) must be SQL
-                const allNonSelfAreSql = nonSelfAssigns.every(a => isSql(a.stitchedValue));
-                if (!allNonSelfAreSql && nonSelfAssigns.length > 0) { continue; }
-                // Mark as SQL var
+                const nonSelfAssigns = assignments.filter(a => !a.isSelfAppend);
+                if (nonSelfAssigns.length > 0 && !nonSelfAssigns.every(a => isSql(a.stitchedValue))) { continue; }
                 sqlVars.add(varName);
                 changed = true;
             }
@@ -821,23 +706,28 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
 
         // ── SQL variable reuse diagnostics ────────────────────────────────────
         // Warn when a known SQL variable is assigned a plain non-SQL string.
-        // Uses the stitched values already computed in assignmentMap so multi-line
-        // & _ assignments and EXEC statements are evaluated correctly.
+        // Build a line-text cache once to avoid repeated document.lineAt() calls.
+        const lineTextCache: string[] = new Array(lineCount);
+        for (let li = 0; li < lineCount; li++) {
+            lineTextCache[li] = document.lineAt(li).text;
+        }
+
         const sqlDiagnostics: vscode.Diagnostic[] = [];
+        const assignLinePattern = /^\s*([a-zA-Z_]\w*)\s*=\s*(.+)$/;
 
         for (const [varName3, assignments] of assignmentMap) {
             if (!sqlVars.has(varName3)) { continue; }
 
             for (const a of assignments) {
-                // Self-appends are fine — only warn on direct non-SQL assignments
-                if (a.isSelfAppend) { continue; }
-                if (isSqlOrFragment(a.stitchedValue)) { continue; }
+                if (a.isSelfAppend || isSqlOrFragment(a.stitchedValue)) { continue; }
 
-                // This assignment is a direct non-SQL string on a known SQL variable.
-                // Find which line it's on by scanning for the assignment pattern.
-                const assignLinePattern = /^\s*([a-zA-Z_]\w*)\s*=\s*(.+)$/;
+                // Find the matching line for this suspicious assignment
+                const escapedV3 = varName3.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const selfRefRe  = new RegExp('^\\b' + escapedV3 + '\\b', 'i');
+                const varNameRe  = new RegExp('\\b' + escapedV3 + '\\b', 'i');
+
                 for (let li = 0; li < lineCount; li++) {
-                    const lineText   = document.lineAt(li).text;
+                    const lineText   = lineTextCache[li];
                     const lineOffset = document.offsetAt(new vscode.Position(li, 0));
                     const midOffset  = lineOffset + Math.floor(lineText.length / 2);
                     if (!isInsideAspBlock(text, midOffset)) { continue; }
@@ -848,29 +738,17 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
 
                     const am3 = assignLinePattern.exec(stripped3);
                     if (!am3 || am3[1].toLowerCase() !== varName3) { continue; }
+                    if (selfRefRe.test(am3[2].trim())) { continue; }
 
-                    const rhs3 = am3[2].trim();
-                    // Skip self-appends on this line
-                    const isSelfRef = new RegExp(
-                        '^\\b' + varName3.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\b', 'i'
-                    ).test(rhs3);
-                    if (isSelfRef) { continue; }
-
-                    // Verify this line's literals match the suspicious assignment
                     const sp3 = /"((?:[^"]|"")*)"/g;
                     let sm3: RegExpExecArray | null;
                     const lits3: string[] = [];
                     while ((sm3 = sp3.exec(lineText)) !== null) {
                         lits3.push(sm3[1].replace(/""/g, '"'));
                     }
-                    if (lits3.length === 0) { continue; }
-                    // Use the stitched value from assignmentMap (not re-collected per-line)
-                    // to confirm this is the matching assignment
-                    if (lits3.join(' ') !== a.stitchedValue) { continue; }
+                    if (lits3.length === 0 || lits3.join(' ') !== a.stitchedValue) { continue; }
 
-                    const varCol = lineText.search(new RegExp(
-                        '\\b' + varName3.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\b', 'i'
-                    ));
+                    const varCol = lineText.search(varNameRe);
                     if (varCol === -1) { continue; }
 
                     const range = new vscode.Range(
@@ -884,7 +762,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
                     );
                     diag.source = 'ASP SQL';
                     sqlDiagnostics.push(diag);
-                    break; // found the line, stop scanning
+                    break;
                 }
             }
         }
@@ -915,31 +793,28 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             sqlStringLines.get(li)!.push([colStart, colEnd]);
         }
 
+        // Pre-compile per-sqlVar regexes to avoid rebuilding inside the line loop
+        const sqlVarPatterns: Array<RegExp> = [];
+        for (const sqlVar of sqlVars) {
+            const esc = sqlVar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            sqlVarPatterns.push(new RegExp('^\\s*' + esc + '\\s*(?:=|&)', 'i'));
+        }
+
         for (let li = 0; li < lineCount; li++) {
             if (processedSqlLines.has(li)) { continue; }
 
-            const lineText   = document.lineAt(li).text;
+            const lineText   = lineTextCache[li];
             const lineOffset = document.offsetAt(new vscode.Position(li, 0));
             const midOffset  = lineOffset + Math.floor(lineText.length / 2);
             if (!isInsideAspBlock(text, midOffset)) { continue; }
 
-            // Check if this line is an append to a known SQL variable:
-            //   sqlVar = sqlVar & "..." or sqlVar & "..." (standalone concat)
-            // If so, colour all string literals on this line as SQL.
             let lineIsSqlAppend = false;
             if (sqlVars.size > 0) {
-                // Strip strings + comment to check variable names safely
                 let stripped2 = lineText.replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
                 const cp2 = stripped2.indexOf("'");
                 if (cp2 !== -1) { stripped2 = stripped2.substring(0, cp2); }
-                // Match: sqlVar = ... & or sqlVar & (append patterns)
-                for (const sqlVar of sqlVars) {
-                    const escaped = sqlVar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    // Pattern: starts with optional whitespace + sqlVar then = or &
-                    if (new RegExp('^\\s*' + escaped + '\\s*(?:=|&)', 'i').test(stripped2)) {
-                        lineIsSqlAppend = true;
-                        break;
-                    }
+                for (const re of sqlVarPatterns) {
+                    if (re.test(stripped2)) { lineIsSqlAppend = true; break; }
                 }
             }
 
@@ -947,7 +822,6 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             while (col < lineText.length) {
                 if (lineText[col] !== '"') { col++; continue; }
 
-                // Try full SQL group detection first (handles multi-line stitching)
                 const group = extractSqlGroup(document, li, col);
 
                 if (group !== null) {
@@ -961,29 +835,25 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
                     }
                     col = group.segments[0].colEnd + 1;
                 } else if (lineIsSqlAppend) {
-                    // Not a self-contained SQL string, but it's being appended to
-                    // a known SQL variable — colour it as a SQL fragment.
-                    col++; // step past opening "
+                    col++;
                     const fragStart = col;
                     while (col < lineText.length) {
                         if (lineText[col] === '"') {
-                            if (col + 1 < lineText.length && lineText[col + 1] === '"') {
-                                col += 2;
-                            } else { break; }
+                            if (col + 1 < lineText.length && lineText[col + 1] === '"') { col += 2; }
+                            else { break; }
                         } else { col++; }
                     }
                     if (col < lineText.length) {
                         emitFragmentAsSql(li, lineText, fragStart, col);
-                        col++; // past closing "
+                        col++;
                     }
                 } else {
-                    // Not SQL — skip past this string
+                    // Skip past non-SQL string
                     col++;
                     while (col < lineText.length) {
                         if (lineText[col] === '"') {
-                            if (col + 1 < lineText.length && lineText[col + 1] === '"') {
-                                col += 2;
-                            } else { col++; break; }
+                            if (col + 1 < lineText.length && lineText[col + 1] === '"') { col += 2; }
+                            else { col++; break; }
                         } else { col++; }
                     }
                 }
@@ -991,14 +861,14 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         }
 
         // ── VBScript identifier pass ──────────────────────────────────────────
-        const lines = text.split('\n');
-        lines.forEach((line, lineIndex) => {
+        for (let lineIndex = 0; lineIndex < lineCount; lineIndex++) {
+            const line       = lineTextCache[lineIndex];
             const lineOffset = document.offsetAt(new vscode.Position(lineIndex, 0));
             const midOffset  = lineOffset + Math.floor(line.length / 2);
-            if (!isInsideAspBlock(text, midOffset)) { return; }
+            if (!isInsideAspBlock(text, midOffset)) { continue; }
 
             const trimmed = line.trimStart();
-            if (trimmed.startsWith("'") || /^rem\s/i.test(trimmed)) { return; }
+            if (trimmed.startsWith("'") || /^rem\s/i.test(trimmed)) { continue; }
 
             let strippedLine = line.replace(/"[^"]*"/g, (m: string) => ' '.repeat(m.length));
             const commentIdx = strippedLine.indexOf("'");
@@ -1032,27 +902,23 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
                     continue;
                 }
                 if (activeParams?.has(wordKey)) {
-                    const modifierMask = isFuncDeclaration ? M_DECLARATION : 0;
-                    builder.push(lineIndex, col, word.length, T_PARAMETER, modifierMask);
+                    builder.push(lineIndex, col, word.length, T_PARAMETER, isFuncDeclaration ? M_DECLARATION : 0);
                     continue;
                 }
                 if (constSet.has(wordKey)) {
-                    const modifierMask = isConstLine ? M_DECLARATION | M_READONLY : M_READONLY;
-                    builder.push(lineIndex, col, word.length, T_CONSTANT, modifierMask);
+                    builder.push(lineIndex, col, word.length, T_CONSTANT, isConstLine ? M_DECLARATION | M_READONLY : M_READONLY);
                     continue;
                 }
                 if (comVarSet.has(wordKey)) {
-                    const modifierMask = isSetLine ? M_DECLARATION : 0;
-                    builder.push(lineIndex, col, word.length, T_VARIABLE, modifierMask);
+                    builder.push(lineIndex, col, word.length, T_VARIABLE, isSetLine ? M_DECLARATION : 0);
                     continue;
                 }
                 if (varSet.has(wordKey)) {
-                    const modifierMask = isDimLine ? M_DECLARATION : 0;
-                    builder.push(lineIndex, col, word.length, T_VARIABLE, modifierMask);
+                    builder.push(lineIndex, col, word.length, T_VARIABLE, isDimLine ? M_DECLARATION : 0);
                     continue;
                 }
             }
-        });
+        }
 
         return builder.build();
     }
