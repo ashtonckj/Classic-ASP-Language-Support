@@ -72,10 +72,39 @@
             {
                 "language": "asp",
                 "scopes": {
-                    "function":             ["entity.name.function.asp"],
-                    "function.declaration": ["entity.name.function.asp"],
-                    "namespace":            ["entity.name.function.asp"],
-                    "namespace.declaration":["entity.name.function.asp"]
+                    "function": [
+                        "entity.name.function.asp"
+                    ],
+                    "function.declaration": [
+                        "entity.name.function.asp"
+                    ],
+                    "namespace": [
+                        "entity.name.function.asp"
+                    ],
+                    "namespace.declaration": [
+                        "entity.name.function.asp"
+                    ],
+                    "variable": [
+                        "variable.other.asp"
+                    ],
+                    "variable.declaration": [
+                        "variable.other.asp"
+                    ],
+                    "parameter": [
+                        "variable.parameter.function.asp"
+                    ],
+                    "parameter.declaration": [
+                        "variable.parameter.function.asp"
+                    ],
+                    "enumMember": [
+                        "variable.other.constant.asp"
+                    ],
+                    "enumMember.declaration.readonly": [
+                        "variable.other.constant.asp"
+                    ],
+                    "enumMember.readonly": [
+                        "variable.other.constant.asp"
+                    ]
                 }
             }
         ],
