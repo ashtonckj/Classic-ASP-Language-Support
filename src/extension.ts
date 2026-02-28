@@ -11,6 +11,7 @@ import { JsCompletionProvider } from './providers/jsCompletionProvider';
 import { IncludePathCompletionProvider, AspDefinitionProvider } from './providers/includeProvider';
 import { AspSemanticTokensProvider, ASP_SEMANTIC_LEGEND } from './providers/aspSemanticProvider';
 import { AspHoverProvider } from './providers/aspHoverProvider';
+import { AspSqlDecorator } from './providers/aspSqlDecorator';
 import { addRegionHighlights } from './highlight';
 
 /**
@@ -136,6 +137,12 @@ export function activate(context: vscode.ExtensionContext) {
         new AspHoverProvider()
     );
 
+    // ── SQL string decorator ──────────────────────────────────────────────────
+    // Stitches & _ continuation lines, detects confirmed SQL strings
+    // (requires DML verb + clause keyword), and applies background decoration
+    // to distinguish SQL strings from regular strings across all lines.
+    const sqlDecorator = new AspSqlDecorator();
+
     // ── Register key handlers ─────────────────────────────────────────────────
     registerAutoClosingTag(context);
     registerEnterKeyHandler(context);
@@ -217,6 +224,7 @@ export function activate(context: vscode.ExtensionContext) {
         definitionProvider,
         semanticProvider,
         aspHoverProvider,
+        sqlDecorator,
         toggleCommand,
         configWatcher,
         inlineStyleTrigger

@@ -104,6 +104,42 @@
                     ],
                     "enumMember.readonly": [
                         "variable.other.constant.asp"
+                    ],
+                    "sqlDml": [
+                        "keyword.other.DML.sql"
+                    ],
+                    "sqlDdl": [
+                        "keyword.other.DDL.sql"
+                    ],
+                    "sqlLogical": [
+                        "keyword.operator.logical.sql"
+                    ],
+                    "sqlKeyword": [
+                        "keyword.other.sql"
+                    ],
+                    "sqlFunction": [
+                        "support.function.aggregate.sql"
+                    ],
+                    "sqlType": [
+                        "storage.type.sql"
+                    ],
+                    "sqlVariable": [
+                        "variable.parameter.sql"
+                    ],
+                    "sqlNumber": [
+                        "constant.numeric.sql"
+                    ],
+                    "sqlBracketPunct": [
+                        "constant.numeric.sql"
+                    ],
+                    "sqlBracketContent": [
+                        "entity.name.type.class.sql"
+                    ],
+                    "sqlTable": [
+                        "variable.other.table.sql"
+                    ],
+                    "sqlColumn": [
+                        "variable.other.column.sql"
                     ]
                 }
             }
@@ -317,6 +353,31 @@
                         "type": "boolean",
                         "default": true,
                         "description": "Enable ASP object and VBScript keyword auto-completion"
+                    }
+                }
+            },
+            {
+                "title": "SQL Highlighting",
+                "properties": {
+                    "aspLanguageSupport.sqlHighlight.enabled": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Enable background highlight for confirmed SQL strings (requires DML verb + clause keyword to activate)"
+                    },
+                    "aspLanguageSupport.sqlHighlight.backgroundColor": {
+                        "type": "string",
+                        "default": "rgba(234, 92, 0, 0.15)",
+                        "description": "Background colour for confirmed SQL strings as rgba e.g. rgba(234, 92, 0, 0.33). Opacity is the 4th value (0 = invisible, 1 = fully opaque)"
+                    },
+                    "aspLanguageSupport.sqlHighlight.borderEnabled": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Show a border around SQL string ranges"
+                    },
+                    "aspLanguageSupport.sqlHighlight.borderColor": {
+                        "type": "string",
+                        "default": "rgba(234, 92, 0, 0.6)",
+                        "description": "Border colour for SQL string ranges as rgba e.g. rgba(234, 92, 0, 0.63). Only applies when borderEnabled is true"
                     }
                 }
             }
