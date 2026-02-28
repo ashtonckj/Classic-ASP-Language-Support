@@ -812,52 +812,55 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
 
         // ── SQL variable reuse diagnostics ────────────────────────────────────
         // Warn when a known SQL variable is assigned a plain non-SQL string.
+        // Uses the stitched values already computed in assignmentMap so multi-line
+        // & _ assignments and EXEC statements are evaluated correctly.
         const sqlDiagnostics: vscode.Diagnostic[] = [];
 
-        if (sqlVars.size > 0) {
-            const assignLinePattern = /^\s*([a-zA-Z_]\w*)\s*=\s*(.+)$/;
+        for (const [varName3, assignments] of assignmentMap) {
+            if (!sqlVars.has(varName3)) { continue; }
 
-            for (let li = 0; li < lineCount; li++) {
-                const lineText   = document.lineAt(li).text;
-                const lineOffset = document.offsetAt(new vscode.Position(li, 0));
-                const midOffset  = lineOffset + Math.floor(lineText.length / 2);
-                if (!isInsideAspBlock(text, midOffset)) { continue; }
+            for (const a of assignments) {
+                // Self-appends are fine — only warn on direct non-SQL assignments
+                if (a.isSelfAppend) { continue; }
+                if (isSqlOrFragment(a.stitchedValue)) { continue; }
 
-                // Blank strings + strip comment
-                let stripped3 = lineText.replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
-                const cp3 = stripped3.indexOf("'");
-                if (cp3 !== -1) { stripped3 = stripped3.substring(0, cp3); }
+                // This assignment is a direct non-SQL string on a known SQL variable.
+                // Find which line it's on by scanning for the assignment pattern.
+                const assignLinePattern = /^\s*([a-zA-Z_]\w*)\s*=\s*(.+)$/;
+                for (let li = 0; li < lineCount; li++) {
+                    const lineText   = document.lineAt(li).text;
+                    const lineOffset = document.offsetAt(new vscode.Position(li, 0));
+                    const midOffset  = lineOffset + Math.floor(lineText.length / 2);
+                    if (!isInsideAspBlock(text, midOffset)) { continue; }
 
-                const am3 = assignLinePattern.exec(stripped3);
-                if (!am3) { continue; }
+                    let stripped3 = lineText.replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
+                    const cp3 = stripped3.indexOf("'");
+                    if (cp3 !== -1) { stripped3 = stripped3.substring(0, cp3); }
 
-                const varName3 = am3[1].toLowerCase();
-                if (!sqlVars.has(varName3)) { continue; }
+                    const am3 = assignLinePattern.exec(stripped3);
+                    if (!am3 || am3[1].toLowerCase() !== varName3) { continue; }
 
-                const rhs3 = am3[2].trim();
+                    const rhs3 = am3[2].trim();
+                    // Skip self-appends on this line
+                    const isSelfRef = new RegExp(
+                        '^\\b' + varName3.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\b', 'i'
+                    ).test(rhs3);
+                    if (isSelfRef) { continue; }
 
-                // Is this a self-append? If so it's fine — skip.
-                const isSelfRef = new RegExp(
-                    '^\\b' + varName3.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i'
-                ).test(rhs3);
-                if (isSelfRef) { continue; }
+                    // Verify this line's literals match the suspicious assignment
+                    const sp3 = /"((?:[^"]|"")*)"/g;
+                    let sm3: RegExpExecArray | null;
+                    const lits3: string[] = [];
+                    while ((sm3 = sp3.exec(lineText)) !== null) {
+                        lits3.push(sm3[1].replace(/""/g, '"'));
+                    }
+                    if (lits3.length === 0) { continue; }
+                    // Use the stitched value from assignmentMap (not re-collected per-line)
+                    // to confirm this is the matching assignment
+                    if (lits3.join(' ') !== a.stitchedValue) { continue; }
 
-                // Collect string literals from this assignment
-                const strLits3: string[] = [];
-                const sp3 = /"((?:[^"]|"")*)"/g;
-                let sm3: RegExpExecArray | null;
-                while ((sm3 = sp3.exec(lineText)) !== null) {
-                    strLits3.push(sm3[1].replace(/""/g, '"'));
-                }
-                if (strLits3.length === 0) { continue; }
-
-                const stitched3 = strLits3.join(' ');
-
-                // If this non-self assignment is NOT SQL — that is the suspicious one
-                if (!isSqlOrFragment(stitched3)) {
-                    // Find the column of the variable name on this line
                     const varCol = lineText.search(new RegExp(
-                        '\\b' + varName3.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i'
+                        '\\b' + varName3.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\b', 'i'
                     ));
                     if (varCol === -1) { continue; }
 
@@ -867,12 +870,12 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
                     );
                     const diag = new vscode.Diagnostic(
                         range,
-                        `'${am3[1]}' is also used as a SQL query variable elsewhere in this file. ` +
-                        `This assignment may suppress SQL highlighting on appended strings.`,
+                        `'${am3[1]}' is already marked as a SQL variable. Highlighting may be incorrect.`,
                         vscode.DiagnosticSeverity.Warning
                     );
                     diag.source = 'ASP SQL';
                     sqlDiagnostics.push(diag);
+                    break; // found the line, stop scanning
                 }
             }
         }
