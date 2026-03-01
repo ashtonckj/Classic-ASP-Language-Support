@@ -35,7 +35,7 @@
         </td>
         <td width="33%" align="center" valign="top">
             <h3><strong>💡 IntelliSense</strong></h3>
-            <p>Auto-completion for ASP objects, VBScript keywords, HTML, CSS, and JavaScript</p>
+            <p>Smart object tracking, cross-file suggestions, hover docs, and auto-completion for ASP, VBScript, HTML, CSS, and JavaScript</p>
             <p></p>
         </td>
     </tr>
@@ -105,9 +105,15 @@
 <summary><strong>💡 IntelliSense & Auto-Completion</strong></summary>
 
 - **HTML**: Tag and attribute suggestions with smart auto-closing
-- **CSS**: Property completion inside in-line and `<style>` tags
+- **CSS**: Property completion inside inline and `<style>` tags
 - **JavaScript**: Keyword and object completion inside `<script>` tags
 - **ASP/VBScript**: Response, Request, Server, Session, Application objects and VBScript keywords
+- **Smart object tracking**: Type `rs.` or `dict.` for Recordset/Dictionary method suggestions
+- **CreateObject tracking**: Automatically suggests methods based on COM objects you create
+- **Cross-file IntelliSense**: Variable and function suggestions from included `.inc` files
+- **Function suggestions**: Previously defined functions appear as suggestions
+- **Hover documentation**: Hover over VBScript keywords for explanations and usage info
+- **Include file autocomplete**: Autocomplete for `<!-- #include file="" -->` with directory browsing
 </details>
 <br>
 
@@ -122,11 +128,12 @@
 <details>
 <summary><strong>🌈 Syntax Highlighting</strong></summary>
 
-- ✅ ASP region highlighting with customisable colours
+- ✅ Toggleable ASP region highlighting with customisable colours for `<% %>` blocks
 - ✅ Compatible with all VS Code themes
-- ✅ Comprehensive SQL syntax colouring with advanced support
-- ✅ Toggleable highlighting for `<% %>` blocks
 - ✅ Distinct colours for keywords, functions, data types, operators, and parameters
+- ✅ SQL string usage warnings - Alerts when variables are used for both SQL and regular strings
+- ✅ Smart SQL detection - Only colours SQL when it detects actual queries
+- ✅ Semantic token colouring - Enhanced VBScript function/sub highlighting
 </details>
 <br>
 
@@ -171,21 +178,11 @@ Access settings via `File → Preferences → Settings` and search for "Classic 
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `aspLanguageSupport.enableSQLHighlighting` | `true` | Enable SQL syntax highlighting inside double-quoted strings (requires reload) |
 | `aspLanguageSupport.highlightAspRegions` | `true` | Highlight ASP code regions with background colours |
 | `aspLanguageSupport.bracketLightColor` | `rgba(255, 100, 0, 0.2)` | ASP bracket `<% %>` colour (light theme) |
 | `aspLanguageSupport.bracketDarkColor` | `rgba(0, 100, 255, 0.2)` | ASP bracket `<% %>` colour (dark theme) |
 | `aspLanguageSupport.codeBlockLightColor` | `rgba(100, 100, 100, 0.1)` | ASP code block background (light theme) |
 | `aspLanguageSupport.codeBlockDarkColor` | `rgba(220, 220, 220, 0.1)` | ASP code block background (dark theme) |
-</details>
-<br>
-
-<details>
-<summary><strong>💡 IntelliSense & Completion</strong></summary>
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `aspLanguageSupport.enableAspCompletion` | `true` | Enable ASP object and VBScript keyword auto-completion |
 </details>
 <br>
 

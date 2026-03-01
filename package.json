@@ -340,16 +340,6 @@
                         "description": "ASP code block background (dark theme)"
                     }
                 }
-            },
-            {
-                "title": "IntelliSense & Completion",
-                "properties": {
-                    "aspLanguageSupport.enableAspCompletion": {
-                        "type": "boolean",
-                        "default": true,
-                        "description": "Enable ASP object and VBScript keyword auto-completion"
-                    }
-                }
             }
         ]
     },
