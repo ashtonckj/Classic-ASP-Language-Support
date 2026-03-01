@@ -314,11 +314,6 @@
             {
                 "title": "Syntax Highlighting",
                 "properties": {
-                    "aspLanguageSupport.enableSQLHighlighting": {
-                        "type": "boolean",
-                        "default": true,
-                        "markdownDescription": "Enable SQL syntax highlighting inside double-quoted strings. Toggle with `ASP: Toggle SQL Syntax Highlighting` command (requires reload)."
-                    },
                     "aspLanguageSupport.highlightAspRegions": {
                         "type": "boolean",
                         "default": true,
@@ -355,37 +350,6 @@
                         "description": "Enable ASP object and VBScript keyword auto-completion"
                     }
                 }
-            },
-            {
-                "title": "SQL Highlighting",
-                "properties": {
-                    "aspLanguageSupport.sqlHighlight.enabled": {
-                        "type": "boolean",
-                        "default": false,
-                        "description": "Enable background highlight for confirmed SQL strings (requires DML verb + clause keyword to activate)"
-                    },
-                    "aspLanguageSupport.sqlHighlight.backgroundColor": {
-                        "type": "string",
-                        "default": "rgba(234, 92, 0, 0.15)",
-                        "description": "Background colour for confirmed SQL strings as rgba e.g. rgba(234, 92, 0, 0.33). Opacity is the 4th value (0 = invisible, 1 = fully opaque)"
-                    },
-                    "aspLanguageSupport.sqlHighlight.borderEnabled": {
-                        "type": "boolean",
-                        "default": false,
-                        "description": "Show a border around SQL string ranges"
-                    },
-                    "aspLanguageSupport.sqlHighlight.borderColor": {
-                        "type": "string",
-                        "default": "rgba(234, 92, 0, 0.6)",
-                        "description": "Border colour for SQL string ranges as rgba e.g. rgba(234, 92, 0, 0.63). Only applies when borderEnabled is true"
-                    }
-                }
-            }
-        ],
-        "commands": [
-            {
-                "command": "asp.toggleSQLHighlighting",
-                "title": "ASP: Toggle SQL Syntax Highlighting in Strings"
             }
         ]
     },
