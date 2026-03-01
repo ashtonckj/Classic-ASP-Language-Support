@@ -90,6 +90,7 @@ const SQL_DML_WORDS = new Set([
     'offset','fetch','union','intersect','except','by','order','group',
     'apply','matched','ties','with',
     'left','right','inner','outer','full','cross',
+    'partition','over',
 ]);
 const SQL_DDL_WORDS = new Set([
     'create','drop','alter','truncate','add','table','index','view',
@@ -104,19 +105,19 @@ const SQL_KEYWORD_WORDS = new Set([
     'references','check','collate','begin','commit','rollback','transaction',
     'declare','cursor','open','close','deallocate','if','print','raiserror',
     'go','identity','null','returning',
+    'current_timestamp','hour','minute','second','millisecond',
+    'microsecond','nanosecond','dayofweek','dayofyear','week','weekday','quarter',
 ]);
 const SQL_FUNCTION_WORDS = new Set([
     'count','sum','avg','max','min','row_number','rank','dense_rank','ntile',
-    'partition','over','lead','lag','first_value','last_value',
+    'lead','lag','first_value','last_value',
     'substring','len','length','upper','lower','trim','ltrim','rtrim','concat',
     'concat_ws','replace','charindex','patindex','stuff','left','right',
     'reverse','replicate','space','soundex','difference','ascii','char',
     'nchar','unicode','quotename',
     'getdate','getutcdate','sysdatetime','sysutcdatetime','sysdatetimeoffset',
-    'current_timestamp','dateadd','datediff','datediff_big','datepart',
-    'datename','year','month','day','hour','minute','second','millisecond',
-    'microsecond','nanosecond','dayofweek','dayofyear','week','weekday',
-    'quarter','convert','cast','format','try_cast','try_convert','parse',
+    'dateadd','datediff','datediff_big','datepart',
+    'datename','year','month','day','convert','cast','format','try_cast','try_convert','parse',
     'try_parse','eomonth','datefromparts','datetime2fromparts',
     'datetimefromparts','datetimeoffsetfromparts','smalldatetimefromparts',
     'timefromparts','isdate',
@@ -561,12 +562,27 @@ function emitSqlTokensForGroup(
         claim(m.index, m[0].length);
     }
 
-    // Pass 5: SQL keywords / functions / types
+    // Pass 5: SQL keywords / functions / types.
+    // Context-sensitive overrides:
+    //   LEFT/RIGHT  → T_SQL_DML  when followed by JOIN  (otherwise T_SQL_FUNC)
+    //   YEAR/MONTH/DAY → T_SQL_FUNC when followed by (  (otherwise T_SQL_KEYWORD like BY)
+    const DUAL_ROLE_JOIN  = new Set(['left','right']);
+    const DUAL_ROLE_DATES = new Set(['year','month','day']);
     const wordPattern = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
     while ((m = wordPattern.exec(stitched)) !== null) {
         if (isClaimed(m.index, m[1].length)) { continue; }
-        const tokenType = sqlWordTokenType(m[1]);
+        let tokenType = sqlWordTokenType(m[1]);
         if (tokenType !== undefined) {
+            const wLower = m[1].toLowerCase();
+            const after  = stitched.slice(m.index + m[1].length);
+            if (DUAL_ROLE_JOIN.has(wLower)) {
+                // LEFT/RIGHT before JOIN → DML colour (same as JOIN)
+                if (/^\s+join\b/i.test(after)) { tokenType = T_SQL_DML; }
+            } else if (DUAL_ROLE_DATES.has(wLower)) {
+                // YEAR/MONTH/DAY before ( → function colour; bare → keyword colour
+                if (/^\s*\(/.test(after)) { tokenType = T_SQL_FUNC; }
+                else                        { tokenType = T_SQL_KEYWORD; }
+            }
             emit(m.index, m[1].length, tokenType);
             claim(m.index, m[1].length);
         }
