@@ -5,6 +5,30 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-03-01
+
+### ✨ Added
+- **Semantic token colouring for VBScript** - Enhanced syntax highlighting for VBScript functions/subs
+- **Semantic token colouring for SQL** - Smart SQL detection that only colours actual SQL queries
+- **SQL string usage warnings** - Alerts when the same variable is used for both SQL queries and regular strings
+- **Hover documentation** - Hover over VBScript keywords for explanations and usage information
+- **Smart IntelliSense** - Suggestions for user-defined functions, variables, and included `.inc` file content
+- **COM object tracking** - Automatic method suggestions for `CreateObject` instances (ADODB.Recordset, ADODB.Connection, Scripting.Dictionary, FileSystemObject, MSXML2.DOMDocument, WScript.Shell, etc.)
+- **Include file autocomplete** - Directory browsing and file suggestions for `<!-- #include file="" -->`
+
+### 🛠️ Fixed
+- **Fixed #22** - Resolved incorrect extra indentation in CSS/JS code blocks ([#22](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/22))
+- **Fixed #23** - Added support for COM object methods and properties (Recordset, Dictionary, etc.) ([#23](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/23))
+- **Fixed #24** - Implemented smarter COM object tracking for VBScript ([#24](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/24))
+- **Fixed #25** - Added cross-file IntelliSense for `.inc` files ([#25](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/25))
+- **Fixed #26** - Resolved missing SQL keyword colours using semantic tokens ([#26](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/26))
+
+### 🔄 Changed
+- **Removed `aspLanguageSupport.enableSQLHighlighting` setting** - No longer needed with smart SQL detection
+- **Removed `aspLanguageSupport.enableAspCompletion` setting** - Unnecessary kill switch removed
+
+---
+
 ## [0.3.3] - 2026-02-25
 
 ### 🛠️ Fixed
@@ -171,6 +195,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[0.3.4]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.4
 [0.3.3]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.3
 [0.3.2]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.2
 [0.3.1]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.1

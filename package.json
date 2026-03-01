@@ -2,7 +2,7 @@
     "name": "classic-asp-language-support",
     "displayName": "Classic ASP Language Support",
     "description": "Complete language support for Classic ASP files with formatting, IntelliSense, snippets, and auto-completion for HTML, CSS, JavaScript, and VBScript.",
-    "version": "0.3.3",
+    "version": "0.3.4",
     "icon": "images/icon.png",
     "publisher": "ashtonckj",
     "repository": {
@@ -338,16 +338,6 @@
                         "type": "string",
                         "default": "rgba(220, 220, 220, 0.1)",
                         "description": "ASP code block background (dark theme)"
-                    }
-                }
-            },
-            {
-                "title": "IntelliSense & Completion",
-                "properties": {
-                    "aspLanguageSupport.enableAspCompletion": {
-                        "type": "boolean",
-                        "default": true,
-                        "description": "Enable ASP object and VBScript keyword auto-completion"
                     }
                 }
             }
