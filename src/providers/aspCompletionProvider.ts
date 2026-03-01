@@ -172,11 +172,6 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         context: vscode.CompletionContext
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
-        const config = vscode.workspace.getConfiguration('aspLanguageSupport');
-        if (!config.get<boolean>('enableASPCompletion', true)) {
-            return [];
-        }
-
         const docContext = getContext(document, position);
 
         // Only provide ASP completions inside ASP blocks
