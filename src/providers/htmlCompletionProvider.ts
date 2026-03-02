@@ -568,8 +568,10 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
             targetIndent = baseIndent;
         } else {
             // In <script>/<style> or plain HTML:
-            // A closing brace means we're already at the right dedented level — don't add another indent.
-            targetIndent = prevLineText.endsWith('}') ? baseIndent : baseIndent + indentUnit;
+            // Only add an extra indent level when the previous line opens a new block (ends with '{').
+            // Statement-enders (';', ')', string/identifier endings, '}') all keep the same level.
+            const opensBlock = prevLineText.endsWith('{');
+            targetIndent = opensBlock ? baseIndent + indentUnit : baseIndent;
         }
 
         // Snap up to correct level if below it, otherwise freely +1
