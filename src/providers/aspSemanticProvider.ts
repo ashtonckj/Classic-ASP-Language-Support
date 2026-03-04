@@ -334,28 +334,24 @@ function findTableRanges(sql: string): Set<string> {
             addRanges(collectTableChain(sig, i + 1));
         }
 
-        // MERGE <table> AS alias ... USING (...) AS alias
-        // Handle: MERGE [db].[schema].[table] AS tgt
+        // MERGE <table> AS alias
         if (w2 === 'merge') {
             addRanges(collectTableChain(sig, i + 1));
         }
 
-        // USING (<subquery>) AS alias — skip the parenthesised subquery, collect alias
+        // USING (<subquery>) AS alias — skip the parenthesised subquery, then collect alias
         if (w2 === 'using') {
             let j = i + 1;
             if (j < sig.length && sig[j].type === 'paren' && sig[j].val === '(') {
-                // Skip balanced parens
                 let depth = 1;
                 j++;
                 while (j < sig.length && depth > 0) {
                     if (sig[j].type === 'paren') {
-                        if (sig[j].val === '(') { depth++; }
-                        else if (sig[j].val === ')') { depth--; }
+                        depth += sig[j].val === '(' ? 1 : -1;
                     }
                     j++;
                 }
-                // Now j points to token after the closing ')'
-                // Expect optional AS <alias>
+                // j is now past the closing ')' — look for AS <alias> or bare alias
                 if (j < sig.length && sig[j].type === 'word' && sig[j].val.toLowerCase() === 'as') {
                     j++;
                     if (j < sig.length && sig[j].type === 'word' &&
@@ -367,7 +363,6 @@ function findTableRanges(sql: string): Set<string> {
                     result.add(`${sig[j].off}:${sig[j].val.length}`);
                 }
             } else {
-                // USING without parens — treat like FROM
                 addRanges(collectTableChain(sig, i + 1));
             }
         }
@@ -758,13 +753,103 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             }
         }
 
-        // ── SQL variable reuse diagnostics ────────────────────────────────────
-        // Warn when a known SQL variable is assigned a plain non-SQL string.
-        // Build a line-text cache once to avoid repeated document.lineAt() calls.
+        // ── Build line-text cache (needed by all subsequent passes) ──────────
         const lineTextCache: string[] = new Array(lineCount);
         for (let li = 0; li < lineCount; li++) {
             lineTextCache[li] = document.lineAt(li).text;
         }
+
+        // ── Sub-pass 3: SQL function return analysis ──────────────────────────
+        // For every Function defined in this document, scan its body for the
+        // VBScript return-value pattern:  FunctionName = <expr>
+        // Stitch any string literals found on those lines the same way
+        // assignmentMap does, then test with isSqlOrFragment.
+        //
+        // Result sets:
+        //   sqlFuncs      — functions confirmed to return SQL
+        //   nonStrFuncs   — functions that never assign a string return value
+        //                   (return value appears to be non-string or absent)
+        //
+        // Functions whose return value cannot be determined (e.g. they call
+        // other functions we haven't seen) are left out of both sets so we
+        // don't produce false warnings for them.
+        // ─────────────────────────────────────────────────────────────────────
+        const sqlFuncs    = new Set<string>(); // funcName.toLowerCase()
+        const nonStrFuncs = new Set<string>(); // funcName.toLowerCase()
+
+        for (const fn of allSymbols.functions) {
+            if (fn.kind !== 'Function')            { continue; } // Subs can't return values
+            if (fn.filePath !== document.uri.fsPath) { continue; }
+            if (fn.endLine === -1)                 { continue; }
+
+            const fnKey         = fn.name.toLowerCase();
+            // Pattern: <FunctionName>\s*=\s*<rhs>  (not preceded by another word char,
+            // to avoid matching inside longer names)
+            const escapedFnName = fn.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const returnPattern = new RegExp(
+                '^\\s*' + escapedFnName + '\\s*=\\s*(.+)$', 'i'
+            );
+
+            let foundStringReturn = false;
+            let isSqlReturn       = false;
+
+            for (let li = fn.line; li <= fn.endLine; li++) {
+                const lineText = lineTextCache[li];
+
+                // Strip string literals and comments for structural matching
+                let stripped = lineText.replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
+                const cpIdx  = stripped.indexOf("'");
+                if (cpIdx !== -1) { stripped = stripped.substring(0, cpIdx); }
+
+                const rm = returnPattern.exec(stripped);
+                if (!rm) { continue; }
+
+                // Found a return assignment — check if it contains a string literal
+                const quoteCol = lineText.indexOf('"');
+                if (quoteCol === -1) {
+                    // RHS has no string literal on this line — could be a variable
+                    // or a non-string expression.  We don't flag it either way;
+                    // we just note there was *some* return assignment.
+                    foundStringReturn = true; // pessimistically treat as string-capable
+                    continue;
+                }
+
+                foundStringReturn = true;
+
+                // Try to stitch multi-line string the same way assignmentMap does
+                const group = extractSqlGroup(document, li, quoteCol);
+                let stitched = '';
+                if (group !== null) {
+                    stitched = group.stitched;
+                } else {
+                    const strPat = /"((?:[^"]|"")*)"/g;
+                    let sm: RegExpExecArray | null;
+                    const lits: string[] = [];
+                    while ((sm = strPat.exec(lineText)) !== null) {
+                        lits.push(sm[1].replace(/""/g, '"'));
+                    }
+                    stitched = lits.join(' ');
+                }
+
+                if (stitched && isSqlOrFragment(stitched)) {
+                    isSqlReturn = true;
+                    break; // one confirmed SQL return is enough
+                }
+            }
+
+            if (isSqlReturn) {
+                sqlFuncs.add(fnKey);
+            } else if (!foundStringReturn) {
+                // Function body has no string return at all — treat as non-string
+                nonStrFuncs.add(fnKey);
+            }
+            // If foundStringReturn && !isSqlReturn: the function returns a string
+            // but it didn't look like SQL — we leave it out of both sets so we
+            // only warn when it's used inside a SQL concatenation (see below).
+        }
+
+        // ── SQL variable reuse diagnostics ────────────────────────────────────
+        // Warn when a known SQL variable is assigned a plain non-SQL string.
 
         const sqlDiagnostics: vscode.Diagnostic[] = [];
         const assignLinePattern = /^\s*([a-zA-Z_]\w*)\s*=\s*(.+)$/;
@@ -821,6 +906,178 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             }
         }
 
+        // ── Pass B: warn on non-SQL variables/functions concatenated into SQL ─
+        //
+        // For every line that is a SQL variable assignment or self-append,
+        // scan the *non-string* parts of the line for:
+        //   (a) bare VBScript variable references that are NOT in sqlVars
+        //   (b) function calls whose function is NOT in sqlFuncs
+        //
+        // We skip:
+        //   • VBScript keywords
+        //   • known SQL keywords (they appear as bare words in concat gaps)
+        //   • variables/functions we simply have no information about
+        //     (i.e. not declared anywhere in the symbol table) — too noisy
+        //   • functions in nonStrFuncs get a stronger "not a string" warning
+        // ─────────────────────────────────────────────────────────────────────
+
+        // Build set of all known declared symbol names for filtering noise
+        const knownSymbols = new Set<string>([
+            ...allSymbols.variables.map(v => v.name.toLowerCase()),
+            ...allSymbols.comVariables.map(cv => cv.name.toLowerCase()),
+            ...allSymbols.constants.map(c => c.name.toLowerCase()),
+            ...allSymbols.functions.map(f => f.name.toLowerCase()),
+        ]);
+
+        // Pattern to find VBScript identifiers outside string literals
+        const identPattern = /\b([a-zA-Z_]\w*)\b/g;
+
+        // Pre-build the set of sql variable names lowercased for fast lookup
+        const sqlVarsLower = new Set([...sqlVars].map(v => v.toLowerCase()));
+
+        for (let li = 0; li < lineCount; li++) {
+            const lineText   = lineTextCache[li];
+            const lineOffset = document.offsetAt(new vscode.Position(li, 0));
+            const midOffset  = lineOffset + Math.floor(lineText.length / 2);
+            if (!isInsideAspBlock(text, midOffset)) { continue; }
+
+            // Strip string literals — replace with a sentinel char (§) so we can
+            // distinguish "there was a string here" from pure whitespace gaps.
+            // This lets us detect value-interpolation:  "..." & someVar & "..."
+            const strippedForIdents = lineText.replace(/"(?:[^"]|"")*"/g, m => '§' + ' '.repeat(m.length - 1));
+            // Strip VBScript comment
+            const commentIdx = strippedForIdents.indexOf("'");
+            const activeText = commentIdx !== -1
+                ? strippedForIdents.substring(0, commentIdx)
+                : strippedForIdents;
+
+            // Is this line a SQL variable assignment or self-append?
+            const assignMatch = assignLinePattern.exec(activeText);
+            if (!assignMatch) { continue; }
+            const lhsVar = assignMatch[1].toLowerCase();
+            if (!sqlVarsLower.has(lhsVar)) { continue; }
+
+            // We're on a line that writes into a confirmed SQL variable.
+            const rhsStart = lineText.indexOf(assignMatch[1]) + assignMatch[1].length;
+            const rhsText  = activeText.slice(rhsStart);
+            const rhsOffset = rhsStart;
+
+            // Helper: given a position in rhsText, scan backwards (skipping spaces)
+            // to find if there's a string sentinel (§) before the preceding &
+            // and forwards to find if there's a string sentinel after the following &.
+            // If BOTH sides are flanked by string literals → value interpolation → skip.
+            function isValueInterpolation(startInRhs: number, endInRhs: number): boolean {
+                // Look left: skip whitespace, expect &, skip whitespace, expect §
+                let l = startInRhs - 1;
+                while (l >= 0 && (rhsText[l] === ' ' || rhsText[l] === '\t')) { l--; }
+                if (l < 0 || rhsText[l] !== '&') { return false; }
+                l--;
+                while (l >= 0 && (rhsText[l] === ' ' || rhsText[l] === '\t')) { l--; }
+                const leftIsStr = l >= 0 && rhsText[l] === '§';
+
+                // Look right: skip the call's closing paren if any, then skip whitespace, expect &, skip whitespace, expect §
+                let r = endInRhs;
+                // skip balanced parens for function calls
+                if (r < rhsText.length && rhsText[r] === '(') {
+                    let depth = 1; r++;
+                    while (r < rhsText.length && depth > 0) {
+                        if (rhsText[r] === '(') { depth++; }
+                        else if (rhsText[r] === ')') { depth--; }
+                        r++;
+                    }
+                }
+                while (r < rhsText.length && (rhsText[r] === ' ' || rhsText[r] === '\t')) { r++; }
+                if (r >= rhsText.length || rhsText[r] !== '&') { return false; }
+                r++;
+                while (r < rhsText.length && (rhsText[r] === ' ' || rhsText[r] === '\t')) { r++; }
+                const rightIsStr = r < rhsText.length && rhsText[r] === '§';
+
+                return leftIsStr && rightIsStr;
+            }
+
+            identPattern.lastIndex = 0;
+            let m2: RegExpExecArray | null;
+            while ((m2 = identPattern.exec(rhsText)) !== null) {
+                const word    = m2[1];
+                const wordKey = word.toLowerCase();
+                const col     = rhsOffset + m2.index;
+
+                // Skip: the LHS variable itself (self-append pattern)
+                if (wordKey === lhsVar) { continue; }
+
+                // Skip: VBScript language keywords
+                if (VBSCRIPT_KEYWORDS.has(wordKey)) { continue; }
+
+                // Skip: SQL keywords that appear as bare words in concat gaps
+                if (ALL_SQL_KEYWORDS.has(wordKey)) { continue; }
+
+                // Skip: symbols we have no knowledge of — avoids noisy warnings
+                if (!knownSymbols.has(wordKey)) { continue; }
+
+                // Check if next non-space char is '(' (function call)
+                const afterWord = rhsText.slice(m2.index + word.length).trimStart();
+                const isCall    = afterWord.startsWith('(');
+
+                // Skip: value interpolation — identifier flanked by string literals
+                // on both sides via & operators, e.g.  "sql" & Trim(x) & "sql"
+                // These are injecting VALUES into SQL, not SQL structure.
+                if (isValueInterpolation(m2.index, m2.index + word.length)) { continue; }
+
+                if (isCall) {
+                    // ── Function call in SQL context ──────────────────────────
+                    if (sqlFuncs.has(wordKey)) { continue; } // confirmed SQL — fine
+
+                    const range = new vscode.Range(
+                        new vscode.Position(li, col),
+                        new vscode.Position(li, col + word.length)
+                    );
+
+                    if (nonStrFuncs.has(wordKey)) {
+                        sqlDiagnostics.push(Object.assign(
+                            new vscode.Diagnostic(
+                                range,
+                                `'${word}()' does not appear to return a string. ` +
+                                `Concatenating it into a SQL variable may produce unexpected results.`,
+                                vscode.DiagnosticSeverity.Warning
+                            ),
+                            { source: 'ASP SQL' }
+                        ));
+                    } else {
+                        sqlDiagnostics.push(Object.assign(
+                            new vscode.Diagnostic(
+                                range,
+                                `'${word}()' is concatenated into SQL variable '${assignMatch[1]}' ` +
+                                `but its return value could not be confirmed as a SQL string. ` +
+                                `Verify that it returns valid SQL or a safe SQL fragment.`,
+                                vscode.DiagnosticSeverity.Warning
+                            ),
+                            { source: 'ASP SQL' }
+                        ));
+                    }
+                } else {
+                    // ── Variable reference in SQL context ─────────────────────
+                    if (sqlVarsLower.has(wordKey)) { continue; } // confirmed SQL var — fine
+
+                    const range = new vscode.Range(
+                        new vscode.Position(li, col),
+                        new vscode.Position(li, col + word.length)
+                    );
+                    sqlDiagnostics.push(Object.assign(
+                        new vscode.Diagnostic(
+                            range,
+                            `'${word}' is concatenated into SQL variable '${assignMatch[1]}' ` +
+                            `but has not been confirmed as a SQL variable or fragment. ` +
+                            `If this is intentional (e.g. a WHERE clause fragment), ` +
+                            `initialise '${word}' with a SQL keyword like WHERE or AND.`,
+                            vscode.DiagnosticSeverity.Warning
+                        ),
+                        { source: 'ASP SQL' }
+                    ));
+                }
+            }
+        }
+
+        // Re-commit diagnostics now that Pass B has added to sqlDiagnostics
         this._diagnostics.set(document.uri, sqlDiagnostics);
 
         // ── SQL string pre-pass ───────────────────────────────────────────────
