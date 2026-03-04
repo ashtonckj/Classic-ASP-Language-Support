@@ -672,6 +672,17 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             return isSql(t) || /^\s*EXEC(?:UTE)?\s+/i.test(t);
         }
 
+        // isSqlClauseFragment: accepts strings that are clearly SQL fragments
+        // even without a leading verb — e.g. a WHERE/AND/OR/ORDER BY block that
+        // a function returns to be appended onto a larger query.
+        // Rules: must start with a recognised clause word (after optional whitespace)
+        // AND must not look like plain English (no verb means we rely on the
+        // clause word itself being the very first meaningful token).
+        const SQL_FRAGMENT_STARTERS = /^\s*(WHERE|AND\b|OR\b|ORDER\s+BY|GROUP\s+BY|HAVING|ON\b|SET\b|JOIN\b|LEFT\s+JOIN|RIGHT\s+JOIN|INNER\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|UNION(\s+ALL)?|WHEN\s+(MATCHED|NOT))/i;
+        function isSqlClauseFragment(t: string): boolean {
+            return SQL_FRAGMENT_STARTERS.test(t);
+        }
+
         interface VarAssignment {
             isSelfAppend:  boolean;
             stitchedValue: string;
@@ -731,7 +742,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         const sqlVars = new Set<string>();
         for (const [varName, assignments] of assignmentMap) {
             for (const a of assignments) {
-                if (!a.isSelfAppend && isSqlOrFragment(a.stitchedValue)) {
+                if (!a.isSelfAppend && (isSqlOrFragment(a.stitchedValue) || isSqlClauseFragment(a.stitchedValue))) {
                     sqlVars.add(varName);
                     break;
                 }
@@ -831,7 +842,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
                     stitched = lits.join(' ');
                 }
 
-                if (stitched && isSqlOrFragment(stitched)) {
+                if (stitched && (isSqlOrFragment(stitched) || isSqlClauseFragment(stitched))) {
                     isSqlReturn = true;
                     break; // one confirmed SQL return is enough
                 }
@@ -858,7 +869,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             if (!sqlVars.has(varName3)) { continue; }
 
             for (const a of assignments) {
-                if (a.isSelfAppend || isSqlOrFragment(a.stitchedValue)) { continue; }
+                if (a.isSelfAppend || isSqlOrFragment(a.stitchedValue) || isSqlClauseFragment(a.stitchedValue)) { continue; }
 
                 // Find the matching line for this suspicious assignment
                 const escapedV3 = varName3.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1104,10 +1115,19 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             sqlStringLines.get(li)!.push([colStart, colEnd]);
         }
 
-        // Pre-compile per-sqlVar regexes to avoid rebuilding inside the line loop
+        // Pre-compile per-sqlVar regexes to avoid rebuilding inside the line loop.
+        // Also include confirmed SQL-returning functions: inside their body, lines
+        // like  FunctionName = "WITH ..."  should be coloured exactly like SQL var
+        // assignments.  Adding the function name to sqlVarPatterns achieves this
+        // because the pre-pass checks whether the line starts with a known name
+        // followed by = or &.
         const sqlVarPatterns: Array<RegExp> = [];
         for (const sqlVar of sqlVars) {
             const esc = sqlVar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            sqlVarPatterns.push(new RegExp('^\\s*' + esc + '\\s*(?:=|&)', 'i'));
+        }
+        for (const fnName of sqlFuncs) {
+            const esc = fnName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             sqlVarPatterns.push(new RegExp('^\\s*' + esc + '\\s*(?:=|&)', 'i'));
         }
 
@@ -1120,12 +1140,37 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             if (!isInsideAspBlock(text, midOffset)) { continue; }
 
             let lineIsSqlAppend = false;
-            if (sqlVars.size > 0) {
+            if (sqlVarPatterns.length > 0) {
                 let stripped2 = lineText.replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
                 const cp2 = stripped2.indexOf("'");
                 if (cp2 !== -1) { stripped2 = stripped2.substring(0, cp2); }
                 for (const re of sqlVarPatterns) {
                     if (re.test(stripped2)) { lineIsSqlAppend = true; break; }
+                }
+                // If this line itself didn't match, walk backwards through & _
+                // continuation lines to find if the assignment head matches.
+                // E.g.:  GetActiveFilter = _        ← assignment head (no quotes)
+                //            "WHERE ..."  & _       ← this line, needs colouring
+                if (!lineIsSqlAppend) {
+                    let checkLi = li - 1;
+                    while (checkLi >= 0) {
+                        const prevText = lineTextCache[checkLi];
+                        // The previous line must end with & _ or = _ (continuation)
+                        const trimmed = prevText.trimEnd();
+                        if (!trimmed.endsWith('_')) { break; }
+                        // Check whether it ends with  & _  or  = _
+                        const beforeUnderscore = trimmed.slice(0, -1).trimEnd();
+                        if (!beforeUnderscore.endsWith('&') && !beforeUnderscore.endsWith('=')) { break; }
+
+                        let prevStripped = prevText.replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
+                        const prevCp = prevStripped.indexOf("'");
+                        if (prevCp !== -1) { prevStripped = prevStripped.substring(0, prevCp); }
+                        for (const re of sqlVarPatterns) {
+                            if (re.test(prevStripped)) { lineIsSqlAppend = true; break; }
+                        }
+                        if (lineIsSqlAppend) { break; }
+                        checkLi--;
+                    }
                 }
             }
 
