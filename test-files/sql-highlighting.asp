@@ -98,10 +98,50 @@ sql = "SELECT * FROM dbo.Tiers WHERE MinScore >= 0 AND MaxScore <= 100 AND TierI
 sql = "SELECT a.Name, b.Value, c.Code FROM [SampleDb].[dbo].Orders a JOIN dbo.[Product List] b ON b.OrderId = a.OrderId JOIN dbo.Categories c ON c.Id = b.CategoryId"
 
 
-' ── SECTION 3  Variable concatenation ────────────────────────────────────────
+' ── SECTION 3  MERGE statements ──────────────────────────────────────────────
+
+Dim mergeSql
+
+' Basic MERGE — [db].[schema].[table] target, bare-word source alias
+mergeSql = "MERGE [WIPdb].[dbo].[PartsOrderDtl] AS tgt " & _
+           "USING (SELECT 1 AS ID) AS src " & _
+           "ON tgt.ID = src.ID " & _
+           "WHEN MATCHED THEN UPDATE SET tgt.Value = src.Value " & _
+           "WHEN NOT MATCHED THEN INSERT (ID, Value) VALUES (src.ID, src.Value);"
+
+' MERGE with full column list UPDATE + INSERT + VBScript variable interpolation
+mergeSql = _
+    "MERGE [WIPdb].[dbo].[PartsOrderDtl] AS tgt " & _
+    "USING (SELECT " & _
+        svID & " AS ID, " & _
+        "'" & svParent & "' AS Parent, " & _
+        "'" & svComponent & "' AS Component " & _
+    ") AS src " & _
+    "ON tgt.ID = src.ID " & _
+        "AND tgt.Parent = src.Parent " & _
+        "AND tgt.Component = src.Component " & _
+    "WHEN MATCHED THEN UPDATE SET " & _
+        "tgt.ComponentDesc = '" & svDesc & "', " & _
+        "tgt.ReqQuantity = " & svQty & " " & _
+    "WHEN NOT MATCHED THEN INSERT " & _
+    "(ID, Parent, Component, ComponentDesc, ReqQuantity) VALUES (" & _
+        svID & ", " & _
+        "'" & svParent & "', " & _
+        "'" & svComponent & "', " & _
+        "'" & svDesc & "', " & _
+        svQty & _
+    ");"
+
+' MERGE with bare-word table (no brackets)
+mergeSql = "MERGE dbo.Inventory AS target " & _
+           "USING dbo.IncomingStock AS source ON target.SKU = source.SKU " & _
+           "WHEN MATCHED THEN UPDATE SET target.Qty = target.Qty + source.Qty " & _
+           "WHEN NOT MATCHED THEN INSERT (SKU, Qty) VALUES (source.SKU, source.Qty);"
+
+
+' ── SECTION 4  Variable concatenation ────────────────────────────────────────
 
 stmt = "SELECT ProductCode, ProductName FROM [SampleDb].[dbo].[Products] WITH (NOLOCK) WHERE Category = '" & category & "' AND ("
-test = "MERGE [test] AS target USING testing AS source ON target.Name"
 
 Dim prefixArray
 prefixArray = Split(productPrefix, ",")
@@ -115,7 +155,7 @@ Next
 stmt = stmt & ") ORDER BY ProductCode"
 
 
-' ── SECTION 4  Multi-line continuation ───────────────────────────────────────
+' ── SECTION 5  Multi-line continuation ───────────────────────────────────────
 
 strQuery = "SELECT o.OrderId, o.Total, u.Name " & _
            "FROM dbo.Orders o " & _
@@ -126,12 +166,94 @@ strQuery = "SELECT o.OrderId, o.Total, u.Name " & _
            "ORDER BY o.CreatedAt DESC"
 
 
-' ── SECTION 5  Warning squiggly — SQL variable reassigned to plain string ────
+' ── SECTION 6  Function return analysis ──────────────────────────────────────
+
+' BuildBOMCTE — returns a SQL CTE string (should be confirmed as sqlFunc, no warning)
+Dim sql3b
+sql3b = BuildBOMCTE(gpSKU, gpWeekend) & _
+    "SELECT a.*, b.ReqQuantity " & _
+    "FROM BOM a " & _
+    "LEFT JOIN [WIPdb].[dbo].[PartsOrderDtl] b " & _
+    "    ON b.ID = " & gpID & " AND b.Parent = '' AND b.Component = a.Child " & _
+    "ORDER BY a.Level"
+
+' GetStatusFilter — returns a SQL WHERE fragment (should be confirmed as sqlFunc, no warning)
+Dim filteredSql
+filteredSql = "SELECT UserId, Name FROM dbo.Users u " & GetStatusFilter(gpStatus) & " ORDER BY u.Name"
+
+' BadHelper — returns a non-SQL plain string (should warn on use in SQL context)
+Dim warnSql
+warnSql = "SELECT * FROM dbo.Orders WHERE " & BadHelper(gpParam)
+
+Function BuildBOMCTE(sku, weekend)
+    BuildBOMCTE = _
+        "WITH BOM (Company, Parent, Child, EffDate, CloseDate, Level) AS ( " & _
+        "    SELECT a.Company, a.Parent, a.Child, a.EffDate, a.CloseDate, 0 AS Level " & _
+        "    FROM [WIPdb].[dbo].[BOM] a " & _
+        "    WHERE a.Parent = '" & Replace(sku, "'", "''") & "' " & _
+        "      AND a.EffDate <= '" & weekend & "' AND a.CloseDate >= '" & weekend & "' " & _
+        "    UNION ALL " & _
+        "    SELECT a.Company, a.Parent, a.Child, a.EffDate, a.CloseDate, b.Level + 1 " & _
+        "    FROM [WIPdb].[dbo].[BOM] a " & _
+        "    INNER JOIN BOM b ON b.Company = a.Company AND b.Child = a.Parent " & _
+        "    WHERE a.EffDate <= '" & weekend & "' AND a.CloseDate >= '" & weekend & "' " & _
+        ") "
+End Function
+
+' Returns a WHERE fragment — still SQL-ish, should be confirmed as sqlFunc
+Function GetStatusFilter(statusVal)
+    GetStatusFilter = "WHERE u.IsActive = 1 AND u.Status = '" & Replace(statusVal, "'", "''") & "' "
+End Function
+
+' Returns a plain label string — NOT SQL (should trigger warning when used in SQL concat)
+Function BadHelper(param)
+    BadHelper = "Label: " & param
+End Function
+
+' Returns a number, not a string at all — should trigger stronger warning
+Function GetRowLimit(n)
+    GetRowLimit = n * 10
+End Function
+
+' Warning: GetRowLimit returns a number, not a string or SQL fragment
+Dim rowLimitSql
+rowLimitSql = "SELECT TOP " & GetRowLimit(5) & " * FROM dbo.Orders WHERE IsActive = 1"
+
+
+' ── SECTION 7  whereFilters fragment propagation ─────────────────────────────
+
+' whereFilters starts as a real SQL fragment (WHERE EXISTS ...) so it lands in
+' sqlVars and all subsequent appends are coloured without warnings.
+Dim whereFilters
+whereFilters = "WHERE EXISTS (SELECT 1 FROM dbo.BOM c " & _
+               "WHERE c.Company = a.Company " & _
+               "AND c.Child = a.Parent " & _
+               "AND c.Workcenter = '" & Replace(gpWorkcenter, "'", "''") & "') "
+
+If gpWorkcenter <> "" Then
+    whereFilters = whereFilters & "AND a.Workcenter = '" & Replace(gpWorkcenter, "'", "''") & "' "
+End If
+
+If Not gpIncludeRaw Then
+    whereFilters = whereFilters & "AND a.SecondType <> 'R' "
+End If
+
+Dim mainSql
+mainSql = BuildBOMCTE(gpSKU, gpWeekend) & _
+    "SELECT a.*, b.ReqQuantity " & _
+    "FROM BOM a " & _
+    "LEFT JOIN [WIPdb].[dbo].[PartsOrderDtl] b " & _
+    "    ON b.ID = " & gpID & " AND b.Parent = '' AND b.Component = a.Child " & _
+    whereFilters & " " & _
+    "ORDER BY a.Level"
+
+
+' ── SECTION 8  Warning squiggly — SQL variable reassigned to plain string ────
 
 stmt = "Something went wrong, please try again."   ' <-- should show warning squiggly
 
 
-' ── SECTION 6  Edge cases ────────────────────────────────────────────────────
+' ── SECTION 9  Edge cases ────────────────────────────────────────────────────
 
 ' Empty string and number string — not SQL
 Dim empty, numStr
