@@ -101,6 +101,7 @@ sql = "SELECT a.Name, b.Value, c.Code FROM [SampleDb].[dbo].Orders a JOIN dbo.[P
 ' ── SECTION 3  Variable concatenation ────────────────────────────────────────
 
 stmt = "SELECT ProductCode, ProductName FROM [SampleDb].[dbo].[Products] WITH (NOLOCK) WHERE Category = '" & category & "' AND ("
+test = "MERGE [test] AS target USING testing AS source ON target.Name"
 
 Dim prefixArray
 prefixArray = Split(productPrefix, ",")

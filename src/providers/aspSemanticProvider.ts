@@ -68,7 +68,7 @@ const M_READONLY    = 2;
 // is plain English, not SQL — e.g. "Select an option from the list".
 // ─────────────────────────────────────────────────────────────────────────────
 const SQL_VERBS   = /\b(SELECT|INSERT|UPDATE|DELETE|EXEC|EXECUTE|CREATE|DROP|ALTER|TRUNCATE|MERGE)\b/i;
-const SQL_CLAUSES = /\b(FROM|INTO|TABLE|SET|VALUES|WHERE|JOIN|UNION|HAVING|GROUP\s+BY|ORDER\s+BY|RETURNING|DECLARE|BEGIN\s+TRAN|COMMIT|ROLLBACK)\b/i;
+const SQL_CLAUSES = /\b(FROM|INTO|TABLE|SET|VALUES|WHERE|JOIN|UNION|HAVING|GROUP\s+BY|ORDER\s+BY|RETURNING|DECLARE|BEGIN\s+TRAN|COMMIT|ROLLBACK|USING|WHEN\s+MATCHED|WHEN\s+NOT\s+MATCHED)\b/i;
 const ENGLISH_ARTICLES = /^(the|a|an|this|that|these|those|my|your|our|their|its|her|his)$/i;
 
 function isSql(text: string): boolean {
@@ -332,6 +332,44 @@ function findTableRanges(sql: string): Set<string> {
 
         if (w2 === 'from' || w2 === 'join' || w2 === 'into' || w2 === 'update') {
             addRanges(collectTableChain(sig, i + 1));
+        }
+
+        // MERGE <table> AS alias ... USING (...) AS alias
+        // Handle: MERGE [db].[schema].[table] AS tgt
+        if (w2 === 'merge') {
+            addRanges(collectTableChain(sig, i + 1));
+        }
+
+        // USING (<subquery>) AS alias — skip the parenthesised subquery, collect alias
+        if (w2 === 'using') {
+            let j = i + 1;
+            if (j < sig.length && sig[j].type === 'paren' && sig[j].val === '(') {
+                // Skip balanced parens
+                let depth = 1;
+                j++;
+                while (j < sig.length && depth > 0) {
+                    if (sig[j].type === 'paren') {
+                        if (sig[j].val === '(') { depth++; }
+                        else if (sig[j].val === ')') { depth--; }
+                    }
+                    j++;
+                }
+                // Now j points to token after the closing ')'
+                // Expect optional AS <alias>
+                if (j < sig.length && sig[j].type === 'word' && sig[j].val.toLowerCase() === 'as') {
+                    j++;
+                    if (j < sig.length && sig[j].type === 'word' &&
+                        !ALL_SQL_KEYWORDS.has(sig[j].val.toLowerCase())) {
+                        result.add(`${sig[j].off}:${sig[j].val.length}`);
+                    }
+                } else if (j < sig.length && sig[j].type === 'word' &&
+                           !ALL_SQL_KEYWORDS.has(sig[j].val.toLowerCase())) {
+                    result.add(`${sig[j].off}:${sig[j].val.length}`);
+                }
+            } else {
+                // USING without parens — treat like FROM
+                addRanges(collectTableChain(sig, i + 1));
+            }
         }
 
         i++;
