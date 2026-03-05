@@ -9,6 +9,15 @@ body:
         Thanks for taking the time to report a bug! Please fill in as much detail as you can.
         Fields marked as optional can be left blank, but the more detail you provide, the easier it is to reproduce and fix.
 
+  - type: input
+    id: extension-version
+    attributes:
+      label: Extension Version
+      description: Found in the Extensions panel in VS Code.
+      placeholder: e.g. 1.2.0
+    validations:
+      required: false
+
   - type: textarea
     id: description
     attributes:
@@ -64,36 +73,6 @@ body:
         2. Type ...
         3. Press Enter / trigger formatting
         4. Observe the result
-    validations:
-      required: false
-
-  - type: markdown
-    attributes:
-      value: "### Environment (Optional)"
-
-  - type: input
-    id: extension-version
-    attributes:
-      label: Extension Version
-      description: Found in the Extensions panel in VS Code.
-      placeholder: e.g. 1.2.0
-    validations:
-      required: false
-
-  - type: input
-    id: vscode-version
-    attributes:
-      label: VS Code Version
-      description: Found under Help → About in VS Code.
-      placeholder: e.g. 1.87.0
-    validations:
-      required: false
-
-  - type: input
-    id: os
-    attributes:
-      label: Operating System
-      placeholder: e.g. Windows 11, macOS 14, Ubuntu 22.04
     validations:
       required: false
 
