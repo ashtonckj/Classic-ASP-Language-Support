@@ -185,6 +185,95 @@ function findMatchingOpenerIndent(
     return null;
 }
 
+/**
+ * Scans upward from closerLineIndex to find the indent of the matching <%
+ * for a standalone %> line. Tracks nesting so inner <%...%> pairs are skipped.
+ */
+function findAspOpenerIndent(document: vscode.TextDocument, closerLineIndex: number): string | null {
+    let depth = 1;
+    for (let i = closerLineIndex - 1; i >= 0; i--) {
+        const text = document.lineAt(i).text.trim();
+        if (!text) { continue; }
+        // A line that closes an ASP block (without also opening one) increases depth
+        if (/^%>$/.test(text) || (/^(?!<%).*%>$/.test(text))) {
+            depth++;
+        } else if (/^<%/.test(text)) {
+            depth--;
+            if (depth === 0) {
+                const m = document.lineAt(i).text.match(/^(\s*)/);
+                return m ? m[1] : '';
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Scans upward from startLine to find the indent of the nearest unclosed
+ * HTML block-level opener tag (skipping self-closing and inline tags).
+ * Returns openerIndent + indentUnit — the correct child indent level.
+ * Returns null when at document root (no enclosing HTML block tag found).
+ *
+ * Properly tracks closing tag depth so </ul> cancels its own <ul>, and
+ * skips <%...%> fragments entirely so VBScript lines don't confuse the scan.
+ */
+function findEnclosingHtmlChildIndent(
+    document: vscode.TextDocument,
+    startLine: number,
+    indentUnit: string
+): string | null {
+    const INLINE_TAGS = /^(a|abbr|b|bdi|bdo|br|cite|code|data|dfn|em|i|kbd|mark|q|rp|rt|ruby|s|samp|small|span|strong|sub|sup|time|u|var|wbr|img|input|link|meta|hr|area|base|col|embed|param|source|track)$/i;
+
+    let aspDepth  = 0;
+    // closedTags[tag] counts how many closing tags of that name we've passed
+    // without yet seeing their opener — those openers must be skipped.
+    const closedTags: Record<string, number> = {};
+
+    for (let i = startLine - 1; i >= 0; i--) {
+        const raw  = document.lineAt(i).text;
+        const text = raw.trim();
+        if (!text) { continue; }
+
+        // Skip ASP fragment content (scan backwards: %> raises depth, <% lowers it)
+        if (/^%>/.test(text) || (text.endsWith('%>') && !text.startsWith('<%'))) {
+            aspDepth++;
+            continue;
+        }
+        if (/^<%/.test(text)) {
+            if (aspDepth > 0) { aspDepth--; }
+            continue;
+        }
+        if (aspDepth > 0) { continue; }
+
+        // Closing HTML tag — record it so its matching opener is skipped
+        const closingMatch = text.match(/^<\/(\w+)/i);
+        if (closingMatch) {
+            const tag = closingMatch[1].toLowerCase();
+            closedTags[tag] = (closedTags[tag] ?? 0) + 1;
+            continue;
+        }
+
+        // Opening HTML tag — check whether it is the enclosing parent
+        // The regex requires the tag is NOT self-closed on the same line (e.g. <div></div>)
+        const openingMatch = text.match(/^<(\w+)(\s[^>]*)?>(?!.*<\/\1\s*>)/i);
+        if (openingMatch) {
+            const tag = openingMatch[1].toLowerCase();
+            if (INLINE_TAGS.test(tag) || isSelfClosingTag(tag)) { continue; }
+            // If we've already seen a closer for this tag, it cancels this opener
+            if (closedTags[tag] && closedTags[tag] > 0) {
+                closedTags[tag]--;
+                continue;
+            }
+            // This is an unmatched opener — it's our enclosing parent
+            const m = raw.match(/^(\s*)/);
+            return (m ? m[1] : '') + indentUnit;
+        }
+    }
+    return null;
+}
+
+
+
 // ── Cached completion items — built once, reused on every keystroke ────────
 
 let _cachedTagCompletions: vscode.CompletionItem[] | null = null;
@@ -263,6 +352,86 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
     }
 }
 
+// ── Line-continuation patterns that mean a trailing _ is NOT an identifier ──
+// Each pattern matches the text BEFORE the _ on the line (trimmed).
+// If any matches, the _ is a line continuation and suggestions must be hidden.
+const LINE_CONTINUATION_BEFORE_PATTERNS: RegExp[] = [
+    // Assignment:  something =  _
+    /=\s*$/,
+    // Concatenation operator:  & _   or  + _
+    /[&+]\s*$/,
+    // Comparison / logical operators:  <> _ , <= _ , >= _ , = _ , And _ , Or _ , Not _
+    /(?:<=|>=|<>|<|>|=|And|Or|Not|Xor|Eqv|Imp)\s*$/i,
+    // Arithmetic operators:  * _  / _  \ _  Mod _  ^ _  - _
+    /(?:\*|\/|\\|Mod|\^|-)\s*$/i,
+    // Open paren (argument list continues):  SomeFunc( _
+    /\(\s*$/,
+    // Comma (argument or array element continues):  arg1, _
+    /,\s*$/,
+    // After a closing paren/bracket (chained call):  ) _   or  ] _
+    /[)\]]\s*$/,
+    // Keyword that expects a value to follow:  Then _  Else _  Return _  Call _
+    /(?:Then|Else|ElseIf|Return|Call|Set|Let|ReDim|Dim|Private|Public|Const)\s*$/i,
+];
+
+/**
+ * Returns true when the trailing _ on the given line is a VBScript
+ * line-continuation character rather than part of an identifier.
+ *
+ * Rules:
+ *   1. The _ must be preceded by at least one whitespace character
+ *      (a bare  _name  at the start of a word is always an identifier).
+ *   2. The text before the _ (trimmed) must match at least one of the
+ *      known line-continuation context patterns above.
+ */
+function isLineContinuation(lineTextUpToCursor: string): boolean {
+    // Must have whitespace immediately before the trailing _
+    if (!/\s_\s*$/.test(lineTextUpToCursor)) { return false; }
+
+    const beforeUnderscore = lineTextUpToCursor.replace(/\s_\s*$/, '').trimEnd();
+
+    // A line that is ONLY _ (or indented _) with nothing before it:
+    // e.g. the user is on a blank line and typed _ — treat as continuation.
+    if (beforeUnderscore.trim() === '') { return true; }
+
+    return LINE_CONTINUATION_BEFORE_PATTERNS.some(p => p.test(beforeUnderscore));
+}
+
+// ── Suppress suggestions on line-continuation _ ───────────────────────────
+// onDidChangeTextDocument fires synchronously after every edit, before VS Code
+// has a chance to show the (stale) cached completion list.  If the typed char
+// is _ and the line context says it's a continuation, we immediately call
+// hideSuggestWidget so the popup never appears.
+
+export function registerLineContinuationGuard(context: vscode.ExtensionContext) {
+    const disposable = vscode.workspace.onDidChangeTextDocument(event => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor || event.document !== editor.document) { return; }
+        if (event.document.languageId !== 'asp')           { return; }
+        if (event.contentChanges.length === 0)             { return; }
+
+        const change = event.contentChanges[0];
+
+        // Only care when the character typed was _
+        if (change.text !== '_') { return; }
+
+        const lineNo    = change.range.start.line;
+        const line      = event.document.lineAt(lineNo);
+        // Text up to and including the newly typed _
+        const lineUpTo  = line.text.substring(0, change.range.start.character + 1);
+
+        if (isLineContinuation(lineUpTo)) {
+            // Hide the suggestion widget. We fire twice — once immediately
+            // (catches the cached list) and once after a short delay (catches
+            // the freshly-invoked list that VS Code may show after the edit).
+            vscode.commands.executeCommand('hideSuggestWidget');
+            setTimeout(() => vscode.commands.executeCommand('hideSuggestWidget'), 50);
+        }
+    });
+
+    context.subscriptions.push(disposable);
+}
+
 // ── Auto-closing tag + auto-snap VBScript closers ──────────────────────────
 
 export function registerAutoClosingTag(context: vscode.ExtensionContext) {
@@ -318,15 +487,35 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
         // Skip deletions and whitespace-only changes (Tab/Shift+Tab)
         if (change.text === '' || !/\S/.test(change.text)) { return; }
 
-        const changePos     = change.range.start;
-        const currentLine   = event.document.lineAt(changePos.line);
+        const changePos      = change.range.start;
+        const currentLine    = event.document.lineAt(changePos.line);
         const currentTrimmed = currentLine.text.trim();
         const currentIndent  = currentLine.text.match(/^(\s*)/)?.[1] ?? '';
+        const snapIndentUnit = getIndentUnit(editor);
+
+        // Snap standalone %> to its matching <% indent
+        if (currentTrimmed === '%>') {
+            const aspOpenerIndent = findAspOpenerIndent(event.document, changePos.line);
+            if (aspOpenerIndent !== null && aspOpenerIndent !== currentIndent) {
+                editor.edit(eb => {
+                    eb.replace(
+                        new vscode.Range(
+                            new vscode.Position(changePos.line, 0),
+                            new vscode.Position(changePos.line, currentIndent.length)
+                        ),
+                        aspOpenerIndent
+                    );
+                }).then(() => {
+                    const p = new vscode.Position(changePos.line, aspOpenerIndent.length + currentTrimmed.length);
+                    editor.selection = new vscode.Selection(p, p);
+                });
+            }
+            return;
+        }
 
         if (!VBSCRIPT_EXACT_CLOSER.test(currentTrimmed)) { return; }
         if (!isInAspBlock(event.document, new vscode.Position(changePos.line, currentLine.text.length))) { return; }
 
-        const snapIndentUnit = getIndentUnit(editor);
         const openerIndent = findMatchingOpenerIndent(event.document, changePos.line, currentTrimmed, snapIndentUnit);
         if (openerIndent === null || openerIndent === currentIndent) { return; }
 
@@ -366,9 +555,60 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         const indentUnit      = getIndentUnit(editor);
 
         // ── ASP / VBScript block handling ───────────────────────────────
+
+        // Expand <%|%> on Enter.
+        // VBScript code sits at the same indent as <% itself — no extra level.
+        // <% and %> are at HTML child level; code between them is at that same level.
+        if (/^<%=?\s*$/.test(textBefore.trim()) && textAfter.trimEnd() === '%>') {
+            editor.edit(eb => {
+                eb.replace(
+                    new vscode.Range(position, new vscode.Position(position.line, line.text.length)),
+                    `\n${indent}\n${indent}%>`
+                );
+            }).then(() => {
+                const p = new vscode.Position(position.line + 1, indent.length);
+                editor.selection = new vscode.Selection(p, p);
+            });
+            return;
+        }
+
+        // Standalone %> on Enter:
+        //   1. Snap %> to its matching <% indent (if misaligned).
+        //   2. The newline after %> re-enters HTML context — use the enclosing
+        //      HTML opener's child indent so the next <li> etc. lands correctly.
+        //      Falls back to targetIndent (same as %>) if no HTML opener is found.
+        if (currentLineText === '%>') {
+            const aspOpenerIndent  = findAspOpenerIndent(document, position.line);
+            const targetIndent     = aspOpenerIndent !== null ? aspOpenerIndent : indent;
+            // After %>, we're back in HTML — find what indent the next HTML child should use
+            const htmlChildIndent  = findEnclosingHtmlChildIndent(document, position.line, indentUnit)
+                                     ?? targetIndent;
+            if (targetIndent !== indent) {
+                const lineEnd = new vscode.Position(position.line, indent.length + currentLineText.length);
+                editor.edit(eb => {
+                    eb.replace(
+                        new vscode.Range(new vscode.Position(position.line, 0), lineEnd),
+                        `${targetIndent}${currentLineText}\n${htmlChildIndent}`
+                    );
+                }).then(() => {
+                    const p = new vscode.Position(position.line + 1, htmlChildIndent.length);
+                    editor.selection = new vscode.Selection(p, p);
+                });
+            } else {
+                editor.edit(eb => eb.insert(position, `\n${htmlChildIndent}`)).then(() => {
+                    const p = new vscode.Position(position.line + 1, htmlChildIndent.length);
+                    editor.selection = new vscode.Selection(p, p);
+                });
+            }
+            return;
+        }
+
+
         if (isInAspBlock(document, position)) {
 
-            // After <% or <%= → same indent, no extra level
+            // After <% or <%= on its own line: VBScript code sits at the same indent
+            // as <% itself — no extra level added. <% is at HTML child level and
+            // VBScript lines sit flush with it.
             if (/^<%=?$/.test(currentLineText)) {
                 editor.edit(eb => eb.insert(position, `\n${indent}`)).then(() => {
                     const p = new vscode.Position(position.line + 1, indent.length);
@@ -431,6 +671,19 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
                         editor.selection = new vscode.Selection(p, p);
                     });
                 }
+                return;
+            }
+
+            // Line continuation (_) → next line gets +1 indent.
+            // In VBScript, a trailing _ (preceded by whitespace, or
+            // the whole trimmed line is _) means the statement continues
+            // on the next line. Indent one extra level so the continuation
+            // is visually grouped under the opening line.
+            if (/(?:^|\s)_\s*$/.test(currentLineText)) {
+                editor.edit(eb => eb.insert(position, '\n' + indent + indentUnit)).then(() => {
+                    const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
+                    editor.selection = new vscode.Selection(p, p);
+                });
                 return;
             }
 
@@ -561,17 +814,29 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
         const inAsp = isInAspBlock(editor.document, position);
 
         let targetIndent: string;
-        if (/^<%/.test(prevLineText)) {
+        if (prevLineText === '%>') {
+            // After a closing %> fragment delimiter, we're back in HTML context.
+            // Use the enclosing HTML opener's child indent — same logic as Enter after %>.
+            targetIndent = findEnclosingHtmlChildIndent(editor.document, position.line, indentUnit)
+                           ?? baseIndent;
+        } else if (/^<%/.test(prevLineText)) {
+            // After <% — VBScript code is at the same level as <%, no extra indent
             targetIndent = baseIndent;
         } else if (inAsp && VBSCRIPT_BLOCK_OPENERS.test(prevLineText)) {
             targetIndent = baseIndent + indentUnit;
         } else if (inAsp) {
             targetIndent = baseIndent;
         } else {
-            // In <script>/<style> or plain HTML:
-            // Only add an extra indent level when the previous line opens a new block (ends with '{').
-            // Statement-enders (';', ')', string/identifier endings, '}') all keep the same level.
-            const opensBlock = prevLineText.endsWith('{');
+            // Plain HTML / <script> / <style>:
+            // Add one extra level when the previous line opens a block.
+            // A JS/CSS block opener ends with '{'.
+            // An HTML block opener ends with '>' and is a non-self-closing, non-inline tag.
+            const INLINE_OR_VOID = /^(a|abbr|b|bdi|bdo|br|cite|code|data|dfn|em|i|kbd|mark|q|rp|rt|ruby|s|samp|small|span|strong|sub|sup|time|u|var|wbr|img|input|link|meta|hr|area|base|col|embed|param|source|track)$/i;
+            const htmlOpenerMatch = prevLineText.match(/^<(\w+)(\s[^>]*)?>$/);
+            const isHtmlOpener = htmlOpenerMatch
+                && !INLINE_OR_VOID.test(htmlOpenerMatch[1])
+                && !isSelfClosingTag(htmlOpenerMatch[1]);
+            const opensBlock = prevLineText.endsWith('{') || !!isHtmlOpener;
             targetIndent = opensBlock ? baseIndent + indentUnit : baseIndent;
         }
 
