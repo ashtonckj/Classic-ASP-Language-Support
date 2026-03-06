@@ -566,9 +566,33 @@ function emitSqlTokensForGroup(
         claim(off, len);
     }
 
-    // Pass 2: alias.column dot references
-    const dotPattern = /\b([a-zA-Z_][a-zA-Z0-9_]*)\.(\*|[a-zA-Z_][a-zA-Z0-9_]*)/g;
+    // Pass 2: alias.column dot references — handles both bare and [bracketed] column names.
+    // Pattern A: alias.bare  e.g.  o.CustomerID
+    // Pattern B: alias.[Col] e.g.  c.[CustomerID]
+    const dotPattern         = /\b([a-zA-Z_][a-zA-Z0-9_]*)\.(\*|[a-zA-Z_][a-zA-Z0-9_]*)/g;
+    const dotBracketPattern  = /\b([a-zA-Z_][a-zA-Z0-9_]*)\.\[([^\]]*)\]/g;
     let m: RegExpExecArray | null;
+
+    // Pattern B — alias.[BracketedColumn]
+    while ((m = dotBracketPattern.exec(stitched)) !== null) {
+        const tableStart   = m.index;
+        const tableLen     = m[1].length;
+        const bracketStart = tableStart + tableLen + 1; // position of '['
+        const bracketLen   = m[2].length + 2;           // includes [ and ]
+
+        if (!isClaimed(tableStart, tableLen)) {
+            emit(tableStart, tableLen, T_SQL_BRACKET_CON);
+            claim(tableStart, tableLen);
+        }
+        if (!isClaimed(bracketStart, bracketLen)) {
+            emit(bracketStart,             1,                T_SQL_BRACKET_PUNC); // [
+            if (m[2].length > 0) { emit(bracketStart + 1,   m[2].length,        T_SQL_COLUMN); }
+            emit(bracketStart + bracketLen - 1, 1,           T_SQL_BRACKET_PUNC); // ]
+            claim(bracketStart, bracketLen);
+        }
+    }
+
+    // Pattern A — alias.bareColumn
     while ((m = dotPattern.exec(stitched)) !== null) {
         const tableStart  = m.index;
         const tableLen    = m[1].length;
