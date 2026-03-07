@@ -115,22 +115,8 @@ export class HtmlAttributePathCompletionProvider implements vscode.CompletionIte
 
     provideCompletionItems(
         document: vscode.TextDocument,
-        position: vscode.Position,
-        _token: vscode.CancellationToken,
-        context: vscode.CompletionContext
+        position: vscode.Position
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
-
-        // Only activate when triggered by one of our registered trigger characters
-        // or explicitly by the user (Ctrl+Space). Reject automatic invocation — that
-        // is when VS Code's built-in HTML provider is also running and would flood
-        // the list with snippets, class= suggestions, and other HTML completions.
-        if (context.triggerKind === vscode.CompletionTriggerKind.TriggerForIncompleteCompletions) {
-            // This fires when isIncomplete:true was returned — always allow it
-            // as this means our own session is continuing.
-        } else if (context.triggerKind !== vscode.CompletionTriggerKind.TriggerCharacter &&
-                   context.triggerKind !== vscode.CompletionTriggerKind.Invoke) {
-            return new vscode.CompletionList([], false);
-        }
 
         const lineText   = document.lineAt(position.line).text;
         const textBefore = lineText.substring(0, position.character);
