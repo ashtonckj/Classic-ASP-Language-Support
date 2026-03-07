@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { collectAllSymbols } from './includeProvider';
+import { collectAllSymbols, isCursorInHtmlFileLinkAttribute } from './includeProvider';
 import * as path from 'path';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -129,12 +129,19 @@ export class AspHoverProvider implements vscode.HoverProvider {
         position: vscode.Position
     ): vscode.ProviderResult<vscode.Hover> {
 
+        const lineText = document.lineAt(position.line).text;
+
+        // Guard: if the cursor is inside an HTML file-link attribute value (href,
+        // src, action, data-src), suppress symbol hover entirely. The link tooltip
+        // from HtmlAttributeLinkProvider is sufficient — we don't want "function test
+        // defined in this file" appearing when hovering over href="test.css".
+        if (isCursorInHtmlFileLinkAttribute(lineText, position.character)) return null;
+
         const wordRange = document.getWordRangeAtPosition(position, /\w+/);
         if (!wordRange) return null;
 
-        const word     = document.getText(wordRange);
-        const wordKey  = word.toLowerCase();
-        const lineText = document.lineAt(position.line).text;
+        const word    = document.getText(wordRange);
+        const wordKey = word.toLowerCase();
 
         // ── 1. COM member after dot — e.g. rs.EOF, conn.Execute ──────────────
         // Check if there's a dot immediately before the word

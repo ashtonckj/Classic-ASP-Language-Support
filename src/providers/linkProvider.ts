@@ -39,7 +39,7 @@ export class IncludeDocumentLinkProvider implements vscode.DocumentLinkProvider 
                     ),
                     vscode.Uri.file(fullPath)
                 );
-                link.tooltip = 'Follow link (Ctrl+Click)';
+                link.tooltip = 'Follow link';
                 links.push(link);
             }
         }
@@ -90,7 +90,7 @@ export class HtmlAttributeLinkProvider implements vscode.DocumentLinkProvider {
                     ),
                     vscode.Uri.file(fullPath)
                 );
-                link.tooltip = 'Follow link (Ctrl+Click)';
+                link.tooltip = 'Follow link';
                 links.push(link);
             }
         }

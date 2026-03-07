@@ -269,17 +269,13 @@ export class AspDefinitionProvider implements vscode.DefinitionProvider {
     ): vscode.ProviderResult<vscode.Definition> {
 
         const lineText = document.lineAt(position.line).text;
-        const docDir   = path.dirname(document.uri.fsPath);
 
-        // Guard: if the cursor is inside an HTML file-link attribute value,
-        // bail out immediately — linkProvider.ts owns those, and we must not
-        // accidentally match the filename as a VBScript symbol (e.g. href="test.css"
-        // matching a JS function named "test").
+        // Guard: if the cursor is inside an HTML file-link attribute value, always
+        // return null. Navigation is handled by HtmlAttributeLinkProvider in
+        // linkProvider.ts via the DocumentLink API, which also owns the tooltip.
+        // Returning anything here would cause VS Code to show both the symbol hover
+        // ("function test — defined in this file") and the link tooltip simultaneously.
         if (isCursorInHtmlFileLinkAttribute(lineText, position.character)) {
-            const resolved = resolveHtmlAttributeFilePath(lineText, position.character, docDir);
-            if (resolved && fs.existsSync(resolved)) {
-                return new vscode.Location(vscode.Uri.file(resolved), new vscode.Position(0, 0));
-            }
             return null;
         }
 
