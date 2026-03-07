@@ -7,6 +7,7 @@ import { CssHoverProvider } from './providers/cssHoverProvider';
 import { registerCssDiagnostics } from './providers/cssDiagnosticsProvider';
 import { JsCompletionProvider } from './providers/jsCompletionProvider';
 import { IncludePathCompletionProvider, AspDefinitionProvider } from './providers/includeProvider';
+import { IncludeDocumentLinkProvider, HtmlAttributeLinkProvider } from './providers/linkProvider';
 import { AspSemanticTokensProvider, ASP_SEMANTIC_LEGEND } from './providers/aspSemanticProvider';
 import { AspHoverProvider } from './providers/aspHoverProvider';
 import { addRegionHighlights } from './highlight';
@@ -14,143 +15,116 @@ import { addRegionHighlights } from './highlight';
 export function activate(context: vscode.ExtensionContext) {
     console.log('Classic ASP Language Support is now active!');
 
-    // ── Disable word-based suggestions for ASP files ──────────────────────────
-    // VS Code's built-in word scanner suggests any word it finds in the open
-    // document — including SQL identifiers inside string literals (ROW_NUMBER,
-    // DENSE_RANK, usp_ProcessOrders, etc.).  We disable it only for the 'asp'
-    // language so it has no effect on JS, CSS, or any other language the user
-    // has open.  All real completions (Dim variables, functions, keywords, COM
-    // members) come from our own providers and are unaffected by this setting.
+    // Disable word-based suggestions for ASP — all real completions come from
+    // our own providers, and the built-in word scanner picks up SQL identifiers
+    // inside string literals which creates noise.
     const aspConfig = vscode.workspace.getConfiguration('editor', { languageId: 'asp' });
     aspConfig.update('wordBasedSuggestions', 'off', vscode.ConfigurationTarget.Global);
 
-    // Add ASP region highlighting
     addRegionHighlights(context);
-
-    // Register CSS diagnostics (validate as you type)
     registerCssDiagnostics(context);
 
-    // Register formatter
+    // ── Formatter ─────────────────────────────────────────────────────────────
     const formatter = vscode.languages.registerDocumentFormattingEditProvider('asp', {
         async provideDocumentFormattingEdits(document: vscode.TextDocument): Promise<vscode.TextEdit[]> {
-            const edits      = [];
-            const fullText   = document.getText();
-            const formatted  = await formatCompleteAspFile(fullText);
-            const fullRange  = new vscode.Range(document.positionAt(0), document.positionAt(fullText.length));
-            edits.push(vscode.TextEdit.replace(fullRange, formatted));
-            return edits;
+            const fullText  = document.getText();
+            const formatted = await formatCompleteAspFile(fullText);
+            const fullRange = new vscode.Range(document.positionAt(0), document.positionAt(fullText.length));
+            return [vscode.TextEdit.replace(fullRange, formatted)];
         }
     });
 
     // ── Completion providers ──────────────────────────────────────────────────
-
     const htmlCompletionProvider = vscode.languages.registerCompletionItemProvider(
-        'asp',
-        new HtmlCompletionProvider(),
-        '<', ' ', '='
+        'asp', new HtmlCompletionProvider(), '<', ' ', '='
     );
 
     const aspCompletionProvider = vscode.languages.registerCompletionItemProvider(
-        'asp',
-        new AspCompletionProvider(),
-        '.', ' '  // '.' for member access (rs./Response.), ' ' to re-trigger after Call keyword
+        'asp', new AspCompletionProvider(), '.', ' '
     );
 
     const cssCompletionProvider = vscode.languages.registerCompletionItemProvider(
-        'asp',
-        new CssCompletionProvider(),
+        'asp', new CssCompletionProvider(),
         ':', ';', ' ', '"', "'", '-',
-        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
-        'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'
-    );
-
-    const cssHoverProvider = vscode.languages.registerHoverProvider(
-        'asp',
-        new CssHoverProvider()
+        'a','b','c','d','e','f','g','h','i','j','k','l','m',
+        'n','o','p','q','r','s','t','u','v','w','x','y','z'
     );
 
     const jsCompletionProvider = vscode.languages.registerCompletionItemProvider(
-        'asp',
-        new JsCompletionProvider(),
-        '.'
+        'asp', new JsCompletionProvider(), '.'
     );
 
-    // Include file path suggestions — triggers inside the quotes of #include directives.
-    // Letters a-z are registered so the provider is also re-invoked when the user
-    // backspaces — VS Code re-evaluates trigger-char providers on every edit when
-    // the list was marked isIncomplete, which keeps suggestions live after deletion.
+    // Triggers on letters + path chars so suggestions stay live as the user types
     const includePathProvider = vscode.languages.registerCompletionItemProvider(
-        'asp',
-        new IncludePathCompletionProvider(),
+        'asp', new IncludePathCompletionProvider(),
         '"', "'", '/', '\\', '.',
-        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
-        'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
-        'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '_', '-'
+        'a','b','c','d','e','f','g','h','i','j','k','l','m',
+        'n','o','p','q','r','s','t','u','v','w','x','y','z',
+        'A','B','C','D','E','F','G','H','I','J','K','L','M',
+        'N','O','P','Q','R','S','T','U','V','W','X','Y','Z',
+        '0','1','2','3','4','5','6','7','8','9','_','-'
+    );
+
+    // ── Document link providers ───────────────────────────────────────────────
+    // Both providers give persistent underlines + "Follow link (Ctrl+Click)" tooltip.
+    const includeDocumentLinkProvider = vscode.languages.registerDocumentLinkProvider(
+        'asp', new IncludeDocumentLinkProvider()
+    );
+
+    const htmlAttributeLinkProvider = vscode.languages.registerDocumentLinkProvider(
+        'asp', new HtmlAttributeLinkProvider()
     );
 
     // ── Go To Definition ──────────────────────────────────────────────────────
-    // Handles F12 / Ctrl+Click on any Function, Sub, variable, or constant.
-    // Works across the current file AND all #include'd files.
+    // F12 / Ctrl+Click on functions, subs, variables, constants, and COM vars.
+    // Also guards against HTML attribute values falling through to symbol lookup.
     const definitionProvider = vscode.languages.registerDefinitionProvider(
-        'asp',
-        new AspDefinitionProvider()
+        'asp', new AspDefinitionProvider()
     );
 
-    // ── Semantic tokens — smart highlighting of user-defined functions/subs ───
-    // Only highlights names that are actually defined in this file or an include.
-    // Uses VS Code's semantic token API so it works with all themes automatically.
+    // ── Semantic tokens ───────────────────────────────────────────────────────
+    // Highlights user-defined function/sub names using VS Code's semantic token API.
     const semanticTokensProviderInstance = new AspSemanticTokensProvider();
     const semanticProvider = vscode.languages.registerDocumentSemanticTokensProvider(
-        'asp',
-        semanticTokensProviderInstance,
-        ASP_SEMANTIC_LEGEND
+        'asp', semanticTokensProviderInstance, ASP_SEMANTIC_LEGEND
     );
 
     // ── Hover docs ────────────────────────────────────────────────────────────
-    // Shows documentation when hovering over functions, subs, variables,
-    // constants, COM object variables, COM members, and VBScript keywords.
+    // Shows docs for functions, subs, variables, COM members, and VBScript keywords.
     const aspHoverProvider = vscode.languages.registerHoverProvider(
-        'asp',
-        new AspHoverProvider()
+        'asp', new AspHoverProvider()
     );
 
-    // ── Register key handlers ─────────────────────────────────────────────────
+    // ── CSS hover ─────────────────────────────────────────────────────────────
+    const cssHoverProvider = vscode.languages.registerHoverProvider(
+        'asp', new CssHoverProvider()
+    );
+
+    // ── Key handlers ──────────────────────────────────────────────────────────
     registerAutoClosingTag(context);
     registerEnterKeyHandler(context);
     registerTabKeyHandler(context);
 
     // ── Auto-trigger CSS suggestions inside empty style="" ────────────────────
-    // Fires when a completion places the cursor between empty style quotes.
     const inlineStyleTrigger = vscode.window.onDidChangeTextEditorSelection(e => {
         const editor = e.textEditor;
         const doc    = editor.document;
         if (doc.languageId !== 'asp') return;
-        if (e.selections.length !== 1) return;
+        if (e.selections.length !== 1 || !e.selections[0].isEmpty) return;
 
-        const selection = e.selections[0];
-        if (!selection.isEmpty) return;
-
-        const offset      = doc.offsetAt(selection.active);
+        const offset      = doc.offsetAt(e.selections[0].active);
         const content     = doc.getText();
         const searchStart = Math.max(0, offset - 200);
-        const searchArea  = content.slice(searchStart, offset);
-        const match       = searchArea.match(/style\s*=\s*(["'])([\s\S]*)$/i);
+        const match       = content.slice(searchStart, offset).match(/style\s*=\s*(["'])([\s\S]*)$/i);
         if (!match) return;
 
-        const openingQuote = match[1];
-        const valueStart   = searchStart + match.index! + match[0].length - match[2].length;
-        const charAtCursor = content[offset];
-
-        if (charAtCursor === openingQuote && offset === valueStart) {
-            setTimeout(() => {
-                vscode.commands.executeCommand('editor.action.triggerSuggest');
-            }, 50);
+        const valueStart = searchStart + match.index! + match[0].length - match[2].length;
+        if (content[offset] === match[1] && offset === valueStart) {
+            setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);
         }
     });
 
-    // ── Register all subscriptions ────────────────────────────────────────────
+    // ── Subscriptions ─────────────────────────────────────────────────────────
     context.subscriptions.push(
         formatter,
         htmlCompletionProvider,
@@ -159,11 +133,13 @@ export function activate(context: vscode.ExtensionContext) {
         cssHoverProvider,
         jsCompletionProvider,
         includePathProvider,
+        includeDocumentLinkProvider,
+        htmlAttributeLinkProvider,
         definitionProvider,
         semanticProvider,
         semanticTokensProviderInstance,
         aspHoverProvider,
-        inlineStyleTrigger
+        inlineStyleTrigger,
     );
 }
 

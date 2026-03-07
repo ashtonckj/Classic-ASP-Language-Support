@@ -3,33 +3,31 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Symbols extracted from a single file (the current doc or any include file)
+// Types
 // ─────────────────────────────────────────────────────────────────────────────
+
 export interface FileSymbols {
-    /** Variables from Dim / ReDim / Public / Private */
-    variables: { name: string; line: number; filePath: string }[];
-    /** Constants from Const */
-    constants: { name: string; value: string; line: number; filePath: string }[];
-    /** Functions and Subs.
-     *  startLine / endLine used to scope parameter highlighting to the function body only.
-     *  paramNames is the parsed list of individual parameter identifiers. */
-    functions: {
+    variables:    { name: string; line: number; filePath: string }[];
+    constants:    { name: string; value: string; line: number; filePath: string }[];
+    functions:    {
         name: string;
         kind: 'Function' | 'Sub';
         params: string;
         paramNames: string[];
         line: number;
-        endLine: number;   // line of matching End Function / End Sub (-1 if not found)
+        endLine: number;
         filePath: string;
     }[];
-    /** COM object variables from Set x = CreateObject(...) */
     comVariables: { name: string; progId: string; line: number; filePath: string }[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Extracts all symbols from a block of text, tagged with their source filePath
-// and line number so Go To Definition / semantic highlighting can use them.
+// Symbol extraction
+// Parses a block of ASP/VBScript text and returns all declared symbols
+// (variables, constants, functions/subs, COM objects) tagged with their
+// source file path and line number.
 // ─────────────────────────────────────────────────────────────────────────────
+
 export function extractSymbols(text: string, filePath: string): FileSymbols {
     const result: FileSymbols = {
         variables:    [],
@@ -38,63 +36,35 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         comVariables: [],
     };
 
-    // Strip HTML comments (<!-- ... -->) before splitting into lines.
-    // This prevents content inside comments — especially <!--METADATA ... -->
-    // blocks whose attribute lines look like  TYPE="TypeLib"  NAME="..."  etc. —
-    // from being mistaken for VBScript implicit-variable assignments.
-    // Each non-newline character is replaced with a space to preserve line numbers.
-    const strippedText = text.replace(/<!--[\s\S]*?-->/g, match =>
-        match.replace(/[^\n]/g, ' ')
-    );
-
+    // Strip HTML comments so <!--METADATA ... --> blocks don't produce false symbols.
+    // Non-newline characters are replaced with spaces to preserve line numbers.
+    const strippedText = text.replace(/<!--[\s\S]*?-->/g, m => m.replace(/[^\n]/g, ' '));
     const lines = strippedText.split('\n');
 
-    // First pass — collect all symbols
     lines.forEach((line, lineIndex) => {
-
-        // ── Skip comment lines entirely ───────────────────────────────────────
-        // VBScript comments start with ' (after optional whitespace).
-        // Nothing on a comment line should ever be registered as a symbol.
+        // Skip full-line VBScript comments
         if (/^\s*'/.test(line)) return;
 
-        // ── Strip string literal contents and inline comments ─────────────────
-        // We need to match only real VBScript code, not text inside strings.
-        // Replace every quoted string with empty quotes ("" or ''), then strip
-        // anything after a bare ' (which is now guaranteed to be a comment).
-        //
-        // The callback returns:
-        //   m[0]+m[0]  → empty string literal ("" or '')  for quoted strings
-        //   ''         → nothing                           for ' comments
-        //
-        // This prevents SQL identifiers inside string values (ROW_NUMBER, EXEC
-        // usp_ProcessOrders, DENSE_RANK, etc.) from ever matching the patterns below.
+        // Strip string literals and inline comments so SQL / string content
+        // inside quotes is never mistaken for code.
         const lineNoComment = line.replace(
             /(['"])(?:(?!\1).)*\1|'.*$/g,
             (m) => m.startsWith("'") ? '' : (m[0] + m[0])
         );
 
-        // ── Dim / ReDim / Public / Private ───────────────────────────────────
-        // Match everything after the keyword up to an optional comment or end-of-line.
+        // Dim / ReDim / Public / Private
         const dimMatch = lineNoComment.match(/^\s*(?:Dim|ReDim|Public|Private)\s+([\w,\s]+?)\s*(?:'|$)/i);
         if (dimMatch) {
-            const names = dimMatch[1].split(',').map((s: string) => s.trim()).filter(Boolean);
-            for (const name of names) {
-                if (name) result.variables.push({ name, line: lineIndex, filePath });
-            }
+            dimMatch[1].split(',').map((s: string) => s.trim()).filter(Boolean).forEach(name => {
+                result.variables.push({ name, line: lineIndex, filePath });
+            });
         }
 
-        // ── Implicit variables — plain assignment without Dim ─────────────────
-        // VBScript allows undeclared variables when Option Explicit is NOT used.
-        // We detect  "word ="  at the start of a line (skipping Set, For, Const lines
-        // which have their own handlers) and register the LHS as a variable so the
-        // semantic provider can colour its usages throughout the file.
-        // We skip names already registered to avoid duplicates.
-        // Uses lineNoComment so SQL inside strings is never mistaken for an assignment.
+        // Implicit assignment (undeclared variables, no Option Explicit)
         const implicitMatch = lineNoComment.match(/^\s*([a-zA-Z_]\w*)\s*=/i);
         if (implicitMatch) {
             const name = implicitMatch[1];
             const nameLower = name.toLowerCase();
-            // Skip keywords and already-handled constructs
             const skipWords = new Set([
                 'dim','redim','set','const','if','for','while','do',
                 'function','sub','class','select','with','on','option',
@@ -104,57 +74,50 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
             }
         }
 
-        // ── Const ─────────────────────────────────────────────────────────────
-        // Greedy value capture (.+) so the full value is captured before an optional comment.
-        // The trailing /i flag keeps case-insensitive matching for 'Const' keyword.
+        // Const
         const constMatch = lineNoComment.match(/^\s*(?:Public\s+|Private\s+)?Const\s+(\w+)\s*=\s*(.+?)\s*(?:'.*)?$/i);
         if (constMatch) {
             result.constants.push({
-                name:     constMatch[1],
-                value:    constMatch[2].trim(),
-                line:     lineIndex,
+                name:  constMatch[1],
+                value: constMatch[2].trim(),
+                line:  lineIndex,
                 filePath,
             });
         }
 
-        // ── Function / Sub ────────────────────────────────────────────────────
-        // Parentheses are optional in VBScript — Sub ConnectDb is valid without ()
+        // Function / Sub (parentheses optional in VBScript)
         const funcMatch = lineNoComment.match(/^\s*(?:Public\s+|Private\s+)?(Function|Sub)\s+(\w+)\s*(?:\(([^)]*)\))?/i);
         if (funcMatch) {
-            // Parse individual parameter names — strips ByVal/ByRef and array () markers
             const rawParams  = funcMatch[3] ? funcMatch[3].trim() : '';
             const paramNames = rawParams.length > 0
-                ? rawParams
-                    .split(',')
-                    .map((p: string) => p.trim().replace(/^(?:ByVal|ByRef)\s+/i, '').replace(/\(\)$/, '').trim())
-                    .filter(Boolean)
+                ? rawParams.split(',').map((p: string) =>
+                    p.trim().replace(/^(?:ByVal|ByRef)\s+/i, '').replace(/\(\)$/, '').trim()
+                  ).filter(Boolean)
                 : [];
-
             result.functions.push({
                 name:       funcMatch[2],
                 kind:       funcMatch[1] as 'Function' | 'Sub',
                 params:     rawParams,
                 paramNames,
                 line:       lineIndex,
-                endLine:    -1,   // filled in second pass below
+                endLine:    -1,
                 filePath,
             });
         }
 
-        // ── Set x = [Server.]CreateObject("...") ─────────────────────────────
+        // Set x = [Server.]CreateObject("...")
         const setMatch = lineNoComment.match(/\bSet\s+(\w+)\s*=\s*(?:Server\.)?CreateObject\s*\(\s*["']([^"']+)["']\s*\)/i);
         if (setMatch) {
             result.comVariables.push({
-                name:     setMatch[1],
-                progId:   setMatch[2].toLowerCase(),
-                line:     lineIndex,
+                name:   setMatch[1],
+                progId: setMatch[2].toLowerCase(),
+                line:   lineIndex,
                 filePath,
             });
         }
     });
 
-    // Second pass — match End Function / End Sub to their opening declaration
-    // Simple stack handles nested functions (rare in VBScript but valid inside Classes)
+    // Second pass — pair each Function/Sub with its End Function/End Sub line
     const openStack: number[] = [];
     lines.forEach((line, lineIndex) => {
         if (/^\s*(?:Public\s+|Private\s+)?(Function|Sub)\s+/i.test(line)) {
@@ -162,8 +125,7 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
             if (fnIndex !== -1) openStack.push(fnIndex);
         }
         if (/^\s*End\s+(Function|Sub)\b/i.test(line) && openStack.length > 0) {
-            const fnIndex = openStack.pop()!;
-            result.functions[fnIndex].endLine = lineIndex;
+            result.functions[openStack.pop()!].endLine = lineIndex;
         }
     });
 
@@ -171,64 +133,50 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Finds all #include directives in a document and returns their resolved paths.
-// Supports both:
-//   <!--#include file="relative/path.asp"-->
-//   <!--#include virtual="/absolute/path.asp"-->
-//
-// For "virtual" paths we resolve relative to the workspace root.
-// For "file" paths we resolve relative to the current document's directory.
+// Include path resolution
+// Returns the resolved absolute paths of all #include directives in the text.
+// Supports file="..." (relative to current doc) and virtual="..." (workspace root).
 // ─────────────────────────────────────────────────────────────────────────────
+
 export function resolveIncludePaths(documentText: string, documentPath: string): string[] {
     const resolved: string[] = [];
     const docDir        = path.dirname(documentPath);
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? docDir;
-
-    const pattern = /<!--\s*#include\s+(file|virtual)\s*=\s*["']([^"']+)["']\s*-->/gi;
+    const pattern       = /<!--\s*#include\s+(file|virtual)\s*=\s*["']([^"']+)["']\s*-->/gi;
     let match: RegExpExecArray | null;
 
     while ((match = pattern.exec(documentText)) !== null) {
         const includeType = match[1].toLowerCase();
         const includePath = match[2];
+        const fullPath    = includeType === 'virtual'
+            ? path.join(workspaceRoot, includePath.replace(/^\//, ''))
+            : path.resolve(docDir, includePath);
 
-        let fullPath: string;
-        if (includeType === 'virtual') {
-            fullPath = path.join(workspaceRoot, includePath.replace(/^\//, ''));
-        } else {
-            fullPath = path.resolve(docDir, includePath);
-        }
-
-        if (fs.existsSync(fullPath)) {
-            resolved.push(fullPath);
-        }
+        if (fs.existsSync(fullPath)) resolved.push(fullPath);
     }
 
     return resolved;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Reads all include files referenced in the document and merges their symbols
-// with the current document's own symbols.
-// Returns a combined FileSymbols object for use in completions / definitions.
+// Symbol collection
+// Merges symbols from the current document and all its #include'd files.
 // ─────────────────────────────────────────────────────────────────────────────
-export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
-    const docText = document.getText();
-    const docPath = document.uri.fsPath;
 
+export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
+    const docText  = document.getText();
+    const docPath  = document.uri.fsPath;
     const combined = extractSymbols(docText, docPath);
 
-    const includePaths = resolveIncludePaths(docText, docPath);
-    for (const incPath of includePaths) {
+    for (const incPath of resolveIncludePaths(docText, docPath)) {
         try {
-            const incText    = fs.readFileSync(incPath, 'utf8');
-            const incSymbols = extractSymbols(incText, incPath);
-
+            const incSymbols = extractSymbols(fs.readFileSync(incPath, 'utf8'), incPath);
             combined.variables    .push(...incSymbols.variables);
             combined.constants    .push(...incSymbols.constants);
             combined.functions    .push(...incSymbols.functions);
             combined.comVariables .push(...incSymbols.comVariables);
         } catch {
-            // Silently skip unreadable files
+            // Skip unreadable files silently
         }
     }
 
@@ -236,8 +184,10 @@ export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Completion provider for #include file/virtual path suggestions.
+// IncludePathCompletionProvider
+// Suggests files and folders inside the quotes of #include directives.
 // ─────────────────────────────────────────────────────────────────────────────
+
 export class IncludePathCompletionProvider implements vscode.CompletionItemProvider {
 
     provideCompletionItems(
@@ -247,31 +197,23 @@ export class IncludePathCompletionProvider implements vscode.CompletionItemProvi
 
         const lineText   = document.lineAt(position.line).text;
         const textBefore = lineText.substring(0, position.character);
-
         const includeMatch = textBefore.match(/<!--\s*#include\s+(file|virtual)\s*=\s*["']([^"']*)$/i);
-        if (!includeMatch) { return new vscode.CompletionList([], false); }
+        if (!includeMatch) return new vscode.CompletionList([], false);
 
         const includeType   = includeMatch[1].toLowerCase();
-        const typedSoFar    = includeMatch[2];          // e.g. '../../sub/part'
+        const typedSoFar    = includeMatch[2];
         const docDir        = path.dirname(document.uri.fsPath);
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? docDir;
+        const baseDir       = includeType === 'virtual' ? workspaceRoot : docDir;
 
-        const baseDir = includeType === 'virtual' ? workspaceRoot : docDir;
-
-        // Split what the user typed into the directory prefix and the current segment.
-        // Normalise to forward-slashes first so path splitting works on Windows too.
+        // Split typed path into the directory prefix and the current segment
         const normalised   = typedSoFar.replace(/\\/g, '/');
         const lastSlash    = normalised.lastIndexOf('/');
-        const typedDirPart = lastSlash >= 0 ? normalised.slice(0, lastSlash + 1) : ''; // e.g. '../../sub/'
-        const typedSegment = lastSlash >= 0 ? normalised.slice(lastSlash + 1)    : normalised; // e.g. 'part'
+        const typedDirPart = lastSlash >= 0 ? normalised.slice(0, lastSlash + 1) : '';
+        const typedSegment = lastSlash >= 0 ? normalised.slice(lastSlash + 1)    : normalised;
+        const searchDir    = path.resolve(baseDir, typedDirPart.replace(/\//g, path.sep));
 
-        // path.resolve on Windows can mishandle forward-slash relative paths.
-        // Convert the relative part to the OS separator before resolving.
-        const relativeDir = typedDirPart.replace(/\//g, path.sep);
-        const searchDir   = path.resolve(baseDir, relativeDir);
-
-        // The range each item will REPLACE is only the current segment (after the
-        // last slash), so the already-typed directory prefix is never duplicated.
+        // Replace only the current segment so the typed directory prefix is never duplicated
         const replaceStart = new vscode.Position(position.line, position.character - typedSegment.length);
         const replaceRange = new vscode.Range(replaceStart, position);
 
@@ -279,56 +221,46 @@ export class IncludePathCompletionProvider implements vscode.CompletionItemProvi
         try {
             entries = fs.readdirSync(searchDir, { withFileTypes: true });
         } catch {
-            // Directory doesn't exist or can't be read — return incomplete so
-            // VS Code re-invokes us on the next keystroke rather than caching []
             return new vscode.CompletionList([], true);
         }
 
-        // Skip hidden dot-files / dot-folders
-        const visible = entries.filter(e => !e.name.startsWith('.'));
-
         const items: vscode.CompletionItem[] = [];
 
-        for (const entry of visible) {
-            const isDir     = entry.isDirectory();
-            // Show all files — the user decides what to include; we should not
-            // silently hide files just because of their extension.
+        for (const entry of entries.filter(e => !e.name.startsWith('.'))) {
+            const isDir  = entry.isDirectory();
             const isFile = entry.isFile();
-            if (!isDir && !isFile) { continue; }
+            if (!isDir && !isFile) continue;
 
             const item = new vscode.CompletionItem(
                 entry.name,
                 isDir ? vscode.CompletionItemKind.Folder : vscode.CompletionItemKind.File
             );
-
-            // insertText is ONLY the segment name — never the full path prefix.
-            // replaceRange tells VS Code exactly which text to swap out, preventing
-            // the typed directory traversal from being duplicated on accept.
             item.insertText = isDir ? entry.name + '/' : entry.name;
-            item.filterText = entry.name;   // keeps the list alive as user types letters
+            item.filterText = entry.name;
             item.range      = replaceRange;
             item.detail     = isDir ? 'Directory' : 'Include file';
             item.sortText   = (isDir ? '0_' : '1_') + entry.name.toLowerCase();
 
-            if (isDir) {
-                // Re-trigger after the slash so the next directory level appears immediately
-                item.command = { command: 'editor.action.triggerSuggest', title: 'Suggest' };
-            }
+            // Re-trigger after folder selection so the next level appears immediately
+            if (isDir) item.command = { command: 'editor.action.triggerSuggest', title: 'Suggest' };
 
             items.push(item);
         }
 
-        // isIncomplete: true forces VS Code to re-invoke the provider on every
-        // keystroke instead of caching and filtering the stale list itself.
-        // This ensures suggestions always reflect the current typed path segment.
+        // isIncomplete: true keeps the provider live on every keystroke
         return new vscode.CompletionList(items, true);
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Go To Definition provider for Functions, Subs, and variables.
-// Works across the current document AND all included files.
+// AspDefinitionProvider
+// Handles F12 / Ctrl+Click for VBScript functions, subs, variables, constants,
+// and COM object variables — across the current file and all #include'd files.
+//
+// HTML attribute links (href, src, etc.) are handled separately in linkProvider.ts.
+// The guard below ensures those attribute values never fall through to symbol lookup.
 // ─────────────────────────────────────────────────────────────────────────────
+
 export class AspDefinitionProvider implements vscode.DefinitionProvider {
 
     provideDefinition(
@@ -336,6 +268,22 @@ export class AspDefinitionProvider implements vscode.DefinitionProvider {
         position: vscode.Position
     ): vscode.ProviderResult<vscode.Definition> {
 
+        const lineText = document.lineAt(position.line).text;
+        const docDir   = path.dirname(document.uri.fsPath);
+
+        // Guard: if the cursor is inside an HTML file-link attribute value,
+        // bail out immediately — linkProvider.ts owns those, and we must not
+        // accidentally match the filename as a VBScript symbol (e.g. href="test.css"
+        // matching a JS function named "test").
+        if (isCursorInHtmlFileLinkAttribute(lineText, position.character)) {
+            const resolved = resolveHtmlAttributeFilePath(lineText, position.character, docDir);
+            if (resolved && fs.existsSync(resolved)) {
+                return new vscode.Location(vscode.Uri.file(resolved), new vscode.Position(0, 0));
+            }
+            return null;
+        }
+
+        // VBScript symbol lookup
         const wordRange = document.getWordRangeAtPosition(position, /\w+/);
         if (!wordRange) return null;
 
@@ -343,26 +291,81 @@ export class AspDefinitionProvider implements vscode.DefinitionProvider {
         const symbols = collectAllSymbols(document);
 
         for (const fn of symbols.functions) {
-            if (fn.name.toLowerCase() === word) {
+            if (fn.name.toLowerCase() === word)
                 return new vscode.Location(vscode.Uri.file(fn.filePath), new vscode.Position(fn.line, 0));
-            }
         }
         for (const v of symbols.variables) {
-            if (v.name.toLowerCase() === word) {
+            if (v.name.toLowerCase() === word)
                 return new vscode.Location(vscode.Uri.file(v.filePath), new vscode.Position(v.line, 0));
-            }
         }
         for (const c of symbols.constants) {
-            if (c.name.toLowerCase() === word) {
+            if (c.name.toLowerCase() === word)
                 return new vscode.Location(vscode.Uri.file(c.filePath), new vscode.Position(c.line, 0));
-            }
         }
         for (const cv of symbols.comVariables) {
-            if (cv.name.toLowerCase() === word) {
+            if (cv.name.toLowerCase() === word)
                 return new vscode.Location(vscode.Uri.file(cv.filePath), new vscode.Position(cv.line, 0));
-            }
         }
 
         return null;
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared helpers (also used by linkProvider.ts)
+// Exported so linkProvider.ts can reuse the same attribute detection logic
+// without duplicating it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Attributes whose values are treated as local file paths. */
+export const FILE_LINK_ATTRIBUTES = ['href', 'src', 'action', 'data-src'];
+
+const HTML_ATTR_PATTERN = new RegExp(
+    `\\b(${FILE_LINK_ATTRIBUTES.join('|')})\\s*=\\s*["']([^"']+)["']`,
+    'gi'
+);
+
+/** True for values that are clearly not local files (URLs, anchors, mailto, etc.) */
+export function isExternalPath(value: string): boolean {
+    return /^(https?:\/\/|\/\/|mailto:|tel:|#|javascript:)/i.test(value);
+}
+
+/**
+ * Returns true if the cursor character position falls inside a file-link
+ * HTML attribute value on the given line.
+ */
+export function isCursorInHtmlFileLinkAttribute(lineText: string, character: number): boolean {
+    HTML_ATTR_PATTERN.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = HTML_ATTR_PATTERN.exec(lineText)) !== null) {
+        const valueOffset = m[0].indexOf(m[2]);
+        const valueStart  = m.index + valueOffset;
+        const valueEnd    = valueStart + m[2].length;
+        if (character >= valueStart && character <= valueEnd) return true;
+    }
+    return false;
+}
+
+/**
+ * If the cursor is inside a file-link attribute value, returns the resolved
+ * absolute path. Returns null for external/non-file values or no match.
+ */
+export function resolveHtmlAttributeFilePath(
+    lineText: string,
+    character: number,
+    docDir: string
+): string | null {
+    HTML_ATTR_PATTERN.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = HTML_ATTR_PATTERN.exec(lineText)) !== null) {
+        const attrValue   = m[2];
+        const valueOffset = m[0].indexOf(attrValue);
+        const valueStart  = m.index + valueOffset;
+        const valueEnd    = valueStart + attrValue.length;
+        if (character >= valueStart && character <= valueEnd) {
+            if (isExternalPath(attrValue)) return null;
+            return path.resolve(docDir, attrValue);
+        }
+    }
+    return null;
 }
