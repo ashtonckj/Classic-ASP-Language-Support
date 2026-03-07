@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { resolveHtmlAttributeFilePath, isExternalPath, FILE_LINK_ATTRIBUTES } from './includeProvider';
+import { isExternalPath, FILE_LINK_ATTRIBUTES } from './includeProvider';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IncludeDocumentLinkProvider

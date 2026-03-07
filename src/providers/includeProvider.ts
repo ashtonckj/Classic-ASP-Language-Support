@@ -341,27 +341,3 @@ export function isCursorInHtmlFileLinkAttribute(lineText: string, character: num
     }
     return false;
 }
-
-/**
- * If the cursor is inside a file-link attribute value, returns the resolved
- * absolute path. Returns null for external/non-file values or no match.
- */
-export function resolveHtmlAttributeFilePath(
-    lineText: string,
-    character: number,
-    docDir: string
-): string | null {
-    HTML_ATTR_PATTERN.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = HTML_ATTR_PATTERN.exec(lineText)) !== null) {
-        const attrValue   = m[2];
-        const valueOffset = m[0].indexOf(attrValue);
-        const valueStart  = m.index + valueOffset;
-        const valueEnd    = valueStart + attrValue.length;
-        if (character >= valueStart && character <= valueEnd) {
-            if (isExternalPath(attrValue)) return null;
-            return path.resolve(docDir, attrValue);
-        }
-    }
-    return null;
-}
