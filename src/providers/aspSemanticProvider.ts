@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
 import { isInsideAspBlock } from '../utils/documentHelper';
+import { getZone } from './aspUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Semantic token legend — must match contributes.semanticTokenScopes in package.json
@@ -667,9 +668,16 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         const text       = document.getText();
         const allSymbols = collectAllSymbols(document);
 
-        // Build fast lookup sets/maps from collected symbols
+        // Build fast lookup sets/maps from collected symbols.
+        // Functions defined in the current document inside a <script> (JS) block
+        // are excluded — they are JS, not VBScript, and must not receive VBScript
+        // semantic colouring. Functions from #include files are always VBScript.
         const funcMap = new Map<string, 'function' | 'Sub'>();
         for (const fn of allSymbols.functions) {
+            if (fn.filePath === document.uri.fsPath) {
+                const fnOffset = document.offsetAt(new vscode.Position(fn.line, 0));
+                if (getZone(text, fnOffset) === 'js') { continue; }
+            }
             funcMap.set(fn.name.toLowerCase(), fn.kind === 'Function' ? 'function' : 'Sub');
         }
         const varSet    = new Set<string>(allSymbols.variables.map(v => v.name.toLowerCase()));

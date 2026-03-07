@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { collectAllSymbols, isCursorInHtmlFileLinkAttribute } from './includeProvider';
+import { getZone } from './aspUtils';
 import * as path from 'path';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -185,6 +186,9 @@ export class AspHoverProvider implements vscode.HoverProvider {
         const word    = document.getText(wordRange);
         const wordKey = word.toLowerCase();
 
+        const allSymbols = collectAllSymbols(document);
+        const docText    = document.getText();
+
         // ── 1. COM member after dot — e.g. rs.EOF, conn.Execute ──────────────
         const charBeforeWord = lineText.charAt(wordRange.start.character - 1);
         if (charBeforeWord === '.') {
@@ -192,7 +196,6 @@ export class AspHoverProvider implements vscode.HoverProvider {
             const objMatch      = textBeforeDot.match(/\b(\w+)$/);
             if (objMatch) {
                 const objName    = objMatch[1].toLowerCase();
-                const allSymbols = collectAllSymbols(document);
                 const comVar     = allSymbols.comVariables.find(cv => cv.name.toLowerCase() === objName);
                 if (comVar) {
                     const memberDoc = COM_MEMBER_DOCS[`${comVar.progId}.${wordKey}`];
@@ -206,8 +209,17 @@ export class AspHoverProvider implements vscode.HoverProvider {
         }
 
         // ── 2. User-defined Function or Sub ───────────────────────────────────
-        const allSymbols = collectAllSymbols(document);
-        const fn = allSymbols.functions.find(f => f.name.toLowerCase() === wordKey);
+        // Skip functions defined inside a <script> (JS) block in this file —
+        // they are JavaScript, not VBScript, and should not show a VBScript hover.
+        // Functions from #include files are always VBScript so they are shown as-is.
+        const fn = allSymbols.functions.find(f => {
+            if (f.name.toLowerCase() !== wordKey) return false;
+            if (f.filePath === document.uri.fsPath) {
+                const fnOffset = document.offsetAt(new vscode.Position(f.line, 0));
+                if (getZone(docText, fnOffset) === 'js') return false;
+            }
+            return true;
+        });
         if (fn) {
             const fromInclude = fn.filePath !== document.uri.fsPath;
             const header      = fn.params
