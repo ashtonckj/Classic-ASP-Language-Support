@@ -38,7 +38,16 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         comVariables: [],
     };
 
-    const lines = text.split('\n');
+    // Strip HTML comments (<!-- ... -->) before splitting into lines.
+    // This prevents content inside comments — especially <!--METADATA ... -->
+    // blocks whose attribute lines look like  TYPE="TypeLib"  NAME="..."  etc. —
+    // from being mistaken for VBScript implicit-variable assignments.
+    // Each non-newline character is replaced with a space to preserve line numbers.
+    const strippedText = text.replace(/<!--[\s\S]*?-->/g, match =>
+        match.replace(/[^\n]/g, ' ')
+    );
+
+    const lines = strippedText.split('\n');
 
     // First pass — collect all symbols
     lines.forEach((line, lineIndex) => {
