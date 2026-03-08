@@ -324,11 +324,12 @@ function applyIndentAfter(
 
     // Standard indent-after keywords.
     if (
-        /\bif\b.*\bthen\b/.test(lower)             ||
-        /\bfor\b\s+\w+\s*=/.test(lower)            ||
-        /\bfor\s+each\b/.test(lower)               ||
-        /\bwhile\b/.test(lower)                    ||
-        /\bdo\b(\s+while|\s+until)?(\s|$)/.test(lower) ||
+        /\bif\b.*\bthen\b/.test(lower)                         ||
+        /\bfor\b\s+\w+\s*=/.test(lower)                        ||
+        /\bfor\s+each\b/.test(lower)                           ||
+        // \bwhile\b must NOT match 'Loop While ...' — that is a closer, not an opener.
+        (/\bwhile\b/.test(lower) && !/^\s*loop\b/.test(lower))  ||
+        /\bdo\b(\s+while|\s+until)?(\s|$)/.test(lower)         ||
         /\bsub\b\s+\w+/.test(lower)                ||
         /\bfunction\b\s+\w+/.test(lower)           ||
         /\bwith\b/.test(lower)                     ||

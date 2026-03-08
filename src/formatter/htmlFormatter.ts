@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as prettier from 'prettier';
 import { formatSingleAspBlock, getAspSettings, FormatBlockResult } from './aspFormatter';
+import { isInsideAspBlock } from '../utils/documentHelper';
 
 // ─── Prettier settings ─────────────────────────────────────────────────────
 
@@ -63,6 +64,10 @@ let _placeholderCounter = 0;
 /**
  * Returns true if the source has unmatched <% or %> tags.
  * An unclosed <% would cause the masking regex to consume everything after it.
+ *
+ * Uses the same comment-aware logic as isInsideAspBlock: %> on a VBScript
+ * comment line (first non-whitespace char is ') is never counted as a close tag,
+ * and %> inside string literals is also ignored.
  */
 function hasUnclosedAspTags(code: string): boolean {
     let depth = 0;
@@ -72,13 +77,51 @@ function hasUnclosedAspTags(code: string): boolean {
         if (code[i] === '<' && code[i + 1] === '%') {
             depth++;
             i += 2;
-        } else if (code[i] === '%' && code[i + 1] === '>') {
-            if (depth === 0) return true; // stray %>
-            depth--;
-            i += 2;
-        } else {
-            i++;
+            continue;
         }
+
+        // Only look for %> when we are inside an ASP block (depth > 0).
+        // Process line-by-line so comment lines are skipped entirely.
+        if (depth > 0) {
+            const lineEnd  = code.indexOf('\n', i);
+            const lineText = lineEnd === -1 ? code.slice(i) : code.slice(i, lineEnd + 1);
+            const end      = lineEnd === -1 ? code.length   : lineEnd + 1;
+
+            // VBScript comment line — no %> on this line counts
+            if (lineText.trimStart().startsWith("'")) {
+                i = end;
+                continue;
+            }
+
+            // Scan the line for %> outside string literals
+            let j     = i;
+            let inStr = false;
+            let found = false;
+
+            while (j < end) {
+                if (code[j] === '"') {
+                    if (inStr && j + 1 < end && code[j + 1] === '"') { j += 2; continue; }
+                    inStr = !inStr;
+                    j++;
+                    continue;
+                }
+                if (!inStr && code[j] === '%' && j + 1 < code.length && code[j + 1] === '>') {
+                    depth--;
+                    if (depth < 0) { return true; } // stray %>
+                    j += 2;
+                    found = true;
+                    // After closing %>, exit line-scan and resume outer loop from j
+                    i = j;
+                    break;
+                }
+                j++;
+            }
+
+            if (!found) { i = end; }
+            continue;
+        }
+
+        i++;
     }
 
     return depth !== 0;
