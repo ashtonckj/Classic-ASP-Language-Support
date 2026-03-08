@@ -3,7 +3,6 @@ import { collectAllSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../utils/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
 import { getZone } from '../utils/aspUtils';
-import { isInsideAspBlock } from '../utils/documentHelper';
 import * as path from 'path';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -99,24 +98,27 @@ const THREE_WORD_COMPOUNDS: Record<string, string> = {
 type AspContext = 'vbscript' | 'script' | 'html';
 
 function getAspContext(document: vscode.TextDocument, position: vscode.Position): AspContext {
-    const fullText = document.getText();
-    const offset   = document.offsetAt(position);
+    const fullText   = document.getText();
+    const offset     = document.offsetAt(position);
+    const textBefore = fullText.slice(0, offset);
 
     // Check if we're inside a <script> block (language="javascript" or no language attr).
-    // Naive lastIndexOf is fine here — JavaScript blocks don't contain %> in comments.
-    const textBefore      = fullText.slice(0, offset);
+    // Find the last <script and last </script> before the cursor.
     const lastScriptOpen  = textBefore.lastIndexOf('<script');
     const lastScriptClose = textBefore.lastIndexOf('</script');
     if (lastScriptOpen !== -1 && lastScriptOpen > lastScriptClose) {
+        // Make sure it's not a VBScript <script language="vbscript"> block
         const scriptTag = fullText.slice(lastScriptOpen, fullText.indexOf('>', lastScriptOpen) + 1);
         if (!/language\s*=\s*["']vbscript["']/i.test(scriptTag)) {
             return 'script';
         }
     }
 
-    // Use the canonical comment-aware scanner so that %> inside a VBScript
-    // comment line (') is never mistaken for a real close tag.
-    if (isInsideAspBlock(fullText, offset)) {
+    // Check if we're inside a <% %> VBScript block.
+    // Find the last <% and last %> before the cursor.
+    const lastOpen  = textBefore.lastIndexOf('<%');
+    const lastClose = textBefore.lastIndexOf('%>');
+    if (lastOpen !== -1 && lastOpen > lastClose) {
         return 'vbscript';
     }
 
@@ -151,6 +153,24 @@ export class AspHoverProvider implements vscode.HoverProvider {
 
         const word    = document.getText(wordRange);
         const wordKey = word.toLowerCase();
+
+        // ── Suppress hover when cursor is inside a string literal ────────────
+        // VBScript strings are delimited by ".  Scan the line up to the cursor,
+        // tracking open/close quotes ("" is an escaped quote inside a string).
+        // If the cursor lands inside a string the word is a value, not an
+        // identifier — so Case "Active", Response.Write "msg", etc. must never
+        // show variable/function/keyword hovers.
+        {
+            let inStr = false;
+            const col = position.character;
+            for (let ci = 0; ci < col; ci++) {
+                if (lineText[ci] === '"') {
+                    if (inStr && lineText[ci + 1] === '"') { ci++; continue; } // escaped ""
+                    inStr = !inStr;
+                }
+            }
+            if (inStr) return null;
+        }
 
         const allSymbols = collectAllSymbols(document);
         const docText    = document.getText();
