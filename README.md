@@ -5,7 +5,7 @@
 </h3>
 
 <p align="center">
-    <a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img alt="Version: 0.3.4" src="https://img.shields.io/badge/Version-0.3.4-b7bdf8?style=for-the-badge&labelColor=363a4f&logo=visual-studio-code&cacheSeconds=86400"/></a>
+    <a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img alt="Version: 0.3.5" src="https://img.shields.io/badge/Version-0.3.5-b7bdf8?style=for-the-badge&labelColor=363a4f&logo=visual-studio-code&cacheSeconds=86400"/></a>
     <a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img src="https://img.shields.io/visual-studio-marketplace/d/ashtonckj.classic-asp-language-support?style=for-the-badge&colorA=363a4f&colorB=8aadf4&cacheSeconds=3600" alt="Downloads"/></a>
     <a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/issues"><img src="https://img.shields.io/github/issues/ashtonckj/Classic-ASP-Language-Support?colorA=363a4f&colorB=f5a97f&style=for-the-badge&cacheSeconds=3600"></a>
     <a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-b7bdf8?style=for-the-badge&labelColor=363a4f&cacheSeconds=86400"/></a>
@@ -114,6 +114,7 @@
 - **Function suggestions**: Previously defined functions appear as suggestions
 - **Hover documentation**: Hover over VBScript keywords for explanations and usage info
 - **Include file autocomplete**: Autocomplete for `<!-- #include file="" -->` with directory browsing
+- **Go to file support**: Click on include file paths to navigate directly to the file
 </details>
 <br>
 

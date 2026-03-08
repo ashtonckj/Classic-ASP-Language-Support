@@ -5,6 +5,23 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2026-03-08
+
+### ✨ Added
+- **Go to file support for #include directives** - Click on include file paths to navigate directly to the file ([#37](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/37))
+
+### 🛠️ Fixed
+- **Fixed #10** - VBScript blocks in inline HTML no longer cause missing IntelliSense suggestions ([#10](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/10))
+- **Fixed #31** - Line continuation symbol (`_`) no longer triggers unwanted variable autocomplete ([#31](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/31))
+- **Fixed #33** - Include file path autocomplete no longer duplicates directory traversal or suggests incorrect files ([#33](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/33))
+- **Fixed #34** - Auto-deindentation now works correctly even when closing `%>` is more than 5000 characters away ([#34](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/34))
+- **Fixed #35** - Pressing Enter inside `<% %>` now indents the cursor correctly ([#35](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/35))
+- **Fixed #36** - SQL table aliases now colour correctly with bracket notation (e.g., `e.[ColumnName]`) ([#36](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/36))
+- **Fixed #38** - Hovering over "Function" in "End Function" now shows the correct definition ([#38](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/38))
+- **Improved formatter stability** - Various edge cases fixed
+
+---
+
 ## [0.3.4] - 2026-03-01
 
 ### ✨ Added
@@ -195,6 +212,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[0.3.5]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.5
 [0.3.4]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.4
 [0.3.3]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.3
 [0.3.2]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.2
