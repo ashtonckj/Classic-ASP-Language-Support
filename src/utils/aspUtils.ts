@@ -20,16 +20,27 @@ export function isInsideAspBlock(text: string, offset: number): boolean {
     let inAsp = false;
 
     while (i < text.length) {
-        // Skip HTML comments <!-- ... --> — any <% or %> inside them is not real ASP.
-        if (!inAsp && text.slice(i, i + 4) === '<!--') {
-            const closeIdx = text.indexOf('-->', i + 4);
-            i = closeIdx === -1 ? text.length : closeIdx + 3;
-            continue;
-        }
-
         if (!inAsp) {
+            // Advance through HTML comments — any <% inside <!-- --> is not real ASP.
+            if (text.slice(i, i + 4) === '<!--') {
+                const closeIdx = text.indexOf('-->', i + 4);
+                if (closeIdx === -1 || offset < closeIdx + 3) { return false; }
+                i = closeIdx + 3;
+                continue;
+            }
+
+            // Find next <%, but verify it isn't itself inside an HTML comment.
             const openIdx = text.indexOf('<%', i);
             if (openIdx === -1 || openIdx >= offset) { return false; }
+
+            const commentStart = text.indexOf('<!--', i);
+            if (commentStart !== -1 && commentStart < openIdx) {
+                const commentEnd = text.indexOf('-->', commentStart + 4);
+                if (commentEnd === -1 || offset <= commentEnd + 2) { return false; }
+                i = commentEnd + 3;
+                continue;
+            }
+
             inAsp = true;
             i     = openIdx + 2;
         } else {

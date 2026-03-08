@@ -6,7 +6,7 @@
     "foldingStartMarker": "(?i)^\\s*(Public|Private)?\\s*(Class|Function|Sub|Property)\\s*([a-zA-Z_]\\w*)\\s*(\\(.*\\)\\s*)?$",
     "foldingStopMarker": "(?i)^\\s*End (Class|Function|Sub|Property)\\s*$",
     "injections": {
-        "text.html.asp - (meta.embedded | meta.tag), L:((text.html.asp meta.tag) - (meta.embedded.block.asp | meta.embedded.line.asp)), L:(source.js - (meta.embedded.block.asp | meta.embedded.line.asp)), L:(source.css - (meta.embedded.block.asp | meta.embedded.line.asp))": {
+        "text.html.asp - (meta.embedded | meta.tag | comment.block.html), L:((text.html.asp meta.tag) - (meta.embedded.block.asp | meta.embedded.line.asp)), L:(source.js - (meta.embedded.block.asp | meta.embedded.line.asp)), L:(source.css - (meta.embedded.block.asp | meta.embedded.line.asp))": {
             "patterns": [
                 {
                     "include": "#asp-tag"
@@ -42,8 +42,7 @@
                         {
                             "include": "#vbscript-code"
                         }
-                    ],
-                    "applyEndPatternLast": 1
+                    ]
                 },
                 {
                     "comment": "ASP code block <%",
@@ -65,8 +64,7 @@
                         {
                             "include": "#vbscript-code"
                         }
-                    ],
-                    "applyEndPatternLast": 1
+                    ]
                 }
             ]
         },
@@ -124,7 +122,7 @@
                                     "name": "punctuation.definition.comment.asp"
                                 }
                             },
-                            "end": "\\n"
+                            "end": "\\n|(?=%>)"
                         }
                     ]
                 },
@@ -146,7 +144,7 @@
                                     "name": "punctuation.definition.comment.asp"
                                 }
                             },
-                            "end": "\\n"
+                            "end": "\\n|(?=%>)"
                         }
                     ]
                 }

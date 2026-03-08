@@ -49,18 +49,32 @@ export function isInsideAspBlock(text: string, offset: number): boolean {
 
     while (i < text.length) {
         if (!inAsp) {
-            // Skip HTML comment  <!-- ... -->  before looking for <%
-            // so that <% inside an HTML comment is never treated as a real ASP open.
+            // Advance through HTML comments first — any <% inside <!-- --> is not real.
             if (text.slice(i, i + 4) === '<!--') {
                 const closeIdx = text.indexOf('-->', i + 4);
-                i = closeIdx === -1 ? text.length : closeIdx + 3;
+                // If offset is inside this HTML comment, it is NOT in an ASP block.
+                if (closeIdx === -1 || offset < closeIdx + 3) { return false; }
+                i = closeIdx + 3;
                 continue;
             }
 
-            // Outside ASP — look for the next <%
+            // Outside ASP — find next <% but skip over any HTML comments on the way.
             const openIdx = text.indexOf('<%', i);
             if (openIdx === -1) { return false; }      // no more ASP blocks
             if (openIdx >= offset) { return false; }   // offset is before any ASP open
+
+            // Check if the <% we found is inside an HTML comment by scanning
+            // from i to openIdx for any <!-- that doesn't close before openIdx.
+            const commentStart = text.indexOf('<!--', i);
+            if (commentStart !== -1 && commentStart < openIdx) {
+                // There is an HTML comment that starts before this <%.
+                // Jump past the comment and retry — don't treat this <% as real.
+                const commentEnd = text.indexOf('-->', commentStart + 4);
+                if (commentEnd === -1 || offset <= commentEnd + 2) { return false; }
+                i = commentEnd + 3;
+                continue;
+            }
+
             inAsp = true;
             i = openIdx + 2;                           // move past <%
         } else {
