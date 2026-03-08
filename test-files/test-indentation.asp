@@ -1,416 +1,457 @@
 <%
-' test-indentation.asp — Smart indentation test
+' test-indentation.asp
+' Smart indentation & auto-snap test  (indent size: 4 spaces)
 '
-' HOW TO USE THIS FILE:
-'   Each test section has a comment telling you exactly WHERE to place your
-'   cursor and WHAT key to press.  The "EXPECTED:" comment shows what the
-'   next line should look like after you press that key.
-'   An arrow  ←  marks the cursor position.  A pipe  |  shows col 0.
+' HOW TO USE:
+'   Read the ACTION comment above each block, place your cursor where the
+'   arrow shows  (←)  and press the key described.
+'   EXPECTED tells you what the next line should look like.
 '
-' KEY:
-'   [Enter]  = press Enter / Return
-'   [Tab]    = press Tab on a blank line
-'   & _      = line-continuation character (string alignment test)
+' LEGEND:
+'   ←         place cursor here before pressing the key
+'   [Enter]   press Enter / Return
+'   [Tab]     press Tab on a blank line
+'   col N     character column, counting from 0
 
 
 ' ══════════════════════════════════════════════════════════════════════════════
-' PART A — ENTER KEY: VBScript block openers
+' PART A — [Enter] after block openers
+'
+' After pressing [Enter] at the  ←  mark the new line should be
+' indented one level (+4 spaces) deeper than the opener.
 ' ══════════════════════════════════════════════════════════════════════════════
 
-' ── A1. If / Then ─────────────────────────────────────────────────────────────
-' ACTION:  Place cursor at end of "If condition Then"  and press [Enter]
-' EXPECTED: next line indented +1 level (2 spaces)
+' ── A1. If / Then ────────────────────────────────────────────────────────────
+' ACTION:  cursor at end of "If condition Then"  ←  then [Enter]
+' EXPECTED: new line at col 4
 
-If condition Then←
+If condition Then
     Response.Write "inside If"
 End If
 
-' ── A2. ElseIf — auto-snaps to If indent, body +1 ────────────────────────────
-' ACTION:  Type "ElseIf" on the line below "Response.Write", then press [Enter]
-' EXPECTED: ElseIf snaps to column 0 (same as If), next line indents to +1
+' ── A2. ElseIf / Else ────────────────────────────────────────────────────────
+' ACTION:  cursor at end of "ElseIf otherCondition Then"  ←  then [Enter]
+' EXPECTED: new line at col 4  (body of ElseIf)
+' ACTION:  cursor at end of "Else"  ←  then [Enter]
+' EXPECTED: new line at col 4  (body of Else)
+' ACTION:  cursor at end of "End If"  ←  then [Enter]
+' EXPECTED: new line at col 0  (back to If level)
 
 If condition Then
     Response.Write "A"
-ElseIf otherCondition Then←
+ElseIf otherCondition Then
     Response.Write "B"
-Else←
+Else
     Response.Write "C"
-End If←
+End If
 
-' ── A3. For / Next ────────────────────────────────────────────────────────────
-' ACTION:  Place cursor at end of "For i = 1 To 10"  and press [Enter]
-' EXPECTED: next line at +1 indent
+' ── A3. For / Next ───────────────────────────────────────────────────────────
+' ACTION:  cursor at end of "For i = 1 To 10"  ←  then [Enter]
+' EXPECTED: new line at col 4
 
-For i = 1 To 10←
+For i = 1 To 10
     total = total + i
-Next←
+Next
 
-' ── A4. For Each / Next ───────────────────────────────────────────────────────
-' ACTION:  Place cursor at end of "For Each item In itemList"  and press [Enter]
-' EXPECTED: next line at +1 indent
+' ── A4. For Each / Next ──────────────────────────────────────────────────────
+' ACTION:  cursor at end of "For Each item In itemList"  ←  then [Enter]
+' EXPECTED: new line at col 4
 
-For Each item In itemList←
+For Each item In itemList
     Response.Write item
-Next←
+Next
 
 ' ── A5. While / Wend ─────────────────────────────────────────────────────────
-' ACTION:  Place cursor at end of "While x < 10"  and press [Enter]
-' EXPECTED: next line at +1 indent
+' ACTION:  cursor at end of "While x < 10"  ←  then [Enter]
+' EXPECTED: new line at col 4
 
-While x < 10←
+While x < 10
     x = x + 1
-Wend←
+Wend
 
 ' ── A6. Do While / Loop ──────────────────────────────────────────────────────
-' ACTION:  Place cursor at end of "Do While Not rs.EOF"  and press [Enter]
-' EXPECTED: next line at +1 indent
+' ACTION:  cursor at end of "Do While Not rs.EOF"  ←  then [Enter]
+' EXPECTED: new line at col 4
 
-Do While Not rs.EOF←
+Do While Not rs.EOF
     Response.Write rs("Name")
     rs.MoveNext
-Loop←
+Loop
 
-' ── A7. Do / Loop Until ──────────────────────────────────────────────────────
-' ACTION:  Place cursor at end of "Do"  and press [Enter]
-' EXPECTED: +1 indent.  Then place cursor at end of "Loop Until" and press [Enter]
-' EXPECTED: back to column 0
+' ── A7. Do / Loop Until  (post-condition) ────────────────────────────────────
+' ACTION 1:  cursor at end of "Do"  ←  then [Enter]
+' EXPECTED:  new line at col 4
+' ACTION 2:  cursor at end of "Loop Until cursor >= 10"  ←  then [Enter]
+' EXPECTED:  new line at col 0  (back to Do level, Loop closes the block)
 
-Do←
+Do
     cursor = cursor + 1
-Loop Until cursor >= 10←
+Loop Until cursor >= 10
 
-' ── A8. Select Case / Case / End Select ──────────────────────────────────────
-' ACTION:  Place cursor at end of "Select Case status"  → [Enter] → expect +1
-'          Type "Case" → auto-snaps to +1 (inside Select), body goes to +2
-'          Type "End Select" → auto-snaps to column 0
+' ── A8. Do / Loop While  (post-condition) ────────────────────────────────────
+' This is the tricky case: "Loop While" must NOT open a new While block.
+' ACTION 1:  cursor at end of "Do"  ←  then [Enter]
+' EXPECTED:  new line at col 4
+' ACTION 2:  cursor at end of "Loop While cursor > 0"  ←  then [Enter]
+' EXPECTED:  new line at col 0  (Loop closes block — While here is NOT an opener)
 
-Select Case status←
-    Case "active"←
+Do
+    cursor = cursor - 1
+Loop While cursor > 0
+
+' ── A9. Select Case ──────────────────────────────────────────────────────────
+' ACTION:  cursor at end of "Select Case status"  ←  then [Enter]
+' EXPECTED: new line at col 4  (Case label level, one inside Select)
+' ACTION:  cursor at end of "Case ....."  ←  then [Enter]
+' EXPECTED: new line at col 8  (body, one level inside the Case label)
+' ACTION:  type "End Select" at col 0  — it should snap to col 0
+
+Select Case status
+    Case "active"
         Response.Write "Active"
-    Case "pending"←
+    Case "pending"
         Response.Write "Pending"
-    Case Else←
+    Case Else
         Response.Write "Unknown"
-End Select←
+End Select
 
-' ── A9. Function / End Function ───────────────────────────────────────────────
-' ACTION:  Place cursor at end of "Function CalculateTotal(...)"  and press [Enter]
-' EXPECTED: next line at +1 indent inside the function
+' ── A10. Function / End Function ─────────────────────────────────────────────
+' ACTION:  cursor at end of "Function CalculateTotal(...)"  ←  then [Enter]
+' EXPECTED: new line at col 4
 
-Function CalculateTotal(qty, price)←
+Function CalculateTotal(qty, price)
     Dim total
     total = qty * price
     CalculateTotal = total
-End Function←
+End Function
 
-' ── A10. Sub / End Sub ────────────────────────────────────────────────────────
-' ACTION:  Place cursor at end of "Sub LogMessage(msg)"  and press [Enter]
-' EXPECTED: next line at +1
+' ── A11. Sub / End Sub ───────────────────────────────────────────────────────
+' ACTION:  cursor at end of "Sub LogMessage(msg)"  ←  then [Enter]
+' EXPECTED: new line at col 4
 
-Sub LogMessage(msg)←
+Sub LogMessage(msg)
     Response.Write "[LOG] " & msg
-End Sub←
+End Sub
 
-' ── A11. With / End With ──────────────────────────────────────────────────────
-' ACTION:  Place cursor at end of "With rs"  and press [Enter]
-' EXPECTED: next line at +1
+' ── A12. With / End With ─────────────────────────────────────────────────────
+' ACTION:  cursor at end of "With rs"  ←  then [Enter]
+' EXPECTED: new line at col 4
+' NOTE:  "End With" must NOT trigger a new indent — it is a closer only.
 
-With rs←
+With rs
     .Open stmt, conn
     .Close
-End With←
+End With
 
-' ── A12. Class / End Class ────────────────────────────────────────────────────
-' ACTION:  Place cursor at end of "Class UserModel"  and press [Enter]
-' EXPECTED: next line at +1
+' ── A13. Class / End Class ───────────────────────────────────────────────────
+' ACTION:  cursor at end of "Class UserModel"  ←  then [Enter]
+' EXPECTED: new line at col 4
 
-Class UserModel←
+Class UserModel
     Private mName
     Public Property Get Name
         Name = mName
-    End Property←
-End Class←
+    End Property
+End Class
 
 
 ' ══════════════════════════════════════════════════════════════════════════════
-' PART B — ENTER KEY: Auto-snap closers to correct indent
+' PART B — Auto-snap: type a closer at the WRONG indent, watch it snap
+'
+' For each block below, deliberately TYPE the closer keyword at the wrong
+' column.  The auto-snap should move it to the column shown in the comment.
 ' ══════════════════════════════════════════════════════════════════════════════
 
-' ── B1. End If snap ───────────────────────────────────────────────────────────
-' ACTION:  Deliberately type "End If" at column 0 (wrong indent).
-'          As soon as you finish typing the last letter, it should snap
-'          to align with its "If".
+' ── B1. End If — top-level  (type at col 8, snaps to col 0) ──────────────────
 
 If condition Then
     Response.Write "test"
-End If    ' ← try typing this at column 0 — it should snap to column 0 (correct here)
+End If
 
-' Now nested — End If should snap to the inner If's indent (2 spaces):
+' ── B2. End If — nested  (type inner "End If" at col 0, snaps to col 4) ──────
+
 If outer Then
     If inner Then
         Response.Write "nested"
-    End If    ' ← try typing at col 0 — should snap to col 4
+    End If
 End If
 
-' ── B2. Else snap ────────────────────────────────────────────────────────────
-' ACTION:  Type "Else" indented too far (e.g. 8 spaces).
-'          It should snap back to align with its "If".
+' ── B3. Else  (type at col 8, snaps to col 0) ────────────────────────────────
 
 If condition Then
     Response.Write "yes"
-Else    ' ← try typing with too much indent — should snap to col 0
+Else
     Response.Write "no"
 End If
 
-' ── B3. Next snap ────────────────────────────────────────────────────────────
-' ACTION:  Type "Next" indented incorrectly (e.g. 8 spaces).
-'          Should snap to align with "For".
+' ── B4. ElseIf  (type at col 8, snaps to col 0) ──────────────────────────────
+
+If score >= 90 Then
+    grade = "A"
+ElseIf score >= 75 Then
+    grade = "B"
+Else
+    grade = "C"
+End If
+
+' ── B5. Next  (type at col 8, snaps to col 0) ────────────────────────────────
 
 For i = 1 To 5
     total = total + i
-Next    ' ← try typing at col 8 — should snap to col 0
+Next
 
-' ── B4. Loop snap ────────────────────────────────────────────────────────────
-' ACTION:  Type "Loop" at wrong indent.  Should snap to "Do While" column.
+' ── B6. Loop  (type at col 8, snaps to col 0) ────────────────────────────────
 
 Do While cursor < 10
     cursor = cursor + 1
-Loop    ' ← try at col 8 — should snap to col 0
+Loop
 
-' ── B5. Case snap ────────────────────────────────────────────────────────────
-' ACTION:  Type "Case" at column 0. Should snap to +1 inside Select Case.
+' ── B7. Wend  (type at col 8, snaps to col 0) ────────────────────────────────
+
+While x < 10
+    x = x + 1
+Wend
+
+' ── B8. Case  (type at col 0, snaps to col 4) ────────────────────────────────
 
 Select Case grade
-    Case "A"    ' ← try typing at col 0 — should snap to col 2
+    Case "A"
         label = "Excellent"
-    Case "B"    ' ← try at col 0 — should snap to col 2
+    Case "B"
         label = "Good"
 End Select
 
-' ── B6. %> snap to matching <% ───────────────────────────────────────────────
-' ACTION:  Type "%>" at wrong indent inside an HTML block.
-'          Should snap to align with its opening "<%".
+' ── B9. Deeply nested — every closer at the right column ─────────────────────
+' Try typing each closer at col 0 and verify the snap column matches the comment.
+'
+'   Function ProcessBatch    col 0
+'       For Each             col 4
+'           If IsNull        col 8
+'               item = ""   col 12
+'           ElseIf           col 8  (snap)
+'           Else             col 8  (snap)
+'               Select Case  col 12
+'                   Case "A" col 16  (snap)
+'                   Case Else col 16  (snap)
+'               End Select   col 12  (snap)
+'           End If           col 8  (snap)
+'       Next                 col 4  (snap)
+'   End Function             col 0  (snap)
 
-%>
-<div>
-<%
-    Response.Write "hello"
-%>    <%' ← try typing at col 4 — should snap to col 0 %>
-</div>
-<%
-
-' ── B7. Deeply nested — multiple levels of snap ───────────────────────────────
-' ACTION:  Each closer below was typed at the wrong indent.
-'          Verify each snaps to the correct level.
-'          Expected final indentation shown in the comment on each line.
-
-Function ProcessBatch(items)                 ' col 0
-    For Each item In items                   ' col 2
-        If IsNull(item) Then                 ' col 4
-            item = ""                        ' col 6
-        ElseIf item = "skip" Then            ' col 4  ← snap
+Function ProcessBatch(items)
+    For Each item In items
+        If IsNull(item) Then
+            item = ""
+        ElseIf item = "skip" Then
             ' do nothing
-        Else                                 ' col 4  ← snap
-            Select Case item                 ' col 6
-                Case "A"                     ' col 8  ← snap
-                    count = count + 1        ' col 10
-                Case Else                    ' col 8  ← snap
-                    other = other + 1        ' col 10
-            End Select                       ' col 6  ← snap
-        End If                               ' col 4  ← snap
-    Next                                     ' col 2  ← snap
-End Function                                 ' col 0  ← snap
-
-
-' ══════════════════════════════════════════════════════════════════════════════
-' PART C — ENTER KEY: String continuation alignment  (& _)
-' ══════════════════════════════════════════════════════════════════════════════
-
-' ── C1. Basic string concat alignment ────────────────────────────────────────
-' ACTION:  Place cursor at end of the first string line and press [Enter].
-' EXPECTED: next line cursor aligns to column of the opening " (col 7)
-
-stmt = "SELECT * FROM users " & _←
-       "WHERE status = 'active' " & _←
-       "ORDER BY name"←
-' ← after the last line (no _), press [Enter]
-' EXPECTED: cursor snaps BACK to column 0 (stmt's indent level)
-
-' ── C2. Long variable name shifts alignment column ───────────────────────────
-' ACTION:  Press [Enter] after each & _ line.
-' EXPECTED: each new line aligns to column 18 (the opening " of the first line)
-
-anotherlongstmt = "SELECT productCode " & _←
-                  "FROM [SampleDb].[dbo].[Products] " & _←
-                  "WHERE isActive = 1"←
-' ← [Enter] here: cursor snaps back to column 0
-
-' ── C3. Assignment-head-only first line  (= _ pattern) ───────────────────────
-' ACTION:  Press [Enter] after "stmt = _"
-' EXPECTED: cursor at col 2 (one indent level, no string column to align to)
-' Then press [Enter] after each & _ line
-' EXPECTED: cursor aligns to the " column established by the first string line
-
-stmt = _←
-    "SELECT productCode " & _←
-    "FROM [SampleDb].[dbo].[Products] " & _←
-    "WHERE isActive = 1"←
-' ← [Enter] here: cursor snaps back to column 0
-
-' ── C4. Blank line inside continuation chain — should still snap back correctly
-stmt = "SELECT * FROM users " & _
-
-       "ORDER BY name"←
-' ← [Enter] here: cursor snaps back to column 0 (stmt's indent)
-
-' ── C5. String concat inside a function (indent level > 0) ───────────────────
-' ACTION:  Press [Enter] after each & _ line inside the function body.
-' EXPECTED: alignment column is relative to document (NOT relative to function indent)
-' i.e. cursor lands at the column of the " on the first string line.
-
-Function BuildQuery(tableName)
-    Dim q
-    q = "SELECT * FROM " & tableName & _←
-        " WHERE isActive = 1 " & _←
-        " ORDER BY name"←
-    ' ← [Enter]: snap back to col 4 (the indent level of the 'q =' line)
-    BuildQuery = q
+        Else
+            Select Case item
+                Case "A"
+                    count = count + 1
+                Case Else
+                    other = other + 1
+            End Select
+        End If
+    Next
 End Function
 
 
 ' ══════════════════════════════════════════════════════════════════════════════
-' PART D — ENTER KEY: ASP tag boundaries
+' PART C — [Enter] after string continuation  (& _)
+'
+' [Enter] after a  & _  line  →  cursor aligns to the  "  column of the
+'                                 first string on the statement.
+' [Enter] after the last line (no _)  →  cursor snaps back to the
+'                                        indent of the assignment.
 ' ══════════════════════════════════════════════════════════════════════════════
 
-' ── D1. Expand empty <%|%> block ──────────────────────────────────────────────
-' ACTION:  Type <%  then %>  immediately (no space). Place cursor between them.
-' EXPECTED: [Enter] expands to:
-'   <%
-'   |         ← cursor here
-'   %>
+' ── C1. Basic alignment ──────────────────────────────────────────────────────
+' ACTION:  cursor at end of each  & _  line  ←  then [Enter]
+' EXPECTED: cursor at col 7  (column of the opening " in  stmt = "SELECT...)
+' After "ORDER BY name"  ←  [Enter]  →  cursor at col 0  (stmt's indent)
+
+stmt = "SELECT * FROM users " & _
+       "WHERE status = 'active' " & _
+       "ORDER BY name"
+
+' ── C2. Long variable name ───────────────────────────────────────────────────
+' ACTION:  cursor at end of each  & _  line  ←  then [Enter]
+' EXPECTED: cursor at col 18  (column of the opening " in  anotherlongstmt = "SELECT...)
+' After last line  ←  [Enter]  →  cursor at col 0
+
+anotherlongstmt = "SELECT productCode " & _
+                  "FROM [SampleDb].[dbo].[Products] " & _
+                  "WHERE isActive = 1"
+
+' ── C3. Assignment-head-only  (= _ pattern) ──────────────────────────────────
+' ACTION:  cursor at end of "stmt = _"  ←  then [Enter]
+' EXPECTED: cursor at col 4  (one indent level, no " column established yet)
+' Then [Enter] after each  & _  line
+' EXPECTED: cursor at col 4  (aligns to " of the first string line)
+' After last line  ←  [Enter]  →  cursor at col 0
+
+stmt = _
+    "SELECT productCode " & _
+    "FROM [SampleDb].[dbo].[Products] " & _
+    "WHERE isActive = 1"
+
+' ── C4. Blank line inside a continuation chain ───────────────────────────────
+' ACTION:  cursor at end of "ORDER BY name"  ←  then [Enter]
+' EXPECTED: cursor at col 0  (snaps back to stmt's indent despite the blank line)
+
+stmt = "SELECT * FROM users " & _
+
+       "ORDER BY name"
+
+' ── C5. Continuation inside a function body ──────────────────────────────────
+' ACTION:  cursor at end of each  & _  line  ←  then [Enter]
+' EXPECTED: cursor at col 8  (column of the opening " on  q = "SELECT...)
+' After " ORDER BY name"  ←  [Enter]  →  cursor at col 4  (q = ... line's indent)
+
+Function BuildQuery(tableName)
+    Dim q
+    q = "SELECT * FROM " & tableName & _
+        " WHERE isActive = 1 " & _
+        " ORDER BY name"
+    BuildQuery = q
+End Function
 
 %>
-<%  %>    <%' ← place cursor between <% and %>, press [Enter] %>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     PART D  —  [Enter] at ASP tag boundaries
+     ══════════════════════════════════════════════════════════════════════════ -->
+
+<!-- D1. Expand an empty  <%  %>  block
+     ACTION:  on the line below, place cursor between  <%  and  %>,  press [Enter]
+     EXPECTED:
+         <%
+             (cursor here at col 0 — same level as the <%)
+         %>                                                                    -->
+
+<%  %>
+
+<!-- D2. [Enter] after a standalone  <%
+     ACTION:  cursor at end of the  <%  line inside the block below, press [Enter]
+     EXPECTED: new line at col 0  (VBScript code level matches <% level)      -->
+
 <%
-
-' ── D2. Enter after <% alone ─────────────────────────────────────────────────
-' ACTION:  Place cursor at end of the standalone <% line and press [Enter].
-' EXPECTED: next line at SAME indent as <% (VBScript code level = <% level)
-
-%>
-<%←
 Response.Write "hello"
 %>
-<%
 
-' ── D3. Enter after standalone %> ────────────────────────────────────────────
-' ACTION:  Place cursor at end of the standalone %> line and press [Enter].
-' EXPECTED: next line uses the enclosing HTML element's child indent.
-' (If %> is inside a <ul>, next line should be at <ul>'s child level.)
+<!-- D3. [Enter] after a standalone  %>  inside a list
+     ACTION:  cursor at end of the  %>  line inside the ul below, press [Enter]
+     EXPECTED: new line at col 4  (inside the ul's child indent)              -->
 
-%>
 <ul>
-  <%
-  For Each item In items
-  %> ←  <%' ← [Enter] here: should land at <ul> child indent (col 2) %>
-  <li><%= item %></li>
-  <%
-  Next
-  %>
+    <%
+    For Each item In items
+    %>
+    <li><%= item %></li>
+    <%
+    Next
+    %>
 </ul>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     PART E  —  [Tab] on blank lines
+     ══════════════════════════════════════════════════════════════════════════ -->
+
+<!-- E1. Tab after a block opener  →  jumps to col 4
+     ACTION:  click on the blank line between "If condition Then" and
+              "Response.Write" below, then press [Tab]
+     EXPECTED: cursor jumps to col 4                                          -->
+
 <%
-
-
-' ══════════════════════════════════════════════════════════════════════════════
-' PART E — TAB KEY: Smart Tab on blank lines
-' ══════════════════════════════════════════════════════════════════════════════
-
-' ── E1. Tab after a block opener snaps to +1 ─────────────────────────────────
-' ACTION:  Place cursor on the blank line below "If condition Then" and press [Tab].
-' EXPECTED: cursor moves to col 2 (one indent level)
-
 If condition Then
-←                ' ← blank line, press [Tab] → should jump to col 2
+
     Response.Write "test"
 End If
+%>
 
-' ── E2. Tab after a regular line stays at same level ─────────────────────────
-' ACTION:  Place cursor on the blank line below "Response.Write" and press [Tab].
-' EXPECTED: cursor moves to same indent as the line above
+<!-- E2. Tab after a regular statement  →  same level as line above
+     ACTION:  click on the blank line between "Response.Write" and "End If"
+              below, then press [Tab]
+     EXPECTED: cursor jumps to col 4  (same as the line above it)            -->
 
+<%
 If condition Then
     Response.Write "test"
-←                ' ← blank line, press [Tab] → should jump to col 2 (same as above)
+
 End If
+%>
 
-' ── E3. Tab below a closer snaps to that closer's indent ─────────────────────
-' ACTION:  Place cursor on the blank line below "End If" and press [Tab].
-' EXPECTED: cursor moves to col 0
+<!-- E3. Tab below a closer  →  same level as the closer
+     ACTION:  click on the blank line below "End If", press [Tab]
+     EXPECTED: cursor jumps to col 0                                          -->
 
+<%
 If condition Then
     Response.Write "test"
 End If
-←                ' ← blank line below End If, press [Tab] → should go to col 0
-
-' ── E4. Tab below <% ─────────────────────────────────────────────────────────
-' ACTION:  Place cursor on the blank line after <% and press [Tab].
-' EXPECTED: cursor at same col as <% (no extra indent added for the <% line itself)
 
 %>
+
+<!-- E4. Tab on a blank line immediately after  <%
+     ACTION:  click on the blank line right after the  <%  below, press [Tab]
+     EXPECTED: cursor at col 0  (no extra indent added for the <% line itself) -->
+
 <%
-←                <%' ← blank line, press [Tab] → col 0 (same as <%) %>
+
 Response.Write "test"
 %>
-<%
 
-' ── E5. Tab below %> returns to HTML child indent ────────────────────────────
-' ACTION:  Place cursor on the blank line after the %> inside the <div> and press [Tab].
-' EXPECTED: cursor at col 2 (the <div>'s child indent)
+<!-- E5. Tab below  %>  inside a div  →  div's child indent
+     ACTION:  click on the blank line immediately after the  %>  inside the
+              div below, then press [Tab]
+     EXPECTED: cursor at col 4  (the div's child indent)                      -->
 
-%>
 <div>
-  <%
-  Response.Write "test"
-  %>
-←                <%' ← blank line, press [Tab] → col 2 (inside <div>) %>
+    <%
+    Response.Write "test"
+    %>
+
 </div>
-<%
 
 
-' ══════════════════════════════════════════════════════════════════════════════
-' PART F — HTML ENTER: Block expansion
-' ══════════════════════════════════════════════════════════════════════════════
-%>
+<!-- ══════════════════════════════════════════════════════════════════════════
+     PART F  —  HTML [Enter] block expansion
+     ══════════════════════════════════════════════════════════════════════════ -->
 
-<!-- F1. Press [Enter] between opening and closing tag on same line -->
-<!-- ACTION: <div>|</div>  → [Enter] should expand to:  -->
-<!--   <div>                                             -->
-<!--     |    ← cursor                                   -->
-<!--   </div>                                            -->
+<!-- F1. [Enter] between opening and closing tag on the same line
+     ACTION:  place cursor between  <div>  and  </div>  below, press [Enter]
+     EXPECTED:
+         <div>
+             (cursor here at col 4)
+         </div>                                                                -->
 
-<div>←</div>
+<div></div>
 
-<!-- F2. Press [Enter] after an opening tag (closing tag on next line) -->
-<!-- EXPECTED: indent +1, cursor inside the block -->
+<!-- F2. [Enter] after an opening tag  (closing tag on the next line)
+     ACTION:  cursor at end of the  <ul>  line below, press [Enter]
+     EXPECTED: new line at col 4, cursor inside the block                     -->
 
-<ul>←
-  <li>item</li>
+<ul>
+    <li>item</li>
 </ul>
 
-<!-- F3. Press [Enter] after an opening tag when no closing tag exists yet -->
-<!-- ACTION: type <section>  then press [Enter]              -->
-<!-- EXPECTED:                                               -->
-<!--   <section>                                             -->
-<!--     |    ← cursor, AND </section> is auto-created below -->
+<!-- F3. [Enter] after a tag with NO closing tag yet
+     ACTION:  at the very bottom of the file type  <section>  then [Enter]
+     EXPECTED:
+         <section>
+             (cursor here at col 4)
+         </section>  (auto-inserted by the extension)                         -->
 
-<!-- F4. Self-closing tags — [Enter] after them should NOT expand -->
-<!-- EXPECTED: plain newline at same indent, no </br> etc. -->
+<!-- F4. Self-closing tags — [Enter] must NOT produce a closing tag
+     ACTION:  cursor at end of each tag below, press [Enter]
+     EXPECTED: plain new line at col 0, no  </br>  </hr>  </input>           -->
 
-<br>←
-<hr>←
-<input type="text">←
+<br>
+<hr>
+<input type="text">
 
-<!-- F5. HTML comment auto-close -->
-<!-- ACTION: type <!--  (the fourth dash) -->
-<!-- EXPECTED: cursor lands inside  <!--  |  --> -->
-<!--  -->
+<!-- F5. HTML comment auto-close
+     ACTION:  type  <!-  and then type the fourth  -
+     EXPECTED: the comment closes automatically  so you get  <!-- | -->       -->
