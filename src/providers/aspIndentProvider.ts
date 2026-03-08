@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { isSelfClosingTag } from '../constants/htmlTags';
+import { isInsideAspBlock } from '../utils/documentHelper';
 
 // ── VBScript block keyword constants ───────────────────────────────────────
 
@@ -44,24 +45,14 @@ const CLOSER_TO_OPENER: { closer: RegExp; opener: RegExp; isMidBlock?: boolean; 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /**
- * Faster isInsideAspBlock that avoids fetching the entire document string.
- * Reads only the text up to the position plus a small window ahead.
+ * Returns true when `position` is inside a <% ... %> ASP block.
+ * Delegates to the canonical comment-aware isInsideAspBlock from documentHelper
+ * so that %> inside VBScript comment lines (') is never treated as a close tag.
  */
 function isInAspBlock(document: vscode.TextDocument, position: vscode.Position): boolean {
-    const before = document.getText(
-        new vscode.Range(new vscode.Position(0, 0), position)
-    );
-    // Search the entire remainder of the document so that long ASP blocks
-    // (where %>  is more than a fixed char-window away) are detected correctly.
-    const after = document.getText(
-        new vscode.Range(position, document.lineAt(document.lineCount - 1).range.end)
-    );
-
-    const lastOpen  = before.lastIndexOf('<%');
-    const lastClose = before.lastIndexOf('%>');
-    const nextClose = after.indexOf('%>');
-
-    return lastOpen > lastClose && nextClose !== -1;
+    const text   = document.getText();
+    const offset = document.offsetAt(position);
+    return isInsideAspBlock(text, offset);
 }
 
 /**

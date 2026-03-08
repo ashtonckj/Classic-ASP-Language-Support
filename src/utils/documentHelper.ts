@@ -32,16 +32,94 @@ export function getContext(document: vscode.TextDocument, position: vscode.Posit
     return ContextType.HTML;
 }
 
-// Check if cursor is inside ASP block
+/**
+ * Returns true when `offset` falls inside a <% ... %> ASP block.
+ *
+ * Naive lastIndexOf('%>') breaks when a VBScript comment contains %>:
+ *   ' HOW TO USE: %> tag placement.   ← looks like a close tag but isn't
+ *
+ * This implementation scans the text character-by-character, tracking open/
+ * close pairs.  When inside an ASP block it processes the content line by
+ * line: any line whose first non-whitespace character is a VBScript comment
+ * marker (') is skipped entirely so that %> inside comments is invisible.
+ */
 export function isInsideAspBlock(text: string, offset: number): boolean {
-    const beforeCursor = text.substring(0, offset);
-    const afterCursor = text.substring(offset);
+    let i = 0;
+    let inAsp = false;
 
-    const lastOpen = beforeCursor.lastIndexOf('<%');
-    const lastClose = beforeCursor.lastIndexOf('%>');
-    const nextClose = afterCursor.indexOf('%>');
+    while (i < text.length) {
+        if (!inAsp) {
+            // Outside ASP — look for the next <%
+            const openIdx = text.indexOf('<%', i);
+            if (openIdx === -1) { return false; }      // no more ASP blocks
+            if (openIdx >= offset) { return false; }   // offset is before any ASP open
+            inAsp = true;
+            i = openIdx + 2;                           // move past <%
+        } else {
+            // Inside ASP — scan line by line so we can skip comment lines.
+            const lineStart = i;
+            const lineEnd   = text.indexOf('\n', i);
+            const lineText  = lineEnd === -1
+                ? text.slice(lineStart)
+                : text.slice(lineStart, lineEnd + 1);
 
-    return lastOpen > lastClose && nextClose !== -1;
+            const trimmed = lineText.trimStart();
+
+            // VBScript comment line — %> on this line is NOT a real close tag.
+            // Skip the whole line without looking for %>.
+            if (trimmed.startsWith("'")) {
+                i = lineEnd === -1 ? text.length : lineEnd + 1;
+                // If offset is on this comment line, we are inside the ASP block.
+                if (offset <= (lineEnd === -1 ? text.length : lineEnd)) {
+                    return true;
+                }
+                continue;
+            }
+
+            // Non-comment line — look for %> but only outside string literals.
+            // VBScript strings are delimited by " ('' is an escaped quote inside).
+            let j       = lineStart;
+            const end   = lineEnd === -1 ? text.length : lineEnd + 1;
+            let inStr   = false;
+
+            while (j < end) {
+                // String literal tracking (VBScript uses " delimiters; "" = escaped quote)
+                if (text[j] === '"') {
+                    if (inStr && j + 1 < end && text[j + 1] === '"') {
+                        j += 2;   // escaped "" inside string
+                        continue;
+                    }
+                    inStr = !inStr;
+                    j++;
+                    continue;
+                }
+
+                if (!inStr && text[j] === '%' && text[j + 1] === '>') {
+                    // Found a real %> close tag.
+                    const closeEnd = j + 2;
+                    if (offset < closeEnd) {
+                        // offset is before or at the close tag → inside ASP block
+                        return offset > (text.lastIndexOf('<%', j));
+                    }
+                    // offset is past this close tag → no longer in this block
+                    inAsp = false;
+                    i = closeEnd;
+                    break;
+                }
+
+                j++;
+            }
+
+            if (inAsp) {
+                // Reached end of line without finding %> → keep scanning
+                i = end;
+                // If offset is within what we just scanned, it's inside ASP
+                if (offset < end) { return true; }
+            }
+        }
+    }
+
+    return false;
 }
 
 // Check if cursor is inside a specific HTML tag
