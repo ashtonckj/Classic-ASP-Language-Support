@@ -1,25 +1,481 @@
 import * as vscode from 'vscode';
 
+// ─── Settings ──────────────────────────────────────────────────────────────
+
 export interface AspFormatterSettings {
-    keywordCase: string;
-    useTabs: boolean;
-    indentSize: number;
+    keywordCase:       string;   // 'lowercase' | 'UPPERCASE' | 'PascalCase'
+    useTabs:           boolean;
+    indentSize:        number;
     aspTagsOnSameLine: boolean;
+    htmlIndentMode:    string;   // 'flat' | 'continuation'
 }
 
 export function getAspSettings(): AspFormatterSettings {
     const config = vscode.workspace.getConfiguration('aspLanguageSupport');
     return {
-        keywordCase:       config.get<string>('keywordCase', 'PascalCase'),
-        useTabs:           config.get<boolean>('useTabs', false),
-        indentSize:        config.get<number>('indentSize', 2),
+        keywordCase:       config.get<string>('keywordCase',       'PascalCase'),
+        useTabs:           config.get<boolean>('useTabs',          false),
+        indentSize:        config.get<number>('indentSize',        2),
         aspTagsOnSameLine: config.get<boolean>('aspTagsOnSameLine', false),
+        htmlIndentMode:    config.get<string>('htmlIndentMode',    'flat'),
     };
 }
 
-// ─── Static lookup tables (built once at module load) ──────────────────────
+// ─── Public API ────────────────────────────────────────────────────────────
 
-const KEYWORDS_WITH_PROPER_CASING: Record<string, string> = {
+export interface FormatBlockResult {
+    formatted: string;
+    // VBScript indent level at the end of this block, threaded into the next.
+    endLevel: number;
+}
+
+/**
+ * Formats a single <% ... %> block.
+ *
+ * @param block         Raw ASP block including the <% and %> delimiters.
+ * @param settings      Formatter settings.
+ * @param htmlIndent    Whitespace string that Prettier placed before the
+ *                      placeholder comment — used only when htmlIndentMode
+ *                      is 'continuation'.
+ * @param startLevel    VBScript indent level inherited from the previous block.
+ */
+export function formatSingleAspBlock(
+    block:      string,
+    settings:   AspFormatterSettings,
+    htmlIndent: string = '',
+    startLevel: number = 0,
+): FormatBlockResult {
+
+    const trimmedBlock = block.trim();
+
+    // ── <%= expression %> — output expression, no indent tracking ──────────
+    if (trimmedBlock.startsWith('<%=') || trimmedBlock.startsWith('<% =')) {
+        const content = trimmedBlock.startsWith('<%=')
+            ? trimmedBlock.slice(3, -2).trim()
+            : trimmedBlock.slice(4, -2).trim();
+        return {
+            formatted: '<%= ' + applyKeywordCase(content, settings.keywordCase) + ' %>',
+            endLevel:  startLevel,
+        };
+    }
+
+    // ── Single-line block: <% statement %> ─────────────────────────────────
+    if (!block.includes('\n')) {
+        const content          = block.slice(2, -2).trim();
+        const formattedContent = applyKeywordCase(content, settings.keywordCase);
+
+        // Determine the VBScript indent level for this lone statement.
+        const selectCaseStack: number[] = [];
+        const levelBefore = applyIndentBefore(content, startLevel, selectCaseStack).level;
+        const levelAfter  = applyIndentAfter(content, levelBefore, selectCaseStack);
+
+        if (settings.aspTagsOnSameLine) {
+            return {
+                formatted: '<% ' + formattedContent + ' %>',
+                endLevel:  levelAfter,
+            };
+        }
+
+        const aspIndent = getIndentString(levelBefore, settings.useTabs, settings.indentSize);
+        return {
+            formatted: '<%\n' + aspIndent + formattedContent + '\n%>',
+            endLevel:  levelAfter,
+        };
+    }
+
+    // ── Multi-line block ────────────────────────────────────────────────────
+    return formatMultiLineAspBlock(block, settings, htmlIndent, startLevel);
+}
+
+// ─── Multi-line formatter ──────────────────────────────────────────────────
+
+function formatMultiLineAspBlock(
+    block:      string,
+    settings:   AspFormatterSettings,
+    htmlIndent: string,
+    startLevel: number,
+): FormatBlockResult {
+
+    // In 'flat' mode the VBScript base indent is always 0.
+    // In 'continuation' mode it starts at the HTML depth inferred from htmlIndent.
+    const baseLevel = settings.htmlIndentMode === 'continuation'
+        ? inferLevelFromIndent(htmlIndent, settings.useTabs, settings.indentSize)
+        : 0;
+
+    const lines            = block.split('\n');
+    const formattedLines:  string[] = [];
+    let   aspIndentLevel   = startLevel;
+    const selectCaseStack: number[] = [];
+
+    // Line-continuation state
+    let prevHadContinuation   = false;
+    let continuationAlignCol  = 0;
+    let inMultilineString     = false;
+    let isInSQLBlock          = false;
+    let sqlBaseIndent         = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+        const raw     = lines[i];
+        const trimmed = raw.trim();
+
+        // ── <% opening tag line ──────────────────────────────────────────
+        if (trimmed.startsWith('<%')) {
+            if (trimmed === '<%') {
+                formattedLines.push('<%');
+                prevHadContinuation = false;
+                isInSQLBlock        = false;
+                continue;
+            }
+
+            const content = trimmed.slice(2).trim();
+            if (content) {
+                aspIndentLevel     = applyIndentBefore(content, aspIndentLevel, selectCaseStack).level;
+                const aspIndent    = getIndentString(baseLevel + aspIndentLevel, settings.useTabs, settings.indentSize);
+                const formatted    = applyKeywordCase(content, settings.keywordCase);
+
+                if (settings.aspTagsOnSameLine) {
+                    formattedLines.push('<% ' + formatted);
+                } else {
+                    formattedLines.push('<%');
+                    formattedLines.push(aspIndent + formatted);
+                }
+
+                updateContinuationState(formatted, aspIndent, {
+                    prevHadContinuation, continuationAlignCol, inMultilineString,
+                    isInSQLBlock, sqlBaseIndent,
+                }, v => {
+                    ({ prevHadContinuation, continuationAlignCol, inMultilineString,
+                       isInSQLBlock, sqlBaseIndent } = v);
+                });
+
+                aspIndentLevel = applyIndentAfter(content, aspIndentLevel, selectCaseStack);
+            }
+            continue;
+        }
+
+        // ── %> closing tag line ──────────────────────────────────────────
+        if (trimmed === '%>' || trimmed.endsWith('%>')) {
+            if (trimmed === '%>') {
+                formattedLines.push('%>');
+                prevHadContinuation = false;
+                inMultilineString   = false;
+                isInSQLBlock        = false;
+                continue;
+            }
+
+            const content = trimmed.slice(0, -2).trim();
+            if (content) {
+                aspIndentLevel     = applyIndentBefore(content, aspIndentLevel, selectCaseStack).level;
+                const aspIndent    = getIndentString(baseLevel + aspIndentLevel, settings.useTabs, settings.indentSize);
+                const formatted    = applyKeywordCase(content, settings.keywordCase);
+
+                if (settings.aspTagsOnSameLine) {
+                    formattedLines.push(aspIndent + formatted + ' %>');
+                } else {
+                    formattedLines.push(aspIndent + formatted);
+                    formattedLines.push('%>');
+                }
+
+                aspIndentLevel = applyIndentAfter(content, aspIndentLevel, selectCaseStack);
+            } else {
+                formattedLines.push('%>');
+            }
+            prevHadContinuation = false;
+            inMultilineString   = false;
+            isInSQLBlock        = false;
+            continue;
+        }
+
+        // ── Empty line ───────────────────────────────────────────────────
+        if (!trimmed) {
+            formattedLines.push('');
+            if (!inMultilineString) {
+                prevHadContinuation = false;
+                isInSQLBlock        = false;
+            }
+            continue;
+        }
+
+        // ── VBScript comment line ────────────────────────────────────────
+        if (trimmed.startsWith("'")) {
+            // Align comment with the indent of the next real code line.
+            let commentLevel = aspIndentLevel;
+            for (let j = i + 1; j < lines.length; j++) {
+                const next = lines[j].trim();
+                if (next && !next.startsWith("'") && next !== '%>') {
+                    commentLevel = applyIndentBefore(next, aspIndentLevel, [...selectCaseStack]).level;
+                    break;
+                }
+            }
+            const aspIndent = getIndentString(baseLevel + commentLevel, settings.useTabs, settings.indentSize);
+            formattedLines.push(aspIndent + trimmed);
+            prevHadContinuation = false;
+            isInSQLBlock        = false;
+            continue;
+        }
+
+        // ── Line-continuation continuation line ──────────────────────────
+        if (prevHadContinuation && trimmed.startsWith('"')) {
+            if (isInSQLBlock) {
+                const originalIndent = raw.length - raw.trimStart().length;
+                const relativeIndent = originalIndent - sqlBaseIndent;
+                const extraLevel     = relativeIndent > 0 ? 1 : 0;
+                const aspIndent      = getIndentString(baseLevel + aspIndentLevel + 1 + extraLevel, settings.useTabs, settings.indentSize);
+                formattedLines.push(aspIndent + trimmed);
+            } else if (continuationAlignCol === -1) {
+                const aspIndent = getIndentString(baseLevel + aspIndentLevel + 1, settings.useTabs, settings.indentSize);
+                formattedLines.push(aspIndent + trimmed);
+            } else {
+                formattedLines.push(' '.repeat(continuationAlignCol) + trimmed);
+            }
+
+            if (!trimmed.trimEnd().endsWith('_')) {
+                prevHadContinuation = false;
+                inMultilineString   = false;
+                isInSQLBlock        = false;
+            }
+            continue;
+        }
+
+        // ── Normal VBScript line ─────────────────────────────────────────
+        aspIndentLevel          = applyIndentBefore(trimmed, aspIndentLevel, selectCaseStack).level;
+        const aspIndent         = getIndentString(baseLevel + aspIndentLevel, settings.useTabs, settings.indentSize);
+        const formattedContent  = applyKeywordCase(trimmed, settings.keywordCase);
+
+        updateContinuationState(formattedContent, aspIndent, {
+            prevHadContinuation, continuationAlignCol, inMultilineString,
+            isInSQLBlock, sqlBaseIndent,
+        }, v => {
+            ({ prevHadContinuation, continuationAlignCol, inMultilineString,
+               isInSQLBlock, sqlBaseIndent } = v);
+        });
+
+        formattedLines.push(aspIndent + formattedContent);
+        aspIndentLevel = applyIndentAfter(trimmed, aspIndentLevel, selectCaseStack);
+    }
+
+    return {
+        formatted: formattedLines.join('\n'),
+        endLevel:  aspIndentLevel,
+    };
+}
+
+// ─── Indent logic ──────────────────────────────────────────────────────────
+
+/**
+ * Decrements the indent level BEFORE printing a line (for closing keywords).
+ * Returns the level at which this line should be printed.
+ */
+function applyIndentBefore(
+    line:             string,
+    level:            number,
+    selectCaseStack:  number[],
+): { level: number } {
+    const lower = removeStrings(line).toLowerCase().trim();
+
+    // End Select — pop the Select Case stack.
+    if (/^\s*end\s+select\b/.test(lower)) {
+        return { level: selectCaseStack.length > 0 ? selectCaseStack.pop()! : Math.max(0, level - 2) };
+    }
+
+    // Case / Case Else — jump back to Case-label level (baseLevel + 1).
+    if (/^\s*case(\s|$)/.test(lower)) {
+        return {
+            level: selectCaseStack.length > 0
+                ? selectCaseStack[selectCaseStack.length - 1] + 1
+                : Math.max(0, level - 1),
+        };
+    }
+
+    // Standard dedent-before keywords.
+    if (
+        /^\s*end\s+(if|sub|function|with|class|property)\b/.test(lower) ||
+        /^\s*(loop|next|wend)(\s|$)/.test(lower)                         ||
+        /^\s*else(\s|$)/.test(lower)                                      ||
+        /^\s*elseif\b/.test(lower)
+    ) {
+        return { level: Math.max(0, level - 1) };
+    }
+
+    return { level };
+}
+
+/**
+ * Increments the indent level AFTER printing a line (for opening keywords).
+ */
+function applyIndentAfter(
+    line:            string,
+    level:           number,
+    selectCaseStack: number[],
+): number {
+    const lower = removeStrings(line).toLowerCase().trim();
+
+    // Single-line If ... Then <statement> — no indent change.
+    if (/\bif\b.*\bthen\b\s+\S/.test(lower)) return level;
+
+    // Select Case — push current level, jump to level+1 for Case labels.
+    if (/\bselect\s+case\b/.test(lower)) {
+        selectCaseStack.push(level);
+        return level + 1;
+    }
+
+    // Case / Case Else — body is one deeper than the Case label.
+    if (/^\s*case(\s|$)/.test(lower)) return level + 1;
+
+    // Standard indent-after keywords.
+    if (
+        /\bif\b.*\bthen\b/.test(lower)             ||
+        /\bfor\b\s+\w+\s*=/.test(lower)            ||
+        /\bfor\s+each\b/.test(lower)               ||
+        /\bwhile\b/.test(lower)                    ||
+        /\bdo\b(\s+while|\s+until)?(\s|$)/.test(lower) ||
+        /\bsub\b\s+\w+/.test(lower)                ||
+        /\bfunction\b\s+\w+/.test(lower)           ||
+        /\bwith\b/.test(lower)                     ||
+        /\bclass\b\s+\w+/.test(lower)              ||
+        /\bproperty\s+(get|let|set)\b/.test(lower) ||
+        /^\s*else(\s|$)/.test(lower)               ||
+        /^\s*elseif\b.*\bthen\b/.test(lower)
+    ) {
+        return level + 1;
+    }
+
+    return level;
+}
+
+// ─── Line-continuation state ───────────────────────────────────────────────
+
+interface ContinuationState {
+    prevHadContinuation:  boolean;
+    continuationAlignCol: number;
+    inMultilineString:    boolean;
+    isInSQLBlock:         boolean;
+    sqlBaseIndent:        number;
+}
+
+function updateContinuationState(
+    formattedLine: string,
+    aspIndent:     string,
+    state:         ContinuationState,
+    setState:      (v: ContinuationState) => void,
+): void {
+    if (formattedLine.trimEnd().endsWith('_')) {
+        const col   = calcContinuationColumn(formattedLine, aspIndent);
+        const isSql = isSQLStatement(formattedLine);
+        setState({
+            prevHadContinuation:  true,
+            continuationAlignCol: col,
+            inMultilineString:    true,
+            isInSQLBlock:         isSql,
+            sqlBaseIndent:        isSql ? aspIndent.length : state.sqlBaseIndent,
+        });
+    } else {
+        setState({
+            ...state,
+            prevHadContinuation: false,
+            inMultilineString:   false,
+            isInSQLBlock:        false,
+        });
+    }
+}
+
+function calcContinuationColumn(line: string, indent: string): number {
+    const trimmed   = line.trim();
+    const baseLen   = indent.length;
+    const equalsPos = trimmed.indexOf('=');
+
+    if (equalsPos !== -1) {
+        const afterEq = trimmed.slice(equalsPos + 1).trim();
+        if (afterEq.startsWith('"')) {
+            return baseLen + equalsPos + trimmed.slice(equalsPos).indexOf('"');
+        }
+    }
+
+    const quotePos = trimmed.indexOf('"');
+    if (quotePos !== -1) return baseLen + quotePos;
+
+    return -1; // No string — use +1 indent level.
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+function getIndentString(level: number, useTabs: boolean, indentSize: number): string {
+    const n = Math.max(0, level);
+    return useTabs ? '\t'.repeat(n) : ' '.repeat(n * indentSize);
+}
+
+/**
+ * Infers a numeric indent level from a whitespace prefix string.
+ * Handles both tab-based and space-based indentation gracefully.
+ */
+function inferLevelFromIndent(indent: string, useTabs: boolean, indentSize: number): number {
+    if (!indent) return 0;
+    if (useTabs) return indent.split('\t').length - 1;
+    return Math.floor(indent.length / Math.max(1, indentSize));
+}
+
+function isSQLStatement(line: string): boolean {
+    return /\b(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|ORDER\s+BY|GROUP\s+BY|UNION|CREATE|DROP|ALTER|INNER|LEFT|RIGHT|OUTER|HAVING|DISTINCT|VALUES|INTO)\b/i
+        .test(removeStrings(line));
+}
+
+/** Strips string literals from a line so we only match keywords outside strings. */
+function removeStrings(line: string): string {
+    let result   = '';
+    let inString = false;
+
+    for (let i = 0; i < line.length; i++) {
+        if (line[i] === '"') {
+            // "" is an escaped quote inside a string — skip both chars.
+            if (i + 1 < line.length && line[i + 1] === '"') { i++; continue; }
+            inString = !inString;
+        } else if (!inString) {
+            result += line[i];
+        }
+    }
+
+    return result;
+}
+
+/**
+ * Splits a VBScript code string into alternating non-string / string segments
+ * so that keyword and operator transforms are never applied inside literals.
+ */
+function splitByStrings(code: string): Array<{ text: string; isString: boolean }> {
+    const parts: Array<{ text: string; isString: boolean }> = [];
+    let   current  = '';
+    let   inString = false;
+
+    for (let i = 0; i < code.length; i++) {
+        if (code[i] === '"') {
+            if (i + 1 < code.length && code[i + 1] === '"') {
+                current += '""';
+                i++;
+                continue;
+            }
+            if (inString) {
+                current += '"';
+                parts.push({ text: current, isString: true });
+                current  = '';
+                inString = false;
+            } else {
+                if (current) parts.push({ text: current, isString: false });
+                current  = '"';
+                inString = true;
+            }
+        } else {
+            current += code[i];
+        }
+    }
+
+    if (current) parts.push({ text: current, isString: inString });
+    return parts;
+}
+
+// ─── Keyword casing ────────────────────────────────────────────────────────
+
+// Multi-word and special-cased keywords that need exact casing.
+const PROPER_CASING_MAP: Record<string, string> = {
     'elseif': 'ElseIf', 'redim': 'ReDim', 'byval': 'ByVal', 'byref': 'ByRef',
     'isnull': 'IsNull', 'isempty': 'IsEmpty', 'isnumeric': 'IsNumeric',
     'isarray': 'IsArray', 'isobject': 'IsObject', 'isdate': 'IsDate',
@@ -70,7 +526,7 @@ const KEYWORDS_WITH_PROPER_CASING: Record<string, string> = {
     'committrans': 'CommitTrans', 'rollbacktrans': 'RollbackTrans',
 };
 
-const VBSCRIPT_FUNCTIONS: Record<string, string> = {
+const VBSCRIPT_FUNCTIONS_MAP: Record<string, string> = {
     'cbool': 'CBool', 'cbyte': 'CByte', 'ccur': 'CCur', 'cdate': 'CDate',
     'cdbl': 'CDbl', 'cint': 'CInt', 'clng': 'CLng', 'csng': 'CSng',
     'cstr': 'CStr', 'cvar': 'CVar',
@@ -97,6 +553,8 @@ const VBSCRIPT_FUNCTIONS: Record<string, string> = {
     'getlocale': 'GetLocale', 'setlocale': 'SetLocale',
 };
 
+// General VBScript keywords ordered longest-first so multi-word keywords
+// like "end function" are matched before single-word ones like "end".
 const KEYWORDS_SORTED: string[] = [
     'if', 'then', 'else', 'elseif', 'end if', 'select case', 'case', 'case else',
     'end select', 'for', 'to', 'step', 'next', 'for each', 'in', 'while', 'wend',
@@ -123,402 +581,38 @@ const KEYWORDS_SORTED: string[] = [
     'count', 'item', 'key',
 ].sort((a, b) => b.length - a.length);
 
-const KEYWORD_REGEXES: RegExp[] = KEYWORDS_SORTED.map(
-    kw => new RegExp('\\b' + kw.replace(/\s+/g, '\\s+') + '\\b', 'gi')
-);
+// Pre-compile all regexes once at module load.
+const PROPER_CASING_REGEXES = Object.entries(PROPER_CASING_MAP).map(([lower, proper]) => ({
+    re: new RegExp('\\b' + lower + '\\b', 'gi'),
+    replacement: proper,
+}));
 
-const PROPER_CASING_REGEXES: Array<{ re: RegExp; replacement: string }> =
-    Object.entries(KEYWORDS_WITH_PROPER_CASING).map(([lower, proper]) => ({
-        re: new RegExp('\\b' + lower + '\\b', 'gi'),
-        replacement: proper,
-    }));
+const VBSCRIPT_FUNCTION_REGEXES = Object.entries(VBSCRIPT_FUNCTIONS_MAP).map(([lower, proper]) => ({
+    re: new RegExp('\\b' + lower + '\\b', 'gi'),
+    replacement: proper,
+}));
 
-const VBSCRIPT_FUNCTION_REGEXES: Array<{ re: RegExp; replacement: string }> =
-    Object.entries(VBSCRIPT_FUNCTIONS).map(([lower, proper]) => ({
-        re: new RegExp('\\b' + lower + '\\b', 'gi'),
-        replacement: proper,
-    }));
-
-const HANDLED_KEYWORDS = new Set<string>([
-    ...Object.keys(VBSCRIPT_FUNCTIONS),
-    ...Object.keys(KEYWORDS_WITH_PROPER_CASING),
+const HANDLED_KEYWORDS = new Set([
+    ...Object.keys(VBSCRIPT_FUNCTIONS_MAP),
+    ...Object.keys(PROPER_CASING_MAP),
 ]);
 
-// ─── Public API ────────────────────────────────────────────────────────────
-
-export interface FormatBlockResult {
-    formatted: string;
-    endLevel: number;  // VBScript indent level at end of block, for threading to next block
-}
-
-// Formats a single ASP block and returns both the formatted string and the
-// ending indent level so callers can thread state across multiple blocks.
-export function formatSingleAspBlock(
-    block: string,
-    settings: AspFormatterSettings,
-    htmlIndent: string = '',
-    startLevel: number = 0,
-): FormatBlockResult {
-    const trimmedBlock = block.trim();
-
-    // <%= expression %> — no indent tracking needed
-    if (trimmedBlock.startsWith('<%=') || trimmedBlock.startsWith('<% =')) {
-        const content = trimmedBlock.startsWith('<%=')
-            ? trimmedBlock.substring(3, trimmedBlock.length - 2).trim()
-            : trimmedBlock.substring(4, trimmedBlock.length - 2).trim();
-        return {
-            formatted: htmlIndent + '<%= ' + applyKeywordCase(content, settings.keywordCase) + ' %>',
-            endLevel: startLevel,
-        };
-    }
-
-    // Single-line block — content sits at the same visual level as <% and %>
-    if (!block.includes('\n')) {
-        const content = block.substring(2, block.length - 2).trim();
-        const formattedContent = applyKeywordCase(content, settings.keywordCase);
-        const selectCaseStack: number[] = [];
-        const afterBefore = applyIndentBefore(content, startLevel, selectCaseStack).level;
-        const endLevel = applyIndentAfter(content, afterBefore, selectCaseStack);
-
-        if (settings.aspTagsOnSameLine) {
-            return { formatted: htmlIndent + '<% ' + formattedContent + ' %>', endLevel };
-        } else {
-            return {
-                formatted: htmlIndent + '<%\n' + htmlIndent + formattedContent + '\n' + htmlIndent + '%>',
-                endLevel,
-            };
-        }
-    }
-
-    return formatMultiLineAspBlock(block, settings, htmlIndent, startLevel);
-}
-
-// ─── Private helpers ───────────────────────────────────────────────────────
-
-function formatMultiLineAspBlock(
-    block: string,
-    settings: AspFormatterSettings,
-    htmlIndent: string,
-    startLevel: number,
-): FormatBlockResult {
-    const lines = block.split('\n');
-    const formattedLines: string[] = [];
-    let aspIndentLevel = startLevel;
-    let previousLineHadContinuation = false;
-    let continuationAlignColumn = 0;
-    let inMultilineString = false;
-    let sqlBaseIndent = 0;
-    let isInSQLBlock = false;
-    // Stack tracking base indent level at each Select Case opener, used to
-    // correctly indent Case labels and their bodies.
-    const selectCaseStack: number[] = [];
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const trimmedLine = line.trim();
-
-        // ── Opening tag line (%< ...) ────────────────────────────────────
-        if (trimmedLine.startsWith('<%')) {
-            if (trimmedLine === '<%') {
-                formattedLines.push(htmlIndent + '<%');
-                previousLineHadContinuation = false;
-                isInSQLBlock = false;
-                continue;
-            }
-
-            const content = trimmedLine.substring(2).trim();
-            if (content) {
-                const indentResult = applyIndentBefore(content, aspIndentLevel, selectCaseStack);
-                aspIndentLevel = indentResult.level;
-
-                const aspIndent     = getIndentString(aspIndentLevel, settings.useTabs, settings.indentSize);
-                const formattedContent = applyKeywordCase(content, settings.keywordCase);
-
-                if (settings.aspTagsOnSameLine) {
-                    formattedLines.push(htmlIndent + '<% ' + formattedContent);
-                } else {
-                    formattedLines.push(htmlIndent + '<%');
-                    formattedLines.push(htmlIndent + aspIndent + formattedContent);
-                }
-
-                handleContinuation(formattedContent, htmlIndent, aspIndent, {
-                    get: () => ({ previousLineHadContinuation, continuationAlignColumn, inMultilineString, isInSQLBlock, sqlBaseIndent }),
-                    set: (v) => { previousLineHadContinuation = v.previousLineHadContinuation; continuationAlignColumn = v.continuationAlignColumn; inMultilineString = v.inMultilineString; isInSQLBlock = v.isInSQLBlock; sqlBaseIndent = v.sqlBaseIndent; },
-                });
-
-                aspIndentLevel = applyIndentAfter(content, aspIndentLevel, selectCaseStack);
-            }
-            continue;
-        }
-
-        // ── Closing tag line (%>) ────────────────────────────────────────
-        if (trimmedLine === '%>' || trimmedLine.endsWith('%>')) {
-            if (trimmedLine === '%>') {
-                formattedLines.push(htmlIndent + '%>');
-                previousLineHadContinuation = false;
-                inMultilineString = false;
-                isInSQLBlock = false;
-                continue;
-            }
-
-            const content = trimmedLine.substring(0, trimmedLine.length - 2).trim();
-            if (content) {
-                const indentResult = applyIndentBefore(content, aspIndentLevel, selectCaseStack);
-                aspIndentLevel = indentResult.level;
-
-                const aspIndent     = getIndentString(aspIndentLevel, settings.useTabs, settings.indentSize);
-                const formattedContent = applyKeywordCase(content, settings.keywordCase);
-
-                if (settings.aspTagsOnSameLine) {
-                    formattedLines.push(htmlIndent + aspIndent + formattedContent + ' %>');
-                } else {
-                    formattedLines.push(htmlIndent + aspIndent + formattedContent);
-                    formattedLines.push(htmlIndent + '%>');
-                }
-
-                aspIndentLevel = applyIndentAfter(content, aspIndentLevel, selectCaseStack);
-            } else {
-                formattedLines.push(htmlIndent + '%>');
-            }
-            previousLineHadContinuation = false;
-            inMultilineString = false;
-            isInSQLBlock = false;
-            continue;
-        }
-
-        // ── Empty line ───────────────────────────────────────────────────
-        if (!trimmedLine) {
-            formattedLines.push('');
-            if (!inMultilineString) {
-                previousLineHadContinuation = false;
-                isInSQLBlock = false;
-            }
-            continue;
-        }
-
-        // ── Comment line ─────────────────────────────────────────────────
-        if (trimmedLine.startsWith("'")) {
-            // Align comment with the next non-comment, non-empty line's indent.
-            let commentLevel = aspIndentLevel;
-            for (let j = i + 1; j < lines.length; j++) {
-                const next = lines[j].trim();
-                if (next && !next.startsWith("'") && next !== '%>') {
-                    const r = applyIndentBefore(next, aspIndentLevel, [...selectCaseStack]);
-                    commentLevel = r.level;
-                    break;
-                }
-            }
-            formattedLines.push(htmlIndent + getIndentString(commentLevel, settings.useTabs, settings.indentSize) + trimmedLine);
-            previousLineHadContinuation = false;
-            isInSQLBlock = false;
-            continue;
-        }
-
-        // ── String continuation line ─────────────────────────────────────
-        if (previousLineHadContinuation && trimmedLine.startsWith('"')) {
-            // Only use SQL mode if the FIRST line of the continuation set was
-            // detected as SQL (isInSQLBlock). Do NOT re-test the continuation
-            // line itself, since its SQL keywords are inside a string literal.
-            if (isInSQLBlock) {
-                const originalIndentSize = line.length - line.trimStart().length;
-                const relativeIndent = originalIndentSize - sqlBaseIndent;
-                const extraLevel = relativeIndent > 0 ? 1 : 0;
-                const aspIndent = getIndentString(aspIndentLevel + 1 + extraLevel, settings.useTabs, settings.indentSize);
-                formattedLines.push(htmlIndent + aspIndent + trimmedLine);
-            } else if (continuationAlignColumn === -1) {
-                const aspIndent = getIndentString(aspIndentLevel + 1, settings.useTabs, settings.indentSize);
-                formattedLines.push(htmlIndent + aspIndent + trimmedLine);
-            } else {
-                formattedLines.push(' '.repeat(continuationAlignColumn) + trimmedLine);
-            }
-
-            if (!trimmedLine.trimEnd().endsWith('_')) {
-                previousLineHadContinuation = false;
-                inMultilineString = false;
-                isInSQLBlock = false;
-            }
-            continue;
-        }
-
-        // ── Normal VBScript line ─────────────────────────────────────────
-        const indentResult = applyIndentBefore(trimmedLine, aspIndentLevel, selectCaseStack);
-        aspIndentLevel = indentResult.level;
-
-        const aspIndent      = getIndentString(aspIndentLevel, settings.useTabs, settings.indentSize);
-        const formattedContent = applyKeywordCase(trimmedLine, settings.keywordCase);
-
-        handleContinuation(formattedContent, htmlIndent, aspIndent, {
-            get: () => ({ previousLineHadContinuation, continuationAlignColumn, inMultilineString, isInSQLBlock, sqlBaseIndent }),
-            set: (v) => { previousLineHadContinuation = v.previousLineHadContinuation; continuationAlignColumn = v.continuationAlignColumn; inMultilineString = v.inMultilineString; isInSQLBlock = v.isInSQLBlock; sqlBaseIndent = v.sqlBaseIndent; },
-        });
-
-        formattedLines.push(htmlIndent + aspIndent + formattedContent);
-        aspIndentLevel = applyIndentAfter(trimmedLine, aspIndentLevel, selectCaseStack);
-    }
-
-    return { formatted: formattedLines.join('\n'), endLevel: aspIndentLevel };
-}
-
-// ─── Indent helpers ────────────────────────────────────────────────────────
-
-// Applies indent-decreasing rules BEFORE printing the line.
-// Returns the new level to print at.
-function applyIndentBefore(
-    line: string,
-    level: number,
-    selectCaseStack: number[],
-): { level: number } {
-    const lowerLine = removeStringsFromLine(line).toLowerCase().trim();
-
-    // End Select: pop the Select Case stack and drop two levels.
-    if (/^\s*end\s+select\b/.test(lowerLine)) {
-        if (selectCaseStack.length > 0) {
-            return { level: selectCaseStack.pop()! };
-        }
-        return { level: Math.max(0, level - 2) };
-    }
-
-    // Case / Case Else: jump back to the Case label level (baseLevel + 1).
-    if (/^\s*case(\s|$)/.test(lowerLine)) {
-        if (selectCaseStack.length > 0) {
-            return { level: selectCaseStack[selectCaseStack.length - 1] + 1 };
-        }
-        return { level: Math.max(0, level - 1) };
-    }
-
-    // Standard dedent-before keywords
-    if (
-        /^\s*end\s+(if|sub|function|with|class|property)\b/.test(lowerLine) ||
-        /^\s*loop(\s|$)/.test(lowerLine) ||
-        /^\s*next(\s|$)/.test(lowerLine) ||
-        /^\s*wend(\s|$)/.test(lowerLine) ||
-        /^\s*else(\s|$)/.test(lowerLine) ||
-        /^\s*elseif\b/.test(lowerLine)
-    ) {
-        return { level: Math.max(0, level - 1) };
-    }
-
-    return { level };
-}
-
-// Applies indent-increasing rules AFTER printing the line.
-function applyIndentAfter(
-    line: string,
-    level: number,
-    selectCaseStack: number[],
-): number {
-    const lowerLine = removeStringsFromLine(line).toLowerCase().trim();
-
-    // Single-line If ... Then <statement> — no indent change
-    if (/\bif\b.*\bthen\b\s+\S/.test(lowerLine)) return level;
-
-    // Select Case: push current level onto stack, jump to level+1 for Case labels.
-    if (/\bselect\s+case\b/.test(lowerLine)) {
-        selectCaseStack.push(level);
-        return level + 1; // Case labels will be at level+1, bodies at level+2
-    }
-
-    // Case / Case Else: body is one deeper than the Case label.
-    if (/^\s*case(\s|$)/.test(lowerLine)) {
-        return level + 1;
-    }
-
-    // Standard indent-after keywords
-    if (
-        /\bif\b.*\bthen\b/.test(lowerLine) ||
-        /\bfor\b\s+\w+\s*=/.test(lowerLine) ||
-        /\bfor\s+each\b/.test(lowerLine) ||
-        /\bwhile\b/.test(lowerLine) ||
-        /\bdo\b(\s+while|\s+until)?(\s|$)/.test(lowerLine) ||
-        /\bsub\b\s+\w+/.test(lowerLine) ||
-        /\bfunction\b\s+\w+/.test(lowerLine) ||
-        /\bwith\b/.test(lowerLine) ||
-        /\bclass\b\s+\w+/.test(lowerLine) ||
-        /\bproperty\s+(get|let|set)\b/.test(lowerLine) ||
-        /^\s*else(\s|$)/.test(lowerLine) ||
-        /^\s*elseif\b.*\bthen\b/.test(lowerLine)
-    ) {
-        return level + 1;
-    }
-
-    return level;
-}
-
-// Handles line-continuation state updates in one place.
-interface ContinuationState {
-    previousLineHadContinuation: boolean;
-    continuationAlignColumn: number;
-    inMultilineString: boolean;
-    isInSQLBlock: boolean;
-    sqlBaseIndent: number;
-}
-
-function handleContinuation(
-    formattedContent: string,
-    htmlIndent: string,
-    aspIndent: string,
-    state: { get: () => ContinuationState; set: (v: ContinuationState) => void },
-): void {
-    const hasContinuation = formattedContent.trimEnd().endsWith('_');
-    const s = state.get();
-
-    if (hasContinuation) {
-        const col = calculateContinuationColumn(formattedContent, htmlIndent, aspIndent);
-        const isSql = isSQLStatement(formattedContent);
-        state.set({
-            previousLineHadContinuation: true,
-            continuationAlignColumn: col,
-            inMultilineString: true,
-            isInSQLBlock: isSql,
-            sqlBaseIndent: isSql ? (htmlIndent + aspIndent).length : s.sqlBaseIndent,
-        });
-    } else {
-        state.set({
-            ...s,
-            previousLineHadContinuation: false,
-            inMultilineString: false,
-            isInSQLBlock: false,
-        });
-    }
-}
-
-// Returns column to align continuation strings, or -1 if no string on the line.
-function calculateContinuationColumn(line: string, htmlIndent: string, aspIndent: string): number {
-    const fullIndentLen = (htmlIndent + aspIndent).length;
-    const trimmed = line.trim();
-
-    const equalsPos = trimmed.indexOf('=');
-    if (equalsPos !== -1) {
-        const afterEquals = trimmed.substring(equalsPos + 1).trim();
-        if (afterEquals.startsWith('"')) {
-            const quoteOffset = trimmed.substring(equalsPos).indexOf('"');
-            return fullIndentLen + equalsPos + quoteOffset;
-        }
-    }
-
-    const quotePos = trimmed.indexOf('"');
-    if (quotePos !== -1) return fullIndentLen + quotePos;
-
-    return -1; // No string — caller should use +1 indent level
-}
-
-function getIndentString(level: number, useTabs: boolean, indentSize: number): string {
-    return useTabs ? '\t'.repeat(Math.max(0, level)) : ' '.repeat(Math.max(0, level) * indentSize);
-}
-
-// ─── Keyword/operator formatting ───────────────────────────────────────────
+const KEYWORD_REGEXES = KEYWORDS_SORTED.map(kw => ({
+    kw,
+    re: new RegExp('\\b' + kw.replace(/\s+/g, '\\s+') + '\\b', 'gi'),
+}));
 
 function applyKeywordCase(code: string, caseStyle: string): string {
     return splitByStrings(code).map(part => {
         if (part.isString) return part.text;
-        let s = formatKeywordsInText(part.text, caseStyle);
+        let s = applyKeywordCaseToText(part.text, caseStyle);
         s = formatOperators(s);
         s = formatCommas(s);
         return s;
     }).join('');
 }
 
-function formatKeywordsInText(text: string, caseStyle: string): string {
+function applyKeywordCaseToText(text: string, caseStyle: string): string {
     let result = text;
 
     if (caseStyle === 'PascalCase') {
@@ -531,9 +625,9 @@ function formatKeywordsInText(text: string, caseStyle: string): string {
         result = result.replace(re, replacement);
     }
 
-    for (let idx = 0; idx < KEYWORDS_SORTED.length; idx++) {
-        if (HANDLED_KEYWORDS.has(KEYWORDS_SORTED[idx].toLowerCase())) continue;
-        result = result.replace(KEYWORD_REGEXES[idx], m => formatKeyword(m, caseStyle));
+    for (const { kw, re } of KEYWORD_REGEXES) {
+        if (HANDLED_KEYWORDS.has(kw.toLowerCase())) continue;
+        result = result.replace(re, m => formatKeyword(m, caseStyle));
     }
 
     return result;
@@ -543,11 +637,13 @@ function formatKeyword(keyword: string, caseStyle: string): string {
     switch (caseStyle) {
         case 'lowercase': return keyword.toLowerCase();
         case 'UPPERCASE': return keyword.toUpperCase();
-        default:          return keyword.split(' ')
+        default: return keyword.split(' ')
             .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
             .join(' ');
     }
 }
+
+// ─── Operator / comma formatting ───────────────────────────────────────────
 
 function formatOperators(code: string): string {
     return splitByStrings(code).map(part =>
@@ -555,21 +651,52 @@ function formatOperators(code: string): string {
     ).join('');
 }
 
+/**
+ * Adds spacing around binary operators only.
+ *
+ * Key rules to avoid false positives:
+ *  - `=` in an assignment/comparison gets spaces, but we don't touch `<=` `>=` `<>`
+ *    (those are handled first as compound operators).
+ *  - `-` only gets spaces when it's BINARY (preceded by an identifier, digit,
+ *    closing paren/bracket, or `_`). Unary minus (after `=`, `(`, `,`,
+ *    operator, or start-of-expression) is left alone.
+ *  - `+` is safe to always space since VBScript has no unary + ambiguity
+ *    that matters in practice.
+ *  - `*` `/` `&` are always binary so always get spaces.
+ *  - `<` `>` are handled last, skipping already-processed compound pairs.
+ */
 function formatOperatorsInText(text: string): string {
     let r = text;
-    // Compound operators first to avoid them being split by single-char rules.
-    r = r.replace(/\s*<>\s*/g, ' <> ');
-    r = r.replace(/\s*<=\s*/g, ' <= ');
-    r = r.replace(/\s*>=\s*/g, ' >= ');
-    r = r.replace(/\s*=\s*/g,  ' = ');
+
+    // ── Compound operators first (must precede single-char rules) ──────────
+    r = r.replace(/\s*<>\s*/g,  ' <> ');
+    r = r.replace(/\s*<=\s*/g,  ' <= ');
+    r = r.replace(/\s*>=\s*/g,  ' >= ');
+
+    // ── Assignment / comparison = ───────────────────────────────────────────
+    // Skip when already part of <> <= >=  (already replaced above).
+    r = r.replace(/(?<![<>!])\s*=\s*(?![>])/g, ' = ');
+
+    // ── Binary + ────────────────────────────────────────────────────────────
     r = r.replace(/\s*\+\s*/g, ' + ');
-    r = r.replace(/\s*-\s*/g,  ' - ');
+
+    // ── Binary - only (not unary) ───────────────────────────────────────────
+    // A binary minus is preceded by: word char, digit, `)`, `]`, `_`.
+    // We require at least one optional space on each side, then replace.
+    r = r.replace(/([\w\d\)_\]])\s*-\s*/g, '$1 - ');
+
+    // ── * / & ────────────────────────────────────────────────────────────────
     r = r.replace(/\s*\*\s*/g, ' * ');
     r = r.replace(/\s*\/\s*/g, ' / ');
     r = r.replace(/\s*&\s*/g,  ' & ');
-    // < and > last, skip those already part of a compound operator.
-    r = r.replace(/(?<![<>!])\s*<\s*(?![>=])/g, ' < ');
-    r = r.replace(/(?<![<>])\s*>\s*(?![=])/g,   ' > ');
+
+    // ── < > (skip already-processed compounds) ──────────────────────────────
+    r = r.replace(/(?<![<>])\s*<\s*(?![>=])/g, ' < ');
+    r = r.replace(/(?<![<>])\s*>\s*(?![=])/g,  ' > ');
+
+    // ── Collapse any accidental double-spaces created above ─────────────────
+    r = r.replace(/  +/g, ' ');
+
     return r;
 }
 
@@ -577,60 +704,4 @@ function formatCommas(code: string): string {
     return splitByStrings(code).map(part =>
         part.isString ? part.text : part.text.replace(/,(?!\s)/g, ', ')
     ).join('');
-}
-
-function isSQLStatement(line: string): boolean {
-    // Check only outside strings for SQL keywords.
-    const stripped = removeStringsFromLine(line);
-    return /\b(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|ORDER\s+BY|GROUP\s+BY|UNION|CREATE|DROP|ALTER|INNER|LEFT|RIGHT|OUTER|HAVING|DISTINCT|VALUES|INTO)\b/i.test(stripped);
-}
-
-function removeStringsFromLine(line: string): string {
-    let result = '';
-    let inString = false;
-
-    for (let i = 0; i < line.length; i++) {
-        const char = line[i];
-        if (char === '"') {
-            if (i + 1 < line.length && line[i + 1] === '"') { i++; continue; }
-            inString = !inString;
-        } else if (!inString) {
-            result += char;
-        }
-    }
-
-    return result;
-}
-
-function splitByStrings(code: string): Array<{ text: string; isString: boolean }> {
-    const parts: Array<{ text: string; isString: boolean }> = [];
-    let current = '';
-    let inString = false;
-
-    for (let i = 0; i < code.length; i++) {
-        const char = code[i];
-
-        if (char === '"') {
-            if (i + 1 < code.length && code[i + 1] === '"') {
-                current += '""';
-                i++;
-                continue;
-            }
-            if (inString) {
-                current += char;
-                parts.push({ text: current, isString: true });
-                current = '';
-                inString = false;
-            } else {
-                if (current) parts.push({ text: current, isString: false });
-                current = char;
-                inString = true;
-            }
-        } else {
-            current += char;
-        }
-    }
-
-    if (current) parts.push({ text: current, isString: inString });
-    return parts;
 }

@@ -175,7 +175,7 @@
         ],
         "configuration": [
             {
-                "title": "ASP Formatting",
+                "title": "VBScript Formatting",
                 "properties": {
                     "aspLanguageSupport.keywordCase": {
                         "type": "string",
@@ -190,127 +190,113 @@
                             "IF, THEN, END IF, DIM",
                             "If, Then, End If, Dim"
                         ],
-                        "description": "ASP/VBScript keyword formatting style"
+                        "description": "VBScript keyword casing style"
                     },
                     "aspLanguageSupport.useTabs": {
                         "type": "boolean",
                         "default": false,
-                        "description": "Use tabs instead of spaces for ASP code indentation"
+                        "description": "Use tabs instead of spaces for VBScript indentation"
                     },
                     "aspLanguageSupport.indentSize": {
                         "type": "number",
                         "default": 2,
-                        "enum": [
-                            2,
-                            4,
-                            8
-                        ],
-                        "description": "Number of spaces per indentation level for ASP code"
+                        "enum": [2, 4, 8],
+                        "description": "Number of spaces per VBScript indentation level"
                     },
-                    "aspLanguageSupport.asptagsOnSameLine": {
+                    "aspLanguageSupport.aspTagsOnSameLine": {
                         "type": "boolean",
                         "default": false,
-                        "description": "Keep <% and %> on same line as code (default: separate lines)"
+                        "description": "Keep <% and %> on the same line as the code they wrap"
+                    },
+                    "aspLanguageSupport.htmlIndentMode": {
+                        "type": "string",
+                        "default": "flat",
+                        "enum": [
+                            "flat",
+                            "continuation"
+                        ],
+                        "enumDescriptions": [
+                            "VBScript always starts at column 0 regardless of HTML nesting depth. This is the Classic ASP convention and works best for files with deeply nested HTML.",
+                            "VBScript indentation continues from the HTML indent level at the point where the <% block appears. Useful if you prefer a fully unified indent style."
+                        ],
+                        "description": "Controls how VBScript indentation relates to the surrounding HTML structure"
                     }
                 }
             },
             {
-                "title": "HTML, CSS & JavaScript Formatting",
+                "title": "HTML, CSS & JavaScript Formatting (via Prettier)",
                 "properties": {
                     "aspLanguageSupport.prettier.printWidth": {
                         "type": "number",
                         "default": 80,
-                        "description": "Maximum line length (Prettier)"
+                        "description": "Wrap lines at this column width — Prettier printWidth"
                     },
                     "aspLanguageSupport.prettier.tabWidth": {
                         "type": "number",
                         "default": 2,
-                        "enum": [
-                            2,
-                            4,
-                            8
-                        ],
-                        "description": "Spaces per indentation level (Prettier)"
+                        "enum": [2, 4, 8],
+                        "description": "Spaces per HTML/CSS/JS indentation level — Prettier tabWidth"
                     },
                     "aspLanguageSupport.prettier.useTabs": {
                         "type": "boolean",
                         "default": false,
-                        "description": "Use tabs instead of spaces (Prettier)"
+                        "description": "Use tabs instead of spaces for HTML/CSS/JS — Prettier useTabs"
                     },
                     "aspLanguageSupport.prettier.bracketSameLine": {
                         "type": "boolean",
                         "default": true,
-                        "description": "Put > of multi-line elements on last line (Prettier)"
+                        "description": "Put the closing > of a multi-line HTML element on the last attribute line — Prettier bracketSameLine"
                     },
                     "aspLanguageSupport.prettier.semi": {
                         "type": "boolean",
                         "default": true,
-                        "description": "Add semicolons to JavaScript statements (Prettier)"
+                        "description": "Add semicolons at the end of JavaScript statements — Prettier semi"
                     },
                     "aspLanguageSupport.prettier.singleQuote": {
                         "type": "boolean",
                         "default": false,
-                        "description": "Use single quotes in JavaScript (Prettier)"
+                        "description": "Use single quotes instead of double quotes in JavaScript — Prettier singleQuote"
                     },
                     "aspLanguageSupport.prettier.arrowParens": {
                         "type": "string",
                         "default": "always",
-                        "enum": [
-                            "always",
-                            "avoid"
-                        ],
-                        "enumDescriptions": [
-                            "(x) => x",
-                            "x => x"
-                        ],
-                        "description": "Arrow function parameter parentheses (Prettier)"
+                        "enum": ["always", "avoid"],
+                        "enumDescriptions": ["(x) => x", "x => x"],
+                        "description": "Parentheses around single arrow function parameters — Prettier arrowParens"
                     },
                     "aspLanguageSupport.prettier.trailingComma": {
                         "type": "string",
                         "default": "es5",
-                        "enum": [
-                            "none",
-                            "es5",
-                            "all"
-                        ],
+                        "enum": ["none", "es5", "all"],
                         "enumDescriptions": [
                             "No trailing commas",
-                            "ES5-valid locations only",
-                            "Everywhere possible"
+                            "Trailing commas where valid in ES5 (objects, arrays)",
+                            "Trailing commas wherever possible"
                         ],
-                        "description": "Trailing comma style (Prettier)"
+                        "description": "Trailing comma style — Prettier trailingComma"
                     },
                     "aspLanguageSupport.prettier.endOfLine": {
                         "type": "string",
                         "default": "lf",
-                        "enum": [
-                            "lf",
-                            "crlf",
-                            "cr",
-                            "auto"
-                        ],
+                        "enum": ["lf", "crlf", "cr", "auto"],
                         "enumDescriptions": [
-                            "\\n (Linux/macOS)",
+                            "\\n only (Linux / macOS)",
                             "\\r\\n (Windows)",
-                            "\\r (rare)",
-                            "Keep existing"
+                            "\\r only (rare)",
+                            "Preserve existing line endings"
                         ],
-                        "description": "Line ending style (Prettier)"
+                        "description": "Line ending style — Prettier endOfLine"
                     },
                     "aspLanguageSupport.prettier.htmlWhitespaceSensitivity": {
                         "type": "string",
                         "default": "css",
-                        "enum": [
-                            "css",
-                            "strict",
-                            "ignore"
-                        ],
+                        "enum": ["css", "strict", "ignore"],
                         "enumDescriptions": [
-                            "Respect CSS display property",
-                            "Whitespace significant",
-                            "Whitespace insignificant"
+                            "Follow the CSS display property for whitespace decisions",
+                            "All whitespace is significant",
+                            "All whitespace is insignificant"
                         ],
-                        "description": "HTML whitespace handling (Prettier)"
+                        "description": "HTML whitespace sensitivity — Prettier htmlWhitespaceSensitivity"
                     }
                 }
             },

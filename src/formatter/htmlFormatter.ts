@@ -2,61 +2,72 @@ import * as vscode from 'vscode';
 import * as prettier from 'prettier';
 import { formatSingleAspBlock, getAspSettings, FormatBlockResult } from './aspFormatter';
 
+// ─── Prettier settings ─────────────────────────────────────────────────────
+
+/**
+ * Prettier formatting options surfaced under the
+ * `aspLanguageSupport.prettier.*` configuration namespace.
+ *
+ * HTML, CSS, and JavaScript formatting is delegated entirely to Prettier
+ * (https://prettier.io). These settings map 1-to-1 to Prettier's own options.
+ */
 export interface PrettierSettings {
-    printWidth: number;
-    tabWidth: number;
-    useTabs: boolean;
-    semi: boolean;
-    singleQuote: boolean;
-    bracketSameLine: boolean;
-    arrowParens: string;
-    trailingComma: string;
-    endOfLine: string;
+    printWidth:                number;
+    tabWidth:                  number;
+    useTabs:                   boolean;
+    semi:                      boolean;
+    singleQuote:               boolean;
+    bracketSameLine:           boolean;
+    arrowParens:               string;
+    trailingComma:             string;
+    endOfLine:                 string;
     htmlWhitespaceSensitivity: string;
 }
 
 export function getPrettierSettings(): PrettierSettings {
-    const config = vscode.workspace.getConfiguration('aspLanguageSupport.prettier');
+    const c = vscode.workspace.getConfiguration('aspLanguageSupport.prettier');
     return {
-        printWidth:                config.get<number>('printWidth', 80),
-        tabWidth:                  config.get<number>('tabWidth', 2),
-        useTabs:                   config.get<boolean>('useTabs', false),
-        semi:                      config.get<boolean>('semi', true),
-        singleQuote:               config.get<boolean>('singleQuote', false),
-        bracketSameLine:           config.get<boolean>('bracketSameLine', true),
-        arrowParens:               config.get<string>('arrowParens', 'always'),
-        trailingComma:             config.get<string>('trailingComma', 'es5'),
-        endOfLine:                 config.get<string>('endOfLine', 'lf'),
-        htmlWhitespaceSensitivity: config.get<string>('htmlWhitespaceSensitivity', 'css'),
+        printWidth:                c.get<number>('printWidth',                80),
+        tabWidth:                  c.get<number>('tabWidth',                  2),
+        useTabs:                   c.get<boolean>('useTabs',                  false),
+        semi:                      c.get<boolean>('semi',                     true),
+        singleQuote:               c.get<boolean>('singleQuote',              false),
+        bracketSameLine:           c.get<boolean>('bracketSameLine',          true),
+        arrowParens:               c.get<string>('arrowParens',               'always'),
+        trailingComma:             c.get<string>('trailingComma',             'es5'),
+        endOfLine:                 c.get<string>('endOfLine',                 'lf'),
+        htmlWhitespaceSensitivity: c.get<string>('htmlWhitespaceSensitivity', 'css'),
     };
 }
 
-// Module-level counter so IDs stay unique across calls in the same millisecond.
-let _placeholderCounter = 0;
-
-// ─── Types ─────────────────────────────────────────────────────────────────
+// ─── ASP block types ───────────────────────────────────────────────────────
 
 // Where in the HTML structure an ASP block sits:
-//   normal  – standalone on its own line(s)    → HTML comment placeholder
-//   inline  – inside a quoted attribute value  → bare token placeholder
-//   midtag  – between attributes, not quoted   → data- attribute placeholder
+//   normal  – standalone on its own line(s)   → HTML comment placeholder
+//   inline  – inside a quoted attribute value → bare token placeholder
+//   midtag  – between attributes, not quoted  → data- attribute placeholder
 type AspBlockKind = 'normal' | 'inline' | 'midtag';
 
 interface AspBlock {
-    code: string;
-    indent: string;
-    id: string;
+    code:       string;
+    id:         string;
     lineNumber: number;
-    kind: AspBlockKind;
+    kind:       AspBlockKind;
 }
 
-// ─── Safety: detect unclosed ASP tags ─────────────────────────────────────
+// Module-level counter keeps IDs unique across calls in the same millisecond.
+let _placeholderCounter = 0;
 
-// An unclosed <% causes the regex to scan to end-of-file, potentially
-// consuming and destroying everything after it.
+// ─── Safety check ─────────────────────────────────────────────────────────
+
+/**
+ * Returns true if the source has unmatched <% or %> tags.
+ * An unclosed <% would cause the masking regex to consume everything after it.
+ */
 function hasUnclosedAspTags(code: string): boolean {
     let depth = 0;
-    let i = 0;
+    let i     = 0;
+
     while (i < code.length) {
         if (code[i] === '<' && code[i + 1] === '%') {
             depth++;
@@ -69,12 +80,17 @@ function hasUnclosedAspTags(code: string): boolean {
             i++;
         }
     }
+
     return depth !== 0;
 }
 
-// ─── Classify offset position in the HTML ─────────────────────────────────
+// ─── ASP block classifier ─────────────────────────────────────────────────
 
-// Walks backwards from `offset` to determine where the ASP block sits.
+/**
+ * Walks backwards from `offset` in the original source to determine whether
+ * the ASP block at that position is inside a quoted attribute value (inline),
+ * between unquoted attributes (midtag), or free-standing (normal).
+ */
 function classifyOffset(code: string, offset: number): AspBlockKind {
     let inQuote: string | null = null;
 
@@ -95,10 +111,8 @@ function classifyOffset(code: string, offset: number): AspBlockKind {
 
         if (ch === '<') {
             const after = code.substring(i + 1, i + 3);
-            // Closing tags (</...) can never have attributes — treat as normal.
-            if (after.startsWith('/')) return 'normal';
-            // Real opening/void tag or declaration.
-            if (/^[a-zA-Z!?]/.test(after)) return 'midtag';
+            if (after.startsWith('/'))        return 'normal';  // closing tag
+            if (/^[a-zA-Z!?]/.test(after))   return 'midtag';  // opening/void tag
             return 'normal';
         }
     }
@@ -106,36 +120,38 @@ function classifyOffset(code: string, offset: number): AspBlockKind {
     return 'normal';
 }
 
-// ─── Main formatter ────────────────────────────────────────────────────────
+// ─── Main entry point ──────────────────────────────────────────────────────
 
 export async function formatCompleteAspFile(code: string): Promise<string> {
     if (hasUnclosedAspTags(code)) {
-        console.warn('ASP formatter: unclosed <% or stray %> found, skipping format.');
+        console.warn('ASP formatter: unclosed <% or stray %> — skipping format.');
         return code;
     }
 
     const aspSettings      = getAspSettings();
     const prettierSettings = getPrettierSettings();
 
-    // ── Step 1: Mask all ASP blocks ──────────────────────────────────────
+    // ── Step 1: Mask all ASP blocks ──────────────────────────────────────────
+    // Each ASP block is replaced with a placeholder that Prettier will treat as
+    // valid HTML, preserving its position in the output.
 
     const aspBlocks: AspBlock[] = [];
 
-    const maskedCode = code.replace(/([ \t]*)(<%[\s\S]*?%>)/g, (match, indent, aspBlock, offset) => {
+    const maskedCode = code.replace(/([ \t]*)(<%[\s\S]*?%>)/g, (match, _indent, aspBlock, offset) => {
         const kind       = classifyOffset(code, offset);
-        const lineNumber = code.substring(0, offset).split('\n').length - 1;
-        const id         = `ASPPH${_placeholderCounter++}_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 9)}`;
+        const lineNumber = code.slice(0, offset).split('\n').length - 1;
+        const id         = `ASPPH${_placeholderCounter++}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 
-        aspBlocks.push({ code: aspBlock, indent, id, lineNumber, kind });
+        aspBlocks.push({ code: aspBlock, id, lineNumber, kind });
 
         switch (kind) {
             case 'inline': return `ASPINLINE_${id}_END`;
             case 'midtag': return `data-asp-${id}="1"`;
-            default:       return `${indent}<!--${id}-->`;
+            default:       return `<!--${id}-->`;
         }
     });
 
-    // ── Step 2: Run Prettier ─────────────────────────────────────────────
+    // ── Step 2: Run Prettier on the masked HTML ──────────────────────────────
 
     let prettifiedCode: string;
     try {
@@ -153,11 +169,11 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             htmlWhitespaceSensitivity: prettierSettings.htmlWhitespaceSensitivity as any,
         });
     } catch (error) {
-        console.error('ASP formatter: Prettier failed, returning original.', error);
+        console.error('ASP formatter: Prettier failed — returning original.', error);
         return code;
     }
 
-    // ── Step 3: Verify all placeholders survived Prettier ────────────────
+    // ── Step 3: Verify all placeholders survived Prettier ───────────────────
 
     for (const block of aspBlocks) {
         const needle =
@@ -166,43 +182,57 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             block.id;
 
         if (!prettifiedCode.includes(needle)) {
-            console.error(`ASP formatter: placeholder lost at line ${block.lineNumber}, returning original.`);
+            console.error(
+                `ASP formatter: placeholder for block at line ${block.lineNumber} was ` +
+                `lost by Prettier — returning original.`
+            );
             return code;
         }
     }
 
-    // ── Step 4: Format each ASP block's VBScript content ─────────────────
-    // Process sequentially so each normal block threads its ending indent
-    // level into the next, enabling cross-block indent continuity.
+    // ── Step 4: Format each ASP block's VBScript content ────────────────────
+    // Process blocks sequentially so each normal block can thread its ending
+    // indent level into the next, enabling cross-block continuity.
 
     const formattedBlocks: string[] = [];
-    let currentIndentLevel = 0;
+    let   currentIndentLevel        = 0;
 
     for (const block of aspBlocks) {
         if (block.kind !== 'normal') {
-            formattedBlocks.push(block.code);
+            // Inline / midtag blocks: format but don't change the tracked level.
+            const result = formatSingleAspBlock(block.code, aspSettings, '', currentIndentLevel);
+            formattedBlocks.push(result.formatted);
             continue;
         }
-        const result = formatSingleAspBlock(block.code, aspSettings, '', currentIndentLevel);
+
+        // For normal blocks, capture the HTML indent Prettier placed before
+        // the placeholder comment so the VBScript formatter can use it when
+        // htmlIndentMode is 'continuation'.
+        const escapedId  = block.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const indentMatch = prettifiedCode.match(new RegExp(`([ \\t]*)<!--${escapedId}-->`));
+        const htmlIndent  = indentMatch ? indentMatch[1] : '';
+
+        const result = formatSingleAspBlock(block.code, aspSettings, htmlIndent, currentIndentLevel);
         formattedBlocks.push(result.formatted);
         currentIndentLevel = result.endLevel;
     }
 
-    // ── Step 5: Restore blocks into the Prettier output ──────────────────
+    // ── Step 5: Restore formatted ASP blocks into Prettier's output ─────────
 
     let restoredCode = prettifiedCode;
 
     for (let i = 0; i < aspBlocks.length; i++) {
-        const block          = aspBlocks[i];
-        const formattedBlock = formattedBlocks[i];
-        const escapedId      = block.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const block     = aspBlocks[i];
+        const formatted = formattedBlocks[i];
+        const escapedId = block.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
         switch (block.kind) {
 
             case 'inline':
+                // Replace the bare token directly — no indent adjustment needed.
                 restoredCode = restoredCode.replace(
                     `ASPINLINE_${block.id}_END`,
-                    formattedBlock
+                    formatted
                 );
                 break;
 
@@ -210,18 +240,20 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                 // Prettier may have normalised quotes/spacing around the attribute.
                 restoredCode = restoredCode.replace(
                     new RegExp(`\\s*data-asp-${escapedId}\\s*=\\s*["']1["']`),
-                    ` ${formattedBlock}`
+                    ` ${formatted}`
                 );
                 break;
 
             default: {
-                // Pick up whatever indentation Prettier gave the comment line,
-                // then apply it to every non-empty line of the formatted block.
+                // Pick up whatever indentation Prettier assigned to the comment
+                // line, then prepend it to every non-empty line of the formatted
+                // ASP block (the VBScript formatter itself handles internal
+                // indentation relative to that base).
                 const match = restoredCode.match(new RegExp(`([ \\t]*)<!--${escapedId}-->`));
 
                 if (match) {
                     const htmlIndent    = match[1];
-                    const indentedBlock = formattedBlock
+                    const indentedBlock = formatted
                         .split('\n')
                         .map(line => (line.trim() ? htmlIndent + line : line))
                         .join('\n');
@@ -231,8 +263,9 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                         indentedBlock
                     );
                 } else {
-                    // Fallback — sanity check above should have caught real deletions.
-                    restoredCode = restoredCode.replace(`<!--${block.id}-->`, formattedBlock);
+                    // Safety fallback — the placeholder-lost check above should
+                    // have already caught real deletions, but guard anyway.
+                    restoredCode = restoredCode.replace(`<!--${block.id}-->`, formatted);
                 }
                 break;
             }
