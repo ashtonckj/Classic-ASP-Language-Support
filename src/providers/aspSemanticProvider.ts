@@ -676,27 +676,54 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         const allSymbols = collectAllSymbols(document);
 
         // Build fast lookup sets/maps from collected symbols.
-        // Functions defined in the current document inside a <script> (JS) block
-        // are excluded — they are JS, not VBScript, and must not receive VBScript
-        // semantic colouring. Functions from #include files are always VBScript.
+        //
+        // extractSymbols() has no zone awareness — it collects every symbol it
+        // finds in the raw text, including symbols declared inside <script> (JS)
+        // blocks.  We must filter those out here before building the colouring
+        // sets, otherwise a JS identifier that shares a name with a VBScript one
+        // will receive the wrong colour (e.g. a JS param colouring a Dim variable).
+        //
+        // Symbols from #include files always come from pure VBScript files so
+        // they are never zone-filtered — only same-document symbols need the check.
+        const docPath = document.uri.fsPath;
+
+        // Returns true when a same-document symbol sits inside a JS <script> block.
+        function isJsZoneSymbol(filePath: string, line: number): boolean {
+            if (filePath !== docPath) { return false; }
+            return getZone(text, document.offsetAt(new vscode.Position(line, 0))) === 'js';
+        }
+
         const funcMap = new Map<string, 'function' | 'Sub'>();
         for (const fn of allSymbols.functions) {
-            if (fn.filePath === document.uri.fsPath) {
-                const fnOffset = document.offsetAt(new vscode.Position(fn.line, 0));
-                if (getZone(text, fnOffset) === 'js') { continue; }
-            }
+            if (isJsZoneSymbol(fn.filePath, fn.line)) { continue; }
             funcMap.set(fn.name.toLowerCase(), fn.kind === 'Function' ? 'function' : 'Sub');
         }
-        const varSet    = new Set<string>(allSymbols.variables.map(v => v.name.toLowerCase()));
-        const comVarSet = new Set<string>(allSymbols.comVariables.map(cv => cv.name.toLowerCase()));
-        const constSet  = new Set<string>(allSymbols.constants.map(c => c.name.toLowerCase()));
 
-        // Parameter scoping: lineNumber → Set<paramName>
+        const varSet = new Set<string>(
+            allSymbols.variables
+                .filter(v => !isJsZoneSymbol(v.filePath, v.line))
+                .map(v => v.name.toLowerCase())
+        );
+        const comVarSet = new Set<string>(
+            allSymbols.comVariables
+                .filter(cv => !isJsZoneSymbol(cv.filePath, cv.line))
+                .map(cv => cv.name.toLowerCase())
+        );
+        const constSet = new Set<string>(
+            allSymbols.constants
+                .filter(c => !isJsZoneSymbol(c.filePath, c.line))
+                .map(c => c.name.toLowerCase())
+        );
+
+        // Parameter scoping: lineNumber -> Set<paramName>
+        // Only register VBScript function params — JS function params must not
+        // bleed into ASP lines that happen to share the same line-number range.
         const lineCount = document.lineCount;
         const lineParamSets: Map<number, Set<string>> = new Map();
         for (const fn of allSymbols.functions) {
-            if (fn.paramNames.length === 0)          { continue; }
-            if (fn.filePath !== document.uri.fsPath)  { continue; }
+            if (fn.paramNames.length === 0)           { continue; }
+            if (fn.filePath !== docPath)               { continue; }
+            if (isJsZoneSymbol(fn.filePath, fn.line)) { continue; }
             const start = fn.line;
             const end   = fn.endLine !== -1 ? fn.endLine : lineCount - 1;
             for (let l = start; l <= end; l++) {
@@ -832,7 +859,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
 
         for (const fn of allSymbols.functions) {
             if (fn.kind !== 'Function')            { continue; } // Subs can't return values
-            if (fn.filePath !== document.uri.fsPath) { continue; }
+            if (fn.filePath !== docPath)             { continue; }
             if (fn.endLine === -1)                 { continue; }
 
             const fnKey         = fn.name.toLowerCase();
