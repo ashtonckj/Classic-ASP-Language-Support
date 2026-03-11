@@ -1319,18 +1319,45 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         }
 
         // ── VBScript identifier pass ──────────────────────────────────────────
+        // Lines are NOT skipped by a single midpoint ASP-zone check because a
+        // line like  <td><%= userName %></td>  or  value="<%= x %>"  has its
+        // midpoint in HTML, yet still contains valid ASP tokens that must be
+        // coloured.  Instead, each token's actual document offset is checked
+        // individually so mixed HTML/ASP lines are handled correctly.
         for (let lineIndex = 0; lineIndex < lineCount; lineIndex++) {
             const line       = lineTextCache[lineIndex];
             const lineOffset = document.offsetAt(new vscode.Position(lineIndex, 0));
-            const midOffset  = lineOffset + Math.floor(line.length / 2);
-            if (!isInsideAspBlock(text, midOffset)) { continue; }
+
+            // Fast pre-filter: skip lines that contain no <% at all.
+            if (!line.includes('<%') && !isInsideAspBlock(text, lineOffset)) { continue; }
 
             const trimmed = line.trimStart();
             if (trimmed.startsWith("'") || /^rem\s/i.test(trimmed)) { continue; }
 
-            let strippedLine = line.replace(/"[^"]*"/g, (m: string) => ' '.repeat(m.length));
-            const commentIdx = strippedLine.indexOf("'");
-            if (commentIdx !== -1) { strippedLine = strippedLine.substring(0, commentIdx); }
+            // Strip VBScript string literals ("...") only when the opening quote
+            // is itself inside an ASP block — this preserves HTML attribute values
+            // like value="<%= x %>" and onclick="..." so tokens inside remain visible.
+            // Replacement is always the same length (spaces) so string offsets stay valid.
+            let strippedLine = line.replace(/"[^"]*"/g, (m: string, offset: number) =>
+                isInsideAspBlock(text, lineOffset + offset) ? ' '.repeat(m.length) : m
+            );
+            // Only treat ' as a VBScript comment marker when it sits inside an
+            // ASP block — a ' in HTML (e.g. onclick="alert('<%= x %>')") is a JS
+            // string delimiter and must not truncate the rest of the line.
+            // Scan past any leading ' chars that are in HTML to find the first
+            // one that genuinely opens a VBScript comment.
+            {
+                let searchFrom = 0;
+                while (true) {
+                    const qi = strippedLine.indexOf("'", searchFrom);
+                    if (qi === -1) break;
+                    if (isInsideAspBlock(text, lineOffset + qi)) {
+                        strippedLine = strippedLine.substring(0, qi);
+                        break;
+                    }
+                    searchFrom = qi + 1;
+                }
+            }
 
             const activeParams = lineParamSets.get(lineIndex);
             const sqlRanges    = sqlStringLines.get(lineIndex);
@@ -1347,6 +1374,10 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
                 const word    = match[1];
                 const wordKey = word.toLowerCase();
                 const col     = match.index;
+
+                // Per-token zone check — only colour tokens that actually sit
+                // inside an ASP block, handles inline <%= %> in HTML attributes.
+                if (!isInsideAspBlock(text, lineOffset + col)) { continue; }
 
                 if (sqlRanges?.some(([s, e]) => col >= s && col < e)) { continue; }
                 if (VBSCRIPT_KEYWORDS.has(wordKey)) { continue; }
