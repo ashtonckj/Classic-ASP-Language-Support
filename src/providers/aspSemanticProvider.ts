@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
-import { isInsideAspBlock } from '../utils/documentHelper';
 import { getZone } from '../utils/aspUtils';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import {
@@ -32,6 +31,25 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         const builder    = new vscode.SemanticTokensBuilder(ASP_SEMANTIC_LEGEND);
         const text       = document.getText();
         const allSymbols = collectAllSymbols(document);
+
+        // Build a per-character ASP-zone bitmap once from the raw text.
+        // inAsp(offset) scans backwards on every call — O(distance to nearest
+        // boundary). At 4k lines that's ~96k calls × avg half-file scan ≈ very slow.
+        // aspMap[offset] === 1 replaces every hot-path call with a single array lookup.
+        const aspMap = new Uint8Array(text.length);
+        {
+            let inside = false;
+            for (let i = 0; i < text.length; i++) {
+                if (!inside && text[i] === '<' && i + 1 < text.length && text[i + 1] === '%') {
+                    inside = true; aspMap[i] = 1; i++; aspMap[i] = 1;
+                } else if (inside && text[i] === '%' && i + 1 < text.length && text[i + 1] === '>') {
+                    inside = false; i++;
+                } else if (inside) {
+                    aspMap[i] = 1;
+                }
+            }
+        }
+        const inAsp = (offset: number): boolean => aspMap[offset] === 1;
 
         // Build fast lookup sets/maps from collected symbols.
         //
@@ -124,7 +142,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             const lineText   = lineTextCache[li];
             const lineOffset = lineOffsetCache[li];
             const midOffset  = lineOffset + Math.floor(lineText.length / 2);
-            if (!isInsideAspBlock(text, midOffset)) { continue; }
+            if (!inAsp(midOffset)) { continue; }
 
             const trimmedForComment733 = lineText.trimStart();
             if (trimmedForComment733.startsWith("'") || /^rem\s/i.test(trimmedForComment733)) { continue; }
@@ -307,7 +325,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
                     const lineText   = lineTextCache[li];
                     const lineOffset = lineOffsetCache[li];
                     const midOffset  = lineOffset + Math.floor(lineText.length / 2);
-                    if (!isInsideAspBlock(text, midOffset)) { continue; }
+                    if (!inAsp(midOffset)) { continue; }
 
                     const trimmedForComment918 = lineText.trimStart();
                     if (trimmedForComment918.startsWith("'") || /^rem\s/i.test(trimmedForComment918)) { continue; }
@@ -380,7 +398,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             const lineText   = lineTextCache[li];
             const lineOffset = lineOffsetCache[li];
             const midOffset  = lineOffset + Math.floor(lineText.length / 2);
-            if (!isInsideAspBlock(text, midOffset)) { continue; }
+            if (!inAsp(midOffset)) { continue; }
 
             const trimmedForComment988 = lineText.trimStart();
             if (trimmedForComment988.startsWith("'") || /^rem\s/i.test(trimmedForComment988)) { continue; }
@@ -533,36 +551,29 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         function emitFragmentAsSql(
             li: number, lineText: string, colStart: number, colEnd: number
         ): void {
-            const content = lineText.substring(colStart, colEnd);
-            const offsetMap = [];
-            for (let c = colStart; c < colEnd; c++) {
-                offsetMap.push({ lineIndex: li, col: c });
-            }
+            const len = colEnd - colStart;
+            const omLine = new Int32Array(len).fill(li);
+            const omCol  = Int32Array.from({ length: len }, (_, i) => colStart + i);
             const group: SqlStringGroup = {
-                segments:  [{ lineIndex: li, lineText, colStart, colEnd }],
-                stitched:  content,
-                offsetMap,
+                segments: [{ lineIndex: li, lineText, colStart, colEnd }],
+                stitched: lineText.substring(colStart, colEnd),
+                omLine, omCol,
             };
             emitSqlTokensForGroup(builder, group);
             if (!sqlStringLines.has(li)) { sqlStringLines.set(li, []); }
             sqlStringLines.get(li)!.push([colStart, colEnd]);
         }
 
-        // Pre-compile per-sqlVar regexes to avoid rebuilding inside the line loop.
-        // Also include confirmed SQL-returning functions: inside their body, lines
-        // like  FunctionName = "WITH ..."  should be coloured exactly like SQL var
-        // assignments.  Adding the function name to sqlVarPatterns achieves this
-        // because the pre-pass checks whether the line starts with a known name
-        // followed by = or &.
-        const sqlVarPatterns: Array<RegExp> = [];
-        for (const sqlVar of sqlVars) {
-            const esc = sqlVar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            sqlVarPatterns.push(new RegExp('^\\s*' + esc + '\\s*(?:=|&)', 'i'));
-        }
-        for (const fnName of sqlFuncs) {
-            const esc = fnName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            sqlVarPatterns.push(new RegExp('^\\s*' + esc + '\\s*(?:=|&)', 'i'));
-        }
+        // Single combined regex for all SQL variable names + SQL-returning function names.
+        // The pre-pass uses it to detect lines that write into a confirmed SQL variable.
+        // Single combined regex replaces N separate regexes tested per line.
+        const sqlVarNames = [
+            ...[...sqlVars].map(v => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+            ...[...sqlFuncs].map(f => f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+        ];
+        const sqlVarPattern: RegExp | null = sqlVarNames.length > 0
+            ? new RegExp('^\\s*(?:' + sqlVarNames.join('|') + ')\\s*(?:=|&)', 'i')
+            : null;
 
         for (let li = 0; li < lineCount; li++) {
             if (processedSqlLines.has(li)) { continue; }
@@ -570,41 +581,29 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             const lineText   = lineTextCache[li];
             const lineOffset = lineOffsetCache[li];
             const midOffset  = lineOffset + Math.floor(lineText.length / 2);
-            if (!isInsideAspBlock(text, midOffset)) { continue; }
+            if (!inAsp(midOffset)) { continue; }
 
             const trimmedForComment1173 = lineText.trimStart();
             if (trimmedForComment1173.startsWith("'") || /^rem\s/i.test(trimmedForComment1173)) { continue; }
 
             let lineIsSqlAppend = false;
-            if (sqlVarPatterns.length > 0) {
+            if (sqlVarPattern !== null) {
                 let stripped2 = lineText.replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
                 const cp2 = stripped2.indexOf("'");
                 if (cp2 !== -1) { stripped2 = stripped2.substring(0, cp2); }
-                for (const re of sqlVarPatterns) {
-                    if (re.test(stripped2)) { lineIsSqlAppend = true; break; }
-                }
-                // If this line itself didn't match, walk backwards through & _
-                // continuation lines to find if the assignment head matches.
-                // E.g.:  GetActiveFilter = _        ← assignment head (no quotes)
-                //            "WHERE ..."  & _       ← this line, needs colouring
+                lineIsSqlAppend = sqlVarPattern.test(stripped2);
                 if (!lineIsSqlAppend) {
                     let checkLi = li - 1;
                     while (checkLi >= 0) {
                         const prevText = lineTextCache[checkLi];
-                        // The previous line must end with & _ or = _ (continuation)
                         const trimmed = prevText.trimEnd();
                         if (!trimmed.endsWith('_')) { break; }
-                        // Check whether it ends with  & _  or  = _
                         const beforeUnderscore = trimmed.slice(0, -1).trimEnd();
                         if (!beforeUnderscore.endsWith('&') && !beforeUnderscore.endsWith('=')) { break; }
-
                         let prevStripped = prevText.replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
                         const prevCp = prevStripped.indexOf("'");
                         if (prevCp !== -1) { prevStripped = prevStripped.substring(0, prevCp); }
-                        for (const re of sqlVarPatterns) {
-                            if (re.test(prevStripped)) { lineIsSqlAppend = true; break; }
-                        }
-                        if (lineIsSqlAppend) { break; }
+                        if (sqlVarPattern.test(prevStripped)) { lineIsSqlAppend = true; break; }
                         checkLi--;
                     }
                 }
@@ -663,7 +662,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             const lineOffset = lineOffsetCache[lineIndex];
 
             // Fast pre-filter: skip lines that contain no <% at all.
-            if (!line.includes('<%') && !isInsideAspBlock(text, lineOffset)) { continue; }
+            if (!line.includes('<%') && !inAsp(lineOffset)) { continue; }
 
             const trimmed = line.trimStart();
             if (trimmed.startsWith("'") || /^rem\s/i.test(trimmed)) { continue; }
@@ -673,7 +672,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             // like value="<%= x %>" and onclick="..." so tokens inside remain visible.
             // Replacement is always the same length (spaces) so string offsets stay valid.
             let strippedLine = line.replace(/"[^"]*"/g, (m: string, offset: number) =>
-                isInsideAspBlock(text, lineOffset + offset) ? ' '.repeat(m.length) : m
+                inAsp(lineOffset + offset) ? ' '.repeat(m.length) : m
             );
             // Only treat ' as a VBScript comment marker when it sits inside an
             // ASP block — a ' in HTML (e.g. onclick="alert('<%= x %>')") is a JS
@@ -685,7 +684,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
                 while (true) {
                     const qi = strippedLine.indexOf("'", searchFrom);
                     if (qi === -1) break;
-                    if (isInsideAspBlock(text, lineOffset + qi)) {
+                    if (inAsp(lineOffset + qi)) {
                         strippedLine = strippedLine.substring(0, qi);
                         break;
                     }
@@ -711,7 +710,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
 
                 // Per-token zone check — only colour tokens that actually sit
                 // inside an ASP block, handles inline <%= %> in HTML attributes.
-                if (!isInsideAspBlock(text, lineOffset + col)) { continue; }
+                if (!inAsp(lineOffset + col)) { continue; }
 
                 if (sqlRanges?.some(([s, e]) => col >= s && col < e)) { continue; }
                 if (VBSCRIPT_KEYWORDS_SET.has(wordKey)) { continue; }
