@@ -611,9 +611,7 @@ export function emitSqlTokensForGroup(
             claim(tableStart, tableLen);
         }
         if (!isClaimed(bracketStart, bracketLen)) {
-            emit(bracketStart,             1,                T_SQL_BRACKET_PUNC); // [
-            if (m[2].length > 0) { emit(bracketStart + 1,   m[2].length,        T_SQL_COLUMN); }
-            emit(bracketStart + bracketLen - 1, 1,           T_SQL_BRACKET_PUNC); // ]
+            emit(bracketStart, bracketLen, T_SQL_COLUMN);
             claim(bracketStart, bracketLen);
         }
     }
