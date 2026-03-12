@@ -290,4 +290,41 @@ notSql2 = "Please execute the plan as discussed"
 ' @params only — all should get @param colour
 sql = "UPDATE dbo.Settings SET Value = @value, UpdatedBy = @userId, UpdatedAt = GETDATE() WHERE SettingKey = @key AND Scope = @scope"
 
+' ── SECTION 10  Plain string-builder — must NOT colour as SQL ────────────────
+'
+' errMsg is built by appending plain English strings only.
+' Words like "From", "Date", "characters", "numeric", "values" happen to match
+' SQL keywords but these strings are not SQL — nothing must be coloured.
+
+Dim errMsg
+errMsg = errMsg & "Name is required."
+errMsg = errMsg & "Name only allows characters and numbers."
+errMsg = errMsg & "From Date cannot be greater than To Date."
+errMsg = errMsg & "Start Date cannot be in the past."
+errMsg = errMsg & "Amount only allows numeric values (max 18 digits and 1 decimal)."
+
+
+' ── SECTION 11  Tab-indented multi-line SQL (MUST colour correctly) ───────────
+'
+' Continuation lines indented with tabs rather than spaces.
+' SQL colouring must work identically to the space-indented equivalents above.
+
+Dim tabSql
+tabSql = "SELECT a.Name, a.[SpecialField] " & _
+	"FROM [SampleDb].[dbo].[Orders] a " & _
+	"LEFT JOIN [SampleDb].[dbo].[Customers] b " & _
+		"ON b.[CustomerID] = a.CustomerID " & _
+	"WHERE a.IsActive = 1"
+
+
+' ── SECTION 12  Bracket column colouring in ON clause ────────────────────────
+'
+' In  ON b.[CustomerID] = a.CustomerID  the [CustomerID] is a column reference,
+' not a table name.  Its brackets AND content must share the column colour
+' (sqlColumn), not the table-bracket colour (sqlBracketContent).
+
+Dim joinSql
+joinSql = "SELECT a.Name, a.[SpecialField] FROM [SampleDb].[dbo].[Orders] a LEFT JOIN [SampleDb].[dbo].[Customers] b ON b.[CustomerID] = a.CustomerID"
+
+
 %>
