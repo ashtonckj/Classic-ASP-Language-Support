@@ -476,7 +476,7 @@ export function extractSqlGroup(
 
     // Advance past & variable & gaps to find the next opening quote.
     function findNextQuote(lineText: string, col: number): number {
-        while (col < lineText.length && lineText[col] === ' ') { col++; }
+        while (col < lineText.length && lineText[col] <= ' ') { col++; }
         if (col < lineText.length && lineText[col] === '"') { return col; }
         if (col >= lineText.length || lineText[col] !== '&') { return -1; }
         col++;
@@ -488,7 +488,7 @@ export function extractSqlGroup(
             if (depth === 0 && ch === '"') { return col; }
             if (depth === 0 && ch === '&') {
                 col++;
-                while (col < lineText.length && lineText[col] === ' ') { col++; }
+                while (col < lineText.length && lineText[col] <= ' ') { col++; }
                 if (col < lineText.length && lineText[col] === '"') { return col; }
                 continue;
             }
@@ -533,7 +533,7 @@ export function extractSqlGroup(
 
         scanText = document.lineAt(scanLine).text;
         scanCol  = 0;
-        while (scanCol < scanText.length && scanText[scanCol] === ' ') { scanCol++; }
+        while (scanCol < scanText.length && scanText[scanCol] <= ' ') { scanCol++; }
     }
 
     if (!isSql(stitched)) { return null; }
