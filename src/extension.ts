@@ -6,6 +6,8 @@ import { AspCompletionProvider } from './providers/aspCompletionProvider';
 import { CssCompletionProvider } from './providers/cssCompletionProvider';
 import { CssHoverProvider } from './providers/cssHoverProvider';
 import { registerCssDiagnostics } from './providers/cssDiagnosticsProvider';
+import { registerHtmlStructureDiagnostics } from './providers/htmlStructureDiagnosticsProvider';
+import { registerAspStructureDiagnostics } from './providers/aspStructureDiagnosticsProvider';
 import { JsCompletionProvider } from './providers/jsCompletionProvider';
 import { IncludePathCompletionProvider, AspDefinitionProvider } from './providers/includeProvider';
 import { IncludeDocumentLinkProvider, HtmlAttributeLinkProvider, HtmlAttributePathCompletionProvider } from './providers/linkProvider';
@@ -24,10 +26,25 @@ export function activate(context: vscode.ExtensionContext) {
 
     addRegionHighlights(context);
     registerCssDiagnostics(context);
+    const htmlStructureCollection = registerHtmlStructureDiagnostics(context);
+    const aspStructureCollection  = registerAspStructureDiagnostics(context);
 
     // ── Formatter ─────────────────────────────────────────────────────────────
     const formatter = vscode.languages.registerDocumentFormattingEditProvider('asp', {
         async provideDocumentFormattingEdits(document: vscode.TextDocument): Promise<vscode.TextEdit[]> {
+            // Check for structure issues before formatting — if any exist, show a
+            // banner and skip so the user knows exactly what to fix first.
+            const htmlIssues = htmlStructureCollection.get(document.uri) ?? [];
+            const aspIssues  = aspStructureCollection.get(document.uri)  ?? [];
+            const total      = htmlIssues.length + aspIssues.length;
+            if (total > 0) {
+                vscode.window.showWarningMessage(
+                    `Formatting skipped — ${total} structure issue${total === 1 ? '' : 's'} found. ` +
+                    `Fix the highlighted warnings first.`
+                );
+                return [];
+            }
+
             const fullText  = document.getText();
             const formatted = await formatCompleteAspFile(fullText);
             const fullRange = new vscode.Range(document.positionAt(0), document.positionAt(fullText.length));
