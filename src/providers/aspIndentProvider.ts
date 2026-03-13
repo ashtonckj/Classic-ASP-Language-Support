@@ -707,12 +707,23 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             }
 
             // Block opener → next line +1
+            // Exception: a single-line If statement (e.g. `If x Then y = 1`) has a
+            // real statement after Then and is NOT a block opener — it needs no extra
+            // indent on the next line.  A multi-line If ends with Then (optionally
+            // followed only by a VBScript comment), so we detect the single-line form
+            // by checking whether a non-comment token appears after the Then keyword.
             if (VBSCRIPT_BLOCK_OPENERS.test(currentLineText)) {
-                editor.edit(eb => eb.insert(position, `\n${indent}${indentUnit}`)).then(() => {
-                    const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
-                    editor.selection = new vscode.Selection(p, p);
-                });
-                return;
+                // Matches single-line If: "If … Then <non-comment content>"
+                const isSingleLineIf = /^If\b.+\bThen\s+\S/i.test(currentLineText)
+                    && !/^If\b.+\bThen\s*'/i.test(currentLineText);
+                if (!isSingleLineIf) {
+                    editor.edit(eb => eb.insert(position, `\n${indent}${indentUnit}`)).then(() => {
+                        const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
+                        editor.selection = new vscode.Selection(p, p);
+                    });
+                    return;
+                }
+                // Single-line If — fall through to default (keep same indent level)
             }
 
             // Default inside ASP → match current indent
