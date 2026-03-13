@@ -209,7 +209,11 @@ function formatMultiLineAspBlock(
 
         // ── Empty line ───────────────────────────────────────────────────
         if (!trimmed) {
-            formattedLines.push('');
+            // Collapse runs of multiple blank lines to a single blank line.
+            const lastLine = formattedLines[formattedLines.length - 1];
+            if (lastLine !== '') {
+                formattedLines.push('');
+            }
             if (!inMultilineString) {
                 prevHadContinuation = false;
                 isInSQLBlock        = false;
