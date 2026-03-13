@@ -123,9 +123,15 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             return isSql(t) || /^\s*EXEC(?:UTE)?\s+/i.test(t);
         }
 
-        const SQL_FRAGMENT_STARTERS = /^\s*(WHERE|AND\b|OR\b|ORDER\s+BY|GROUP\s+BY|HAVING|ON\b|SET\b|JOIN\b|LEFT\s+JOIN|RIGHT\s+JOIN|INNER\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|UNION(\s+ALL)?|WHEN\s+(MATCHED|NOT))/i;
+        const SQL_FRAGMENT_STARTERS = /^\s*(WHERE|ORDER\s+BY|GROUP\s+BY|HAVING|JOIN\b|LEFT\s+JOIN|RIGHT\s+JOIN|INNER\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|UNION(\s+ALL)?|WHEN\s+(MATCHED|NOT\s+MATCHED))\s+(?:[@\[a-zA-Z_]|\d)/i;
+        // AND/OR/SET fragments: require an identifier then a comparison operator or SQL keyword.
+        // This prevents plain English like "OR shift", "Set status to approved", "AND the employee"
+        // from being mistaken for SQL clause fragments.
+        const AND_OR_SET_FRAGMENT = /^\s*(AND|OR|SET)\s+(?:[@\[a-zA-Z_][\w\]]*)\s*(?:[=<>!]|\s+(?:IS|LIKE|IN|BETWEEN|NOT)\b)/i;
+        // ON fragments: require identifier = or identifier. (dot notation) pattern.
+        const ON_FRAGMENT = /^\s*ON\s+(?:[@\[a-zA-Z_]\w*\s*[=<>!]|[@\[a-zA-Z_]\w*\.)/i;
         function isSqlClauseFragment(t: string): boolean {
-            return SQL_FRAGMENT_STARTERS.test(t);
+            return SQL_FRAGMENT_STARTERS.test(t) || AND_OR_SET_FRAGMENT.test(t) || ON_FRAGMENT.test(t);
         }
 
         interface VarAssignment {
@@ -200,10 +206,11 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         // Sub-pass 2: self-append propagation — repeat until stable.
         // A variable qualifies only when:
         //   (a) it has at least one self-append, AND
-        //   (b) every non-self-append looks like SQL (or there are none), AND
-        //   (c) at least one appended string contains SQL content.
-        // Guard (c) prevents plain string-builders like errMsg = errMsg & "Name is required."
-        // from being promoted just because all their assignments happen to be self-appends.
+        //   (b) it has at least one non-self-append assignment that is confirmed SQL
+        //       (this is the "seed" — a variable with ONLY self-appends and no fresh
+        //       SQL assignment can never be promoted to a SQL variable), AND
+        //   (c) every non-self-append assignment looks like SQL, AND
+        //   (d) at least one appended string contains SQL content.
         let changed = true;
         while (changed) {
             changed = false;
@@ -212,8 +219,12 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
                 const selfAssigns    = assignments.filter(a =>  a.isSelfAppend);
                 if (selfAssigns.length === 0) { continue; }
                 const nonSelfAssigns = assignments.filter(a => !a.isSelfAppend);
-                if (nonSelfAssigns.length > 0 && !nonSelfAssigns.every(a => isSql(a.stitchedValue))) { continue; }
+                // Guard (b): must have at least one non-self-append as the SQL seed.
+                if (nonSelfAssigns.length === 0) { continue; }
+                // Guard (c): every non-self-append must look like SQL.
+                if (!nonSelfAssigns.every(a => isSqlOrFragment(a.stitchedValue) || isSqlClauseFragment(a.stitchedValue))) { continue; }
                 const allAppends = [...selfAssigns, ...nonSelfAssigns];
+                // Guard (d): at least one append must contain SQL content.
                 if (!allAppends.some(a => isSqlOrFragment(a.stitchedValue) || isSqlClauseFragment(a.stitchedValue))) { continue; }
                 sqlVars.add(varName);
                 changed = true;
