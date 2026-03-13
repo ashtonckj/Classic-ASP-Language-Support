@@ -209,11 +209,7 @@ function formatMultiLineAspBlock(
 
         // ── Empty line ───────────────────────────────────────────────────
         if (!trimmed) {
-            // Collapse runs of multiple blank lines to a single blank line.
-            const lastLine = formattedLines[formattedLines.length - 1];
-            if (lastLine !== '') {
-                formattedLines.push('');
-            }
+            formattedLines.push('');
             if (!inMultilineString) {
                 prevHadContinuation = false;
                 isInSQLBlock        = false;
@@ -222,7 +218,31 @@ function formatMultiLineAspBlock(
         }
 
         // ── Line-continuation continuation line ──────────────────────────
-        if (prevHadContinuation && trimmed.startsWith('"')) {
+        if (prevHadContinuation) {
+            // Lines that start with a variable/function reference (not a string
+            // literal) cannot be aligned to a quote column — use +1 indent level.
+            // This also resets continuationAlignCol to -1 so that any subsequent
+            // string on the next line is indented at the same +1 level rather than
+            // being mis-aligned to a quote that appeared mid-expression above.
+            const startsWithString = trimmed.startsWith('"');
+
+            if (!startsWithString) {
+                const aspIndent = getIndentString(baseLevel + aspIndentLevel + 1, settings.useTabs, settings.indentSize);
+                formattedLines.push(aspIndent + trimmed);
+
+                if (trimmed.trimEnd().endsWith('_')) {
+                    // Keep continuation active but switch to +1-level indent mode
+                    // so the next line (string or variable) lands at the same column.
+                    continuationAlignCol = -1;
+                } else {
+                    prevHadContinuation = false;
+                    inMultilineString   = false;
+                    isInSQLBlock        = false;
+                }
+                continue;
+            }
+
+            // Line starts with a string literal — align to quote column as before.
             if (isInSQLBlock) {
                 const originalIndent = raw.length - raw.trimStart().length;
                 const relativeIndent = originalIndent - sqlBaseIndent;
