@@ -6,7 +6,7 @@
 
 import * as vscode from 'vscode';
 import { getCSSLanguageService, DiagnosticSeverity as LsSeverity } from 'vscode-css-languageservice';
-import { buildCssDoc } from '../utils/cssUtils';
+import { buildCssDoc, getZone } from '../utils/cssUtils';
 
 const cssService = getCSSLanguageService();
 
@@ -17,6 +17,22 @@ function mapSeverity(severity: LsSeverity | undefined): vscode.DiagnosticSeverit
         case LsSeverity.Hint:        return vscode.DiagnosticSeverity.Hint;
         case LsSeverity.Information: return vscode.DiagnosticSeverity.Information;
         default:                     return vscode.DiagnosticSeverity.Warning;
+    }
+}
+
+/**
+ * Returns true if `pos` falls inside an HTML comment (<!-- ... -->).
+ * Used to skip <style> text that appears inside comment blocks.
+ */
+function isInsideHtmlComment(content: string, pos: number): boolean {
+    let searchFrom = 0;
+    while (true) {
+        const commentOpen = content.indexOf('<!--', searchFrom);
+        if (commentOpen === -1 || commentOpen >= pos) return false;
+        const commentClose = content.indexOf('-->', commentOpen + 4);
+        if (commentClose === -1) return true;  // unclosed comment — pos is inside it
+        if (pos < commentClose + 3) return true;
+        searchFrom = commentClose + 3;
     }
 }
 
@@ -37,6 +53,16 @@ function validateDocument(
     while (true) {
         const styleOpen = content.indexOf('<style', searchFrom);
         if (styleOpen === -1) break;
+
+        // Skip <style text that appears inside an HTML comment (<!-- ... -->),
+        // a <script> block, or an ASP block (<% ... %>).
+        // getZone returns 'html' only for genuine top-level HTML markup.
+        // The HTML comment check must be explicit because getZone returns 'html'
+        // for comment content too (comments are not a distinct zone).
+        if (isInsideHtmlComment(content, styleOpen) || getZone(content, styleOpen) !== 'html') {
+            searchFrom = styleOpen + 6;
+            continue;
+        }
 
         const styleTagEnd = content.indexOf('>', styleOpen);
         if (styleTagEnd === -1) break;
