@@ -565,7 +565,45 @@ export function extractSqlGroup(
 // ─────────────────────────────────────────────────────────────────────────────
 // Context-sensitive token type overrides for emitSqlTokensForGroup.
 const DUAL_ROLE_JOIN  = new Set(['left','right']);
-const DUAL_ROLE_DATES = new Set(['year','month','day']);
+
+// Words that look like SQL keywords but are also very common column names.
+// They should only be coloured as keywords when they appear as the first
+// argument inside a datepart-aware function call:
+//   DATEADD(hour, 1, col)  DATEDIFF(minute, start, end)  DATEPART(week, col) …
+// Everywhere else — SELECT Hour FROM t, t.Day = 5 — they are column names
+// and must not be coloured so the theme leaves them as plain identifiers.
+const DATEPART_WORDS = new Set([
+    'year','month','day',
+    'hour','minute','second','millisecond','microsecond','nanosecond',
+    'dayofweek','dayofyear','week','weekday','quarter',
+]);
+const DATEPART_FUNCTIONS = new Set([
+    'dateadd','datediff','datediff_big','datepart','datename',
+]);
+
+// Returns true when the word at `wordStart` in `sql` is the first argument
+// inside a DATEADD/DATEDIFF/DATEPART/DATENAME call, i.e.:
+//   DATEADD  (  <word>  ,  …
+// The check looks backward from wordStart to confirm the immediately preceding
+// non-whitespace character is '(' and the token before that '(' is a datepart
+// function name.
+function isDatepartArgument(sql: string, wordStart: number): boolean {
+    // Step back past leading whitespace to find the preceding character
+    let i = wordStart - 1;
+    while (i >= 0 && (sql[i] === ' ' || sql[i] === '\t' || sql[i] === '\n' || sql[i] === '\r')) {
+        i--;
+    }
+    if (i < 0 || sql[i] !== '(') { return false; }
+    // Step back past the '(' to find the function name
+    i--;
+    while (i >= 0 && (sql[i] === ' ' || sql[i] === '\t')) { i--; }
+    if (i < 0) { return false; }
+    // Read the word backwards
+    let end = i + 1;
+    while (i >= 0 && /[a-zA-Z0-9_]/.test(sql[i])) { i--; }
+    const fnName = sql.slice(i + 1, end).toLowerCase();
+    return DATEPART_FUNCTIONS.has(fnName);
+}
 
 export function emitSqlTokensForGroup(
     builder: vscode.SemanticTokensBuilder,
@@ -668,14 +706,25 @@ export function emitSqlTokensForGroup(
         if (tokenType !== undefined) {
             const wLower = m[1].toLowerCase();
             const after  = stitched.slice(m.index + m[1].length);
+
             if (DUAL_ROLE_JOIN.has(wLower)) {
-                // LEFT/RIGHT before JOIN → DML colour (same as JOIN)
-                if (/^\s+join\b/i.test(after)) { tokenType = T_SQL_DML; }
-            } else if (DUAL_ROLE_DATES.has(wLower)) {
-                // YEAR/MONTH/DAY before ( → function colour; bare → keyword colour
-                if (/^\s*\(/.test(after)) { tokenType = T_SQL_FUNC; }
-                else                        { tokenType = T_SQL_KEYWORD; }
+                // LEFT/RIGHT: only keyword colour when followed by JOIN
+                if (!/^\s+join\b/i.test(after)) { continue; }
+                tokenType = T_SQL_DML;
+            } else if (DATEPART_WORDS.has(wLower)) {
+                // Date-part words have three possible roles:
+                //   HOUR(start_time)        → ( follows → function colour
+                //   DATEADD(hour, 1, col)   → first arg inside datepart fn → keyword colour
+                //   SELECT Hour FROM t      → bare column name → no colour
+                if (/^\s*\(/.test(after)) {
+                    tokenType = T_SQL_FUNC;
+                } else if (!isDatepartArgument(stitched, m.index)) {
+                    continue; // bare column name — leave uncoloured
+                } else {
+                    tokenType = T_SQL_KEYWORD;
+                }
             }
+
             emit(m.index, m[1].length, tokenType);
             claim(m.index, m[1].length);
         }
