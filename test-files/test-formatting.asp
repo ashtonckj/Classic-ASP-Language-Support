@@ -394,9 +394,9 @@ if not isActive then exit sub
 ' ══════════════════════════════════════════════════════════════════════════════
 
 ' BEFORE: code crammed onto tag lines
-' <% dim x : x=1 %>  — this is a single-line block, valid
-' <%if x=1 then%>    — code immediately after <% with no space
-' <%response.write x%>
+' <$ dim x : x=1 $>  — this is a single-line block, valid
+' <$if x=1 then$>    — code immediately after <% with no space
+' <$response.write x$>
 
 ' (These are represented as live code below)
 %>
