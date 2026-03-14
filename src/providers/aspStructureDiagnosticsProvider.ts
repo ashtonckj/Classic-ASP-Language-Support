@@ -315,6 +315,156 @@ function closerFor(kind: BlockKind): string {
     }
 }
 
+// ── ASP tag balance scanner ───────────────────────────────────────────────────
+//
+// Checks that every <% has a matching %> and vice versa, across the whole file.
+//
+// Rules that match real ASP/VBScript behaviour (and isInsideAspBlock):
+//   • Inside an HTML comment <!-- ... -->  →  <% is not a real open tag
+//   • Inside a string literal "..."        →  %> is not a real close tag
+//   • After a VBScript comment marker '   →  %> to end-of-line is not a real
+//                                             close tag (same as isInsideAspBlock)
+//   • <% inside an already-open ASP block →  ignored (VBScript is not nestable)
+//
+// Flagged cases:
+//   Stray %>   — no matching <% above it  →  Warning on the %>  (2 chars)
+//   Unclosed <% — no matching %> in file  →  Warning on the <%  (2 chars)
+
+function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] {
+    const text        = document.getText();
+    const diagnostics: vscode.Diagnostic[] = [];
+
+    // Stack of unclosed <% positions (absolute text offsets)
+    const openStack: number[] = [];
+
+    let i      = 0;
+    let inAsp  = false;
+    let inHtml = false;   // inside <!-- ... -->
+
+    while (i < text.length) {
+
+        // ── Outside ASP ───────────────────────────────────────────────────────
+        if (!inAsp) {
+
+            // Enter / skip HTML comment
+            if (!inHtml && text.slice(i, i + 4) === '<!--') {
+                inHtml = true;
+                i += 4;
+                continue;
+            }
+            if (inHtml) {
+                if (text.slice(i, i + 3) === '-->') { inHtml = false; i += 3; }
+                else { i++; }
+                continue;
+            }
+
+            // <% opens an ASP block (<%=  and  <%-- both included — the char
+            // after <% is just the first content character)
+            if (text[i] === '<' && text[i + 1] === '%') {
+                openStack.push(i);
+                inAsp = true;
+                i += 2;
+                continue;
+            }
+
+            // Stray %> — no open <% above
+            if (text[i] === '%' && text[i + 1] === '>') {
+                const pos   = document.positionAt(i);
+                const range = new vscode.Range(pos, document.positionAt(i + 2));
+                diagnostics.push(Object.assign(
+                    new vscode.Diagnostic(
+                        range,
+                        `Unexpected '%>' — no opening '<%' found`,
+                        vscode.DiagnosticSeverity.Warning
+                    ),
+                    { source: 'Classic ASP (tags)' }
+                ));
+                i += 2;
+                continue;
+            }
+
+            i++;
+            continue;
+        }
+
+        // ── Inside ASP — scan line by line so ' comments are handled correctly ─
+        const lineEnd = text.indexOf('\n', i);
+        const end     = lineEnd === -1 ? text.length : lineEnd + 1;
+
+        let j     = i;
+        let inStr = false;
+        let closedThisLine = false;
+
+        while (j < end) {
+            const ch = text[j];
+
+            // String literal — %> inside is not a close tag
+            if (inStr) {
+                if (ch === '"') {
+                    if (j + 1 < end && text[j + 1] === '"') { j += 2; continue; } // escaped ""
+                    inStr = false;
+                }
+                j++;
+                continue;
+            }
+            if (ch === '"') { inStr = true; j++; continue; }
+
+            // VBScript inline comment — rest of line is comment text, but %>
+            // still closes the ASP block. Keep scanning for %> only.
+            // Any <% found here is just comment text — not a real nested open.
+            if (ch === "'") {
+                while (j < end) {
+                    if (text[j] === '%' && j + 1 < text.length && text[j + 1] === '>') {
+                        openStack.pop(); // matched — close the <%
+                        inAsp = false;
+                        i     = j + 2;
+                        closedThisLine = true;
+                        break;
+                    }
+                    j++;
+                }
+                // Whether or not we found %>, done with this line
+                if (!closedThisLine) {
+                    i = end;
+                    closedThisLine = true; // prevent the !closedThisLine path below
+                }
+                break;
+            }
+
+            // %> closes the block
+            if (ch === '%' && j + 1 < text.length && text[j + 1] === '>') {
+                openStack.pop(); // matched — remove the corresponding <%
+                inAsp = false;
+                i     = j + 2;
+                closedThisLine = true;
+                break;
+            }
+
+            j++;
+        }
+
+        if (!closedThisLine) {
+            i = end; // advance to next line, stay inAsp
+        }
+    }
+
+    // Anything left on the open stack is an unclosed <%
+    for (const openOffset of openStack) {
+        const pos   = document.positionAt(openOffset);
+        const range = new vscode.Range(pos, document.positionAt(openOffset + 2));
+        diagnostics.push(Object.assign(
+            new vscode.Diagnostic(
+                range,
+                `Unclosed '<%' — no matching '%>' found`,
+                vscode.DiagnosticSeverity.Warning
+            ),
+            { source: 'Classic ASP (tags)' }
+        ));
+    }
+
+    return diagnostics;
+}
+
 // ── Registration ──────────────────────────────────────────────────────────────
 
 export function registerAspStructureDiagnostics(
@@ -330,14 +480,20 @@ export function registerAspStructureDiagnostics(
         if (document.languageId !== 'asp') { return; }
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
-            collection.set(document.uri, scanAspStructure(document));
+            collection.set(document.uri, [
+                ...scanAspTags(document),
+                ...scanAspStructure(document),
+            ]);
         }, 1500);
     }
 
     // Run immediately on already-open documents
     for (const doc of vscode.workspace.textDocuments) {
         if (doc.languageId === 'asp') {
-            collection.set(doc.uri, scanAspStructure(doc));
+            collection.set(doc.uri, [
+                ...scanAspTags(doc),
+                ...scanAspStructure(doc),
+            ]);
         }
     }
 

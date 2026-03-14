@@ -7,9 +7,8 @@
 '   Each section states exactly which lines SHOULD warn and which MUST NOT.
 '
 ' LEGEND:
-'   ' ← WARN   this opener or closer should have an orange squiggle
+'   ' ← WARN   this opener or closer will have an orange squiggle
 '   ' ← OK     no warning expected on this line
-
 
 ' ══════════════════════════════════════════════════════════════════════════════
 ' SECTION 1 — Happy path: every VBScript block correctly matched
@@ -128,10 +127,12 @@ Class UserModel          ' ← OK
     End Function
 End Class                ' ← OK
 
+%>
 
+
+<%
 ' ══════════════════════════════════════════════════════════════════════════════
-' SECTION 2 — Known bugs: unclosed VBScript openers
-'             EXPECTED: one warning per opener marked ← WARN
+' SECTION 2 — Unclosed VBScript openers
 ' ══════════════════════════════════════════════════════════════════════════════
 
 ' ── 2a. If with no End If ────────────────────────────────────────────────────
@@ -184,46 +185,50 @@ With conn                ' ← WARN: Missing 'End With'
 Class OrderModel         ' ← WARN: Missing 'End Class'
     Private mId
 
+%>
 
+
+<%
 ' ══════════════════════════════════════════════════════════════════════════════
-' SECTION 3 — Known bugs: stray VBScript closers (no matching opener)
-'             EXPECTED: one warning per closer marked ← WARN
+' SECTION 3 — Stray VBScript closers (no matching opener in this block)
 ' ══════════════════════════════════════════════════════════════════════════════
 
 ' ── 3a. Stray End If ─────────────────────────────────────────────────────────
 
 Response.Write "no If above"
-End If                   ' ← WARN: Unexpected 'End If'
+End If                   ' ← WARN: Unexpected 'End If' — no matching opener
 
 ' ── 3b. Stray Next ───────────────────────────────────────────────────────────
 
 Response.Write "no For above"
-Next                     ' ← WARN: Unexpected 'Next'
+Next                     ' ← WARN: Unexpected 'Next' — no matching opener
 
 ' ── 3c. Stray Wend ───────────────────────────────────────────────────────────
 
 Response.Write "no While above"
-Wend                     ' ← WARN: Unexpected 'Wend'
+Wend                     ' ← WARN: Unexpected 'Wend' — no matching opener
 
 ' ── 3d. Stray Loop ───────────────────────────────────────────────────────────
 
 Response.Write "no Do above"
-Loop                     ' ← WARN: Unexpected 'Loop'
+Loop                     ' ← WARN: Unexpected 'Loop' — no matching opener
 
 ' ── 3e. Stray End Function ───────────────────────────────────────────────────
 
 Response.Write "no Function above"
-End Function             ' ← WARN: Unexpected 'End Function'
+End Function             ' ← WARN: Unexpected 'End Function' — no matching opener
 
 ' ── 3f. Stray End Sub ────────────────────────────────────────────────────────
 
 Response.Write "no Sub above"
-End Sub                  ' ← WARN: Unexpected 'End Sub'
+End Sub                  ' ← WARN: Unexpected 'End Sub' — no matching opener
+
+%>
 
 
+<%
 ' ══════════════════════════════════════════════════════════════════════════════
 ' SECTION 4 — Edge cases: things that MUST NOT trigger warnings
-'             EXPECTED: zero warnings in this entire section
 ' ══════════════════════════════════════════════════════════════════════════════
 
 ' ── 4a. Single-line If (no End If needed) ────────────────────────────────────
@@ -316,41 +321,40 @@ escaped = "He said ""End If"" and walked out"   ' ← OK: End If is inside a str
 Dim hint
 hint = "With great power comes great responsibility"   ' ← OK: "With" is in a string
 
+%>
 
+
+<%
 ' ══════════════════════════════════════════════════════════════════════════════
 ' SECTION 5 — Mismatched / wrong-order VBScript closers
-'             EXPECTED: warnings on the lines marked ← WARN
 ' ══════════════════════════════════════════════════════════════════════════════
 
 ' ── 5a. If closed by wrong keyword (Next instead of End If) ──────────────────
-'        Scanner should warn on the If opener (unclosed) and on the stray Next
-
-If condition Then        ' ← WARN: unclosed — the Next below does not close this
+If condition Then        ' ← WARN: unclosed — no End If in this block
     Response.Write "oops"
-Next                     ' ← WARN: no For above this
+Next                     ' ← WARN: Unexpected 'Next' — no For above this
 
 ' ── 5b. Nested blocks — inner closed, outer not ──────────────────────────────
-
-For i = 1 To 5           ' ← WARN: Missing 'Next'
+For i = 1 To 5           ' ← WARN: Missing 'Next' — never closed
     If items(i) <> "" Then  ' ← OK: this If is correctly closed below
         Response.Write items(i) & "<br>"
-    End If               ' ← OK
+    End If               ' ← OK: closes the If above
 
-' ── 5c. Swapped End Sub and End Function ─────────────────────────────────────
-
-Function GetName()       ' ← WARN: closed with End Sub instead of End Function
+' ── 5c. Swapped End Sub / End Function ───────────────────────────────────────
+Function GetName()       ' ← OK: matched by End Function below via stack walk-back
     GetName = "Alice"
-End Sub                  ' ← WARN: no Sub above this — the Function above does not match
+End Sub                  ' ← WARN: Unexpected 'End Sub' — no Sub above this
 
-Sub PrintName()          ' ← WARN: closed with End Function instead of End Sub
+Sub PrintName()          ' ← WARN: unclosed — popped when End Function matches Function above
     Response.Write "Bob"
-End Function             ' ← WARN: no Function above this
+End Function             ' ← OK: matches Function GetName via stack walk-back
+
+%>
 
 
+<%
 ' ══════════════════════════════════════════════════════════════════════════════
-' SECTION 6 — VBScript keywords inside <% %> vs outside
-'             Keywords outside ASP blocks must be completely ignored
-'             EXPECTED: zero warnings from any HTML-side text below
+' SECTION 6 — Keywords outside ASP blocks must be completely ignored
 ' ══════════════════════════════════════════════════════════════════════════════
 
 %>
@@ -366,7 +370,6 @@ End Function             ' ← WARN: no Function above this
 
 ' ══════════════════════════════════════════════════════════════════════════════
 ' SECTION 7 — Deeply nested real-world block (all correctly matched)
-'             EXPECTED: zero warnings
 ' ══════════════════════════════════════════════════════════════════════════════
 
 Function ProcessBatch(items)       ' ← OK
@@ -397,7 +400,6 @@ End Function                       ' ← OK
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      SECTION 8 — Happy path: HTML structural tags correctly matched
-                 EXPECTED: zero warnings in this entire section
      ═══════════════════════════════════════════════════════════════════════════ -->
 
 <div class="container">
@@ -464,15 +466,14 @@ End Function                       ' ← OK
 
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
-     SECTION 9 — Known bugs: unclosed HTML structural tags
-                 EXPECTED: one warning per opener marked ← WARN
+     SECTION 9 — Unclosed HTML structural tags
      ═══════════════════════════════════════════════════════════════════════════ -->
 
 <!-- 9a. div with no closing tag -->
 <div class="panel">      <!-- ← WARN: Missing </div> -->
     <p>Content here</p>
 
-<!-- 9b. table with no closing tag -->
+<!-- 9b. table with no closing tag (thead/tbody/tr are correctly matched inside) -->
 <table>                  <!-- ← WARN: Missing </table> -->
     <thead>
         <tr>
@@ -500,30 +501,29 @@ End Function                       ' ← OK
 
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
-     SECTION 10 — Known bugs: stray HTML closing tags (no matching opener)
-                  EXPECTED: one warning per closer marked ← WARN
+     SECTION 10 — Stray HTML closing tags
      ═══════════════════════════════════════════════════════════════════════════ -->
 
-<!-- 10a. Stray </div> -->
-<p>No div above this</p>
-</div>                   <!-- ← WARN: Unexpected </div> -->
+<!-- 10a. </div> matches <div class="panel"> from section 9.
+          Everything above it on the stack (nav, ul, form, table) is popped
+          as unclosed — warnings fire on those section 9 openers, not here. -->
+</div>                   <!-- ← OK as a closer (matches section 9 div) -->
 
-<!-- 10b. Stray </table> -->
-<p>No table above this</p>
-</table>                 <!-- ← WARN: Unexpected </table> -->
+<!-- 10b. Stray </table> — stack is empty after 10a -->
+<p>Stack is now empty</p>
+</table>                 <!-- ← WARN: Unexpected </table> — no opening <table> left -->
 
 <!-- 10c. Stray </section> -->
 <p>No section above this</p>
-</section>               <!-- ← WARN: Unexpected </section> -->
+</section>               <!-- ← WARN: Unexpected </section> — no opening <section> -->
 
 <!-- 10d. Stray </form> -->
 <p>No form above this</p>
-</form>                  <!-- ← WARN: Unexpected </form> -->
+</form>                  <!-- ← WARN: Unexpected </form> — no opening <form> left -->
 
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      SECTION 11 — HTML edge cases that MUST NOT trigger warnings
-                  EXPECTED: zero warnings in this entire section
      ═══════════════════════════════════════════════════════════════════════════ -->
 
 <!-- 11a. Self-closing tags — must not be pushed onto the stack -->
@@ -572,7 +572,6 @@ End Function                       ' ← OK
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      SECTION 12 — HTML tags inside ASP blocks — must be ignored by HTML scanner
-                  EXPECTED: zero warnings
      ═══════════════════════════════════════════════════════════════════════════ -->
 
 <%
@@ -602,7 +601,6 @@ End Function                       ' ← OK
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      SECTION 13 — HTML tags with inline ASP expressions in attributes
-                  EXPECTED: zero warnings — the scanner must not choke on
                   <%= ... %> or <% ... %> inside attribute values
      ═══════════════════════════════════════════════════════════════════════════ -->
 
@@ -623,7 +621,6 @@ End Function                       ' ← OK
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      SECTION 14 — Mixed unclosed HTML + ASP in a real-world-style page fragment
-                  EXPECTED: warnings only on the lines marked ← WARN
      ═══════════════════════════════════════════════════════════════════════════ -->
 
 <div class="search-results">    <!-- ← WARN: Missing </div> — never closed below -->

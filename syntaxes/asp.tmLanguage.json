@@ -124,7 +124,7 @@
                                     "name": "punctuation.definition.comment.asp"
                                 }
                             },
-                            "end": "\\n"
+                            "end": "(?=%>)|\\n"
                         }
                     ]
                 },
@@ -319,7 +319,7 @@
             "patterns": [
                 {
                     "name": "meta.function.asp",
-                    "match": "(?i)^\\s*(function|sub)\\s+([a-zA-Z_]\\w*)\\s*(\\()([^)]*)(\\)).*\\n?",
+                    "match": "(?i)^\\s*(function|sub)\\s+([a-zA-Z_]\\w*)\\s*(\\()([^)]*)(\\))[^'\\r\\n]*",
                     "captures": {
                         "1": {
                             "name": "storage.type.function.asp"

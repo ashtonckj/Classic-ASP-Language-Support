@@ -78,52 +78,72 @@ export function isInsideAspBlock(text: string, offset: number): boolean {
             inAsp = true;
             i = openIdx + 2;                           // move past <%
         } else {
-            // Inside ASP — scan line by line so we can skip comment lines.
+            // Inside ASP — scan the current line character by character.
+            //
+            // Rules (matching real ASP/VBScript behaviour):
+            //   "..."  — string literal: %> and ' inside are not special
+            //   '      — VBScript inline comment: everything from here to EOL
+            //            is a comment, so %> after the ' does NOT close the block
+            //   %>     — outside a string and before any ', closes the ASP block
+            //
+            // This correctly handles all three cases:
+            //   <% 'comment %>       → %> closes the block
+            //   <% code 'comment %>  → %> closes the block
+            //   ' whole-line comment → treated the same; %> in the comment is ignored
+            //
+            // A <% that appears inside a VBScript comment ('... <%...) is harmless
+            // because the scanner is already inside the ASP block and only ever looks
+            // for %> (not for a new <%).
             const lineStart = i;
             const lineEnd   = text.indexOf('\n', i);
-            const lineText  = lineEnd === -1
-                ? text.slice(lineStart)
-                : text.slice(lineStart, lineEnd + 1);
+            const end       = lineEnd === -1 ? text.length : lineEnd + 1;
 
-            const trimmed = lineText.trimStart();
-
-            // VBScript comment line — %> on this line is NOT a real close tag.
-            // Skip the whole line without looking for %>.
-            if (trimmed.startsWith("'")) {
-                i = lineEnd === -1 ? text.length : lineEnd + 1;
-                // If offset is on this comment line, we are inside the ASP block.
-                if (offset <= (lineEnd === -1 ? text.length : lineEnd)) {
-                    return true;
-                }
-                continue;
-            }
-
-            // Non-comment line — look for %> but only outside string literals.
-            // VBScript strings are delimited by " ('' is an escaped quote inside).
-            let j       = lineStart;
-            const end   = lineEnd === -1 ? text.length : lineEnd + 1;
-            let inStr   = false;
+            let j     = lineStart;
+            let inStr = false;
 
             while (j < end) {
-                // String literal tracking (VBScript uses " delimiters; "" = escaped quote)
-                if (text[j] === '"') {
-                    if (inStr && j + 1 < end && text[j + 1] === '"') {
-                        j += 2;   // escaped "" inside string
-                        continue;
+                const ch = text[j];
+
+                if (inStr) {
+                    if (ch === '"') {
+                        if (j + 1 < end && text[j + 1] === '"') { j += 2; continue; } // escaped ""
+                        inStr = false;
                     }
-                    inStr = !inStr;
                     j++;
                     continue;
                 }
 
-                if (!inStr && text[j] === '%' && text[j + 1] === '>') {
-                    // Found a real %> close tag.
+                if (ch === '"') { inStr = true; j++; continue; }
+
+                // VBScript inline comment — the rest of this line is comment text,
+                // but %> still closes the ASP block (tag delimiters are parsed at
+                // the HTML level, before VBScript runs). Keep scanning for %>.
+                if (ch === "'") {
+                    while (j < end) {
+                        if (text[j] === '%' && text[j + 1] === '>') {
+                            const closeEnd = j + 2;
+                            if (offset < closeEnd) {
+                                return offset > (text.lastIndexOf('<%', j));
+                            }
+                            inAsp = false;
+                            i = closeEnd;
+                            break;
+                        }
+                        j++;
+                    }
+                    // Whether or not we found %>, we are done with this line
+                    if (inAsp) {
+                        i = end;
+                        if (offset < end) { return true; }
+                    }
+                    break;
+                }
+
+                if (ch === '%' && text[j + 1] === '>') {
                     const closeEnd = j + 2;
                     if (offset < closeEnd) {
-                        // offset is before or at the close tag → inside ASP block
                         return offset > (text.lastIndexOf('<%', j));
                     }
-                    // offset is past this close tag → no longer in this block
                     inAsp = false;
                     i = closeEnd;
                     break;
@@ -133,9 +153,8 @@ export function isInsideAspBlock(text: string, offset: number): boolean {
             }
 
             if (inAsp) {
-                // Reached end of line without finding %> → keep scanning
+                // Reached end of line without finding %> or ' → keep scanning
                 i = end;
-                // If offset is within what we just scanned, it's inside ASP
                 if (offset < end) { return true; }
             }
         }
