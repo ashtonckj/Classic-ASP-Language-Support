@@ -137,7 +137,13 @@ function classifyLine(raw: string): LineAction[] {
     }
 
     // For Each / For <var> = ...
-    if (/\bfor\s+each\b/.test(lower) || /\bfor\s+\w+\s*=/.test(lower)) {
+    // "For Each" squiggles the two-word phrase; a plain counter For squiggles just "For".
+    if (/\bfor\s+each\b/.test(lower)) {
+        const col = raw.toLowerCase().search(/\bfor\b/);
+        actions.push({ type: 'open', kind: 'for', opener: 'For Each', colOffset: col });
+        return actions;
+    }
+    if (/\bfor\s+\w+\s*=/.test(lower)) {
         const col = raw.toLowerCase().search(/\bfor\b/);
         actions.push({ type: 'open', kind: 'for', opener: 'For', colOffset: col });
         return actions;
@@ -146,7 +152,19 @@ function classifyLine(raw: string): LineAction[] {
     // Do / Do While / Do Until — must come BEFORE the While check so that
     // "Do While Not rs.EOF" is classified as a Do block (closer: Loop),
     // not as a While block (closer: Wend).
-    if (/\bdo\b(\s+while|\s+until)?(\s|$)/.test(lower)) {
+    // The opener string includes the condition keyword so the squiggle covers
+    // the full phrase: "Do While", "Do Until", or just "Do".
+    if (/\bdo\s+while\b/.test(lower)) {
+        const col = raw.toLowerCase().search(/\bdo\b/);
+        actions.push({ type: 'open', kind: 'do', opener: 'Do While', colOffset: col });
+        return actions;
+    }
+    if (/\bdo\s+until\b/.test(lower)) {
+        const col = raw.toLowerCase().search(/\bdo\b/);
+        actions.push({ type: 'open', kind: 'do', opener: 'Do Until', colOffset: col });
+        return actions;
+    }
+    if (/\bdo\b(\s|$)/.test(lower)) {
         const col = raw.toLowerCase().search(/\bdo\b/);
         actions.push({ type: 'open', kind: 'do', opener: 'Do', colOffset: col });
         return actions;
