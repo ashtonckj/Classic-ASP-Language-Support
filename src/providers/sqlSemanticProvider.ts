@@ -79,7 +79,7 @@ export function isSql(text: string): boolean {
     const firstClauseMatch = SQL_CLAUSES.exec(text);
     if (firstClauseMatch) {
         const beforeClause = text.slice(0, firstClauseMatch.index);
-        if (/(?<![\w\]])\.|\.(?![\w\[])/.test(beforeClause)) { return false; }
+        if (/(?<![\w\]])\.|\.(?![\w\[*])/.test(beforeClause)) { return false; }
     }
 
     // Guard: a colon that follows a word and is NOT immediately followed by a digit
@@ -110,7 +110,7 @@ export function isSqlExpression(text: string): boolean {
     // Must start with a SQL function call (possibly with leading whitespace)
     if (!SQL_EXPR_FUNCTIONS.test(text)) { return false; }
     // Must not look like a natural language sentence (has a period before any keyword)
-    if (/(?<![\w\]])\.|\.(?![\w\[])/.test(text.split('(')[0])) { return false; }
+    if (/(?<![\w\]])\.|\.(?![\w\[*])/.test(text.split('(')[0])) { return false; }
     return true;
 }
 
