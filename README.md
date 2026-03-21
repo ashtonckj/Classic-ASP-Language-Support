@@ -133,7 +133,7 @@
 | <img src="images/ext-lorem-ipsum.png" width="50"> | [Lorem Ipsum] | ✅ Compatible | Quick placeholder text insertion |
 | <img src="images/ext-color-highlight.png" width="50"> | [Color Highlight] | ✅ Compatible | Highlights CSS colour values inline |
 | <img src="images/ext-better-comments.png" width="50"> | [Better Comments] | ✅ Compatible | Colour-coded comment annotations |
-| <img src="images/ext-inline-bookmarks.png" height="50"> | [Inline Bookmarks] | ✅ Compatible | In-editor bookmark tracking |
+| <img src="images/ext-inline-bookmarks.png" height="35"> | [Inline Bookmarks] | ✅ Compatible | In-editor bookmark tracking |
 | <img src="images/ext-http-status-codes.png" width="50"> | [HTTP Status Codes] | ✅ Compatible | HTTP status code reference on hover |
 | <img src="images/ext-asp-html-tag-matcher.png" width="50"> | [ASP HTML Tag Matcher] | ✅ Compatible | Highlights matching HTML tags in ASP files |
 | <img src="images/ext-html-css-support.png" width="50"> | [HTML CSS Support] | ⚠️ Caution | May conflict with built-in HTML completions — test before use |
