@@ -203,7 +203,20 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
         if (textBefore.match(/<(\w+)$/))      { return getTagCompletions(); }
 
         // ── Attribute suggestions ─────────────────────────────────────────────
-        if (isInsideTagForAttributes(document, position)) {
+        // Guard: if the cursor is inside a quoted attribute VALUE (e.g. href="../")
+        // don't suggest attribute names — that's handled by other providers.
+        const insideAttrValue = (() => {
+            const lastOpen = textBefore.lastIndexOf('<');
+            if (lastOpen === -1) { return false; }
+            let inQuote: string | null = null;
+            for (const ch of textBefore.slice(lastOpen)) {
+                if (!inQuote && (ch === '"' || ch === "'")) { inQuote = ch; }
+                else if (inQuote && ch === inQuote) { inQuote = null; }
+            }
+            return inQuote !== null;
+        })();
+
+        if (!insideAttrValue && isInsideTagForAttributes(document, position)) {
             const tagName = getCurrentTagName(document, position);
             if (tagName) {
                 const afterTagName = textBefore.match(/<\w+\s+(.*)$/);

@@ -172,10 +172,6 @@ export class HtmlAttributePathCompletionProvider implements vscode.CompletionIte
             item.detail     = isDir ? 'Directory' : 'File';
             item.sortText   = (isDir ? '0_' : '1_') + entry.name.toLowerCase();
 
-            // Re-trigger after folder selection so the next level appears immediately
-            if (isDir) item.command = { command: 'editor.action.triggerSuggest', title: 'Suggest' };
-
-            // Re-trigger after folder selection so the next level appears immediately
             if (isDir) item.command = { command: 'editor.action.triggerSuggest', title: 'Suggest' };
 
             items.push(item);
