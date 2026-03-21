@@ -199,8 +199,11 @@ function classifyContext(emittedSoFar: string): AspBlockKind {
 
         if (inTag) {
             if (ch === '>') { inTag = false; i++; continue; }
-            if ((ch === '"' || ch === "'") && i > 0 && emittedSoFar[i - 1] === '=') {
-                attrQuote = ch; i++; continue;
+            if (ch === '"' || ch === "'") {
+                // Look back past whitespace to find '=' — handles `attr = "value"`
+                let j = i - 1;
+                while (j >= 0 && (emittedSoFar[j] === ' ' || emittedSoFar[j] === '\t')) { j--; }
+                if (j >= 0 && emittedSoFar[j] === '=') { attrQuote = ch; i++; continue; }
             }
             i++; continue;
         }
