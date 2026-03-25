@@ -228,9 +228,6 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
                 : new vscode.MarkdownString(`**${cv.name}** — COM object variable`);
             item.sortText     = '2_' + cv.name;
             item.preselect    = false;
-
-            // Trigger member suggestions after accepting this variable
-            item.command = { command: 'editor.action.triggerSuggest', title: 'Suggest members' };
             completions.push(item);
         }
 
@@ -248,7 +245,6 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
             );
             item.preselect = false;
             item.sortText  = '1_' + obj.name;
-            item.command   = { command: 'editor.action.triggerSuggest', title: 'Trigger Method Suggestions' };
             return item;
         });
     }

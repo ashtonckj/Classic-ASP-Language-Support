@@ -174,8 +174,9 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
             });
         }
 
-        // Set x = [Server.]CreateObject("...")
-        const setMatch = lineNoComment.match(/\bSet\s+(\w+)\s*=\s*(?:Server\.)?CreateObject\s*\(\s*["']([^"']+)["']\s*\)/i);
+        // Set x = [Server.]CreateObject("...") — must run on original line, not
+        // lineNoComment, because the progId is inside a string literal.
+        const setMatch = line.match(/\bSet\s+(\w+)\s*=\s*(?:Server\.)?CreateObject\s*\(\s*["']([^"']+)["']\s*\)/i);
         if (setMatch) {
             result.comVariables.push({
                 name:   setMatch[1],
