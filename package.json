@@ -209,6 +209,11 @@
                             "VBScript indentation continues from the HTML indent level at the point where the <% block appears. Useful if you prefer a fully unified indent style."
                         ],
                         "description": "Controls how VBScript indentation relates to the surrounding HTML structure"
+                    },
+                    "aspLanguageSupport.virtualRoot": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Absolute path to your IIS web application root, used to resolve #include virtual=\"...\" directives. Leave empty to use the workspace folder root (the default, which works for most projects)."
                     }
                 }
             },

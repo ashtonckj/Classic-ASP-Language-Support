@@ -2,11 +2,13 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { isExternalPath, FILE_LINK_ATTRIBUTES } from './includeProvider';
+import { getVirtualRoot } from './includeProvider';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IncludeDocumentLinkProvider
-// Underlines #include file="..." paths persistently with a "Follow link" tooltip.
-// virtual="..." support can be added later once the server root is defined.
+// Underlines #include file="..." and virtual="..." paths with a "Follow link" tooltip.
+// virtual="..." is resolved using the same getVirtualRoot() logic as the symbol
+// provider so the two are always consistent.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class IncludeDocumentLinkProvider implements vscode.DocumentLinkProvider {
@@ -15,9 +17,12 @@ export class IncludeDocumentLinkProvider implements vscode.DocumentLinkProvider 
         document: vscode.TextDocument
     ): vscode.ProviderResult<vscode.DocumentLink[]> {
 
-        const links:  vscode.DocumentLink[] = [];
-        const docDir  = path.dirname(document.uri.fsPath);
-        const pattern = /<!--\s*#include\s+file\s*=\s*["']([^"']+)["']\s*-->/gi;
+        const links:       vscode.DocumentLink[] = [];
+        const docDir      = path.dirname(document.uri.fsPath);
+        const virtualRoot = getVirtualRoot(document.uri.fsPath);
+
+        // Match both file="..." and virtual="..." includes
+        const pattern = /<!--\s*#include\s+(file|virtual)\s*=\s*["']([^"']+)["']\s*-->/gi;
 
         for (let i = 0; i < document.lineCount; i++) {
             const lineText = document.lineAt(i).text;
@@ -25,8 +30,13 @@ export class IncludeDocumentLinkProvider implements vscode.DocumentLinkProvider 
 
             let match: RegExpExecArray | null;
             while ((match = pattern.exec(lineText)) !== null) {
-                const includePath = match[1];
-                const fullPath    = path.resolve(docDir, includePath);
+                const includeType = match[1].toLowerCase();
+                const includePath = match[2];
+
+                const fullPath = includeType === 'virtual'
+                    ? path.join(virtualRoot, includePath.replace(/^\//, ''))
+                    : path.resolve(docDir, includePath);
+
                 if (!fs.existsSync(fullPath)) continue;
 
                 // Underline only the path string, not the whole directive

@@ -22,6 +22,63 @@ export interface FileSymbols {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Virtual root resolution
+// Returns the base directory to use when resolving virtual="..." includes.
+//
+// Priority:
+//   1. aspLanguageSupport.virtualRoot setting (explicit user override)
+//   2. First workspace folder root (common case — user opened VS Code at app root)
+//   3. Directory of the current document (last resort fallback)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function getVirtualRoot(documentPath: string): string {
+    const config      = vscode.workspace.getConfiguration('aspLanguageSupport');
+    const userSetting = config.get<string>('virtualRoot', '').trim();
+
+    if (userSetting) {
+        // Expand a leading ~/ on macOS/Linux for convenience
+        const expanded = userSetting.startsWith('~/')
+            ? path.join(process.env.HOME ?? userSetting, userSetting.slice(2))
+            : userSetting;
+        return expanded;
+    }
+
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+        ?? path.dirname(documentPath);
+}
+
+// Tracks whether we have already shown the virtual root hint in this session
+// so we don't spam the user on every file open.
+let _virtualRootWarningShown = false;
+
+/**
+ * Shows a one-time information message when a virtual="..." include fails to
+ * resolve and no explicit virtualRoot setting has been configured.
+ */
+function notifyVirtualRootUnresolved(includePath: string): void {
+    const config      = vscode.workspace.getConfiguration('aspLanguageSupport');
+    const userSetting = config.get<string>('virtualRoot', '').trim();
+
+    // Only notify when the user hasn't already set a root
+    if (userSetting || _virtualRootWarningShown) return;
+    _virtualRootWarningShown = true;
+
+    vscode.window.showInformationMessage(
+        `Classic ASP: could not resolve virtual include "${includePath}". ` +
+        `If your virtual root differs from the workspace folder, set ` +
+        `"aspLanguageSupport.virtualRoot" in your settings.`,
+        'Open Settings'
+    ).then(choice => {
+        if (choice === 'Open Settings') {
+            vscode.commands.executeCommand(
+                'workbench.action.openSettings',
+                'aspLanguageSupport.virtualRoot'
+            );
+        }
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Symbol extraction
 // Parses a block of ASP/VBScript text and returns all declared symbols
 // (variables, constants, functions/subs, COM objects) tagged with their
@@ -135,24 +192,30 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
 // ─────────────────────────────────────────────────────────────────────────────
 // Include path resolution
 // Returns the resolved absolute paths of all #include directives in the text.
-// Supports file="..." (relative to current doc) and virtual="..." (workspace root).
+// Supports file="..." (relative to current doc) and virtual="..." (virtual root).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function resolveIncludePaths(documentText: string, documentPath: string): string[] {
-    const resolved: string[] = [];
-    const docDir        = path.dirname(documentPath);
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? docDir;
-    const pattern       = /<!--\s*#include\s+(file|virtual)\s*=\s*["']([^"']+)["']\s*-->/gi;
+    const resolved:    string[] = [];
+    const docDir      = path.dirname(documentPath);
+    const virtualRoot = getVirtualRoot(documentPath);
+    const pattern     = /<!--\s*#include\s+(file|virtual)\s*=\s*["']([^"']+)["']\s*-->/gi;
     let match: RegExpExecArray | null;
 
     while ((match = pattern.exec(documentText)) !== null) {
         const includeType = match[1].toLowerCase();
         const includePath = match[2];
-        const fullPath    = includeType === 'virtual'
-            ? path.join(workspaceRoot, includePath.replace(/^\//, ''))
+
+        const fullPath = includeType === 'virtual'
+            ? path.join(virtualRoot, includePath.replace(/^\//, ''))
             : path.resolve(docDir, includePath);
 
-        if (fs.existsSync(fullPath)) resolved.push(fullPath);
+        if (fs.existsSync(fullPath)) {
+            resolved.push(fullPath);
+        } else if (includeType === 'virtual') {
+            // File not found — let the user know they may need to configure virtualRoot
+            notifyVirtualRootUnresolved(includePath);
+        }
     }
 
     return resolved;
@@ -200,11 +263,15 @@ export class IncludePathCompletionProvider implements vscode.CompletionItemProvi
         const includeMatch = textBefore.match(/<!--\s*#include\s+(file|virtual)\s*=\s*["']([^"']*)$/i);
         if (!includeMatch) return new vscode.CompletionList([], false);
 
-        const includeType   = includeMatch[1].toLowerCase();
-        const typedSoFar    = includeMatch[2];
-        const docDir        = path.dirname(document.uri.fsPath);
-        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? docDir;
-        const baseDir       = includeType === 'virtual' ? workspaceRoot : docDir;
+        const includeType = includeMatch[1].toLowerCase();
+        const typedSoFar  = includeMatch[2];
+        const docDir      = path.dirname(document.uri.fsPath);
+
+        // Use the same resolution logic as resolveIncludePaths so completions
+        // browse from the correct root for both file="..." and virtual="..."
+        const baseDir = includeType === 'virtual'
+            ? getVirtualRoot(document.uri.fsPath)
+            : docDir;
 
         // Split typed path into the directory prefix and the current segment
         const normalised   = typedSoFar.replace(/\\/g, '/');
@@ -251,18 +318,6 @@ export class IncludePathCompletionProvider implements vscode.CompletionItemProvi
         return new vscode.CompletionList(items, true);
     }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// AspDefinitionProvider
-// Handles F12 / Ctrl+Click for VBScript functions, subs, variables, constants,
-// and COM object variables — across the current file and all #include'd files.
-//
-// HTML attribute links (href, src, etc.) are handled separately in linkProvider.ts.
-// The guard below ensures those attribute values never fall through to symbol lookup.
-// ─────────────────────────────────────────────────────────────────────────────
-
-// AspDefinitionProvider has moved to ./aspDefinitionProvider.ts
-// It is re-exported below so existing imports keep working.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared helpers (also used by linkProvider.ts and aspHoverProvider.ts)
