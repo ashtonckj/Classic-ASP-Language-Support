@@ -15,6 +15,82 @@ import { AspSemanticTokensProvider, ASP_SEMANTIC_LEGEND } from './providers/aspS
 import { AspHoverProvider } from './providers/aspHoverProvider';
 import { addRegionHighlights } from './highlight';
 
+// Returns line-level TextEdits instead of replacing the whole document.
+// Only changed line ranges are touched — Ctrl+Z still undoes everything in one step.
+function computeLineEdits(document: vscode.TextDocument, original: string, formatted: string): vscode.TextEdit[] {
+    const originalLines  = original.split('\n');
+    const formattedLines = formatted.split('\n');
+    const edits: vscode.TextEdit[] = [];
+
+    let i = 0;
+    while (i < Math.max(originalLines.length, formattedLines.length)) {
+        if (originalLines[i] === formattedLines[i]) { i++; continue; }
+
+        let j = i + 1;
+        while (
+            j < Math.max(originalLines.length, formattedLines.length) &&
+            originalLines[j] !== formattedLines[j]
+        ) { j++; }
+
+        const endLine  = Math.min(j, originalLines.length);
+        const newText  = formattedLines.slice(i, j).join('\n');
+        const startPos = new vscode.Position(i, 0);
+        const endPos   = endLine < originalLines.length
+            ? new vscode.Position(endLine, 0)
+            : document.positionAt(original.length);
+
+        edits.push(vscode.TextEdit.replace(
+            new vscode.Range(startPos, endPos),
+            newText + (endLine < originalLines.length ? '\n' : '')
+        ));
+        i = j;
+    }
+
+    return edits;
+}
+
+// Shared structure issue check used by both the formatter and the preview.
+function getStructureIssueCount(
+    document: vscode.TextDocument,
+    htmlCollection: vscode.DiagnosticCollection,
+    aspCollection:  vscode.DiagnosticCollection
+): number {
+    return (htmlCollection.get(document.uri) ?? []).length +
+           (aspCollection.get(document.uri)  ?? []).length;
+}
+
+// Opens VS Code's built-in diff editor showing current vs formatted.
+// Nothing is applied to the real file — purely a visual preview.
+async function openFormattingPreview(
+    context: vscode.ExtensionContext,
+    document: vscode.TextDocument,
+    formatted: string
+): Promise<void> {
+    const previewUri   = document.uri.with({ scheme: 'asp-format-preview' });
+    const provider     = new (class implements vscode.TextDocumentContentProvider {
+        provideTextDocumentContent() { return formatted; }
+    })();
+    const registration = vscode.workspace.registerTextDocumentContentProvider('asp-format-preview', provider);
+
+    await vscode.commands.executeCommand(
+        'vscode.diff',
+        document.uri,
+        previewUri,
+        `Formatting Preview — ${document.fileName.split(/[\\/]/).pop()}`,
+        { preview: true }
+    );
+
+    // Clean up the virtual provider once the diff tab is closed
+    const listener = vscode.window.onDidChangeVisibleTextEditors(() => {
+        const still = vscode.window.visibleTextEditors.some(
+            e => e.document.uri.toString() === previewUri.toString()
+        );
+        if (!still) { registration.dispose(); listener.dispose(); }
+    });
+
+    context.subscriptions.push(registration, listener);
+}
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('Classic ASP Language Support is now active!');
 
@@ -32,11 +108,7 @@ export function activate(context: vscode.ExtensionContext) {
     // ── Formatter ─────────────────────────────────────────────────────────────
     const formatter = vscode.languages.registerDocumentFormattingEditProvider('asp', {
         async provideDocumentFormattingEdits(document: vscode.TextDocument): Promise<vscode.TextEdit[]> {
-            // Check for structure issues before formatting — if any exist, show a
-            // banner and skip so the user knows exactly what to fix first.
-            const htmlIssues = htmlStructureCollection.get(document.uri) ?? [];
-            const aspIssues  = aspStructureCollection.get(document.uri)  ?? [];
-            const total      = htmlIssues.length + aspIssues.length;
+            const total = getStructureIssueCount(document, htmlStructureCollection, aspStructureCollection);
             if (total > 0) {
                 vscode.window.showWarningMessage(
                     `Formatting skipped — ${total} structure issue${total === 1 ? '' : 's'} found. ` +
@@ -47,8 +119,21 @@ export function activate(context: vscode.ExtensionContext) {
 
             const fullText  = document.getText();
             const formatted = await formatCompleteAspFile(fullText);
-            const fullRange = new vscode.Range(document.positionAt(0), document.positionAt(fullText.length));
-            return [vscode.TextEdit.replace(fullRange, formatted)];
+
+            // When formatPreview is enabled, open a diff editor instead of
+            // applying changes. The formatter returns no edits so the file
+            // is never touched until the user formats again with preview off.
+            const config = vscode.workspace.getConfiguration('aspLanguageSupport');
+            if (config.get<boolean>('formatPreview', false)) {
+                if (formatted === fullText) {
+                    vscode.window.showInformationMessage('No formatting changes — file is already formatted.');
+                    return [];
+                }
+                await openFormattingPreview(context, document, formatted);
+                return [];
+            }
+
+            return computeLineEdits(document, fullText, formatted);
         }
     });
 
@@ -84,7 +169,6 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // ── Document link providers ───────────────────────────────────────────────
-    // Both providers give persistent underlines + "Follow link (Ctrl+Click)" tooltip.
     const includeDocumentLinkProvider = vscode.languages.registerDocumentLinkProvider(
         'asp', new IncludeDocumentLinkProvider()
     );
@@ -93,8 +177,6 @@ export function activate(context: vscode.ExtensionContext) {
         'asp', new HtmlAttributeLinkProvider()
     );
 
-    // HTML attribute path completion — fires inside href, src, action, data-src values.
-    // Same trigger characters as the #include completion provider.
     const htmlAttributePathProvider = vscode.languages.registerCompletionItemProvider(
         'asp', new HtmlAttributePathCompletionProvider(),
         '"', "'", '/', '\\', '.',
@@ -175,7 +257,6 @@ export function activate(context: vscode.ExtensionContext) {
         const position = change.range.start;
         const lineText = e.document.lineAt(position.line).text;
 
-        // Only re-trigger when the change was a single character (normal typing)
         if (change.text.length !== 1) return;
 
         const textBefore = lineText.substring(0, position.character + 1);

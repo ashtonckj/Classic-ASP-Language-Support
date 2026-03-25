@@ -214,6 +214,11 @@
                         "type": "string",
                         "default": "",
                         "description": "Absolute path to your IIS web application root, used to resolve #include virtual=\"...\" directives. Leave empty to use the workspace folder root (the default, which works for most projects)."
+                    },
+                    "aspLanguageSupport.formatPreview": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Debug: When enabled, Alt+Shift+F opens a diff preview showing formatting changes instead of applying them directly. Close the preview and format again with this setting off to apply."
                     }
                 }
             },
