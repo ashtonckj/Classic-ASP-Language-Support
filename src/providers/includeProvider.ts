@@ -206,7 +206,8 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
 // Supports file="..." (relative to current doc) and virtual="..." (virtual root).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function resolveIncludePaths(documentText: string, documentPath: string): string[] {
+// Resolves all #include paths from a single file's text — one level only.
+function resolveDirectIncludes(documentText: string, documentPath: string): string[] {
     const resolved:    string[] = [];
     const docDir      = path.dirname(documentPath);
     const virtualRoot = getVirtualRoot(documentPath);
@@ -224,8 +225,31 @@ export function resolveIncludePaths(documentText: string, documentPath: string):
         if (fs.existsSync(fullPath)) {
             resolved.push(fullPath);
         } else if (includeType === 'virtual') {
-            // File not found — let the user know they may need to configure virtualRoot
             notifyVirtualRootUnresolved(includePath);
+        }
+    }
+
+    return resolved;
+}
+
+// Recursively resolves all #include paths starting from a document.
+// `visited` prevents infinite loops when files include each other circularly.
+export function resolveIncludePaths(documentText: string, documentPath: string, visited: Set<string> = new Set()): string[] {
+    const resolved: string[] = [];
+    const normalised = documentPath.toLowerCase();
+
+    if (visited.has(normalised)) return resolved;
+    visited.add(normalised);
+
+    for (const incPath of resolveDirectIncludes(documentText, documentPath)) {
+        if (visited.has(incPath.toLowerCase())) continue;
+        resolved.push(incPath);
+
+        try {
+            const incText = fs.readFileSync(incPath, 'utf8');
+            resolved.push(...resolveIncludePaths(incText, incPath, visited));
+        } catch {
+            // Skip unreadable files silently
         }
     }
 
@@ -234,7 +258,7 @@ export function resolveIncludePaths(documentText: string, documentPath: string):
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Symbol collection
-// Merges symbols from the current document and all its #include'd files.
+// Merges symbols from the current document and all included files (all depths).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
