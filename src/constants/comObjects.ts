@@ -188,3 +188,26 @@ for (const [progId, typeDef] of Object.entries(COM_RAW)) {
         };
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COM_METHOD_RETURN_TYPES
+// Maps "progid.methodname" → the progId of the COM object the method returns.
+// Used by extractSymbols to infer types from chained calls like:
+//   Set rs = oConn.Execute(sql)  →  rs is typed as adodb.recordset
+// Only methods that return a typed COM object are listed here.
+// ─────────────────────────────────────────────────────────────────────────────
+export const COM_METHOD_RETURN_TYPES: Record<string, string> = {
+    // ADODB
+    'adodb.connection.execute':                   'adodb.recordset',
+    'adodb.command.execute':                      'adodb.recordset',
+
+    // Scripting.FileSystemObject
+    'scripting.filesystemobject.createtextfile':  'scripting.textstream',
+    'scripting.filesystemobject.opentextfile':    'scripting.textstream',
+    'scripting.filesystemobject.getfile':         'scripting.file',
+    'scripting.filesystemobject.getfolder':       'scripting.folder',
+
+    // MSXML2.DOMDocument
+    'msxml2.domdocument.selectnodes':             'msxml2.nodelist',
+    'msxml2.domdocument.selectsinglenode':        'msxml2.node',
+};

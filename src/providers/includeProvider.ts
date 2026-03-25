@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -195,6 +196,32 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         if (/^\s*End\s+(Function|Sub)\b/i.test(line) && openStack.length > 0) {
             result.functions[openStack.pop()!].endLine = lineIndex;
         }
+    });
+
+    // Third pass — infer COM types from chained method calls.
+    // Matches: Set x = someVar.Method(...)
+    // Looks up someVar's progId from already-collected comVariables, then checks
+    // COM_METHOD_RETURN_TYPES to see if that method returns a typed COM object.
+    const comVarIndex = new Map(result.comVariables.map(cv => [cv.name.toLowerCase(), cv.progId]));
+    lines.forEach((line, lineIndex) => {
+        if (/^\s*'/.test(line)) return;
+
+        const chainMatch = line.match(/^\s*Set\s+(\w+)\s*=\s*(\w+)\.(\w+)\s*\(/i);
+        if (!chainMatch) return;
+
+        const [, assignTo, sourceVar, methodName] = chainMatch;
+
+        // Skip if already tracked via CreateObject
+        if (comVarIndex.has(assignTo.toLowerCase())) return;
+
+        const sourceProgId = comVarIndex.get(sourceVar.toLowerCase());
+        if (!sourceProgId) return;
+
+        const returnProgId = COM_METHOD_RETURN_TYPES[`${sourceProgId}.${methodName.toLowerCase()}`];
+        if (!returnProgId) return;
+
+        result.comVariables.push({ name: assignTo, progId: returnProgId, line: lineIndex, filePath });
+        comVarIndex.set(assignTo.toLowerCase(), returnProgId);
     });
 
     return result;
