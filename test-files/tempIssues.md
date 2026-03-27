@@ -169,7 +169,15 @@ stmt = _
 ```
 > LEFT() isnt being coloured
 
+
 ```vbscript
 <% If condition Then %>
 ```
 > If being highlighted as a warning
+
+
+```vbscript
+columnName = "ID"
+stmt = "SELECT a." & columnName & "FROM tableName a"
+```
+> While SQL query wont get coloured because of this
