@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../utils/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
-import { getZone } from '../utils/aspUtils';
+import { getZone, isInsideAspBlock } from '../utils/aspUtils';
 import * as path from 'path';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -90,36 +90,39 @@ const THREE_WORD_COMPOUNDS: Record<string, string> = {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // Context detection
-// Scans upward from the cursor to determine whether it sits inside a VBScript
-// block (<% %>), a JavaScript block (<script>), or plain HTML.
+// Uses the canonical isInsideAspBlock from aspUtils (comment + string aware)
+// and a simple script-block scan for the JS zone.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type AspContext = 'vbscript' | 'script' | 'html';
 
 function getAspContext(document: vscode.TextDocument, position: vscode.Position): AspContext {
-    const fullText   = document.getText();
-    const offset     = document.offsetAt(position);
-    const textBefore = fullText.slice(0, offset);
+    const fullText = document.getText();
+    const offset   = document.offsetAt(position);
 
-    // Check if we're inside a <script> block (language="javascript" or no language attr).
-    // Find the last <script and last </script> before the cursor.
-    const lastScriptOpen  = textBefore.lastIndexOf('<script');
-    const lastScriptClose = textBefore.lastIndexOf('</script');
-    if (lastScriptOpen !== -1 && lastScriptOpen > lastScriptClose) {
-        // Make sure it's not a VBScript <script language="vbscript"> block
-        const scriptTag = fullText.slice(lastScriptOpen, fullText.indexOf('>', lastScriptOpen) + 1);
-        if (!/language\s*=\s*["']vbscript["']/i.test(scriptTag)) {
+    // VBScript block — use the canonical comment/string-aware scanner.
+    if (isInsideAspBlock(fullText, offset)) { return 'vbscript'; }
+
+    // JavaScript <script> block — scan for the nearest unclosed <script> tag
+    // that is NOT a VBScript block (language="vbscript").
+    let searchFrom = 0;
+    while (true) {
+        const scriptOpen = fullText.indexOf('<script', searchFrom);
+        if (scriptOpen === -1 || scriptOpen >= offset) { break; }
+        const tagEnd     = fullText.indexOf('>', scriptOpen);
+        if (tagEnd === -1) { break; }
+        const scriptTag  = fullText.slice(scriptOpen, tagEnd + 1);
+        const scriptClose = fullText.indexOf('</script', tagEnd);
+        if (
+            !/language\s*=\s*["']vbscript["']/i.test(scriptTag) &&
+            tagEnd < offset &&
+            (scriptClose === -1 || offset <= scriptClose)
+        ) {
             return 'script';
         }
-    }
-
-    // Check if we're inside a <% %> VBScript block.
-    // Find the last <% and last %> before the cursor.
-    const lastOpen  = textBefore.lastIndexOf('<%');
-    const lastClose = textBefore.lastIndexOf('%>');
-    if (lastOpen !== -1 && lastOpen > lastClose) {
-        return 'vbscript';
+        searchFrom = scriptClose === -1 ? fullText.length : scriptClose + 9;
     }
 
     return 'html';
