@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { isSelfClosingTag } from '../constants/htmlTags';
-import { isInsideAspBlock } from '../utils/aspUtils';
+import { isInsideAspBlock, getZone } from '../utils/aspUtils';
 
 // ── VBScript block keyword constants ───────────────────────────────────────
 
@@ -1012,6 +1012,64 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
             const p = new vscode.Position(position.line, newIndent.length);
             editor.selection = new vscode.Selection(p, p);
         });
+    });
+
+    context.subscriptions.push(disposable);
+}
+
+// ── Smart single-quote auto-close ─────────────────────────────────────────
+// Auto-closes ' → '' in HTML, CSS, and JS zones (where ' is a string delimiter)
+// but does nothing in VBScript ASP blocks (where ' starts a comment).
+// This gives the ergonomics of auto-closing quotes in the three zones where
+// it helps, without the annoyance of a trailing ' on every VBScript comment line.
+
+export function registerSmartQuoteHandler(context: vscode.ExtensionContext) {
+    const disposable = vscode.workspace.onDidChangeTextDocument(event => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor || event.document !== editor.document) { return; }
+        if (event.document.languageId !== 'asp')           { return; }
+        if (event.contentChanges.length === 0)             { return; }
+
+        const change = event.contentChanges[0];
+
+        // Only act when a bare single quote was typed (not a paste or multi-char)
+        if (change.text !== "'") { return; }
+
+        const position = change.range.start;
+        const document = event.document;
+        const content  = document.getText();
+        const offset   = document.offsetAt(position) + 1; // +1 for the char just inserted
+
+        // Determine zone AFTER the insertion
+        const zone = getZone(content, offset);
+
+        // Only auto-close in html / css / js — never in asp (VBScript comment)
+        if (zone === 'asp') { return; }
+
+        // Don't auto-close if the character immediately after is already a '
+        // (prevents doubling up when cursor is already between quotes)
+        const lineText  = document.lineAt(position.line).text;
+        const nextChar  = lineText[position.character + 1];
+        if (nextChar === "'") { return; }
+
+        // Don't auto-close if we're currently inside a string literal —
+        // the typed ' is the closing quote, not an opening one.
+        // Quick check: count unescaped ' chars before cursor on the same line.
+        const textBefore = lineText.slice(0, position.character + 1);
+        let quoteCount   = 0;
+        for (let i = 0; i < textBefore.length - 1; i++) {
+            if (textBefore[i] === "'" && textBefore[i - 1] !== '\\') { quoteCount++; }
+        }
+        // Odd number of preceding quotes means we're inside a string — this ' closes it
+        if (quoteCount % 2 === 1) { return; }
+
+        // Insert the closing ' and place cursor between the pair
+        const insertPos = new vscode.Position(position.line, position.character + 1);
+        editor.edit(eb => eb.insert(insertPos, "'"), { undoStopBefore: false, undoStopAfter: false })
+            .then(() => {
+                const p = new vscode.Position(position.line, position.character + 1);
+                editor.selection = new vscode.Selection(p, p);
+            });
     });
 
     context.subscriptions.push(disposable);

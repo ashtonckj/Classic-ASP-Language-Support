@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { formatCompleteAspFile } from './formatter/htmlFormatter';
 import { HtmlCompletionProvider } from './providers/htmlCompletionProvider';
-import { registerAutoClosingTag, registerEnterKeyHandler, registerTabKeyHandler } from './providers/aspIndentProvider';
+import { registerAutoClosingTag, registerEnterKeyHandler, registerTabKeyHandler, registerSmartQuoteHandler } from './providers/aspIndentProvider';
 import { AspCompletionProvider } from './providers/aspCompletionProvider';
 import { CssCompletionProvider } from './providers/cssCompletionProvider';
 import { CssHoverProvider } from './providers/cssHoverProvider';
@@ -250,6 +250,7 @@ export function activate(context: vscode.ExtensionContext) {
     registerAutoClosingTag(context);
     registerEnterKeyHandler(context);
     registerTabKeyHandler(context);
+    registerSmartQuoteHandler(context);
 
     // ── Auto-trigger CSS suggestions inside empty style="" ────────────────────
     const inlineStyleTrigger = vscode.window.onDidChangeTextEditorSelection(e => {
