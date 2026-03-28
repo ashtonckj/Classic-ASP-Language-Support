@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import { getContext, ContextType } from '../utils/documentHelper';
+import { extractSymbols } from './includeProvider';
 import { JS_KEYWORDS } from '../constants/jsKeywords';
 import {
     JS_GLOBAL_OBJECTS,
@@ -224,6 +225,25 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
             ].includes(m.name)),
             vscode.CompletionItemKind.Function, ''
         ));
+
+        // ── User-defined JS functions and variables from <script> blocks ──────
+        // Parse the current document for function declarations and var/let/const
+        // so users get completions for their own code inside <script> blocks.
+        const docText    = document.getText();
+        const userSymbols = extractUserJsSymbols(docText);
+
+        for (const fn of userSymbols.functions) {
+            const item = new vscode.CompletionItem(fn, vscode.CompletionItemKind.Function);
+            item.detail    = 'JS function (this file)';
+            item.sortText  = '2_' + fn;
+            completions.push(item);
+        }
+        for (const v of userSymbols.variables) {
+            const item = new vscode.CompletionItem(v, vscode.CompletionItemKind.Variable);
+            item.detail   = 'JS variable (this file)';
+            item.sortText = '2_' + v;
+            completions.push(item);
+        }
 
         return completions;
     }
@@ -473,4 +493,53 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
             { name: 'preventExtensions', snippet: 'preventExtensions(${1:target})', description: 'Prevent new properties from being added' },
         ], vscode.CompletionItemKind.Function, 'Reflect');
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// extractUserJsSymbols
+// Lightweight scan of <script> block content in the current document for
+// user-declared function names and var/let/const variable names.
+// Returns lists of unique names so JsCompletionProvider can offer them.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function extractUserJsSymbols(docText: string): { functions: string[]; variables: string[] } {
+    const functions: string[] = [];
+    const variables: string[] = [];
+    const seenFn  = new Set<string>();
+    const seenVar = new Set<string>();
+
+    // Extract content of every <script> block (excluding language="vbscript")
+    const scriptRe = /<script([^>]*)>([\s\S]*?)<\/script>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = scriptRe.exec(docText)) !== null) {
+        const attrs   = match[1];
+        const body    = match[2];
+        if (/language\s*=\s*["']vbscript["']/i.test(attrs)) { continue; }
+
+        // Named function declarations: function myFunc(
+        const fnRe = /\bfunction\s+([a-zA-Z_$][\w$]*)\s*\(/g;
+        let fm: RegExpExecArray | null;
+        while ((fm = fnRe.exec(body)) !== null) {
+            const name = fm[1];
+            if (!seenFn.has(name)) { seenFn.add(name); functions.push(name); }
+        }
+
+        // Arrow / assigned functions: const myFunc = (  or  const myFunc = async (
+        const arrowRe = /\b(?:const|let|var)\s+([a-zA-Z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z_$][\w$]*)\s*=>/g;
+        while ((fm = arrowRe.exec(body)) !== null) {
+            const name = fm[1];
+            if (!seenFn.has(name)) { seenFn.add(name); functions.push(name); }
+        }
+
+        // Variable declarations: var/let/const x, y, z
+        const varRe = /\b(?:var|let|const)\s+([a-zA-Z_$][\w$]*)/g;
+        while ((fm = varRe.exec(body)) !== null) {
+            const name = fm[1];
+            // Skip if already captured as a function
+            if (seenFn.has(name)) { continue; }
+            if (!seenVar.has(name)) { seenVar.add(name); variables.push(name); }
+        }
+    }
+
+    return { functions, variables };
 }
