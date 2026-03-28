@@ -510,24 +510,68 @@ export function extractSqlGroup(
     }
 
     // Advance past & variable & gaps to find the next opening quote.
+    // Handles:
+    //   "sql" & _           → continuation to next line (caller handles)
+    //   "sql" & varName & " → skip identifier between two & operators
+    //   "sql" & fn(x) & "   → skip function call (depth-tracked parens)
+    //   "sql" & "more"      → direct string concatenation
     function findNextQuote(lineText: string, col: number): number {
         while (col < lineText.length && lineText[col] <= ' ') { col++; }
         if (col < lineText.length && lineText[col] === '"') { return col; }
         if (col >= lineText.length || lineText[col] !== '&') { return -1; }
-        col++;
-        let depth = 0;
+        col++; // skip the &
+
         while (col < lineText.length) {
+            // Skip whitespace
+            while (col < lineText.length && lineText[col] <= ' ') { col++; }
+            if (col >= lineText.length) { return -1; }
+
             const ch = lineText[col];
-            if (ch === '(') { depth++; col++; continue; }
-            if (ch === ')') { depth--; col++; continue; }
-            if (depth === 0 && ch === '"') { return col; }
-            if (depth === 0 && ch === '&') {
-                col++;
+
+            // Found a string — done
+            if (ch === '"') { return col; }
+
+            // Another & — continue looking (handles && gaps with no token between)
+            if (ch === '&') { col++; continue; }
+
+            // Line continuation _ — let outer loop handle the next line
+            if (ch === '_') { return -1; }
+
+            // VBScript comment — nothing more on this line
+            if (ch === "'") { return -1; }
+
+            // Identifier or function call (possibly with parens):
+            //   varName, varName(args), Trim(x), obj.Method(x)
+            // Skip past it including any parenthesised argument list.
+            if (/[a-zA-Z_$]/.test(ch) || ch === '(') {
+                let depth = 0;
+                while (col < lineText.length) {
+                    const c2 = lineText[col];
+                    if (c2 === '(') { depth++; col++; continue; }
+                    if (c2 === ')') {
+                        depth--;
+                        col++;
+                        if (depth <= 0) { break; }
+                        continue;
+                    }
+                    // At depth 0, stop on & (next operator), " (next string),
+                    // _ (continuation), ' (comment), or line end.
+                    if (depth === 0) {
+                        if (c2 === '&' || c2 === '"' || c2 === '_' || c2 === "'") { break; }
+                        // space before & — keep scanning
+                        if (c2 <= ' ') { break; }
+                    }
+                    col++;
+                }
+                // After the identifier/call, expect whitespace then & then more
                 while (col < lineText.length && lineText[col] <= ' ') { col++; }
                 if (col < lineText.length && lineText[col] === '"') { return col; }
-                continue;
+                if (col < lineText.length && lineText[col] === '&') { col++; continue; }
+                return -1; // nothing useful follows
             }
-            col++;
+
+            // Any other character — can't bridge this gap
+            return -1;
         }
         return -1;
     }
@@ -726,9 +770,18 @@ export function emitSqlTokensForGroup(
             const after  = stitched.slice(m.index + m[1].length);
 
             if (DUAL_ROLE_JOIN.has(wLower)) {
-                // LEFT/RIGHT: only keyword colour when followed by JOIN
-                if (!/^\s+join\b/i.test(after)) { continue; }
-                tokenType = T_SQL_DML;
+                // LEFT/RIGHT have two SQL roles:
+                //   LEFT(str, n)     → SQL string function → T_SQL_FUNC
+                //   LEFT JOIN table  → JOIN keyword        → T_SQL_DML
+                // If followed by ( it's a function call; if followed by JOIN it's a keyword.
+                // Anything else (e.g. bare LEFT in a column alias) stays uncoloured.
+                if (/^\s*\(/.test(after)) {
+                    tokenType = T_SQL_FUNC;
+                } else if (/^\s+join\b/i.test(after)) {
+                    tokenType = T_SQL_DML;
+                } else {
+                    continue; // uncoloured — ambiguous
+                }
             } else if (DATEPART_WORDS.has(wLower)) {
                 // Date-part words have three possible roles:
                 //   HOUR(start_time)        → ( follows → function colour
