@@ -138,8 +138,6 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
         context: vscode.CompletionContext
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
-        const config = vscode.workspace.getConfiguration('aspLanguageSupport');
-        if (!config.get<boolean>('enableHTMLCompletion', true)) { return []; }
         if (getContext(document, position) !== ContextType.HTML) { return []; }
 
         const textBefore = document.lineAt(position.line).text.substring(0, position.character);

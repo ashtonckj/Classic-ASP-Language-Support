@@ -45,11 +45,6 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         context: vscode.CompletionContext
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
-        const config = vscode.workspace.getConfiguration('aspLanguageSupport');
-        if (!config.get<boolean>('enableJSCompletion', true)) {
-            return [];
-        }
-
         const docContext = getContext(document, position);
         if (docContext !== ContextType.JAVASCRIPT) {
             return [];
