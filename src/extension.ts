@@ -16,6 +16,7 @@ import { AspHoverProvider } from './providers/aspHoverProvider';
 import { AspRenameProvider } from './providers/aspRenameProvider';
 import { addRegionHighlights } from './highlight';
 import { AspDocumentSymbolProvider } from './providers/aspDocumentSymbolProvider';
+import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache } from './providers/aspWorkspaceSymbolProvider';
 import { AspSignatureHelpProvider } from './providers/aspSignatureHelpProvider';
 
 // Returns line-level TextEdits instead of replacing the whole document.
@@ -210,6 +211,17 @@ export function activate(context: vscode.ExtensionContext) {
         { triggerCharacters: ['('], retriggerCharacters: [','] }
     );
 
+    // ── Workspace symbol search (Ctrl+T) ─────────────────────────────────────
+    const workspaceSymbolProvider = vscode.languages.registerWorkspaceSymbolProvider(
+        new AspWorkspaceSymbolProvider()
+    );
+
+    const wsCacheInvalidator = vscode.workspace.onDidSaveTextDocument(doc => {
+        if (/\.(asp|inc)$/i.test(doc.uri.fsPath)) {
+            clearWorkspaceSymbolCache(doc.uri.fsPath);
+        }
+    });
+
     // ── Semantic tokens ───────────────────────────────────────────────────────
     // Highlights user-defined function/sub names using VS Code's semantic token API.
     const semanticTokensProviderInstance = new AspSemanticTokensProvider();
@@ -297,6 +309,8 @@ export function activate(context: vscode.ExtensionContext) {
         definitionProvider,
         renameProvider,
         documentSymbolProvider,
+        workspaceSymbolProvider,
+        wsCacheInvalidator,
         signatureHelpProvider,
         semanticProvider,
         semanticTokensProviderInstance,
