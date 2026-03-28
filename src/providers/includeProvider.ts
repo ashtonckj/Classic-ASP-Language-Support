@@ -287,11 +287,28 @@ export function resolveIncludePaths(documentText: string, documentPath: string, 
 // ─────────────────────────────────────────────────────────────────────────────
 // Symbol collection
 // Merges symbols from the current document and all included files (all depths).
+// Results are cached by (filePath + documentVersion) and invalidated whenever
+// the document changes, avoiding repeated synchronous fs.readFileSync calls
+// on every keystroke across all providers.
 // ─────────────────────────────────────────────────────────────────────────────
 
+interface SymbolCache {
+    version:  number;
+    symbols:  FileSymbols;
+}
+
+const _symbolCache = new Map<string, SymbolCache>();
+
 export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
+    const docPath    = document.uri.fsPath;
+    const docVersion = document.version;
+
+    const cached = _symbolCache.get(docPath);
+    if (cached && cached.version === docVersion) {
+        return cached.symbols;
+    }
+
     const docText  = document.getText();
-    const docPath  = document.uri.fsPath;
     const combined = extractSymbols(docText, docPath);
 
     for (const incPath of resolveIncludePaths(docText, docPath)) {
@@ -304,6 +321,14 @@ export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
         } catch {
             // Skip unreadable files silently
         }
+    }
+
+    _symbolCache.set(docPath, { version: docVersion, symbols: combined });
+
+    // Evict stale entries for files no longer open to avoid unbounded growth
+    const openPaths = new Set(vscode.workspace.textDocuments.map(d => d.uri.fsPath));
+    for (const key of _symbolCache.keys()) {
+        if (!openPaths.has(key)) { _symbolCache.delete(key); }
     }
 
     return combined;
