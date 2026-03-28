@@ -15,6 +15,7 @@ import { AspSemanticTokensProvider, ASP_SEMANTIC_LEGEND } from './providers/aspS
 import { AspHoverProvider } from './providers/aspHoverProvider';
 import { AspRenameProvider } from './providers/aspRenameProvider';
 import { addRegionHighlights } from './highlight';
+import { AspDocumentSymbolProvider } from './providers/aspDocumentSymbolProvider';
 
 // Returns line-level TextEdits instead of replacing the whole document.
 // Only changed line ranges are touched — Ctrl+Z still undoes everything in one step.
@@ -196,6 +197,11 @@ export function activate(context: vscode.ExtensionContext) {
         'asp', new AspRenameProvider()
     );
 
+    // ── Document symbols (Outline + breadcrumb) ─────────────────────────────
+    const documentSymbolProvider = vscode.languages.registerDocumentSymbolProvider(
+        'asp', new AspDocumentSymbolProvider()
+    );
+
     // ── Semantic tokens ───────────────────────────────────────────────────────
     // Highlights user-defined function/sub names using VS Code's semantic token API.
     const semanticTokensProviderInstance = new AspSemanticTokensProvider();
@@ -282,6 +288,7 @@ export function activate(context: vscode.ExtensionContext) {
         htmlAttributePathProvider,
         definitionProvider,
         renameProvider,
+        documentSymbolProvider,
         semanticProvider,
         semanticTokensProviderInstance,
         aspHoverProvider,
