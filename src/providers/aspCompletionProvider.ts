@@ -92,7 +92,8 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         // ── 2. Normal ASP context completions ────────────────────────────────
 
         // Don't expand "If/Sub/Function" snippets when the user typed "End ..."
-        const isAfterEnd = /\bend\s+i?f?$/i.test(textBefore.trim());
+        // Detect 'End <keyword>' so we don't re-expand block snippets after End
+        const isAfterEnd = /\bend\s*(if|sub|function|with|select|class|property)?\s*$/i.test(textBefore.trim());
 
         completions.push(...this.provideAspObjectCompletions());
         completions.push(...this.provideKeywordCompletions(isAfterEnd));
@@ -330,7 +331,7 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
             item.detail       = kw.description;
             item.documentation = new vscode.MarkdownString(`**${kw.keyword}**\n\n${kw.description}`);
 
-            if (isAfterEnd && (kw.keyword === 'If' || kw.keyword === 'Sub' || kw.keyword === 'Function' || kw.keyword === 'Select Case')) {
+            if (isAfterEnd && ['If', 'Sub', 'Function', 'Select Case', 'While', 'Do', 'For', 'For Each', 'With', 'Class', 'Property'].includes(kw.keyword)) {
                 item.preselect = false;
                 item.sortText  = '1_' + kw.keyword;
                 return item;
