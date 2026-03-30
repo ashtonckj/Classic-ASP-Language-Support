@@ -922,7 +922,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             const tagName = incompleteTagMatch[1];
             if (!isSelfClosingTag(tagName)) {
                 const closingTag = `</${tagName}>`;
-                editor.edit(eb => eb.insert(position, `>\n${indent}${indentUnit}\n\n${indent}${closingTag}`)).then(() => {
+                editor.edit(eb => eb.insert(position, `>\n${indent}${indentUnit}\n${indent}${closingTag}`)).then(() => {
                     const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
                     editor.selection = new vscode.Selection(p, p);
                 });
