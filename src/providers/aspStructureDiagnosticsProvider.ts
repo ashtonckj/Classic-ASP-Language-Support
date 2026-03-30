@@ -336,7 +336,10 @@ function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
                     opener: action.opener,
                     closer: closerFor(action.kind),
                     line:   li,
-                    col:    action.colOffset,
+                    col: (() => {
+                        const keyword = lineText.toLowerCase().indexOf(action.opener.toLowerCase(), lineText.indexOf('<%'));
+                        return keyword !== -1 ? keyword : action.colOffset;
+                    })(),
                 });
             } else {
                 // Closer — find nearest matching opener on the stack
