@@ -11,7 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Improved VBScript function explanations** - More detailed hover documentation for complex built-in functions
 
 ### 🛠️ Fixed
-
 - **Fixed extra newline insertion** - Removed unintended next-line character
 - **Fixed Abs() function colouring** - Proper syntax highlighting for VBScript `Abs()`
 - **Fixed missing const values in hover** - Constants now appear correctly in ASP hover
