@@ -224,25 +224,28 @@ function classifyLine(raw: string): LineAction[] {
         return actions;
     }
 
-    // Do / Do While / Do Until — must come BEFORE the While check
-    if (/\bdo\s+while\b/.test(lower)) {
+    // Do / Do While / Do Until — must come BEFORE the While check.
+    // Guard: "Exit Do" contains the word "do" but is NOT a block opener.
+    if (/\bdo\s+while\b/.test(lower) && !/\bexit\s+do\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bdo\b/);
         actions.push({ type: 'open', kind: 'do', opener: 'Do While', colOffset: col });
         return actions;
     }
-    if (/\bdo\s+until\b/.test(lower)) {
+    if (/\bdo\s+until\b/.test(lower) && !/\bexit\s+do\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bdo\b/);
         actions.push({ type: 'open', kind: 'do', opener: 'Do Until', colOffset: col });
         return actions;
     }
-    if (/\bdo\b(\s|$)/.test(lower)) {
+    // Bare "Do" — but NOT "Exit Do"
+    if (/\bdo\b(\s|$)/.test(lower) && !/\bexit\s+do\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bdo\b/);
         actions.push({ type: 'open', kind: 'do', opener: 'Do', colOffset: col });
         return actions;
     }
 
     // While ... Wend
-    if (/\bwhile\b/.test(lower) && !/^loop\b/.test(lower) && !/^do\b/.test(lower)) {
+    // Guard: "Exit While" contains the word "while" but is NOT a block opener.
+    if (/\bwhile\b/.test(lower) && !/^loop\b/.test(lower) && !/^do\b/.test(lower) && !/\bexit\s+while\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bwhile\b/);
         actions.push({ type: 'open', kind: 'while', opener: 'While', colOffset: col });
         return actions;
