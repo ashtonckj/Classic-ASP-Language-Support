@@ -4,13 +4,20 @@
  * Real TypeScript Language Service completions for <script> blocks.
  *
  * Fixes vs previous version:
+ *   • item.data used instead of WeakMap<CompletionItem, ItemData> — VS Code
+ *     can clone/serialize CompletionItem objects across the extension host
+ *     boundary, which causes WeakMap lookups to silently return undefined in
+ *     resolveCompletionItem, losing all detail/documentation.
+ *   • Trigger characters reduced to just '.' and '(' — registering every
+ *     letter caused provideCompletionItems to fire on every keystroke even
+ *     inside string literals/comments.  VS Code's built-in word-based filter
+ *     handles the rest once an initial list is returned with isIncomplete:false.
  *   • Preselects the first entry so TS completions rank above VS Code's
- *     generic word-based completions (which were overlapping/duplicating)
- *   • sortText prefix '0' pushes TS items to the top of the list
- *   • resolveCompletionItem now properly formats documentation as markdown
- *     with a fenced code block for the type signature so it matches how
- *     VS Code's own JS extension presents hover/completion docs
- *   • Passes includeCompletionsWithInsertText so method snippets work
+ *     generic word-based completions.
+ *   • sortText prefix '0' pushes TS items to the top of the list.
+ *   • resolveCompletionItem formats documentation as markdown with a fenced
+ *     code block for the type signature.
+ *   • Passes includeCompletionsWithInsertText so method snippets work.
  */
 
 import * as vscode from 'vscode';
@@ -21,11 +28,9 @@ import {
     tsKindToVsKind,
 } from '../utils/jsUtils';
 
-type ItemData = { name: string; offset: number; source?: string };
+interface ItemData { name: string; offset: number; source?: string }
 
 export class JsCompletionProvider implements vscode.CompletionItemProvider {
-
-    private readonly _itemData = new WeakMap<vscode.CompletionItem, ItemData>();
 
     provideCompletionItems(
         document: vscode.TextDocument,
@@ -53,8 +58,7 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
             const item      = new vscode.CompletionItem(entry.name, tsKindToVsKind(entry.kind));
 
             // Prefix sortText with '0' so TS completions always appear above
-            // VS Code's generic word-based completions (which use sort text
-            // equal to the word itself, starting with letters > '0').
+            // VS Code's generic word-based completions.
             item.sortText   = '0' + (entry.sortText ?? entry.name);
             item.filterText = entry.name;
 
@@ -65,18 +69,19 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
             }
 
             // Commit characters — pressing '(' after a function suggestion
-            // confirms it and immediately opens the parameter list, matching
-            // VS Code's built-in JS behaviour.
+            // confirms it and immediately opens the parameter list.
             if (item.kind === vscode.CompletionItemKind.Function ||
                 item.kind === vscode.CompletionItemKind.Method) {
                 item.commitCharacters = ['('];
             }
 
-            this._itemData.set(item, {
-                name:   entry.name,
-                offset,
-                source: entry.source,
-            });
+            // Store resolution data on the item so it survives VS Code's
+            // internal serialize/deserialize cycle before resolveCompletionItem
+            // is called.  The 'data' field exists at runtime but is not exposed
+            // in older @types/vscode declarations, so we go through `any`.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (item as any).data = { name: entry.name, offset, source: entry.source } satisfies ItemData;
+
             return item;
         });
 
@@ -90,7 +95,8 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         token: vscode.CancellationToken
     ): vscode.ProviderResult<vscode.CompletionItem> {
 
-        const data = this._itemData.get(item);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = (item as any).data as ItemData | undefined;
         if (!data || token.isCancellationRequested) { return item; }
 
         const details = getJsLanguageService().getCompletionDetails(
@@ -101,9 +107,7 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         // Build the type signature line (e.g. "(method) console.log(...): void")
         const displayText = details.displayParts?.map(p => p.text).join('') ?? '';
 
-        // Build the documentation — may be JSDoc paragraphs with @param tags etc.
-        // We join the text parts; TS returns them as plain text and we wrap them
-        // in a MarkdownString so links and backtick code renders correctly.
+        // Build the documentation — JSDoc paragraphs, plain text
         const docsText = details.documentation?.map(p => p.text).join('') ?? '';
 
         // Build JSDoc @param / @returns tags if present

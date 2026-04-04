@@ -2,6 +2,12 @@
  * aspUtils.ts
  * Core shared utilities for zone detection inside .asp files.
  * Imported by cssUtils.ts and jsUtils.ts — do not put CSS or JS specific code here.
+ *
+ * Fixes vs previous version:
+ *   • getZone JS zone detection now filters out <script type="vbscript"> and
+ *     <script language="vbscript"> blocks, matching the logic in
+ *     buildVirtualJsContent.  Previously those blocks were incorrectly
+ *     reported as zone 'js'.
  */
 
 export type Zone = 'asp' | 'css' | 'js' | 'html';
@@ -47,25 +53,6 @@ export function isInsideAspBlock(text: string, offset: number): boolean {
             const lineEnd = text.indexOf('\n', i);
             const end     = lineEnd === -1 ? text.length : lineEnd + 1;
 
-            // Scan the current line character by character.
-            //
-            // Rules (matching real ASP/VBScript behaviour):
-            //   "..."  — string literal: %> and ' inside are not special
-            //   '      — VBScript inline comment: everything from here to EOL
-            //            is a comment, so %> appearing after the ' does NOT
-            //            close the ASP block on this line
-            //   %>     — outside a string and before any ', closes the ASP block
-            //
-            // Examples:
-            //   <% 'comment %>        → %> closes block ('comment %>' is comment tail)
-            //   <% code 'comment %>   → %> closes block (same reason)
-            //   <% "str%>" %>         → first %> is inside string (ignored),
-            //                           second %> closes block
-            //   ' whole-line comment  → treated the same as mid-line: the ' starts
-            //                           a comment, %> after it is ignored, EOL reached
-            //
-            // '<% ... <%' inside a comment is harmless — we are already inside the
-            // ASP block and never look for <% again until after the block closes.
             let j     = i;
             let inStr = false;
             let found = false;
@@ -75,7 +62,7 @@ export function isInsideAspBlock(text: string, offset: number): boolean {
 
                 if (inStr) {
                     if (ch === '"') {
-                        if (j + 1 < end && text[j + 1] === '"') { j += 2; continue; } // escaped ""
+                        if (j + 1 < end && text[j + 1] === '"') { j += 2; continue; }
                         inStr = false;
                     }
                     j++;
@@ -84,16 +71,8 @@ export function isInsideAspBlock(text: string, offset: number): boolean {
 
                 if (ch === '"') { inStr = true; j++; continue; }
 
-                // VBScript inline comment — the rest of this line is comment text
-                // and will be grey, but %> still closes the ASP block because
-                // the tag delimiter is parsed at the HTML level, before VBScript runs.
-                // Keep scanning — just stop treating ' as special after this point.
-                // We do this by simply not breaking and letting the %> check below
-                // fire normally. So: do nothing special here, fall through to j++.
-                // (We track inComment only to skip the stray-<% check — not needed
-                //  in isInsideAspBlock since we never look for <% while inAsp.)
                 if (ch === "'") {
-                    // Comment started — skip forward looking only for %>
+                    // VBScript comment — skip forward looking only for %>
                     while (j < end) {
                         if (text[j] === '%' && j + 1 < text.length && text[j + 1] === '>') {
                             const closeEnd = j + 2;
@@ -136,6 +115,18 @@ export function isInsideAspBlock(text: string, offset: number): boolean {
 }
 
 /**
+ * Returns true if `attrs` (the raw attribute string of a <script> tag)
+ * indicates a non-JS script type that should not be treated as a JS zone.
+ * Mirrors the filtering logic in buildVirtualJsContent (jsUtils.ts) exactly.
+ */
+function isNonJsScriptTag(attrs: string): boolean {
+    const typeMatch = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
+    if (typeMatch && !/javascript|module/i.test(typeMatch[1])) { return true; }
+    if (/\blanguage\s*=\s*["']vbscript["']/i.test(attrs)) { return true; }
+    return false;
+}
+
+/**
  * Detects which language zone the cursor is in within a .asp file.
  * Returns 'asp', 'css', 'js', or 'html'.
  */
@@ -156,14 +147,27 @@ export function getZone(content: string, offset: number): Zone {
     }
 
     // JS zone — inside <script> ... </script>
+    // Filters out VBScript and other non-JS script types, consistent with
+    // buildVirtualJsContent in jsUtils.ts.
     searchFrom = 0;
     while (true) {
         const scriptOpen = content.indexOf('<script', searchFrom);
         if (scriptOpen === -1 || scriptOpen >= offset) { break; }
+
         const scriptTagEnd = content.indexOf('>', scriptOpen);
         if (scriptTagEnd === -1) { break; }
+
+        // Extract the attributes portion of the opening tag
+        const attrs = content.slice(scriptOpen + 7, scriptTagEnd); // 7 = '<script'.length
+
         const scriptClose = content.indexOf('</script>', scriptTagEnd);
-        if (scriptTagEnd < offset && (scriptClose === -1 || offset <= scriptClose)) { return 'js'; }
+
+        if (!isNonJsScriptTag(attrs) &&
+            scriptTagEnd < offset &&
+            (scriptClose === -1 || offset <= scriptClose)) {
+            return 'js';
+        }
+
         searchFrom = scriptClose === -1 ? content.length : scriptClose + 9;
     }
 

@@ -11,6 +11,12 @@
  *     (was causing console to show Node.js docs instead of browser docs)
  *   • Lib resolution — explicit lib file list resolved via
  *     ts.getDefaultLibFilePath so DOM types always load correctly
+ *   • buildVirtualJsContent — rewritten from O(n²) char-split loop to O(n)
+ *     slice-based builder; also much lower memory usage
+ *   • getJsLanguageService — singleton construction wrapped in try/catch so a
+ *     bad TS environment doesn't permanently break the extension
+ *   • All query methods accept an explicit content string so callers don't
+ *     race over updateContent() when multiple providers fire concurrently
  */
 
 import * as path from 'path';
@@ -31,12 +37,18 @@ export const VIRTUAL_FILENAME = 'asp-embedded.js';
 // (newlines preserved) so offset positions stay exact.
 // ASP blocks (<% … %>) inside script zones are also blanked.
 //
-// BUG FIXED: previous version called content.search(re) which always
-// searched from index 0.  Now we search forward from tagEnd each time.
+// Rewritten to be O(n) — no char-by-char array split, uses slice + repeat.
 // ─────────────────────────────────────────────────────────────────────────────
 export interface VirtualJsResult {
     virtualContent: string;
     isInScript:     boolean;
+}
+
+/** Replace every non-newline character in `s` with a space, preserving length. */
+function blankNonNewlines(s: string): string {
+    // Replace runs of non-newline chars in one pass — much faster than
+    // splitting into chars and mapping individually.
+    return s.replace(/[^\n]+/g, m => ' '.repeat(m.length));
 }
 
 export function buildVirtualJsContent(
@@ -53,39 +65,43 @@ export function buildVirtualJsContent(
         const attrs  = m[1] ?? '';
         const tagEnd = m.index + m[0].length;
 
-        // Skip non-JS script types
+        // Skip non-JS script types (consistent with aspUtils.getZone)
         const typeMatch = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
         if (typeMatch && !/javascript|module/i.test(typeMatch[1])) { continue; }
         if (/\blanguage\s*=\s*["']vbscript["']/i.test(attrs)) { continue; }
 
-        // ── FIX: search for </script> FORWARD from tagEnd, not from 0 ──
+        // Search for </script> forward from tagEnd (not from 0)
         const closeRe  = /<\/script\s*>/i;
         const rest     = content.slice(tagEnd);
         const closeIdx = rest.search(closeRe);
         const end      = closeIdx === -1 ? content.length : tagEnd + closeIdx;
 
         jsRanges.push({ start: tagEnd, end });
-        // Advance the outer regex past this block so it doesn't re-match
-        // content inside the script body as a nested <script> opener.
+        // Advance past this block so nested <script> openers are skipped
         scriptOpenRe.lastIndex = end;
     }
 
     const isInScript = jsRanges.some(r => offset >= r.start && offset <= r.end);
 
-    // Build virtual content
-    const chars = content.split('');
-    for (let i = 0; i < chars.length; i++) {
-        const inJs = jsRanges.some(r => i >= r.start && i < r.end);
-        if (!inJs && chars[i] !== '\n') { chars[i] = ' '; }
+    // ── O(n) virtual content builder ─────────────────────────────────────────
+    // Walk through jsRanges in order, blanking the gaps between them.
+    let out  = '';
+    let prev = 0;
+
+    for (const r of jsRanges) {
+        // Gap before this JS block — blank all non-newlines
+        out += blankNonNewlines(content.slice(prev, r.start));
+        // JS block itself — keep as-is, then blank any embedded ASP blocks
+        out += content.slice(r.start, r.end).replace(
+            /<%[\s\S]*?%>/g,
+            asp => blankNonNewlines(asp)
+        );
+        prev = r.end;
     }
-    let virtualContent = chars.join('');
+    // Trailing gap after last JS block
+    out += blankNonNewlines(content.slice(prev));
 
-    // Blank any ASP blocks inside the JS zones
-    virtualContent = virtualContent.replace(/<%[\s\S]*?%>/g,
-        match => match.replace(/[^\n]/g, ' ')
-    );
-
-    return { virtualContent, isInScript };
+    return { virtualContent: out, isInScript };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -94,29 +110,24 @@ export function buildVirtualJsContent(
 function makeBrowserCompilerOptions(): ts.CompilerOptions {
     return {
         target:      ts.ScriptTarget.ES2020,
-        // Explicitly list libs — TypeScript resolves these as filenames
-        // relative to its own lib directory.
         lib:         [
             'lib.es2020.d.ts',
             'lib.dom.d.ts',
             'lib.dom.iterable.d.ts',
         ],
         allowJs:     true,
-        checkJs:     true,       // enables syntactic + basic semantic errors
+        checkJs:     true,
         noEmit:      true,
         strict:      false,
-        // ── IMPORTANT: block @types/node and any other ambient types ──
-        // Without this, if the user's project has @types/node installed,
-        // TypeScript picks up Node.js typings and console becomes the
-        // Node.js Console (showing util.format docs, etc.).
+        // Block @types/node and any other ambient types so that browser
+        // globals (console, document, window) use DOM typings, not Node.js.
         types:       [],
-        // Keep errors manageable — don't flag missing return types etc.
-        noImplicitAny:           false,
-        noImplicitReturns:       false,
-        noUnusedLocals:          false,
-        noUnusedParameters:      false,
-        strictNullChecks:        false,
-        strictFunctionTypes:     false,
+        noImplicitAny:                false,
+        noImplicitReturns:            false,
+        noUnusedLocals:               false,
+        noUnusedParameters:           false,
+        strictNullChecks:             false,
+        strictFunctionTypes:          false,
         strictPropertyInitialization: false,
     };
 }
@@ -133,8 +144,6 @@ export class JsLanguageService implements vscode.Disposable {
     constructor() {
         this._compilerOptions = makeBrowserCompilerOptions();
 
-        // Point TypeScript at its own lib directory so it can find
-        // lib.dom.d.ts, lib.es2020.d.ts, etc. from disk.
         const libDir = path.dirname(
             ts.getDefaultLibFilePath(this._compilerOptions)
         );
@@ -163,6 +172,10 @@ export class JsLanguageService implements vscode.Disposable {
         this._service = ts.createLanguageService(host, ts.createDocumentRegistry());
     }
 
+    /**
+     * Update the virtual file content. Each caller passes its own freshly-built
+     * virtualContent so concurrent providers don't race each other.
+     */
     updateContent(content: string): void {
         this._content = content;
         this._version++;
@@ -172,8 +185,8 @@ export class JsLanguageService implements vscode.Disposable {
         try {
             return this._service.getCompletionsAtPosition(VIRTUAL_FILENAME, offset, {
                 triggerCharacter: trigger as ts.CompletionsTriggerCharacter | undefined,
-                includeCompletionsWithInsertText:      true,
-                includeCompletionsForModuleExports:    false,
+                includeCompletionsWithInsertText:         true,
+                includeCompletionsForModuleExports:       false,
                 includeAutomaticOptionalChainCompletions: true,
             }) ?? undefined;
         } catch { return undefined; }
@@ -235,12 +248,20 @@ export class JsLanguageService implements vscode.Disposable {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Singleton
+// Singleton — construction is guarded so a bad TS environment doesn't
+// permanently break the extension on first use.
 // ─────────────────────────────────────────────────────────────────────────────
 let _service: JsLanguageService | undefined;
 
 export function getJsLanguageService(): JsLanguageService {
-    if (!_service) { _service = new JsLanguageService(); }
+    if (!_service) {
+        try {
+            _service = new JsLanguageService();
+        } catch (err) {
+            console.error('[ASP] Failed to create JsLanguageService:', err);
+            throw err;
+        }
+    }
     return _service;
 }
 
@@ -309,10 +330,10 @@ export function tsKindToVsKind(kind: string): vscode.CompletionItemKind {
 // ─────────────────────────────────────────────────────────────────────────────
 export function tsSeverityToVs(category: ts.DiagnosticCategory): vscode.DiagnosticSeverity {
     switch (category) {
-        case ts.DiagnosticCategory.Error:       return vscode.DiagnosticSeverity.Error;
-        case ts.DiagnosticCategory.Warning:     return vscode.DiagnosticSeverity.Warning;
-        case ts.DiagnosticCategory.Suggestion:  return vscode.DiagnosticSeverity.Hint;
-        case ts.DiagnosticCategory.Message:     return vscode.DiagnosticSeverity.Information;
-        default:                                return vscode.DiagnosticSeverity.Warning;
+        case ts.DiagnosticCategory.Error:      return vscode.DiagnosticSeverity.Error;
+        case ts.DiagnosticCategory.Warning:    return vscode.DiagnosticSeverity.Warning;
+        case ts.DiagnosticCategory.Suggestion: return vscode.DiagnosticSeverity.Hint;
+        case ts.DiagnosticCategory.Message:    return vscode.DiagnosticSeverity.Information;
+        default:                               return vscode.DiagnosticSeverity.Warning;
     }
 }

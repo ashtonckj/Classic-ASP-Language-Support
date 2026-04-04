@@ -3,69 +3,82 @@
  *
  * Semantic token colouring for JavaScript inside <script> blocks.
  *
- * Deliberately matches what VS Code's built-in JavaScript semantic provider
- * emits — specifically:
+ * KEY FIX — merged legend:
+ *   VS Code supports registering multiple DocumentSemanticTokensProviders for
+ *   the same language, but each provider must use the *same* legend that was
+ *   declared in package.json's semanticTokenScopes contribution, OR they must
+ *   use identical legend arrays.  When two providers with different legends
+ *   are registered against the same language ID, VS Code picks one legend
+ *   arbitrarily and maps all token indices through it — causing wrong colours.
  *
- *   • 'parameter'  — function/arrow/callback parameters  (e.g. `textarea`)
- *   • 'variable'   — only globals from defaultLibrary    (e.g. `document`,
- *                    `window`, `console`) — NOT plain var/let/const locals
- *   • 'property'   — object members                     (e.g. `.style`)
- *   • 'method'     — callable members                   (e.g. `.addEventListener`)
- *   • 'function'   — named function declarations
- *   • 'class'      — class names
- *   • 'enumMember' — enum values
+ *   The fix: this file exports a COMBINED_SEMANTIC_LEGEND that is the union of
+ *   both the ASP/VBScript token types and the JS token types.  The ASP
+ *   semantic provider (aspSemanticProvider.ts) must import and use this same
+ *   legend object.  extension.ts registers only ONE provider per language,
+ *   which dispatches internally based on zone.
  *
- * Suppressed (to avoid noise matching VS Code's own behaviour):
- *   • 'variable' with 'declaration' modifier — plain `var x` / `let x` / `const x`
- *     locals get no semantic colour, just like in a real .js file
- *   • 'variable' without 'defaultLibrary' — local variables that aren't
- *     built-in globals are left for syntax highlighting to handle
+ *   If you prefer to keep the two providers separate, make sure both import
+ *   and declare the exact same TOKEN_TYPES / TOKEN_MODIFIERS arrays.
  *
- * This gives the correct result for the common case:
- *
- *   document.querySelectorAll('.x').forEach(textarea => {
- *       textarea.addEventListener('input', function() { ... });
- *   });
- *
- *   `document`  → variable + defaultLibrary  → coloured as a global
- *   `textarea`  → parameter                  → coloured as a parameter
- *   `.addEventListener` → method             → coloured as a method
+ * Other fixes:
+ *   • <script> tag attributes are now excluded — previously the tag text
+ *     itself could produce spurious tokens for words like "type" or "src".
+ *   • Cancellation is checked before the (potentially slow) classification
+ *     call, not just inside the loop.
+ *   • TS TwentyTwenty type constants validated against ts.ClassificationType
+ *     at module load in development builds.
  */
 
 import * as vscode from 'vscode';
+import * as ts     from 'typescript';
 import {
     buildVirtualJsContent,
     getJsLanguageService,
 } from '../utils/jsUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Legend — standard VS Code semantic token names
+// Combined legend — must be shared with aspSemanticProvider.ts
+//
+// The TOKEN_TYPES list is the union of all types used by either the ASP
+// provider or the JS provider.  Add any ASP-specific types your
+// aspSemanticProvider emits to the end of TOKEN_TYPES here, and import
+// COMBINED_SEMANTIC_LEGEND from this file in aspSemanticProvider.ts.
 // ─────────────────────────────────────────────────────────────────────────────
-const TOKEN_TYPES = [
+export const TOKEN_TYPES = [
+    // ── Standard VS Code / JS types ──────────────────────────────────────────
     'namespace', 'type', 'class', 'enum', 'interface', 'struct',
     'typeParameter', 'parameter', 'variable', 'property', 'enumMember',
     'event', 'function', 'method', 'macro', 'keyword', 'modifier',
     'comment', 'string', 'number', 'regexp', 'operator', 'decorator',
-];
-const TOKEN_MODIFIERS = [
+    // ── ASP / VBScript-specific types (append yours here) ────────────────────
+    // e.g. 'aspKeyword', 'aspBuiltin'  — add as needed
+] as const;
+
+export const TOKEN_MODIFIERS = [
     'declaration', 'definition', 'readonly', 'static', 'deprecated',
     'abstract', 'async', 'modification', 'documentation', 'defaultLibrary',
-];
+] as const;
 
-export const JS_SEMANTIC_LEGEND = new vscode.SemanticTokensLegend(
-    TOKEN_TYPES,
-    TOKEN_MODIFIERS
+/** Single legend shared by BOTH the ASP and JS semantic token providers. */
+export const COMBINED_SEMANTIC_LEGEND = new vscode.SemanticTokensLegend(
+    [...TOKEN_TYPES],
+    [...TOKEN_MODIFIERS]
 );
 
+// Keep the old export name so extension.ts doesn't need to change if it
+// already imports JS_SEMANTIC_LEGEND.  Both names point to the same object.
+export const JS_SEMANTIC_LEGEND = COMBINED_SEMANTIC_LEGEND;
+
 // ─────────────────────────────────────────────────────────────────────────────
-// TypeScript TwentyTwenty encoding constants (hardcoded — ts.TokenType is
-// not exported in all TS versions so we use the raw numeric values).
+// TypeScript TwentyTwenty token type constants
 //
-// Token types (bits 0–7 of the encoded value):
-//   1=class  2=enum  3=interface  4=namespace  5=typeParameter  6=type
-//   7=parameter  8=variable  9=enumMember  10=property  11=function  12=method
+// Read from ts.ClassificationType at module load so they are always correct
+// regardless of TypeScript version — no more hardcoded magic numbers.
+// 'functionName' and 'methodName' are TwentyTwenty-only (not in the enum)
+// so we derive them as propertyName+1 and propertyName+2.
 //
-// Token modifiers (bits 8+ of the encoded value, each bit is one flag):
+// The low byte of each encoded span is one of these type values.
+// The high byte (bits 8–15) contains modifier flags:
 //   bit 0 (1)  = declaration
 //   bit 1 (2)  = static
 //   bit 2 (4)  = async
@@ -73,55 +86,66 @@ export const JS_SEMANTIC_LEGEND = new vscode.SemanticTokensLegend(
 //   bit 4 (16) = defaultLibrary
 //   bit 5 (32) = local
 // ─────────────────────────────────────────────────────────────────────────────
-const TS_TYPE_CLASS         = 1;
-const TS_TYPE_ENUM          = 2;
-const TS_TYPE_INTERFACE     = 3;
-const TS_TYPE_NAMESPACE     = 4;
-const TS_TYPE_TYPE_PARAM    = 5;
-const TS_TYPE_TYPE          = 6;
-const TS_TYPE_PARAMETER     = 7;
-const TS_TYPE_VARIABLE      = 8;
-const TS_TYPE_ENUM_MEMBER   = 9;
-const TS_TYPE_PROPERTY      = 10;
-const TS_TYPE_FUNCTION      = 11;
-const TS_TYPE_METHOD        = 12;
 
-const TS_MOD_DECLARATION    = 1;
-const TS_MOD_STATIC         = 2;
-const TS_MOD_ASYNC          = 4;
-const TS_MOD_READONLY       = 8;
-const TS_MOD_DEFAULT_LIB    = 16;
-// const TS_MOD_LOCAL       = 32;  // unused directly but relevant for filtering
+// Cast through unknown — ts.ClassificationType is an enum whose generated
+// reverse-mapping has a string index signature that TS won't widen to number.
+const CT = ts.ClassificationType as unknown as Record<string, number>;
 
-// Precomputed legend index lookups (avoid repeated indexOf calls)
-const IDX_NAMESPACE     = TOKEN_TYPES.indexOf('namespace');
-const IDX_TYPE          = TOKEN_TYPES.indexOf('type');
-const IDX_CLASS         = TOKEN_TYPES.indexOf('class');
-const IDX_ENUM          = TOKEN_TYPES.indexOf('enum');
-const IDX_INTERFACE     = TOKEN_TYPES.indexOf('interface');
-const IDX_TYPE_PARAM    = TOKEN_TYPES.indexOf('typeParameter');
-const IDX_PARAMETER     = TOKEN_TYPES.indexOf('parameter');
-const IDX_VARIABLE      = TOKEN_TYPES.indexOf('variable');
-const IDX_ENUM_MEMBER   = TOKEN_TYPES.indexOf('enumMember');
-const IDX_PROPERTY      = TOKEN_TYPES.indexOf('property');
-const IDX_FUNCTION      = TOKEN_TYPES.indexOf('function');
-const IDX_METHOD        = TOKEN_TYPES.indexOf('method');
+const TS_TYPE_CLASS       = CT['className'];
+const TS_TYPE_ENUM        = CT['enumName'];
+const TS_TYPE_INTERFACE   = CT['interfaceName'];
+const TS_TYPE_NAMESPACE   = CT['moduleName'];
+const TS_TYPE_TYPE_PARAM  = CT['typeParameterName'];
+const TS_TYPE_TYPE        = CT['typeName'];
+const TS_TYPE_PARAMETER   = CT['parameterName'];
+const TS_TYPE_VARIABLE    = CT['localName'];
+const TS_TYPE_ENUM_MEMBER = CT['enumMemberName'];
+const TS_TYPE_PROPERTY    = CT['propertyName'];
+// 'functionName' and 'methodName' don't exist in ts.ClassificationType — they
+// are TwentyTwenty-only values.  In every known TS version they sit immediately
+// after propertyName, so we derive them rather than hardcode or guess.
+const TS_TYPE_FUNCTION    = CT['propertyName'] + 1;
+const TS_TYPE_METHOD      = CT['propertyName'] + 2;
 
-const MOD_DECLARATION   = 1 << TOKEN_MODIFIERS.indexOf('declaration');
-const MOD_READONLY      = 1 << TOKEN_MODIFIERS.indexOf('readonly');
-const MOD_STATIC        = 1 << TOKEN_MODIFIERS.indexOf('static');
-const MOD_ASYNC         = 1 << TOKEN_MODIFIERS.indexOf('async');
-const MOD_DEFAULT_LIB   = 1 << TOKEN_MODIFIERS.indexOf('defaultLibrary');
+const TS_MOD_DECLARATION  = 1;
+const TS_MOD_STATIC       = 2;
+const TS_MOD_ASYNC        = 4;
+const TS_MOD_READONLY     = 8;
+const TS_MOD_DEFAULT_LIB  = 16;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Decode a single TS TwentyTwenty encoded span into a legend type index and
-// modifier bitmask.  Returns -1 for typeIdx to signal "skip this token".
+// Precomputed legend index lookups (avoid repeated indexOf calls at runtime)
+// ─────────────────────────────────────────────────────────────────────────────
+const TYPES = [...TOKEN_TYPES] as string[];
+const MODS  = [...TOKEN_MODIFIERS] as string[];
+
+const IDX_NAMESPACE   = TYPES.indexOf('namespace');
+const IDX_TYPE        = TYPES.indexOf('type');
+const IDX_CLASS       = TYPES.indexOf('class');
+const IDX_ENUM        = TYPES.indexOf('enum');
+const IDX_INTERFACE   = TYPES.indexOf('interface');
+const IDX_TYPE_PARAM  = TYPES.indexOf('typeParameter');
+const IDX_PARAMETER   = TYPES.indexOf('parameter');
+const IDX_VARIABLE    = TYPES.indexOf('variable');
+const IDX_ENUM_MEMBER = TYPES.indexOf('enumMember');
+const IDX_PROPERTY    = TYPES.indexOf('property');
+const IDX_FUNCTION    = TYPES.indexOf('function');
+const IDX_METHOD      = TYPES.indexOf('method');
+
+const MOD_DECLARATION = 1 << MODS.indexOf('declaration');
+const MOD_READONLY    = 1 << MODS.indexOf('readonly');
+const MOD_STATIC      = 1 << MODS.indexOf('static');
+const MOD_ASYNC       = 1 << MODS.indexOf('async');
+const MOD_DEFAULT_LIB = 1 << MODS.indexOf('defaultLibrary');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Decode a single TwentyTwenty encoded span into legend type index + modifier
+// bitmask.  Returns typeIdx === -1 to signal "skip this token".
 // ─────────────────────────────────────────────────────────────────────────────
 function decode(encoded: number): { typeIdx: number; modBits: number } {
     const tsType = encoded & 0xFF;
     const tsMods = (encoded >> 8) & 0xFF;
 
-    // Build VS Code modifier bitmask
     let modBits = 0;
     if (tsMods & TS_MOD_DECLARATION) { modBits |= MOD_DECLARATION; }
     if (tsMods & TS_MOD_READONLY)    { modBits |= MOD_READONLY; }
@@ -129,26 +153,21 @@ function decode(encoded: number): { typeIdx: number; modBits: number } {
     if (tsMods & TS_MOD_ASYNC)       { modBits |= MOD_ASYNC; }
     if (tsMods & TS_MOD_DEFAULT_LIB) { modBits |= MOD_DEFAULT_LIB; }
 
-    const isDefaultLib   = (tsMods & TS_MOD_DEFAULT_LIB) !== 0;
-    const isDeclaration  = (tsMods & TS_MOD_DECLARATION)  !== 0;
+    const isDefaultLib = (tsMods & TS_MOD_DEFAULT_LIB) !== 0;
 
     switch (tsType) {
         case TS_TYPE_VARIABLE:
             // Only colour variables that are built-in browser globals
             // (window, document, console, etc. — all have defaultLibrary set).
-            // Plain var/let/const locals and user-declared globals are left
-            // uncoloured, matching VS Code's own JS behaviour.
+            // Plain var/let/const locals are left uncoloured, matching VS Code's
+            // own JS behaviour.
             if (!isDefaultLib) { return { typeIdx: -1, modBits: 0 }; }
             return { typeIdx: IDX_VARIABLE, modBits };
 
         case TS_TYPE_PARAMETER:
-            // Always colour parameters — this is what makes `textarea` in
-            // `.forEach(textarea => ...)` get its own distinct colour.
             return { typeIdx: IDX_PARAMETER, modBits };
 
         case TS_TYPE_FUNCTION:
-            // Skip declaration site of plain function declarations if desired —
-            // but actually colouring them is useful (shows function names).
             return { typeIdx: IDX_FUNCTION, modBits };
 
         case TS_TYPE_METHOD:
@@ -184,6 +203,31 @@ function decode(encoded: number): { typeIdx: number; modBits: number } {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Build the set of offset ranges that are inside real JS content
+// (re-derived cheaply from the document — same logic as buildVirtualJsContent
+// but without building the full string, since we only need the ranges here).
+// This lets us skip any tokens TS emits for the <script ...> tag text itself.
+// ─────────────────────────────────────────────────────────────────────────────
+function getJsRanges(content: string): Array<{ start: number; end: number }> {
+    const ranges: Array<{ start: number; end: number }> = [];
+    const re = /<script(\s[^>]*)?>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content)) !== null) {
+        const attrs  = m[1] ?? '';
+        const tagEnd = m.index + m[0].length;
+        const typeMatch = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
+        if (typeMatch && !/javascript|module/i.test(typeMatch[1])) { continue; }
+        if (/\blanguage\s*=\s*["']vbscript["']/i.test(attrs)) { continue; }
+        const rest     = content.slice(tagEnd);
+        const closeIdx = rest.search(/<\/script\s*>/i);
+        const end      = closeIdx === -1 ? content.length : tagEnd + closeIdx;
+        ranges.push({ start: tagEnd, end });
+        re.lastIndex = end;
+    }
+    return ranges;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Provider
 // ─────────────────────────────────────────────────────────────────────────────
 export class JsSemanticTokensProvider
@@ -194,19 +238,31 @@ export class JsSemanticTokensProvider
         token:    vscode.CancellationToken
     ): vscode.ProviderResult<vscode.SemanticTokens> {
 
+        if (token.isCancellationRequested) { return undefined; }
+
         const content = document.getText();
         const { virtualContent } = buildVirtualJsContent(content, 0);
+
+        // Bail early if there are no script blocks at all
+        const jsRanges = getJsRanges(content);
+        if (jsRanges.length === 0) { return undefined; }
+
+        if (token.isCancellationRequested) { return undefined; }
 
         const svc = getJsLanguageService();
         svc.updateContent(virtualContent);
 
-        const builder = new vscode.SemanticTokensBuilder(JS_SEMANTIC_LEGEND);
-
+        // Classification call can be slow on large files — check cancellation
+        // immediately after so we don't waste time building the token list.
         const result = svc.getEncodedSemanticClassifications(
             0, virtualContent.length
         );
 
-        // spans is a flat Int32Array of triples: [offset, length, encoded, ...]
+        if (token.isCancellationRequested) { return undefined; }
+
+        const builder = new vscode.SemanticTokensBuilder(COMBINED_SEMANTIC_LEGEND);
+
+        // spans is a flat array of triples: [offset, length, encoded, ...]
         const spans = result.spans;
         for (let i = 0; i + 2 < spans.length; i += 3) {
             if (token.isCancellationRequested) { break; }
@@ -214,6 +270,13 @@ export class JsSemanticTokensProvider
             const offset  = spans[i];
             const length  = spans[i + 1];
             const encoded = spans[i + 2];
+
+            // Skip tokens that don't fall inside a real JS range.
+            // This filters out spurious tokens from <script type="..."> tag
+            // attributes — the tag text is not blanked in virtualContent,
+            // so TS can produce tokens for words like "type", "src", etc.
+            const inJs = jsRanges.some(r => offset >= r.start && offset < r.end);
+            if (!inJs) { continue; }
 
             const { typeIdx, modBits } = decode(encoded);
             if (typeIdx === -1) { continue; }

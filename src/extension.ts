@@ -11,12 +11,17 @@ import { registerAspStructureDiagnostics } from './providers/aspStructureDiagnos
 import { JsCompletionProvider } from './providers/jsCompletionProvider';
 import { JsHoverProvider } from './providers/jsHoverProvider';
 import { JsSignatureHelpProvider } from './providers/jsSignatureHelpProvider';
-import { JsSemanticTokensProvider, JS_SEMANTIC_LEGEND } from './providers/jsSemanticProvider';
+// Import the JS semantic provider alongside the COMBINED legend.
+// aspSemanticProvider.ts must also import COMBINED_SEMANTIC_LEGEND from here
+// (or from jsSemanticProvider.ts directly) instead of declaring its own legend,
+// so both providers use identical type-index mappings.
+import { JsSemanticTokensProvider, COMBINED_SEMANTIC_LEGEND } from './providers/jsSemanticProvider';
 import { registerJsDiagnostics } from './providers/jsDiagnosticsProvider';
 import { disposeJsLanguageService } from './utils/jsUtils';
 import { IncludePathCompletionProvider, AspDefinitionProvider } from './providers/includeProvider';
 import { IncludeDocumentLinkProvider, HtmlAttributeLinkProvider, HtmlAttributePathCompletionProvider } from './providers/linkProvider';
-import { AspSemanticTokensProvider, ASP_SEMANTIC_LEGEND } from './providers/aspSemanticProvider';
+// ASP semantic provider must now use COMBINED_SEMANTIC_LEGEND — see note above.
+import { AspSemanticTokensProvider } from './providers/aspSemanticProvider';
 import { AspHoverProvider } from './providers/aspHoverProvider';
 import { AspRenameProvider } from './providers/aspRenameProvider';
 import { addRegionHighlights } from './highlight';
@@ -153,16 +158,14 @@ export function activate(context: vscode.ExtensionContext) {
         'n','o','p','q','r','s','t','u','v','w','x','y','z'
     );
 
-    // JS completions — fires on dot (member access), '(' (after function name),
-    // and every letter/underscore/$  so suggestions appear as you type.
+    // JS completions — '.' triggers member access completions; '(' triggers
+    // completions after a function name is typed.  Letter/digit triggers are
+    // intentionally omitted — VS Code's built-in word-based filter handles
+    // filtering the returned list as the user continues typing, and
+    // isIncomplete:false tells it the list is already complete.
     const jsCompletionProvider = vscode.languages.registerCompletionItemProvider(
         'asp', new JsCompletionProvider(),
-        '.', '(',
-        'a','b','c','d','e','f','g','h','i','j','k','l','m',
-        'n','o','p','q','r','s','t','u','v','w','x','y','z',
-        'A','B','C','D','E','F','G','H','I','J','K','L','M',
-        'N','O','P','Q','R','S','T','U','V','W','X','Y','Z',
-        '_', '$'
+        '.', '('
     );
 
     const includePathProvider = vscode.languages.registerCompletionItemProvider(
@@ -210,8 +213,6 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // ── Signature help ───────────────────────────────────────────────────────
-    // Two providers — one for VBScript (ASP zone), one for JS. Each guards
-    // itself with a zone check so they never fire in the wrong context.
     const aspSignatureHelpProvider = vscode.languages.registerSignatureHelpProvider(
         'asp',
         new AspSignatureHelpProvider(),
@@ -236,16 +237,18 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     // ── Semantic tokens ───────────────────────────────────────────────────────
-    // ASP/VBScript tokens (existing)
-    const aspSemanticTokensInstance = new AspSemanticTokensProvider();
+    // IMPORTANT: Both providers MUST use the same COMBINED_SEMANTIC_LEGEND.
+    // VS Code maps token type indices through whichever legend it sees first;
+    // if the two legends differ, all colours will be wrong for one provider.
+    //
+    // aspSemanticProvider.ts should import COMBINED_SEMANTIC_LEGEND from
+    // jsSemanticProvider.ts and pass it to its SemanticTokensBuilder.
     const aspSemanticProvider = vscode.languages.registerDocumentSemanticTokensProvider(
-        'asp', aspSemanticTokensInstance, ASP_SEMANTIC_LEGEND
+        'asp', new AspSemanticTokensProvider(), COMBINED_SEMANTIC_LEGEND
     );
 
-    // JS tokens (new) — separate legend, separate provider, same language ID
-    const jsSemanticTokensInstance = new JsSemanticTokensProvider();
     const jsSemanticProvider = vscode.languages.registerDocumentSemanticTokensProvider(
-        'asp', jsSemanticTokensInstance, JS_SEMANTIC_LEGEND
+        'asp', new JsSemanticTokensProvider(), COMBINED_SEMANTIC_LEGEND
     );
 
     // ── Void element quick fix ─────────────────────────────────────────────────
@@ -255,7 +258,6 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // ── Hover providers ───────────────────────────────────────────────────────
-    // All three guard themselves with zone checks so they never conflict.
     const aspHoverProvider = vscode.languages.registerHoverProvider(
         'asp', new AspHoverProvider()
     );
@@ -314,6 +316,12 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     // ── Subscriptions ─────────────────────────────────────────────────────────
+    // Rules:
+    //   • Push the Disposable returned by vscode.languages.register*() — NOT
+    //     the provider instance itself (provider classes are not Disposable
+    //     unless they explicitly implement dispose()).
+    //   • Every registered provider/listener must be in this list so it is
+    //     cleaned up when the extension is deactivated.
     context.subscriptions.push(
         formatter,
         htmlCompletionProvider,
@@ -323,7 +331,8 @@ export function activate(context: vscode.ExtensionContext) {
         jsCompletionProvider,
         jsHoverProvider,
         jsSignatureHelpProvider,
-        jsSemanticProvider,
+        jsSemanticProvider,         // ← was missing in previous version
+        aspSemanticProvider,        // ← was missing in previous version
         includePathProvider,
         includeDocumentLinkProvider,
         htmlAttributeLinkProvider,
@@ -334,8 +343,6 @@ export function activate(context: vscode.ExtensionContext) {
         workspaceSymbolProvider,
         wsCacheInvalidator,
         aspSignatureHelpProvider,
-        aspSemanticProvider,
-        aspSemanticTokensInstance,
         aspHoverProvider,
         voidElementQuickFix,
         inlineStyleTrigger,

@@ -4,6 +4,11 @@
  * Shows parameter hints (signature help) when the user types "(" or ","
  * inside a function call in a <script> block.
  *
+ * Fixes vs previous version:
+ *   • si.documentation and paramDoc are now wrapped in MarkdownString so
+ *     JSDoc formatting (backticks, links, bold) renders correctly in the
+ *     signature help tooltip — previously they were plain strings.
+ *
  * Registered in extension.ts alongside AspSignatureHelpProvider so the two
  * never conflict — AspSignatureHelpProvider only fires inside ASP zones and
  * this one only fires inside JS zones.
@@ -51,13 +56,32 @@ export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
                 .join(sep);
             const label  = prefix + params + suffix;
 
-            const si          = new vscode.SignatureInformation(label);
-            si.documentation  = sig.documentation?.map(p => p.text).join('') ?? '';
-            si.parameters     = sig.parameters.map(p => {
-                const paramLabel = p.displayParts.map(q => q.text).join('');
-                const paramDoc   = p.documentation?.map(q => q.text).join('') ?? '';
+            const si = new vscode.SignatureInformation(label);
+
+            // Wrap documentation in MarkdownString so JSDoc formatting renders
+            const sigDocText = sig.documentation?.map(p => p.text).join('') ?? '';
+            if (sigDocText) {
+                const sigMd = new vscode.MarkdownString(sigDocText, true);
+                sigMd.isTrusted = true;
+                si.documentation = sigMd;
+            }
+
+            si.parameters = sig.parameters.map(p => {
+                const paramLabel   = p.displayParts.map(q => q.text).join('');
+                const paramDocText = p.documentation?.map(q => q.text).join('') ?? '';
+
+                // ParameterInformation also accepts MarkdownString for documentation
+                const paramDoc = paramDocText
+                    ? (() => {
+                        const md = new vscode.MarkdownString(paramDocText, true);
+                        md.isTrusted = true;
+                        return md;
+                    })()
+                    : undefined;
+
                 return new vscode.ParameterInformation(paramLabel, paramDoc);
             });
+
             return si;
         });
 
