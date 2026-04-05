@@ -3,6 +3,7 @@ import { ASP_OBJECTS, VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS } from '../constants
 import { getContext, ContextType, getTextBeforeCursor } from '../utils/documentHelper';
 import { collectAllSymbols } from './includeProvider';
 import { COM_TYPE_MAP } from '../constants/comObjects';
+import { isInJsZone } from '../utils/jsUtils';
 import * as path from 'path';
 
 
@@ -32,6 +33,15 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
 
         // Only provide ASP completions inside ASP blocks
         if (docContext !== ContextType.ASP) {
+            return [];
+        }
+
+        // Extra guard: isInsideTag in documentHelper does not filter out
+        // <script language="vbscript"> vs <script> (JS), so getContext can
+        // return ASP for <% %> blocks that sit inside a JS <script> zone.
+        // isInJsZone uses the more accurate getZone scanner from aspUtils and
+        // catches this correctly — bail out so JS completions take over.
+        if (isInJsZone(document, position)) {
             return [];
         }
 
