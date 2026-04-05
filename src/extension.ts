@@ -26,6 +26,7 @@ import { AspHoverProvider } from './providers/aspHoverProvider';
 import { AspRenameProvider } from './providers/aspRenameProvider';
 import { addRegionHighlights } from './highlight';
 import { AspDocumentSymbolProvider } from './providers/aspDocumentSymbolProvider';
+import { JsDocumentSymbolProvider } from './providers/jsDocumentSymbolProvider';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache } from './providers/aspWorkspaceSymbolProvider';
 import { AspSignatureHelpProvider } from './providers/aspSignatureHelpProvider';
 
@@ -212,6 +213,10 @@ export function activate(context: vscode.ExtensionContext) {
         'asp', new AspDocumentSymbolProvider()
     );
 
+    const jsDocumentSymbolProvider = vscode.languages.registerDocumentSymbolProvider(
+        'asp', new JsDocumentSymbolProvider()
+    );
+
     // ── Signature help ───────────────────────────────────────────────────────
     const aspSignatureHelpProvider = vscode.languages.registerSignatureHelpProvider(
         'asp',
@@ -331,8 +336,8 @@ export function activate(context: vscode.ExtensionContext) {
         jsCompletionProvider,
         jsHoverProvider,
         jsSignatureHelpProvider,
-        jsSemanticProvider,         // ← was missing in previous version
-        aspSemanticProvider,        // ← was missing in previous version
+        jsSemanticProvider,
+        aspSemanticProvider,
         includePathProvider,
         includeDocumentLinkProvider,
         htmlAttributeLinkProvider,
@@ -340,6 +345,7 @@ export function activate(context: vscode.ExtensionContext) {
         definitionProvider,
         renameProvider,
         documentSymbolProvider,
+        jsDocumentSymbolProvider,
         workspaceSymbolProvider,
         wsCacheInvalidator,
         aspSignatureHelpProvider,

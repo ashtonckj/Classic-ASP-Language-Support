@@ -181,6 +181,12 @@ export class JsLanguageService implements vscode.Disposable {
         this._version++;
     }
 
+    /** Expose the underlying TS Program for AST-based providers (e.g. document symbols). */
+    getProgram(): ts.Program | undefined {
+        try { return this._service.getProgram() ?? undefined; }
+        catch { return undefined; }
+    }
+
     getCompletions(offset: number, trigger?: string): ts.CompletionInfo | undefined {
         try {
             return this._service.getCompletionsAtPosition(VIRTUAL_FILENAME, offset, {
