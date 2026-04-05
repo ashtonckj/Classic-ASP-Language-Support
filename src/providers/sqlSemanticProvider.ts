@@ -1,64 +1,114 @@
 import * as vscode from 'vscode';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Semantic token legend — must match contributes.semanticTokenScopes in package.json
+// Semantic token legend — MUST be the same object used by jsSemanticProvider.ts
+// and registered in extension.ts (COMBINED_SEMANTIC_LEGEND).
 //
-// Token types (index order matters):
-//   0  function         → user-defined Function names
-//   1  namespace        → user-defined Sub names
-//   2  variable         → Dim'd variables and COM object variables
-//   3  parameter        → function/sub parameters inside their own body
-//   4  enumMember       → Const values
+// VS Code maps token type indices through whichever legend it sees first for a
+// given language ID. If the ASP provider uses a different legend than the JS
+// provider the indices will be decoded against the wrong legend and every
+// VBScript colour will be wrong.
 //
-// SQL token types (indices 5–16):
-//   5  sqlDml           → SELECT, INSERT, UPDATE, DELETE, FROM, WHERE, JOIN …
-//   6  sqlDdl           → CREATE, DROP, ALTER, TABLE …
-//   7  sqlLogical       → AND, OR, NOT, IN, IS, LIKE, BETWEEN, EXISTS …
-//   8  sqlKeyword       → AS, SET, VALUES, CASE, WHEN, THEN, BEGIN, DECLARE …
-//   9  sqlFunction      → COUNT, SUM, AVG, CONVERT, GETDATE, ISNULL …
-//  10  sqlType          → VARCHAR, INT, DATETIME, BIT …
-//  11  sqlVariable      → @paramName
-//  12  sqlNumber        → numeric literals  1, 42, 3.14 …
-//  13  sqlBracketPunct  → the [ and ] characters
-//  14  sqlBracketContent → text inside [brackets] AND bare-word table names/aliases
-//  15  sqlTable         → left-hand side of table.column dot refs / bare-word table names
-//  16  sqlColumn        → right-hand side of alias.column  e.g. "RowID" in u.RowID
+// Layout (index order matters — must match COMBINED_SEMANTIC_LEGEND exactly):
 //
-// Token modifiers:
-//   0  declaration → where the symbol is defined/declared
-//   1  readonly    → used on constants
+// Standard VS Code token types (indices 0–22, from jsSemanticProvider.ts):
+//   0  namespace
+//   1  type
+//   2  class
+//   3  enum
+//   4  interface
+//   5  struct
+//   6  typeParameter
+//   7  parameter
+//   8  variable
+//   9  property
+//  10  enumMember
+//  11  event
+//  12  function
+//  13  method
+//  14  macro
+//  15  keyword
+//  16  modifier
+//  17  comment
+//  18  string
+//  19  number
+//  20  regexp
+//  21  operator
+//  22  decorator
+//
+// ASP/SQL-specific token types appended after the standard ones (indices 23–34):
+//  23  sqlDml           → SELECT, INSERT, UPDATE, DELETE, FROM, WHERE, JOIN …
+//  24  sqlDdl           → CREATE, DROP, ALTER, TABLE …
+//  25  sqlLogical       → AND, OR, NOT, IN, IS, LIKE, BETWEEN, EXISTS …
+//  26  sqlKeyword       → AS, SET, VALUES, CASE, WHEN, THEN, BEGIN, DECLARE …
+//  27  sqlFunction      → COUNT, SUM, AVG, CONVERT, GETDATE, ISNULL …
+//  28  sqlType          → VARCHAR, INT, DATETIME, BIT …
+//  29  sqlVariable      → @paramName
+//  30  sqlNumber        → numeric literals  1, 42, 3.14 …
+//  31  sqlBracketPunct  → the [ and ] characters
+//  32  sqlBracketContent → text inside [brackets] AND bare-word table names/aliases
+//  33  sqlTable         → left-hand side of table.column dot refs / bare-word table names
+//  34  sqlColumn        → right-hand side of alias.column  e.g. "RowID" in u.RowID
+//
+// Token modifiers (must match COMBINED_SEMANTIC_LEGEND):
+//   0  declaration
+//   1  definition
+//   2  readonly
+//   3  static
+//   4  deprecated
+//   5  abstract
+//   6  async
+//   7  modification
+//   8  documentation
+//   9  defaultLibrary
 // ─────────────────────────────────────────────────────────────────────────────
 export const ASP_SEMANTIC_LEGEND = new vscode.SemanticTokensLegend(
     [
-        'function', 'namespace', 'variable', 'parameter', 'enumMember',
+        // Standard VS Code types — indices 0–22 (must mirror TOKEN_TYPES in jsSemanticProvider.ts)
+        'namespace', 'type', 'class', 'enum', 'interface', 'struct',
+        'typeParameter', 'parameter', 'variable', 'property', 'enumMember',
+        'event', 'function', 'method', 'macro', 'keyword', 'modifier',
+        'comment', 'string', 'number', 'regexp', 'operator', 'decorator',
+        // ASP/SQL-specific types — indices 23–34
         'sqlDml', 'sqlDdl', 'sqlLogical', 'sqlKeyword', 'sqlFunction', 'sqlType', 'sqlVariable',
         'sqlNumber', 'sqlBracketPunct', 'sqlBracketContent', 'sqlTable', 'sqlColumn',
     ],
-    ['declaration', 'readonly']
+    // Modifiers must also mirror TOKEN_MODIFIERS in jsSemanticProvider.ts
+    [
+        'declaration', 'definition', 'readonly', 'static', 'deprecated',
+        'abstract', 'async', 'modification', 'documentation', 'defaultLibrary',
+    ]
 );
 
-// Token type indices
-export const T_FUNCTION         = 0;
-export const T_NAMESPACE        = 1;
-export const T_VARIABLE         = 2;
-export const T_PARAMETER        = 3;
-export const T_CONSTANT         = 4;
-const T_SQL_DML          = 5;
-const T_SQL_DDL          = 6;
-const T_SQL_LOGICAL      = 7;
-const T_SQL_KEYWORD      = 8;
-const T_SQL_FUNC         = 9;
-const T_SQL_TYPE         = 10;
-const T_SQL_VAR          = 11;
-const T_SQL_NUMBER       = 12;
-const T_SQL_BRACKET_PUNC = 13;
-const T_SQL_BRACKET_CON  = 14;
-// T_SQL_TABLE = 15 (unused directly; coloured via T_SQL_BRACKET_CON)
-const T_SQL_COLUMN       = 16;
+// ── VBScript token type indices (positions within COMBINED_SEMANTIC_LEGEND) ──
+// These map to the standard VS Code token types by name, so the editor theme
+// colours VBScript identifiers the same way it would colour the equivalent
+// concept in TypeScript/JavaScript.
+export const T_FUNCTION         = 12; // 'function'   — user-defined Function names
+export const T_NAMESPACE        = 0;  // 'namespace'  — user-defined Sub names
+export const T_VARIABLE         = 8;  // 'variable'   — Dim'd variables and COM objects
+export const T_PARAMETER        = 7;  // 'parameter'  — function/sub parameters
+export const T_CONSTANT         = 10; // 'enumMember' — Const values
 
-// Token modifier bit masks
-export const M_DECLARATION = 1;
-export const M_READONLY    = 2;
+// ── SQL token type indices (appended after the 23 standard types) ────────────
+const T_SQL_DML          = 23;
+const T_SQL_DDL          = 24;
+const T_SQL_LOGICAL      = 25;
+const T_SQL_KEYWORD      = 26;
+const T_SQL_FUNC         = 27;
+const T_SQL_TYPE         = 28;
+const T_SQL_VAR          = 29;
+const T_SQL_NUMBER       = 30;
+const T_SQL_BRACKET_PUNC = 31;
+const T_SQL_BRACKET_CON  = 32;
+// T_SQL_TABLE = 33 (unused directly; coloured via T_SQL_BRACKET_CON)
+const T_SQL_COLUMN       = 34;
+
+// ── Token modifier bit masks (positions within COMBINED_SEMANTIC_LEGEND) ─────
+// 'declaration' is at index 0 → bit 1<<0 = 1
+// 'readonly'    is at index 2 → bit 1<<2 = 4
+export const M_DECLARATION = 1 << 0; // 1
+export const M_READONLY    = 1 << 2; // 4
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SQL detection — requires BOTH a DML/DDL verb AND a clause keyword.
