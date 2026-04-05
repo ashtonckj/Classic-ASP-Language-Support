@@ -5,6 +5,32 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-04-05
+
+### ✨ Added
+- **VS Code JavaScript IntelliSense** - Full-featured JavaScript IntelliSense imported from VS Code's language service
+- **JavaScript semantic colouring** - Enhanced syntax highlighting with semantic tokens
+- **JavaScript error checking** - Real-time diagnostics for syntax and type errors in `<script>` blocks
+- **JavaScript document symbols** - Outline panel and breadcrumb navigation for JavaScript
+- **Call-expression callbacks** - Callback functions in document symbols and breadcrumbs
+- **Function call snippets** - Tab/Enter on functions inserts call snippet with parameters
+
+### 🛠️ Fixed
+- **Fixed #52** - `Exit Do` no longer incorrectly flagged as diagnostic error ([#52](https://github.com/ashtonckj/Classic-ASP-Language-Support/issues/52))
+- **Fixed VBScript completions leaking into JS** - VBScript suggestions no longer appear in `<script>` blocks
+- **Fixed JavaScript colouring** - Improved accuracy and consistency
+- **Fixed document symbols not appearing** - Symbols now display correctly in Outline panel
+- **Fixed `</script>` boundary detection** - Off-by-one error at closing tag boundaries
+- **Fixed SQL guard sensitivity** - Reduced false positives in SQL detection
+- **Fixed CompletionContext handling** - Honours trigger character and sets `isIncomplete` correctly
+
+### 🔄 Changed
+- **Refactored JavaScript utilities** - Extracted `getJsRanges` into `jsUtils` and removed duplicates
+- **Removed hard-coded JavaScript globals** - Cleaned up unused keyword lists
+- **Reduced comments and compacted code** - Improved maintainability
+
+---
+
 ## [0.4.1] - 2026-03-31
 
 ### ✨ Added
@@ -313,7 +339,8 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
-[0.4.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.4.1
+[0.5.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.5.0
+[0.4.1]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.4.1
 [0.4.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.4.0
 [0.3.7]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.7
 [0.3.6]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.3.6
