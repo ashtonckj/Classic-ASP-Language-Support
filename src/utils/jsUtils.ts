@@ -33,29 +33,46 @@ function blankNonNewlines(s: string): string {
     return s.replace(/[^\n]+/g, m => ' '.repeat(m.length));
 }
 
-export function buildVirtualJsContent(
-    content: string,
-    offset:  number
-): VirtualJsResult {
-    const jsRanges: Array<{ start: number; end: number }> = [];
-    const scriptOpenRe = /<script(\s[^>]*)?>/gi;
+/**
+ * Returns the character offsets of every JavaScript <script> block in `content`.
+ * `start` is the index of the first character after `>`, `end` is the index of
+ * the `<` that begins `</script>` — so JS content is `content.slice(start, end)`.
+ *
+ * Blocks with a non-JS `type` attribute (e.g. `type="text/html"`) and blocks
+ * with `language="vbscript"` are excluded.
+ *
+ * Shared by jsDiagnosticsProvider, jsSemanticProvider, and jsDocumentSymbolProvider
+ * to avoid duplicating the same regex logic in each file.
+ */
+export function getJsRanges(content: string): Array<{ start: number; end: number }> {
+    const ranges: Array<{ start: number; end: number }> = [];
+    const re = /<script(\s[^>]*)?>/gi;
     let m: RegExpExecArray | null;
 
-    while ((m = scriptOpenRe.exec(content)) !== null) {
+    while ((m = re.exec(content)) !== null) {
         const attrs  = m[1] ?? '';
         const tagEnd = m.index + m[0].length;
 
         const typeMatch = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
         if (typeMatch && !/javascript|module/i.test(typeMatch[1])) { continue; }
-        if (/\blanguage\s*=\s*["']vbscript["']/i.test(attrs)) { continue; }
+        if (/\blanguage\s*=\s*["']vbscript["']/i.test(attrs))      { continue; }
 
         const rest     = content.slice(tagEnd);
         const closeIdx = rest.search(/<\/script\s*>/i);
         const end      = closeIdx === -1 ? content.length : tagEnd + closeIdx;
 
-        jsRanges.push({ start: tagEnd, end });
-        scriptOpenRe.lastIndex = end;
+        ranges.push({ start: tagEnd, end });
+        re.lastIndex = end;
     }
+
+    return ranges;
+}
+
+export function buildVirtualJsContent(
+    content: string,
+    offset:  number
+): VirtualJsResult {
+    const jsRanges = getJsRanges(content);
 
     const isInScript = jsRanges.some(r => offset >= r.start && offset <= r.end);
 
