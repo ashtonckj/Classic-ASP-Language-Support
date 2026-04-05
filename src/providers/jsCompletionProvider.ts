@@ -32,7 +32,14 @@ import {
     tsKindToVsKind,
 } from '../utils/jsUtils';
 
-interface ItemData { name: string; offset: number; source?: string }
+interface ItemData {
+    name:           string;
+    offset:         number;
+    source?:        string;
+    /** True when the entry kind is Function or Method — used in resolveCompletionItem
+     *  to decide whether to inject a call-snippet. */
+    isFunctionLike: boolean;
+}
 
 /** Characters that signal we are starting a fresh expression context. */
 const FRESH_CONTEXT_CHARS = new Set([' ', '\t', '\n', ';', '{', '}', '(', ',', '[', '=', '!', '&', '|', '+', '-', '*', '/', '%', '?', ':']);
@@ -80,11 +87,16 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
 
             if (item.kind === vscode.CompletionItemKind.Function ||
                 item.kind === vscode.CompletionItemKind.Method) {
+                // Keep commitCharacters so typing '(' still commits — the
+                // snippet insertText is only applied on Tab/Enter via resolve.
                 item.commitCharacters = ['('];
             }
 
+            const isFunctionLike = item.kind === vscode.CompletionItemKind.Function
+                                 || item.kind === vscode.CompletionItemKind.Method;
+
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (item as any).data = { name: entry.name, offset, source: entry.source } satisfies ItemData;
+            (item as any).data = { name: entry.name, offset, source: entry.source, isFunctionLike } satisfies ItemData;
 
             return item;
         });
@@ -130,6 +142,30 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
             if (docsText && tagsText) { md.appendMarkdown('\n\n'); }
             if (tagsText) { md.appendMarkdown(tagsText); }
             item.documentation = md;
+        }
+
+        // ── Call-snippet injection ───────────────────────────────────────────
+        // Only applies to functions/methods, and only when the TS service has
+        // not already provided its own insertText (e.g. for destructuring
+        // completions the service supplies a custom snippet we must not clobber).
+        //
+        // We inspect the displayParts the service just returned to detect
+        // whether the function has any parameters:
+        //   • Parts contain a 'parameterName' or 'punctuation' '...' → has params
+        //   • displayParts go straight from '(' to ')' with nothing between → no params
+        //
+        // Results:
+        //   has params  →  name($0)     cursor lands inside the parens
+        //   no params   →  name()$0     cursor lands after the parens
+        if (data.isFunctionLike && !item.insertText) {
+            const parts     = details.displayParts ?? [];
+            const openIdx   = parts.findIndex(p => p.kind === 'punctuation' && p.text === '(');
+            const closeIdx  = parts.findIndex(p => p.kind === 'punctuation' && p.text === ')');
+            const hasParams = openIdx !== -1 && closeIdx !== -1 && closeIdx > openIdx + 1;
+
+            item.insertText = new vscode.SnippetString(
+                hasParams ? `${data.name}($0)` : `${data.name}()$0`
+            );
         }
 
         return item;
