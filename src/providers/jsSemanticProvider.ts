@@ -30,7 +30,6 @@
  */
 
 import * as vscode from 'vscode';
-import * as ts     from 'typescript';
 import {
     buildVirtualJsContent,
     getJsLanguageService,
@@ -70,42 +69,49 @@ export const COMBINED_SEMANTIC_LEGEND = new vscode.SemanticTokensLegend(
 export const JS_SEMANTIC_LEGEND = COMBINED_SEMANTIC_LEGEND;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TypeScript TwentyTwenty token type constants
+// TypeScript TwentyTwenty ("2020") encoding — confirmed by reading
+// src/services/classifier2020.ts from the TypeScript compiler source.
 //
-// Read from ts.ClassificationType at module load so they are always correct
-// regardless of TypeScript version — no more hardcoded magic numbers.
-// 'functionName' and 'methodName' are TwentyTwenty-only (not in the enum)
-// so we derive them as propertyName+1 and propertyName+2.
+// Each span triple is [offset, length, encoded] where:
+//   encoded = (tokenType << 8) | modifierBitmask
 //
-// The low byte of each encoded span is one of these type values.
-// The high byte (bits 8–15) contains modifier flags:
+//   tokenType  = encoded >> 8          (HIGH byte)
+//   modifiers  = encoded & 0xFF        (LOW byte)
+//
+// IMPORTANT: The wire values are the TokenType enum values + 1 (1-indexed).
+// The source defines class=0, enum=1, ... but the encoded values are 1-based:
+//
+//   TokenType (source 0-based → wire 1-based):
+//     class=1  enum=2  interface=3  namespace=4  typeParameter=5  type=6
+//     parameter=7  variable=8  enumMember=9  property=10  function=11  member=12
+//
+//   'member' in the TS source = method in VS Code semantic token terms.
+//
+// Modifier bits (low byte):
 //   bit 0 (1)  = declaration
 //   bit 1 (2)  = static
 //   bit 2 (4)  = async
 //   bit 3 (8)  = readonly
 //   bit 4 (16) = defaultLibrary
 //   bit 5 (32) = local
+//
+// These values were verified by decoding live span output from the extension:
+//   document(variable+defaultLib)    → encoded 2064 = (8<<8)|16  ✓
+//   textarea(parameter+declaration)  → encoded 1793 = (7<<8)|1   ✓
+//   addEventListener(member+defLib)  → encoded 3088 = (12<<8)|16 ✓
 // ─────────────────────────────────────────────────────────────────────────────
-
-// Cast through unknown — ts.ClassificationType is an enum whose generated
-// reverse-mapping has a string index signature that TS won't widen to number.
-const CT = ts.ClassificationType as unknown as Record<string, number>;
-
-const TS_TYPE_CLASS       = CT['className'];
-const TS_TYPE_ENUM        = CT['enumName'];
-const TS_TYPE_INTERFACE   = CT['interfaceName'];
-const TS_TYPE_NAMESPACE   = CT['moduleName'];
-const TS_TYPE_TYPE_PARAM  = CT['typeParameterName'];
-const TS_TYPE_TYPE        = CT['typeName'];
-const TS_TYPE_PARAMETER   = CT['parameterName'];
-const TS_TYPE_VARIABLE    = CT['localName'];
-const TS_TYPE_ENUM_MEMBER = CT['enumMemberName'];
-const TS_TYPE_PROPERTY    = CT['propertyName'];
-// 'functionName' and 'methodName' don't exist in ts.ClassificationType — they
-// are TwentyTwenty-only values.  In every known TS version they sit immediately
-// after propertyName, so we derive them rather than hardcode or guess.
-const TS_TYPE_FUNCTION    = CT['propertyName'] + 1;
-const TS_TYPE_METHOD      = CT['propertyName'] + 2;
+const TS_TYPE_CLASS       = 1;
+const TS_TYPE_ENUM        = 2;
+const TS_TYPE_INTERFACE   = 3;
+const TS_TYPE_NAMESPACE   = 4;
+const TS_TYPE_TYPE_PARAM  = 5;
+const TS_TYPE_TYPE        = 6;
+const TS_TYPE_PARAMETER   = 7;
+const TS_TYPE_VARIABLE    = 8;
+const TS_TYPE_ENUM_MEMBER = 9;
+const TS_TYPE_PROPERTY    = 10;
+const TS_TYPE_FUNCTION    = 11;
+const TS_TYPE_MEMBER      = 12;   // TS calls methods "member" — maps to IDX_METHOD
 
 const TS_MOD_DECLARATION  = 1;
 const TS_MOD_STATIC       = 2;
@@ -143,8 +149,9 @@ const MOD_DEFAULT_LIB = 1 << MODS.indexOf('defaultLibrary');
 // bitmask.  Returns typeIdx === -1 to signal "skip this token".
 // ─────────────────────────────────────────────────────────────────────────────
 function decode(encoded: number): { typeIdx: number; modBits: number } {
-    const tsType = encoded & 0xFF;
-    const tsMods = (encoded >> 8) & 0xFF;
+    // HIGH byte = token type, LOW byte = modifier bitmask
+    const tsType = encoded >> 8;
+    const tsMods = encoded & 0xFF;
 
     let modBits = 0;
     if (tsMods & TS_MOD_DECLARATION) { modBits |= MOD_DECLARATION; }
@@ -170,7 +177,8 @@ function decode(encoded: number): { typeIdx: number; modBits: number } {
         case TS_TYPE_FUNCTION:
             return { typeIdx: IDX_FUNCTION, modBits };
 
-        case TS_TYPE_METHOD:
+        case TS_TYPE_MEMBER:
+            // TS names methods "member" in the TwentyTwenty format
             return { typeIdx: IDX_METHOD, modBits };
 
         case TS_TYPE_PROPERTY:
