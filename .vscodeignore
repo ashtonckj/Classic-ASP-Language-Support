@@ -9,3 +9,10 @@ vsc-extension-quickstart.md
 **/*.map
 **/.vscode-test.*
 test-files/**
+
+# Dev-only node_modules — not needed at runtime, keeps vsix small
+node_modules/@typescript-eslint/**
+node_modules/eslint/**
+node_modules/esbuild/**
+node_modules/mocha/**
+node_modules/@types/**
