@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { formatCompleteAspFile } from './formatter/htmlFormatter';
 import { HtmlCompletionProvider } from './providers/htmlCompletionProvider';
-import { registerAutoClosingTag, registerEnterKeyHandler, registerTabKeyHandler, registerSmartQuoteHandler } from './providers/aspIndentProvider';
+import { registerAutoClosingTag, registerEnterKeyHandler, registerTabKeyHandler, registerSmartQuoteHandler, registerLineContinuationGuard } from './providers/aspIndentProvider';
 import { AspCompletionProvider } from './providers/aspCompletionProvider';
 import { CssCompletionProvider } from './providers/cssCompletionProvider';
 import { CssHoverProvider } from './providers/cssHoverProvider';
@@ -242,18 +242,66 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     // ── Semantic tokens ───────────────────────────────────────────────────────
-    // IMPORTANT: Both providers MUST use the same COMBINED_SEMANTIC_LEGEND.
-    // VS Code maps token type indices through whichever legend it sees first;
-    // if the two legends differ, all colours will be wrong for one provider.
-    //
-    // aspSemanticProvider.ts should import COMBINED_SEMANTIC_LEGEND from
-    // jsSemanticProvider.ts and pass it to its SemanticTokensBuilder.
-    const aspSemanticProvider = vscode.languages.registerDocumentSemanticTokensProvider(
-        'asp', new AspSemanticTokensProvider(), COMBINED_SEMANTIC_LEGEND
-    );
+    // IMPORTANT: VS Code only honours ONE DocumentSemanticTokensProvider per
+    // language. Registering two (ASP + JS) meant whichever ran second silently
+    // discarded the other's tokens. The fix is a single combined provider that
+    // runs both sub-providers and merges their delta-encoded token streams.
+    // Both sub-providers already share COMBINED_SEMANTIC_LEGEND so all indices
+    // and colours are always consistent.
+    const aspSemanticProviderInstance = new AspSemanticTokensProvider();
+    const jsSemanticProviderInstance  = new JsSemanticTokensProvider();
 
-    const jsSemanticProvider = vscode.languages.registerDocumentSemanticTokensProvider(
-        'asp', new JsSemanticTokensProvider(), COMBINED_SEMANTIC_LEGEND
+    // Decode delta-encoded SemanticTokens data back to absolute positions.
+    function decodeSemanticTokenData(data: Uint32Array): Array<[number, number, number, number, number]> {
+        const tokens: Array<[number, number, number, number, number]> = [];
+        let line = 0, char = 0;
+        for (let i = 0; i + 4 < data.length; i += 5) {
+            const deltaLine = data[i];
+            const deltaChar = data[i + 1];
+            const len  = data[i + 2];
+            const type = data[i + 3];
+            const mod  = data[i + 4];
+            if (deltaLine > 0) { line += deltaLine; char  = deltaChar; }
+            else               { char += deltaChar; }
+            tokens.push([line, char, len, type, mod]);
+        }
+        return tokens;
+    }
+
+    const combinedSemanticProvider = vscode.languages.registerDocumentSemanticTokensProvider(
+        'asp',
+        {
+            provideDocumentSemanticTokens(
+                document: vscode.TextDocument,
+                token:    vscode.CancellationToken
+            ): vscode.ProviderResult<vscode.SemanticTokens> {
+                const toPromise = (r: vscode.ProviderResult<vscode.SemanticTokens>) =>
+                    r instanceof Promise ? r : Promise.resolve(r ?? undefined);
+
+                return Promise.all([
+                    toPromise(aspSemanticProviderInstance.provideDocumentSemanticTokens(document, token)),
+                    toPromise(jsSemanticProviderInstance.provideDocumentSemanticTokens(document, token)),
+                ]).then(([aspTokens, jsTokens]) => {
+                    if (!aspTokens && !jsTokens) { return undefined; }
+                    if (!aspTokens) { return jsTokens; }
+                    if (!jsTokens)  { return aspTokens; }
+
+                    // Merge both token streams, sort by position, rebuild
+                    const all: Array<[number, number, number, number, number]> = [
+                        ...decodeSemanticTokenData(aspTokens.data),
+                        ...decodeSemanticTokenData(jsTokens.data),
+                    ];
+                    all.sort((a, b) => a[0] !== b[0] ? a[0] - b[0] : a[1] - b[1]);
+
+                    const builder = new vscode.SemanticTokensBuilder(COMBINED_SEMANTIC_LEGEND);
+                    for (const [l, c, len, type, mod] of all) {
+                        builder.push(l, c, len, type, mod);
+                    }
+                    return builder.build();
+                });
+            }
+        },
+        COMBINED_SEMANTIC_LEGEND
     );
 
     // ── Void element quick fix ─────────────────────────────────────────────────
@@ -280,6 +328,7 @@ export function activate(context: vscode.ExtensionContext) {
     registerEnterKeyHandler(context);
     registerTabKeyHandler(context);
     registerSmartQuoteHandler(context);
+    registerLineContinuationGuard(context);
 
     // ── Auto-trigger CSS suggestions inside empty style="" ────────────────────
     const inlineStyleTrigger = vscode.window.onDidChangeTextEditorSelection(e => {
@@ -336,8 +385,7 @@ export function activate(context: vscode.ExtensionContext) {
         jsCompletionProvider,
         jsHoverProvider,
         jsSignatureHelpProvider,
-        jsSemanticProvider,
-        aspSemanticProvider,
+        combinedSemanticProvider,
         includePathProvider,
         includeDocumentLinkProvider,
         htmlAttributeLinkProvider,
