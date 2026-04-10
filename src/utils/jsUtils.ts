@@ -126,13 +126,13 @@ export class JsLanguageService implements vscode.Disposable {
     constructor(extensionPath?: string) {
         this._compilerOptions = makeBrowserCompilerOptions();
         const libDir = path.dirname(ts.getDefaultLibFilePath(this._compilerOptions));
-        
+
         // Load custom DOM type definitions
         // Try to load from extension path first, fall back to inline definitions
-        this._aspDomTypes = extensionPath 
+        this._aspDomTypes = extensionPath
             ? this.loadAspDomTypes(extensionPath)
             : this.getInlineAspDomTypes();
-        
+
         const self   = this;
 
         const host: ts.LanguageServiceHost = {
@@ -181,18 +181,45 @@ export class JsLanguageService implements vscode.Disposable {
     }
 
     private getInlineAspDomTypes(): string {
-        // Inline fallback version of type definitions
         return `
-// ASP DOM type augmentations - adds element-specific methods to HTMLElement
-interface HTMLElement {
-    submit?: () => void;
-    reset?: () => void;
-    value?: string;
-    checked?: boolean;
-    selectedIndex?: number;
-    options?: HTMLOptionsCollection;
-}
-`;
+    type AspHtmlElement =
+        | HTMLFormElement
+        | HTMLInputElement
+        | HTMLSelectElement
+        | HTMLTextAreaElement
+        | HTMLButtonElement
+        | HTMLAnchorElement
+        | HTMLImageElement
+        | HTMLTableElement
+        | HTMLTableRowElement
+        | HTMLTableCellElement
+        | HTMLTableSectionElement
+        | HTMLLabelElement
+        | HTMLLegendElement
+        | HTMLFieldSetElement
+        | HTMLOptionElement
+        | HTMLOptGroupElement
+        | HTMLDivElement
+        | HTMLSpanElement
+        | HTMLParagraphElement
+        | HTMLHeadingElement
+        | HTMLUListElement
+        | HTMLOListElement
+        | HTMLLIElement
+        | HTMLCanvasElement
+        | HTMLVideoElement
+        | HTMLAudioElement
+        | HTMLIFrameElement
+        | HTMLScriptElement
+        | HTMLStyleElement
+        | HTMLLinkElement
+        | HTMLMetaElement
+        | HTMLBodyElement;
+
+    interface Document {
+        getElementById(elementId: string): AspHtmlElement | null;
+    }
+    `;
     }
 
     updateContent(content: string): void {
