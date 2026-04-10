@@ -10,11 +10,13 @@
  */
 
 import * as path   from 'path';
+import * as fs     from 'fs';
 import * as ts     from 'typescript';
 import * as vscode from 'vscode';
 import { getZone } from './aspUtils';
 
 export const VIRTUAL_FILENAME = 'asp-embedded.js';
+export const ASP_DOM_TYPES_FILENAME = 'asp-dom.d.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // buildVirtualJsContent
@@ -119,31 +121,78 @@ export class JsLanguageService implements vscode.Disposable {
     private readonly _compilerOptions: ts.CompilerOptions;
     private          _content:         string = '';
     private          _version:         number = 0;
+    private readonly _aspDomTypes:     string;
 
-    constructor() {
+    constructor(extensionPath?: string) {
         this._compilerOptions = makeBrowserCompilerOptions();
         const libDir = path.dirname(ts.getDefaultLibFilePath(this._compilerOptions));
+        
+        // Load custom DOM type definitions
+        // Try to load from extension path first, fall back to inline definitions
+        this._aspDomTypes = extensionPath 
+            ? this.loadAspDomTypes(extensionPath)
+            : this.getInlineAspDomTypes();
+        
         const self   = this;
 
         const host: ts.LanguageServiceHost = {
-            getScriptFileNames:     () => [VIRTUAL_FILENAME],
-            getScriptVersion:       (f) => f === VIRTUAL_FILENAME ? String(self._version) : '0',
+            getScriptFileNames:     () => [VIRTUAL_FILENAME, ASP_DOM_TYPES_FILENAME],
+            getScriptVersion:       (f) => {
+                if (f === VIRTUAL_FILENAME) return String(self._version);
+                if (f === ASP_DOM_TYPES_FILENAME) return '1';
+                return '0';
+            },
             getScriptSnapshot:      (f) => {
                 if (f === VIRTUAL_FILENAME) { return ts.ScriptSnapshot.fromString(self._content); }
+                if (f === ASP_DOM_TYPES_FILENAME) { return ts.ScriptSnapshot.fromString(self._aspDomTypes); }
                 const text = ts.sys.readFile(f);
                 return text !== undefined ? ts.ScriptSnapshot.fromString(text) : undefined;
             },
             getCompilationSettings: () => self._compilerOptions,
             getCurrentDirectory:    () => libDir,
             getDefaultLibFileName:  (opts) => ts.getDefaultLibFilePath(opts),
-            fileExists:             (f) => f === VIRTUAL_FILENAME || ts.sys.fileExists(f),
-            readFile:               (f) => f === VIRTUAL_FILENAME ? self._content : ts.sys.readFile(f),
+            fileExists:             (f) => {
+                if (f === VIRTUAL_FILENAME || f === ASP_DOM_TYPES_FILENAME) return true;
+                return ts.sys.fileExists(f);
+            },
+            readFile:               (f) => {
+                if (f === VIRTUAL_FILENAME) return self._content;
+                if (f === ASP_DOM_TYPES_FILENAME) return self._aspDomTypes;
+                return ts.sys.readFile(f);
+            },
             readDirectory:          ts.sys.readDirectory.bind(ts.sys),
             directoryExists:        ts.sys.directoryExists.bind(ts.sys),
             getDirectories:         ts.sys.getDirectories.bind(ts.sys),
         };
 
         this._service = ts.createLanguageService(host, ts.createDocumentRegistry());
+    }
+
+    private loadAspDomTypes(extensionPath: string): string {
+        try {
+            const typesPath = path.join(extensionPath, 'utils', 'asp-dom.d.ts');
+            if (fs.existsSync(typesPath)) {
+                return fs.readFileSync(typesPath, 'utf8');
+            }
+        } catch (err) {
+            console.warn('[ASP] Failed to load asp-dom.d.ts, using inline definitions:', err);
+        }
+        return this.getInlineAspDomTypes();
+    }
+
+    private getInlineAspDomTypes(): string {
+        // Inline fallback version of type definitions
+        return `
+// ASP DOM type augmentations - adds element-specific methods to HTMLElement
+interface HTMLElement {
+    submit?: () => void;
+    reset?: () => void;
+    value?: string;
+    checked?: boolean;
+    selectedIndex?: number;
+    options?: HTMLOptionsCollection;
+}
+`;
     }
 
     updateContent(content: string): void {
@@ -213,10 +262,15 @@ export class JsLanguageService implements vscode.Disposable {
 // Singleton
 // ─────────────────────────────────────────────────────────────────────────────
 let _service: JsLanguageService | undefined;
+let _extensionPath: string | undefined;
+
+export function initializeJsLanguageService(extensionPath: string): void {
+    _extensionPath = extensionPath;
+}
 
 export function getJsLanguageService(): JsLanguageService {
     if (!_service) {
-        try { _service = new JsLanguageService(); }
+        try { _service = new JsLanguageService(_extensionPath); }
         catch (err) {
             console.error('[ASP] Failed to create JsLanguageService:', err);
             throw err;
