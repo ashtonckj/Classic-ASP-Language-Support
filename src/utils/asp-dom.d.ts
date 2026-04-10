@@ -1,63 +1,123 @@
 /**
  * asp-dom.d.ts
- *
- * Custom TypeScript definitions for Classic ASP embedded JavaScript.
- *
- * Overrides document.getElementById to return a rich union of all concrete
- * HTML element interfaces instead of the base HTMLElement. This means:
- *
- *   - form.submit(), form.reset(), form.elements  → HTMLFormElement  ✓
- *   - input.value, input.checked, input.select()  → HTMLInputElement ✓
- *   - select.value, select.selectedIndex, select.options → HTMLSelectElement ✓
- *   - textarea.value, textarea.select()           → HTMLTextAreaElement ✓
- *   - table.insertRow(), table.deleteRow()        → HTMLTableElement ✓
- *   - tr.insertCell(), tr.deleteCell()            → HTMLTableRowElement ✓
- *   - img.src, img.alt                            → HTMLImageElement ✓
- *   - a.href, a.click()                           → HTMLAnchorElement ✓
- *   - button.disabled, button.click()             → HTMLButtonElement ✓
- *   - ...and all other HTMLXxxElement types from lib.dom.d.ts
- *
- * We do NOT augment HTMLElement itself — that would conflict with the
- * subinterfaces in lib.dom.d.ts and produce ts(2430) errors.
- *
- * The union approach preserves real type errors: if the element doesn't
- * expose a property (e.g. a <div> has no .submit), TypeScript still warns.
  */
 
-type AspHtmlElement =
-    | HTMLFormElement
-    | HTMLInputElement
-    | HTMLSelectElement
-    | HTMLTextAreaElement
-    | HTMLButtonElement
-    | HTMLAnchorElement
-    | HTMLImageElement
-    | HTMLTableElement
-    | HTMLTableRowElement
-    | HTMLTableCellElement
-    | HTMLTableSectionElement
-    | HTMLLabelElement
-    | HTMLLegendElement
-    | HTMLFieldSetElement
-    | HTMLOptionElement
-    | HTMLOptGroupElement
-    | HTMLDivElement
-    | HTMLSpanElement
-    | HTMLParagraphElement
-    | HTMLHeadingElement
-    | HTMLUListElement
-    | HTMLOListElement
-    | HTMLLIElement
-    | HTMLCanvasElement
-    | HTMLVideoElement
-    | HTMLAudioElement
-    | HTMLIFrameElement
-    | HTMLScriptElement
-    | HTMLStyleElement
-    | HTMLLinkElement
-    | HTMLMetaElement
-    | HTMLBodyElement;
+interface AspHtmlElement extends HTMLElement {
+
+    // ── HTMLFormElement ───────────────────────────────────────────────────────
+    submit?():          void;
+    reset?():           void;
+    checkValidity?():   boolean;
+    reportValidity?():  boolean;
+    elements?:          HTMLFormControlsCollection;
+    action?:            string;
+    method?:            string;
+    enctype?:           string;
+    encoding?:          string;
+    noValidate?:        boolean;
+
+    // ── HTMLInputElement / HTMLTextAreaElement ────────────────────────────────
+    value?:             string;
+    defaultValue?:      string;
+    checked?:           boolean;
+    defaultChecked?:    boolean;
+    indeterminate?:     boolean;
+    placeholder?:       string;
+    readOnly?:          boolean;
+    required?:          boolean;
+    maxLength?:         number;
+    minLength?:         number;
+    max?:               string;
+    min?:               string;
+    step?:              string;
+    pattern?:           string;
+    multiple?:          boolean;
+    accept?:            string;
+    files?:             FileList | null;
+    selectionStart?:    number | null;
+    selectionEnd?:      number | null;
+    validity?:          ValidityState;
+    validationMessage?: string;
+    select?():          void;
+    setSelectionRange?(start: number, end: number, direction?: string): void;
+    setCustomValidity?(error: string): void;
+
+    // ── HTMLSelectElement ─────────────────────────────────────────────────────
+    selectedIndex?:   number;
+    options?:         HTMLOptionsCollection;
+    selectedOptions?: HTMLCollectionOf<HTMLOptionElement>;
+    size?:            number;
+
+    // ── HTMLOptionElement ─────────────────────────────────────────────────────
+    selected?:  boolean;
+    label?:     string;
+    text?:      string;
+    index?:     number;
+
+    // ── HTMLImageElement ──────────────────────────────────────────────────────
+    naturalWidth?:  number;
+    naturalHeight?: number;
+    complete?:      boolean;
+    currentSrc?:    string;
+
+    // ── HTMLTableElement ──────────────────────────────────────────────────────
+    insertRow?(index?: number):  HTMLTableRowElement;
+    deleteRow?(index: number):   void;
+    createTHead?():              HTMLTableSectionElement;
+    createTFoot?():              HTMLTableSectionElement;
+    createTBody?():              HTMLTableSectionElement;
+    deleteTHead?():              void;
+    deleteTFoot?():              void;
+    rows?:                       HTMLCollectionOf<HTMLTableRowElement>;
+    tHead?:                      HTMLTableSectionElement | null;
+    tFoot?:                      HTMLTableSectionElement | null;
+    tBodies?:                    HTMLCollectionOf<HTMLTableSectionElement>;
+    caption?:                    HTMLTableCaptionElement | null;
+
+    // ── HTMLTableRowElement ───────────────────────────────────────────────────
+    insertCell?(index?: number): HTMLTableCellElement;
+    deleteCell?(index: number):  void;
+    cells?:                      HTMLCollectionOf<HTMLTableCellElement>;
+    rowIndex?:                   number;
+    sectionRowIndex?:            number;
+
+    // ── HTMLTableCellElement ──────────────────────────────────────────────────
+    colSpan?:   number;
+    rowSpan?:   number;
+    cellIndex?: number;
+    abbr?:      string;
+    scope?:     string;
+
+    // ── HTMLMediaElement (video / audio) ──────────────────────────────────────
+    play?():    Promise<void>;
+    pause?():   void;
+    canPlayType?(type: string): CanPlayTypeResult;
+    paused?:    boolean;
+    ended?:     boolean;
+    volume?:    number;
+    currentTime?: number;
+    duration?:  number;
+
+    // ── HTMLCanvasElement ─────────────────────────────────────────────────────
+    toDataURL?(type?: string, quality?: any): string;
+    toBlob?(callback: BlobCallback, type?: string, quality?: any): void;
+
+    // ── HTMLIFrameElement ─────────────────────────────────────────────────────
+    contentDocument?: Document | null;
+    contentWindow?:   WindowProxy | null;
+
+    // ── HTMLButtonElement ─────────────────────────────────────────────────────
+    formAction?:     string;
+    formMethod?:     string;
+    formTarget?:     string;
+    formNoValidate?: boolean;
+}
 
 interface Document {
-    getElementById(elementId: string): AspHtmlElement | null;
+    getElementById(elementId: string):      AspHtmlElement | null;
+    querySelector(selector: string):        AspHtmlElement | null;
+    querySelectorAll(selector: string):     NodeListOf<AspHtmlElement>;
+    getElementsByTagName(name: string):     HTMLCollectionOf<AspHtmlElement>;
+    getElementsByClassName(names: string):  HTMLCollectionOf<AspHtmlElement>;
+    getElementsByName(elementName: string): NodeListOf<AspHtmlElement>;
 }
