@@ -551,10 +551,34 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
 
         // ---- HTML tag auto-close: <div> → <div></div>
         if (change.text === '>') {
-            const position       = change.range.start;
-            const line           = event.document.lineAt(position.line);
-            const textBefore     = line.text.substring(0, position.character);
+            const position        = change.range.start;
+            const line            = event.document.lineAt(position.line);
+            const textBefore      = line.text.substring(0, position.character);
             const textAfterCursor = line.text.substring(position.character + 1);
+
+            // Don't auto-close when `>` is typed inside a quoted attribute value.
+            // e.g. <a href="<>"> — the `>` closes the inner `<`, not the tag itself.
+            // Scan forward through textBefore tracking quote state to find the last
+            // real (outside-quotes) tag-opening `<`. If we're still inside a quote
+            // after that point, the `>` belongs inside an attribute value — bail out.
+            let inQuote: string | null = null;
+            let lastRealTagOpen = -1;
+            for (let i = 0; i < textBefore.length; i++) {
+                const ch = textBefore[i];
+                if (inQuote) {
+                    if (ch === inQuote) { inQuote = null; }
+                } else {
+                    if (ch === '"' || ch === "'") { inQuote = ch; }
+                    else if (ch === '<') {
+                        const next = textBefore[i + 1];
+                        if (next && /[a-zA-Z\/!]/.test(next)) {
+                            lastRealTagOpen = i;
+                            inQuote = null;
+                        }
+                    }
+                }
+            }
+            if (lastRealTagOpen !== -1 && inQuote !== null) { return; }
 
             const tagMatch = textBefore.match(/<(\w+)(?:\s+[^>]*)?$/);
             if (tagMatch && !isSelfClosingTag(tagMatch[1])) {
