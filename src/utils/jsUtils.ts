@@ -70,6 +70,45 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
     return ranges;
 }
 
+/**
+ * Replaces a single ASP block with syntactically valid JS so the TS service
+ * never sees a bare hole in an expression context.
+ *
+ *   <%= expr %>  →  expression block: replace with numeric literal `0` padded
+ *                   with spaces so the total character count is preserved and
+ *                   offsets for surrounding code stay correct.
+ *                   e.g. `<%= foo %>` (10 chars) → `0         ` (10 chars)
+ *
+ *   <% code %>   →  statement block: replace with a JS block comment padded
+ *                   to the same length.
+ *                   e.g. `<% bar() %>` (11 chars) → `/*         *\/` — but we
+ *                   need exact length, so we pad the interior with spaces.
+ *                   Newlines inside the block are preserved so line numbers stay valid.
+ */
+function blankAspBlock(asp: string): string {
+    const isExpression = asp.startsWith('<%=');
+
+    if (isExpression) {
+        // Keep newlines so line numbers stay correct; replace everything else
+        // with spaces, then overwrite the very first non-newline char with '0'
+        // so the result is a valid numeric literal in any expression context.
+        const blanked = asp.replace(/[^\n]+/g, m => ' '.repeat(m.length));
+        // Find the index of the first space (first non-newline char) and put '0' there.
+        const firstSpace = blanked.indexOf(' ');
+        if (firstSpace === -1) { return blanked; }
+        return blanked.slice(0, firstSpace) + '0' + blanked.slice(firstSpace + 1);
+    }
+
+    // Statement block — a JS block comment is invisible to the parser.
+    // We must preserve the exact character count (newlines stay, rest → spaces)
+    // and wrap with /* ... */ so TS treats it as whitespace.
+    // The 4 syntax chars (/ * * /) replace the 4 ASP delimiters (<% and %>),
+    // so the interior length is unchanged.
+    return asp.replace(/[^\n]+/g, m => ' '.repeat(m.length))
+              .replace(/^\ {2}/, '/*')   // first 2 spaces → /*
+              .replace(/\ {2}$/, '*/');  // last  2 spaces → */
+}
+
 export function buildVirtualJsContent(
     content: string,
     offset:  number
@@ -82,7 +121,7 @@ export function buildVirtualJsContent(
     let prev = 0;
     for (const r of jsRanges) {
         out += blankNonNewlines(content.slice(prev, r.start));
-        out += content.slice(r.start, r.end).replace(/<%[\s\S]*?%>/g, asp => blankNonNewlines(asp));
+        out += content.slice(r.start, r.end).replace(/<%[\s\S]*?%>/g, asp => blankAspBlock(asp));
         prev = r.end;
     }
     out += blankNonNewlines(content.slice(prev));
