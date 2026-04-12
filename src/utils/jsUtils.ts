@@ -182,9 +182,16 @@ export class JsLanguageService implements vscode.Disposable {
 
     private getInlineAspDomTypes(): string {
         return `
-    interface AspHtmlElement extends HTMLElement {
+    // Augment the standard HTMLElement interface directly so that Classic ASP
+    // inline scripts can call element-specific members (.submit(), .value,
+    // .selectedIndex, etc.) without type errors — exactly like plain .html files,
+    // where the HTML language service never enforces specific element subtypes.
+    // All members are optional so existing HTMLElement usage is unaffected.
+    // The Document interface is intentionally left untouched; getElementById /
+    // querySelector already return HTMLElement | null in lib.dom.d.ts.
+    interface HTMLElement {
 
-        // HTMLFormElement
+        // ── HTMLFormElement ───────────────────────────────────────────────────
         submit?():          void;
         reset?():           void;
         checkValidity?():   boolean;
@@ -196,8 +203,10 @@ export class JsLanguageService implements vscode.Disposable {
         encoding?:          string;
         noValidate?:        boolean;
 
-        // HTMLInputElement / HTMLTextAreaElement
-        value?:             string;
+        // ── HTMLInputElement / HTMLTextAreaElement ────────────────────────────
+        // value is string|number to stay compatible with HTMLLIElement /
+        // HTMLMeterElement / HTMLProgressElement which declare value as number.
+        value?:             string | number;
         defaultValue?:      string;
         checked?:           boolean;
         defaultChecked?:    boolean;
@@ -207,8 +216,9 @@ export class JsLanguageService implements vscode.Disposable {
         required?:          boolean;
         maxLength?:         number;
         minLength?:         number;
-        max?:               string;
-        min?:               string;
+        // max / min are string|number: string on input[type=date/number], number on HTMLMeterElement.
+        max?:               string | number;
+        min?:               string | number;
         step?:              string;
         pattern?:           string;
         multiple?:          boolean;
@@ -216,31 +226,35 @@ export class JsLanguageService implements vscode.Disposable {
         files?:             FileList | null;
         selectionStart?:    number | null;
         selectionEnd?:      number | null;
-        validity?:          ValidityState;
-        validationMessage?: string;
-        select?():          void;
-        setSelectionRange?(start: number, end: number, direction?: string): void;
+        // readonly: HTMLTextAreaElement and others declare both readonly.
+        readonly validity?:          ValidityState;
+        readonly validationMessage?: string;
+        select?():            void;
+        setSelectionRange?(start: number | null, end: number | null, direction?: string): void;
         setCustomValidity?(error: string): void;
 
-        // HTMLSelectElement
+        // ── HTMLSelectElement ─────────────────────────────────────────────────
         selectedIndex?:   number;
-        options?:         HTMLOptionsCollection;
+        // readonly HTMLCollectionOf<HTMLOptionElement>: matches HTMLDataListElement exactly.
+        // HTMLSelectElement.options (HTMLOptionsCollection) extends HTMLCollectionOf so it's compatible.
+        readonly options?:         HTMLCollectionOf<HTMLOptionElement>;
         selectedOptions?: HTMLCollectionOf<HTMLOptionElement>;
-        size?:            number;
+        // size is string|number: number on HTMLSelectElement, string on HTMLFontElement/HTMLHRElement.
+        size?:            string | number;
 
-        // HTMLOptionElement
+        // ── HTMLOptionElement ─────────────────────────────────────────────────
         selected?:  boolean;
         label?:     string;
         text?:      string;
         index?:     number;
 
-        // HTMLImageElement
+        // ── HTMLImageElement ──────────────────────────────────────────────────
         naturalWidth?:  number;
         naturalHeight?: number;
         complete?:      boolean;
         currentSrc?:    string;
 
-        // HTMLTableElement
+        // ── HTMLTableElement ──────────────────────────────────────────────────
         insertRow?(index?: number):  HTMLTableRowElement;
         deleteRow?(index: number):   void;
         createTHead?():              HTMLTableSectionElement;
@@ -248,27 +262,29 @@ export class JsLanguageService implements vscode.Disposable {
         createTBody?():              HTMLTableSectionElement;
         deleteTHead?():              void;
         deleteTFoot?():              void;
-        rows?:                       HTMLCollectionOf<HTMLTableRowElement>;
+        // string | number | HTMLCollectionOf<...>:
+        //   HTMLFrameSetElement → string, HTMLTextAreaElement → number, HTMLTableElement → HTMLCollectionOf
+        rows?:                       string | number | HTMLCollectionOf<HTMLTableRowElement>;
         tHead?:                      HTMLTableSectionElement | null;
         tFoot?:                      HTMLTableSectionElement | null;
         tBodies?:                    HTMLCollectionOf<HTMLTableSectionElement>;
         caption?:                    HTMLTableCaptionElement | null;
 
-        // HTMLTableRowElement
+        // ── HTMLTableRowElement ───────────────────────────────────────────────
         insertCell?(index?: number): HTMLTableCellElement;
         deleteCell?(index: number):  void;
         cells?:                      HTMLCollectionOf<HTMLTableCellElement>;
         rowIndex?:                   number;
         sectionRowIndex?:            number;
 
-        // HTMLTableCellElement
+        // ── HTMLTableCellElement ──────────────────────────────────────────────
         colSpan?:   number;
         rowSpan?:   number;
         cellIndex?: number;
         abbr?:      string;
         scope?:     string;
 
-        // HTMLMediaElement (video / audio)
+        // ── HTMLMediaElement (video / audio) ──────────────────────────────────
         play?():    Promise<void>;
         pause?():   void;
         canPlayType?(type: string): CanPlayTypeResult;
@@ -278,28 +294,19 @@ export class JsLanguageService implements vscode.Disposable {
         currentTime?: number;
         duration?:  number;
 
-        // HTMLCanvasElement
+        // ── HTMLCanvasElement ─────────────────────────────────────────────────
         toDataURL?(type?: string, quality?: any): string;
         toBlob?(callback: BlobCallback, type?: string, quality?: any): void;
 
-        // HTMLIFrameElement
+        // ── HTMLIFrameElement ─────────────────────────────────────────────────
         contentDocument?: Document | null;
         contentWindow?:   WindowProxy | null;
 
-        // HTMLButtonElement
+        // ── HTMLButtonElement ─────────────────────────────────────────────────
         formAction?:     string;
         formMethod?:     string;
         formTarget?:     string;
         formNoValidate?: boolean;
-    }
-
-    interface Document {
-        getElementById(elementId: string):      AspHtmlElement | null;
-        querySelector(selector: string):        AspHtmlElement | null;
-        querySelectorAll(selector: string):     NodeListOf<AspHtmlElement>;
-        getElementsByTagName(name: string):     HTMLCollectionOf<AspHtmlElement>;
-        getElementsByClassName(names: string):  HTMLCollectionOf<AspHtmlElement>;
-        getElementsByName(elementName: string): NodeListOf<AspHtmlElement>;
     }
     `;
     }
