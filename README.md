@@ -128,7 +128,6 @@
 |:---:|-----------|:------:|-------|
 | <img src="images/ext-prettier.png" width="50"> | [Prettier] | ✅ Integrated | Already bundled — no separate install needed |
 | <img src="images/ext-error-lens.png" width="50"> | [Error Lens] | ✅ Compatible | Displays diagnostics inline |
-| <img src="images/ext-auto-rename-tag.png" width="50"> | [Auto Rename Tag] | ✅ Compatible | Rename opening/closing HTML tags together |
 | <img src="images/ext-gitlens.png" width="50"> | [GitLens] | ✅ Compatible | Git blame, history, and code insights |
 | <img src="images/ext-indent-rainbow.png" width="50"> | [Indent Rainbow] | ✅ Compatible | Colour-coded indentation levels |
 | <img src="images/ext-lorem-ipsum.png" width="50"> | [Lorem Ipsum] | ✅ Compatible | Quick placeholder text insertion |
@@ -137,6 +136,7 @@
 | <img src="images/ext-inline-bookmarks.png" height="35"> | [Inline Bookmarks] | ✅ Compatible | In-editor bookmark tracking |
 | <img src="images/ext-http-status-codes.png" width="50"> | [HTTP Status Codes] | ✅ Compatible | HTTP status code reference on hover |
 | <img src="images/ext-asp-html-tag-matcher.png" width="50"> | [ASP HTML Tag Matcher] | ✅ Compatible | Highlights matching HTML tags in ASP files |
+| <img src="images/ext-auto-rename-tag.png" width="50"> | [Auto Rename Tag] | ⚠️ Partially Compatible | Rename opening/closing HTML tags together |
 | <img src="images/ext-html-css-support.png" width="50"> | [HTML CSS Support] | ⚠️ Caution | May conflict with built-in HTML completions — but may be fine |
 | <img src="images/ext-asp-classic-support.png" width="50"> | [ASP Classic Support] | ❌ Incompatible | Already integrated into this extension |
 | <img src="images/ext-classic-asp-syntaxes.png" width="50"> | [Classic ASP Syntaxes & Snippets] | ❌ Incompatible | Already integrated into this extension |
