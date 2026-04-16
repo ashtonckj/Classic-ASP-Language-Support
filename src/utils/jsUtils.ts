@@ -91,29 +91,126 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
  * Replaces a single ASP block with syntactically valid JS so the TS service
  * never sees a bare hole in an expression context.
  *
- *   <%= expr %>  →  expression block: replace with numeric literal `0` padded
- *                   with spaces so the total character count is preserved and
- *                   offsets for surrounding code stay correct.
- *                   e.g. `<%= foo %>` (10 chars) → `0         ` (10 chars)
+ * IMPROVED VERSION: Uses heuristic pattern matching to infer better types
+ * instead of always defaulting to `0`.
+ *
+ *   <%= expr %>  →  expression block: replace with a JS literal based on
+ *                   pattern matching (object, array, string, or number).
+ *                   Character count is preserved with padding.
  *
  *   <% code %>   →  statement block: replace with a JS block comment padded
  *                   to the same length.
- *                   e.g. `<% bar() %>` (11 chars) → `/*         *\/` — but we
- *                   need exact length, so we pad the interior with spaces.
- *                   Newlines inside the block are preserved so line numbers stay valid.
+ *
+ * PATTERN MATCHING STRATEGY:
+ *   1. Literal values (most accurate): <%= "{}" %>, <%= "[]" %>, <%= "text" %>
+ *   2. Variable name heuristics: <%= vbdict %>, <%= arrItems %>, <%= strName %>
+ *   3. Server object methods: <%= RS("field") %>, <%= Request.Form("x") %>
+ *
+ * LIMITATIONS:
+ *   - Cannot evaluate VBScript expressions at edit-time
+ *   - Variable name heuristics are imperfect (false positives/negatives possible)
+ *   - Cannot track variable assignments or function returns
+ *   - This is inherent to static analysis without a VBScript runtime
+ *
+ * SUPPORTED PATTERNS:
+ *   Literal values:
+ *     <%= "{}" %>              →  ({})     [object literal in VBScript string]
+ *     <%= "[]" %>              →  ([])     [array literal in VBScript string]
+ *     <%= "true" %>            →  (false)  [boolean literal in VBScript string]
+ *     <%= "anything" %>        →  ("")     [other string literals]
+ *   
+ *   Variable names (heuristic):
+ *     <%= vbdict %>            →  ({})     [name contains "dict", "obj", "json", etc.]
+ *     <%= arrItems %>          →  ([])     [name contains "arr", "array", "list", etc.]
+ *     <%= strName %>           →  ("")     [name contains "str", "text", "name", etc.]
+ *   
+ *   Server objects:
+ *     <%= RS("field") %>       →  ("")     [database recordset fields are typically strings]
+ *     <%= Request.Form("x") %> →  ("")     [Request collections always return strings]
+ *     <%= Session("y") %>      →  ("")     [Session/Application most commonly store strings]
+ *   
+ *   Fallback:
+ *     <%= unknown %>           →  0        [safe numeric fallback]
  */
 function blankAspBlock(asp: string): string {
     const isExpression = asp.startsWith('<%=');
 
     if (isExpression) {
-        // Keep newlines so line numbers stay correct; replace everything else
-        // with spaces, then overwrite the very first non-newline char with '0'
-        // so the result is a valid numeric literal in any expression context.
+        // Extract the VBScript expression (strip <%= and %>)
+        const expr = asp.slice(3, -2).trim();
+        
+        // Determine the best JS placeholder based on pattern matching
+        let placeholder = '0'; // default: numeric literal (safe fallback)
+        
+        // Pattern matching for better type inference
+        // NOTE: Patterns match both literal values AND variable names using heuristics.
+        
+        // 1. LITERAL VALUES (highest priority - most accurate)
+        if (/^["'](\{.*\}|{})["']$/s.test(expr)) {
+            // VBScript string containing object literal: <%= "{}" %> or <%= "{ x: 1 }" %>
+            // This fixes the issue where `for (const key in jsdict)` errors with "type 'number'"
+            placeholder = '({})';
+            
+        } else if (/^["'](\[.*\]|\[\])["']$/s.test(expr)) {
+            // VBScript string containing array literal: <%= "[]" %> or <%= "[1, 2, 3]" %>
+            placeholder = '([])';
+            
+        } else if (/^["'](true|false)["']$/i.test(expr)) {
+            // VBScript string containing boolean: <%= "true" %> or <%= "false" %>
+            placeholder = '(false)';
+            
+        } else if (/^["'].*["']$/s.test(expr)) {
+            // Any other string literal (catch-all for strings)
+            placeholder = '("")';
+            
+        // 2. VARIABLE NAME HEURISTICS (for <%= vbvar %> cases)
+        } else if (/(dict|obj|object|json|map|hash|config|options|settings|params|payload|data|test)/i.test(expr)) {
+            // Variable names that suggest objects: vbdict, objData, jsonConfig, testData, etc.
+            // Common in Classic ASP: vbdict = "{}", objUser = "{ name: 'Alice' }", testData = "{}"
+            placeholder = '({})';
+            
+        } else if (/(arr|array|list|items|collection|rows|results)/i.test(expr)) {
+            // Variable names that suggest arrays: vbarr, arrayItems, listRows, etc.
+            placeholder = '([])';
+            
+        } else if (/(str|string|text|msg|message|title|desc|description)/i.test(expr)) {
+            // Variable names that suggest strings: strName, textContent, msgError, etc.
+            // Note: Removed "name", "val", "value", "content" as they're too generic and cause false positives
+            placeholder = '("")';
+            
+        // 3. SERVER OBJECT METHODS (medium priority)
+        } else if (/\b(RS|Recordset)\s*[\(\[]/i.test(expr) || /\.Fields\s*[\(\[]/i.test(expr)) {
+            // Database recordset field access: RS("name") or RS.Fields("email")
+            // Most DB fields are strings (names, emails, text, etc.)
+            // Even numeric fields are often coerced to strings in Classic ASP
+            placeholder = '("")';
+            
+        } else if (/\bRequest\s*\.\s*(Form|QueryString|ServerVariables|Cookies)\s*[\(\[]/i.test(expr)) {
+            // Request collections - these ALWAYS return strings in Classic ASP
+            // Even ?id=123 returns the string "123", not the number 123
+            placeholder = '("")';
+            
+        } else if (/\b(Session|Application)\s*[\(\[]/i.test(expr)) {
+            // Session/Application variables - can store any type, but most commonly strings
+            // (user names, tokens, settings, etc.)
+            placeholder = '("")';
+        }
+        
+        // Note: Placeholders are wrapped in parens like ({}) to ensure they're
+        // treated as expressions, not statements, in all JS contexts.
+        
+        // Preserve newlines (for correct line numbers), replace everything else with spaces
         const blanked = asp.replace(/[^\n]+/g, m => ' '.repeat(m.length));
-        // Find the index of the first space (first non-newline char) and put '0' there.
+        
+        // Find the first non-newline character position
         const firstSpace = blanked.indexOf(' ');
-        if (firstSpace === -1) { return blanked; }
-        return blanked.slice(0, firstSpace) + '0' + blanked.slice(firstSpace + 1);
+        if (firstSpace === -1) { return blanked; } // Edge case: only newlines
+        
+        // Calculate available space and pad the placeholder
+        const availableLength = blanked.length - firstSpace;
+        const paddedPlaceholder = placeholder.padEnd(availableLength, ' ').slice(0, availableLength);
+        
+        return blanked.slice(0, firstSpace) + paddedPlaceholder;
     }
 
     // Statement block — a JS block comment is invisible to the parser.
