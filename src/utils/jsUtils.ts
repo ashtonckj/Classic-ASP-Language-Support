@@ -88,6 +88,57 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
 }
 
 /**
+ * Scans all VBScript <% ... %> blocks in the document and builds a map of
+ * variable name → inferred JS placeholder, based on their last assignment.
+ *
+ * Handles:
+ *   vbval = "{}"       → '({})'
+ *   vbval = "[]"       → '([])'
+ *   vbval = "true"     → '(false)'
+ *   vbval = "some str" → '("")'
+ *   vbval = 42         → '0'
+ *   vbval = True       → '(false)'
+ *   vbval = Array(...)  → '([])'
+ *   vbval = Dict(...)   → '({})'  (Scripting.Dictionary)
+ */
+function buildVbsVariableMap(content: string): Map<string, string> {
+    const map = new Map<string, string>();
+
+    // Extract all statement <% ... %> blocks (not <%=)
+    const aspRe = /<%(?!=)([\s\S]*?)%>/g;
+    let m: RegExpExecArray | null;
+
+    while ((m = aspRe.exec(content)) !== null) {
+        const block = m[1];
+
+        // Match: identifier = <rhs>  (whole line, case-insensitive VBScript)
+        const assignRe = /^\s*([A-Za-z_]\w*)\s*=\s*(.+?)\s*$/gm;
+        let a: RegExpExecArray | null;
+
+        while ((a = assignRe.exec(block)) !== null) {
+            const varName = a[1].toLowerCase();
+            const rhs     = a[2].trim();
+
+            let placeholder: string;
+
+            if      (/^["'](\{[\s\S]*\}|\{\})["']$/.test(rhs)) { placeholder = '({})'; }
+            else if (/^["'](\[[\s\S]*\]|\[\])["']$/.test(rhs)) { placeholder = '([])'; }
+            else if (/^["'](true|false)["']$/i.test(rhs))      { placeholder = '(false)'; }
+            else if (/^["'][\s\S]*["']$/.test(rhs))            { placeholder = '("")'; }
+            else if (/^(true|false)$/i.test(rhs))              { placeholder = '(false)'; }
+            else if (/^-?\d+(\.\d+)?$/.test(rhs))              { placeholder = '0'; }
+            else if (/\bArray\s*\(/i.test(rhs))                { placeholder = '([])'; }
+            else if (/\bCreateObject\s*\(\s*["']Scripting\.Dictionary["']\s*\)/i.test(rhs)) { placeholder = '({})'; }
+            else                                               { continue; } // unknown — don't overwrite
+
+            map.set(varName, placeholder);
+        }
+    }
+
+    return map;
+}
+
+/**
  * Replaces a single ASP block with syntactically valid JS so the TS service
  * never sees a bare hole in an expression context.
  *
@@ -132,110 +183,66 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
  *   Fallback:
  *     <%= unknown %>           →  0        [safe numeric fallback]
  */
-function blankAspBlock(asp: string): string {
+function blankAspBlock(asp: string, vbsVarMap?: Map<string, string>): string {
     const isExpression = asp.startsWith('<%=');
 
     if (isExpression) {
-        // Extract the VBScript expression (strip <%= and %>)
         const expr = asp.slice(3, -2).trim();
-        
-        // Determine the best JS placeholder based on pattern matching
-        let placeholder = '0'; // default: numeric literal (safe fallback)
-        
-        // Pattern matching for better type inference
-        // NOTE: Patterns match both literal values AND variable names using heuristics.
-        
-        // 1. LITERAL VALUES (highest priority - most accurate)
-        if (/^["'](\{.*\}|{})["']$/s.test(expr)) {
-            // VBScript string containing object literal: <%= "{}" %> or <%= "{ x: 1 }" %>
-            // This fixes the issue where `for (const key in jsdict)` errors with "type 'number'"
-            placeholder = '({})';
-            
-        } else if (/^["'](\[.*\]|\[\])["']$/s.test(expr)) {
-            // VBScript string containing array literal: <%= "[]" %> or <%= "[1, 2, 3]" %>
-            placeholder = '([])';
-            
-        } else if (/^["'](true|false)["']$/i.test(expr)) {
-            // VBScript string containing boolean: <%= "true" %> or <%= "false" %>
-            placeholder = '(false)';
-            
-        } else if (/^["'].*["']$/s.test(expr)) {
-            // Any other string literal (catch-all for strings)
-            placeholder = '("")';
-            
-        // 2. VARIABLE NAME HEURISTICS (for <%= vbvar %> cases)
-        } else if (/(dict|obj|object|json|map|hash|config|options|settings|params|payload|data|test)/i.test(expr)) {
-            // Variable names that suggest objects: vbdict, objData, jsonConfig, testData, etc.
-            // Common in Classic ASP: vbdict = "{}", objUser = "{ name: 'Alice' }", testData = "{}"
-            placeholder = '({})';
-            
-        } else if (/(arr|array|list|items|collection|rows|results)/i.test(expr)) {
-            // Variable names that suggest arrays: vbarr, arrayItems, listRows, etc.
-            placeholder = '([])';
-            
-        } else if (/(str|string|text|msg|message|title|desc|description)/i.test(expr)) {
-            // Variable names that suggest strings: strName, textContent, msgError, etc.
-            // Note: Removed "name", "val", "value", "content" as they're too generic and cause false positives
-            placeholder = '("")';
-            
-        // 3. SERVER OBJECT METHODS (medium priority)
-        } else if (/\b(RS|Recordset)\s*[\(\[]/i.test(expr) || /\.Fields\s*[\(\[]/i.test(expr)) {
-            // Database recordset field access: RS("name") or RS.Fields("email")
-            // Most DB fields are strings (names, emails, text, etc.)
-            // Even numeric fields are often coerced to strings in Classic ASP
-            placeholder = '("")';
-            
-        } else if (/\bRequest\s*\.\s*(Form|QueryString|ServerVariables|Cookies)\s*[\(\[]/i.test(expr)) {
-            // Request collections - these ALWAYS return strings in Classic ASP
-            // Even ?id=123 returns the string "123", not the number 123
-            placeholder = '("")';
-            
-        } else if (/\b(Session|Application)\s*[\(\[]/i.test(expr)) {
-            // Session/Application variables - can store any type, but most commonly strings
-            // (user names, tokens, settings, etc.)
-            placeholder = '("")';
+        let placeholder = '0';
+
+        // 1. LITERAL VALUES in the expression itself (highest confidence)
+        if      (/^["'](\{[\s\S]*\}|\{\})["']$/s.test(expr)) { placeholder = '({})'; }
+        else if (/^["'](\[[\s\S]*\]|\[\])["']$/s.test(expr)) { placeholder = '([])'; }
+        else if (/^["'](true|false)["']$/i.test(expr))       { placeholder = '(false)'; }
+        else if (/^["'][\s\S]*["']$/s.test(expr))            { placeholder = '("")'; }
+
+        // 2. VBScript variable map lookup — check what the var was assigned above
+        else if (vbsVarMap?.has(expr.toLowerCase())) {
+            placeholder = vbsVarMap.get(expr.toLowerCase())!;
         }
-        
-        // Note: Placeholders are wrapped in parens like ({}) to ensure they're
-        // treated as expressions, not statements, in all JS contexts.
-        
-        // Preserve newlines (for correct line numbers), replace everything else with spaces
-        const blanked = asp.replace(/[^\n]+/g, m => ' '.repeat(m.length));
-        
-        // Find the first non-newline character position
-        const firstSpace = blanked.indexOf(' ');
-        if (firstSpace === -1) { return blanked; } // Edge case: only newlines
-        
-        // Calculate available space and pad the placeholder
-        const availableLength = blanked.length - firstSpace;
-        const paddedPlaceholder = placeholder.padEnd(availableLength, ' ').slice(0, availableLength);
-        
-        return blanked.slice(0, firstSpace) + paddedPlaceholder;
+
+        // 3. Name heuristics (last resort for untracked names)
+        else if (/(dict|obj|object|json|map|hash|config|options|settings|params|payload|data|test)/i.test(expr)) { placeholder = '({})'; }
+        else if (/(arr|array|list|items|collection|rows|results)/i.test(expr))                                   { placeholder = '([])'; }
+        else if (/(str|string|text|msg|message|title|desc|description)/i.test(expr))                             { placeholder = '("")'; }
+        else if (/\b(RS|Recordset)\s*[\(\[]/i.test(expr) || /\.Fields\s*[\(\[]/i.test(expr))                     { placeholder = '("")'; }
+        else if (/\bRequest\s*\.\s*(Form|QueryString|ServerVariables|Cookies)\s*[\(\[]/i.test(expr))             { placeholder = '("")'; }
+        else if (/\b(Session|Application)\s*[\(\[]/i.test(expr))                                                 { placeholder = '("")'; }
+
+        // Build blanked output (same length-preserving logic as before)
+        const blanked  = asp.replace(/[^\n]+/g, m => ' '.repeat(m.length));
+        const totalLen = blanked.length;
+        let leadingNewlines = 0;
+        while (leadingNewlines < totalLen && blanked[leadingNewlines] === '\n') { leadingNewlines++; }
+
+        const available = totalLen - leadingNewlines;
+        if (placeholder.length > available) { placeholder = '0'; }
+
+        const padded = placeholder.padEnd(available, ' ').slice(0, available);
+        return blanked.slice(0, leadingNewlines) + padded;
     }
 
-    // Statement block — a JS block comment is invisible to the parser.
-    // We must preserve the exact character count (newlines stay, rest → spaces)
-    // and wrap with /* ... */ so TS treats it as whitespace.
-    // The 4 syntax chars (/ * * /) replace the 4 ASP delimiters (<% and %>),
-    // so the interior length is unchanged.
+    // Statement block
     return asp.replace(/[^\n]+/g, m => ' '.repeat(m.length))
-              .replace(/^\ {2}/, '/*')   // first 2 spaces → /*
-              .replace(/\ {2}$/, '*/');  // last  2 spaces → */
+              .replace(/^\ {2}/, '/*')
+              .replace(/\ {2}$/, '*/');
 }
 
-export function buildVirtualJsContent(
-    content: string,
-    offset:  number
-): VirtualJsResult {
+export function buildVirtualJsContent(content: string, offset: number): VirtualJsResult {
     const jsRanges = getJsRanges(content);
-
     const isInScript = jsRanges.some(r => offset >= r.start && offset <= r.end);
+
+    // Build VBScript variable type map ONCE for the whole document
+    const vbsVarMap = buildVbsVariableMap(content);
 
     let out  = '';
     let prev = 0;
     for (const r of jsRanges) {
         out += blankNonNewlines(content.slice(prev, r.start));
-        out += content.slice(r.start, r.end).replace(/<%[\s\S]*?%>/g, asp => blankAspBlock(asp));
+        out += content.slice(r.start, r.end).replace(
+            /<%[\s\S]*?%>/g,
+            asp => blankAspBlock(asp, vbsVarMap)   // ← pass map in
+        );
         prev = r.end;
     }
     out += blankNonNewlines(content.slice(prev));
