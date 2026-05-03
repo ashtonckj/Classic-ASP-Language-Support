@@ -10,9 +10,40 @@ vsc-extension-quickstart.md
 **/.vscode-test.*
 test-files/**
 
-# Dev-only node_modules — not needed at runtime, keeps vsix small
+# GIFs — only used in README, host them on GitHub instead (saves ~35 MB)
+images/format.gif
+images/sql.gif
+
+# Dev-only node_modules
 node_modules/@typescript-eslint/**
 node_modules/eslint/**
 node_modules/esbuild/**
 node_modules/mocha/**
 node_modules/@types/**
+
+# TypeScript CLI & server tools — not needed by the language service at runtime
+node_modules/typescript/lib/_tsc.js
+node_modules/typescript/lib/_tsserver.js
+node_modules/typescript/lib/_typingsInstaller.js
+node_modules/typescript/lib/tsserver.js
+node_modules/typescript/lib/tsserverlibrary.js
+node_modules/typescript/lib/typingsInstaller.js
+node_modules/typescript/lib/watchGuard.js
+
+# TypeScript localised error message files — extension only needs English
+node_modules/typescript/lib/cs/**
+node_modules/typescript/lib/de/**
+node_modules/typescript/lib/es/**
+node_modules/typescript/lib/fr/**
+node_modules/typescript/lib/it/**
+node_modules/typescript/lib/ja/**
+node_modules/typescript/lib/ko/**
+node_modules/typescript/lib/pl/**
+node_modules/typescript/lib/pt-br/**
+node_modules/typescript/lib/ru/**
+node_modules/typescript/lib/tr/**
+node_modules/typescript/lib/zh-cn/**
+node_modules/typescript/lib/zh-tw/**
+
+# TypeScript type declarations — only needed at compile time, not at runtime
+node_modules/typescript/lib/typescript.d.ts

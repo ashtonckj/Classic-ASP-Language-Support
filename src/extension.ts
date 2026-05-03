@@ -105,6 +105,11 @@ async function openFormattingPreview(
     context.subscriptions.push(registration, listener);
 }
 
+// Module-level debounce handles — prevents queuing multiple triggerSuggest
+// calls when the user moves the cursor or types faster than the 50 ms delay.
+let _styleTimeout:   ReturnType<typeof setTimeout> | undefined;
+let _attrPathTimeout: ReturnType<typeof setTimeout> | undefined;
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('Classic ASP Language Support is now active!');
 
@@ -155,11 +160,16 @@ export function activate(context: vscode.ExtensionContext) {
         'asp', new AspCompletionProvider(), '.', ' '
     );
 
+    // Trigger chars are limited to punctuation that genuinely starts or
+    // continues a CSS token.  The a-z letters are intentionally removed —
+    // getZone() inside CssCompletionProvider already guards every call, so
+    // VS Code's word-based activation is enough to keep completions flowing
+    // while the user is typing a property or value name.  Keeping letter
+    // triggers caused the provider to be invoked on every keystroke anywhere
+    // in the file, not just inside CSS zones.
     const cssCompletionProvider = vscode.languages.registerCompletionItemProvider(
         'asp', new CssCompletionProvider(),
-        ':', ';', ' ', '"', "'", '-',
-        'a','b','c','d','e','f','g','h','i','j','k','l','m',
-        'n','o','p','q','r','s','t','u','v','w','x','y','z'
+        ':', ';', '-', ' ', '{', '('
     );
 
     // JS completions — '.' triggers member access completions; '(' triggers
@@ -348,7 +358,8 @@ export function activate(context: vscode.ExtensionContext) {
 
         const valueStart = searchStart + match.index! + match[0].length - match[2].length;
         if (content[offset] === match[1] && offset === valueStart) {
-            setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);
+            clearTimeout(_styleTimeout);
+            _styleTimeout = setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);
         }
     });
 
@@ -369,7 +380,8 @@ export function activate(context: vscode.ExtensionContext) {
         const attrPattern = /\b(href|src|action|data-src)\s*=\s*["'][^"']*$/i;
         if (!attrPattern.test(textBefore)) return;
 
-        setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);
+        clearTimeout(_attrPathTimeout);
+        _attrPathTimeout = setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);
     });
 
     // ── Subscriptions ─────────────────────────────────────────────────────────

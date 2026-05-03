@@ -1030,7 +1030,7 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
             ? targetIndent
             : currentIndent + indentUnit;
 
-        editor.edit(eb => {
+        return editor.edit(eb => {
             eb.replace(new vscode.Range(new vscode.Position(position.line, 0), position), newIndent);
         }).then(() => {
             const p = new vscode.Position(position.line, newIndent.length);

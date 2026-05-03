@@ -29,7 +29,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
 
     provideDocumentSemanticTokens(
         document: vscode.TextDocument,
-        token: vscode.CancellationToken
+        _token: vscode.CancellationToken
     ): vscode.ProviderResult<vscode.SemanticTokens> {
 
         const builder    = new vscode.SemanticTokensBuilder(COMBINED_SEMANTIC_LEGEND);

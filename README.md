@@ -19,7 +19,7 @@
 
 | Formatting Before & After | SQL Syntax Highlighting |
 |:------:|:-----:|
-| <img src="images/format.gif" height="450"> | <img src="images/sql.gif" width="400"> |
+| <img src="https://raw.githubusercontent.com/ashtonckj/Classic-ASP-Language-Support/main/images/format.gif" height="450"> | <img src="https://raw.githubusercontent.com/ashtonckj/Classic-ASP-Language-Support/main/images/sql.gif" width="400"> |
 
 ---
 
