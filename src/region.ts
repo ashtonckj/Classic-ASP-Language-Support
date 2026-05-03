@@ -71,7 +71,7 @@ export function getAspRegions(doc: TextDocument): AspRegion[] {
 
     const aspRegions: AspRegion[] = [];
 
-    brackets.forEach((element) => {
+    brackets.forEach(() => {
         if (index + 1 < max) {
             const start = brackets[index];
             const end = brackets[index + 1];

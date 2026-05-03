@@ -18,7 +18,7 @@ export class AspSignatureHelpProvider implements vscode.SignatureHelpProvider {
         document: vscode.TextDocument,
         position: vscode.Position,
         _token:   vscode.CancellationToken,
-        context:  vscode.SignatureHelpContext
+        _context:  vscode.SignatureHelpContext
     ): vscode.ProviderResult<vscode.SignatureHelp> {
 
         const content = document.getText();

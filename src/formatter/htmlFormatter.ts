@@ -76,7 +76,7 @@ const JS_EVENT_ATTR_RE = /\b(on\w+)\s*=\s*("([^"]*\([^"]*)"|'([^']*\([^']*)')/gi
  *  Returns the rewritten string and a map needed to undo the masking. */
 function maskJsEventAttrs(code: string): { masked: string; masks: JsAttrMask[] } {
     const masks: JsAttrMask[] = [];
-    const masked = code.replace(JS_EVENT_ATTR_RE, (_, attrName, fullVal, dq, sq) => {
+    const masked = code.replace(JS_EVENT_ATTR_RE, (_, attrName, _fullVal, dq, sq) => {
         const inner = dq ?? sq;
         const quote = dq !== undefined ? '"' : "'";
         const token = `JSEVT${_placeholderCounter++}_${Date.now().toString(36)}`;

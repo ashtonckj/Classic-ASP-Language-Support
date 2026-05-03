@@ -179,7 +179,7 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
     provideCompletionItems(
         document: vscode.TextDocument,
         position: vscode.Position,
-        token: vscode.CancellationToken,
+        _token: vscode.CancellationToken,
         context: vscode.CompletionContext
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 

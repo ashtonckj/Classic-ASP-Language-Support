@@ -20,7 +20,7 @@ export function addRegionHighlights(context: ExtensionContext) {
 		}
 	}, null, context.subscriptions);
 
-	workspace.onDidChangeConfiguration(event => {
+	workspace.onDidChangeConfiguration(() => {
 		configurationDidChange = true;
 		triggerUpdateDecorations();
 	});
