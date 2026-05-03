@@ -105,6 +105,11 @@ async function openFormattingPreview(
     context.subscriptions.push(registration, listener);
 }
 
+// Module-level debounce handles — prevents queuing multiple triggerSuggest
+// calls when the user moves the cursor or types faster than the 50 ms delay.
+let _styleTimeout:   ReturnType<typeof setTimeout> | undefined;
+let _attrPathTimeout: ReturnType<typeof setTimeout> | undefined;
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('Classic ASP Language Support is now active!');
 
@@ -348,7 +353,8 @@ export function activate(context: vscode.ExtensionContext) {
 
         const valueStart = searchStart + match.index! + match[0].length - match[2].length;
         if (content[offset] === match[1] && offset === valueStart) {
-            setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);
+            clearTimeout(_styleTimeout);
+            _styleTimeout = setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);
         }
     });
 
@@ -369,7 +375,8 @@ export function activate(context: vscode.ExtensionContext) {
         const attrPattern = /\b(href|src|action|data-src)\s*=\s*["'][^"']*$/i;
         if (!attrPattern.test(textBefore)) return;
 
-        setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);
+        clearTimeout(_attrPathTimeout);
+        _attrPathTimeout = setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);
     });
 
     // ── Subscriptions ─────────────────────────────────────────────────────────
