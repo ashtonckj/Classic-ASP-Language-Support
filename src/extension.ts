@@ -160,11 +160,16 @@ export function activate(context: vscode.ExtensionContext) {
         'asp', new AspCompletionProvider(), '.', ' '
     );
 
+    // Trigger chars are limited to punctuation that genuinely starts or
+    // continues a CSS token.  The a-z letters are intentionally removed —
+    // getZone() inside CssCompletionProvider already guards every call, so
+    // VS Code's word-based activation is enough to keep completions flowing
+    // while the user is typing a property or value name.  Keeping letter
+    // triggers caused the provider to be invoked on every keystroke anywhere
+    // in the file, not just inside CSS zones.
     const cssCompletionProvider = vscode.languages.registerCompletionItemProvider(
         'asp', new CssCompletionProvider(),
-        ':', ';', ' ', '"', "'", '-',
-        'a','b','c','d','e','f','g','h','i','j','k','l','m',
-        'n','o','p','q','r','s','t','u','v','w','x','y','z'
+        ':', ';', '-', ' ', '{', '('
     );
 
     // JS completions — '.' triggers member access completions; '(' triggers
