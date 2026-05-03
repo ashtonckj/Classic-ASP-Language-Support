@@ -5,6 +5,27 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-05-03
+
+### ✨ Added
+- **Updated Node version** - Upgraded to Node.js 20
+
+### 🛠️ Fixed
+- **Fixed JavaScript variable assignment** - Variables assigned correctly based on VBScript types
+- **Fixed CSS completion trigger** - Removed unnecessary a-z trigger characters
+- **Fixed pending timeout calls** - Previous calls cancelled before scheduling new ones
+- **Removed unused variables and missing returns** - Code quality improvements
+- **Fixed fall-through cases and implicit returns** - TypeScript configuration improvements
+
+### 🔄 Changed
+- **Reduced extension size by 64%** - From 72.47MB to 25.88MB
+- **Updated `.vscodeignore`** - Added `node_modules` to reduce package size
+- **Updated README images** - Uses raw GitHub URLs instead of local files
+- **Updated download badge** - Replaced retired badge
+- **Updated Auto Rename Tag compatibility** - Marked as partially compatible
+
+---
+
 ## [0.5.2] - 2026-04-12
 
 ### 🛠️ Fixed
@@ -362,6 +383,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[0.5.3]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.5.3
 [0.5.2]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.5.2
 [0.5.1]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.5.1
 [0.5.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.5.0
