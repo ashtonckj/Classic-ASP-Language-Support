@@ -10,7 +10,7 @@
 
 import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
-import { isInsideAspBlock } from '../utils/aspUtils';
+import { getZone } from '../utils/zoneUtils';
 
 export class AspSignatureHelpProvider implements vscode.SignatureHelpProvider {
 
@@ -24,8 +24,8 @@ export class AspSignatureHelpProvider implements vscode.SignatureHelpProvider {
         const content = document.getText();
         const offset  = document.offsetAt(position);
 
-        // Only inside ASP blocks
-        if (!isInsideAspBlock(content, offset)) { return null; }
+        // Only inside ASP blocks (both <% %> and <script language="vbscript"> zones)
+        if (getZone(content, offset) !== 'asp') { return null; }
 
         const lineText   = document.lineAt(position.line).text;
         const textBefore = lineText.substring(0, position.character);

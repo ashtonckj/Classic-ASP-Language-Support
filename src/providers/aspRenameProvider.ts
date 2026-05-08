@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { collectAllSymbols, resolveIncludePaths } from './includeProvider';
-import { isInsideAspBlock } from '../utils/aspUtils';
+import { isInsideAspBlock, getZone } from '../utils/zoneUtils';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import path from 'path';
 
@@ -36,8 +36,9 @@ export class AspRenameProvider implements vscode.RenameProvider {
 
         // Only allow rename inside ASP blocks — renaming HTML tag names or CSS
         // identifiers is not something this provider handles.
-        if (!isInsideAspBlock(content, offset)) {
-            throw new Error('Rename is only supported for VBScript symbols inside ASP blocks (<% %>).');
+        // getZone covers both <% %> blocks and <script language="vbscript"> blocks.
+        if (getZone(content, offset) !== 'asp') {
+            throw new Error('Rename is only supported for VBScript symbols inside ASP blocks.');
         }
 
         if (VBSCRIPT_KEYWORDS_SET.has(word.toLowerCase())) {

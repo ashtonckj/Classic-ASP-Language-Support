@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
-import { getZone } from '../utils/aspUtils';
+import { getZone } from '../utils/zoneUtils';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import {
     T_FUNCTION, T_NAMESPACE, T_VARIABLE, T_PARAMETER, T_CONSTANT,
@@ -51,6 +51,15 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
                 } else if (inside) {
                     aspMap[i] = 1;
                 }
+            }
+            // Also mark content inside <script language="vbscript"> blocks as ASP zone
+            // so semantic tokens are emitted for VBScript code in those blocks.
+            const vbsRe = /<script\b[^>]*\blanguage\s*=\s*["']vbscript["'][^>]*>([\s\S]*?)<\/script\s*>/gi;
+            let vm: RegExpExecArray | null;
+            while ((vm = vbsRe.exec(text)) !== null) {
+                const contentStart = vm.index + vm[0].indexOf(vm[1]);
+                const contentEnd   = contentStart + vm[1].length;
+                for (let i = contentStart; i < contentEnd; i++) { aspMap[i] = 1; }
             }
         }
         const inAsp = (offset: number): boolean => aspMap[offset] === 1;

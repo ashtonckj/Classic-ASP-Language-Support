@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../utils/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
-import { getZone, isInsideAspBlock } from '../utils/aspUtils';
+import { getZone, isInsideAspBlock } from '../utils/zoneUtils';
 import * as path from 'path';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -196,21 +196,21 @@ function getAspContext(document: vscode.TextDocument, position: vscode.Position)
     // VBScript block — use the canonical comment/string-aware scanner.
     if (isInsideAspBlock(fullText, offset)) { return 'vbscript'; }
 
-    // JavaScript <script> block — scan for the nearest unclosed <script> tag
-    // that is NOT a VBScript block (language="vbscript").
+    // <script> block — single pass. VBScript blocks return 'vbscript';
+    // all other script blocks return 'script'. Doing this in one loop
+    // prevents a VBScript block from accidentally matching the JS branch.
     let searchFrom = 0;
     while (true) {
         const scriptOpen = fullText.indexOf('<script', searchFrom);
         if (scriptOpen === -1 || scriptOpen >= offset) { break; }
-        const tagEnd     = fullText.indexOf('>', scriptOpen);
+        const tagEnd      = fullText.indexOf('>', scriptOpen);
         if (tagEnd === -1) { break; }
-        const scriptTag  = fullText.slice(scriptOpen, tagEnd + 1);
+        const scriptTag   = fullText.slice(scriptOpen, tagEnd + 1);
         const scriptClose = fullText.indexOf('</script', tagEnd);
-        if (
-            !/language\s*=\s*["']vbscript["']/i.test(scriptTag) &&
-            tagEnd < offset &&
-            (scriptClose === -1 || offset <= scriptClose)
-        ) {
+        if (tagEnd < offset && (scriptClose === -1 || offset <= scriptClose)) {
+            if (/language\s*=\s*["']vbscript["']/i.test(scriptTag)) {
+                return 'vbscript';
+            }
             return 'script';
         }
         searchFrom = scriptClose === -1 ? fullText.length : scriptClose + 9;

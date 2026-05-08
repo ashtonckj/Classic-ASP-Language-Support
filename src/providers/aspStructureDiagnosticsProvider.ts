@@ -29,7 +29,7 @@
  */
 
 import * as vscode from 'vscode';
-import { isInsideAspBlock } from '../utils/aspUtils';
+import { isInsideAspBlock, getZone } from '../utils/zoneUtils';
 
 // ── Block descriptor ──────────────────────────────────────────────────────────
 
@@ -312,12 +312,14 @@ function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
         const lineText = logical.text;
         const lineOffset = document.offsetAt(new vscode.Position(li, 0));
 
-        // Find a reliable offset inside the ASP block by locating <% on this line
+        // Find a reliable offset inside the ASP block by locating <% on this line,
+        // or falling back to the line midpoint for <script language="vbscript"> content.
         const rawLine  = physicalLines[li];
         const aspOpenIdx = rawLine.indexOf('<%');
         const probeCol   = aspOpenIdx !== -1 ? aspOpenIdx + 2 : Math.floor(rawLine.length / 2);
         const midOffset  = lineOffset + probeCol;
-        if (!isInsideAspBlock(text, midOffset)) { continue; }
+        // Accept lines that are either inside a <% %> block OR inside a VBScript <script> block.
+        if (!isInsideAspBlock(text, midOffset) && getZone(text, midOffset) !== 'asp') { continue; }
 
         const trimmed = lineText.trimStart();
 

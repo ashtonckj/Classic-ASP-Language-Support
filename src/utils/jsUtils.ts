@@ -13,7 +13,7 @@ import * as path   from 'path';
 import * as fs     from 'fs';
 import * as ts     from 'typescript';
 import * as vscode from 'vscode';
-import { getZone } from './aspUtils';
+import { getZone } from './zoneUtils';
 
 export const VIRTUAL_FILENAME = 'asp-embedded.js';
 export const ASP_DOM_TYPES_FILENAME = 'asp-dom.d.ts';

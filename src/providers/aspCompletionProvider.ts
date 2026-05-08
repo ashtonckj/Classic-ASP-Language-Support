@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import { ASP_OBJECTS, VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
-import { getContext, ContextType, getTextBeforeCursor } from '../utils/documentHelper';
+import { getTextBeforeCursor } from '../utils/documentHelper';
 import { collectAllSymbols } from './includeProvider';
 import { COM_TYPE_MAP } from '../constants/comObjects';
+import { getZone } from '../utils/zoneUtils';
 import { isInJsZone } from '../utils/jsUtils';
 import * as path from 'path';
 
@@ -29,10 +30,12 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         context: vscode.CompletionContext
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
-        const docContext = getContext(document, position);
+        const content = document.getText();
+        const offset = document.offsetAt(position);
+        const docContext = getZone(content, offset);
 
         // Only provide ASP completions inside ASP blocks
-        if (docContext !== ContextType.ASP) {
+        if (docContext !== 'asp') {
             return [];
         }
 

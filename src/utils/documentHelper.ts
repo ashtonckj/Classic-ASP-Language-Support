@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { isInsideAspBlock } from './aspUtils';
+import { isInsideAspBlock } from './zoneUtils';
 
 export enum ContextType {
     HTML,

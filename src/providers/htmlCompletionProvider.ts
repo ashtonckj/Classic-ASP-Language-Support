@@ -2,11 +2,10 @@ import * as vscode from 'vscode';
 import { HTML_TAGS, isSelfClosingTag } from '../constants/htmlTags';
 import { getAttributesForTag } from '../constants/htmlGlobals';
 import {
-    getContext,
-    ContextType,
     getCurrentTagName,
     isInsideTagForAttributes
 } from '../utils/documentHelper';
+import { getZone } from '../utils/zoneUtils';
 
 
 // ── Cached completion items — built once, reused on every keystroke ────────
@@ -183,7 +182,9 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
         context: vscode.CompletionContext
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
-        if (getContext(document, position) !== ContextType.HTML) { return []; }
+        const content = document.getText();
+        const offset = document.offsetAt(position);
+        if (getZone(content, offset) !== 'html') { return []; }
 
         const textBefore = document.lineAt(position.line).text.substring(0, position.character);
         const currentIndent = textBefore.match(/^([ \t]*)/)?.[1] ?? '';
