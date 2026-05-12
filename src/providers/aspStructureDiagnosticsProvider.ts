@@ -292,7 +292,7 @@ function classifyLine(raw: string): LineAction[] {
 // ── Main scanner ──────────────────────────────────────────────────────────────
 
 function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
-    const text        = document.getText();
+    const fullText = document.getText();
     const lineCount   = document.lineCount;
     const diagnostics: vscode.Diagnostic[] = [];
     const stack: BlockEntry[] = [];
@@ -319,7 +319,7 @@ function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
         const probeCol   = aspOpenIdx !== -1 ? aspOpenIdx + 2 : Math.floor(rawLine.length / 2);
         const midOffset  = lineOffset + probeCol;
         // Accept lines that are either inside a <% %> block OR inside a VBScript <script> block.
-        if (!isInsideAspBlock(text, midOffset) && getZone(text, midOffset) !== 'asp') { continue; }
+        if (!isInsideAspBlock(fullText, midOffset) && getZone(fullText, midOffset) !== 'asp') { continue; }
 
         const trimmed = lineText.trimStart();
 
@@ -435,7 +435,7 @@ function closerFor(kind: BlockKind): string {
 //   Unclosed <% — no matching %> in file  →  Warning on the <%  (2 chars)
 
 function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] {
-    const text        = document.getText();
+    const fullText = document.getText();
     const diagnostics: vscode.Diagnostic[] = [];
 
     // Stack of unclosed <% positions (absolute text offsets)
@@ -445,26 +445,26 @@ function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] {
     let inAsp  = false;
     let inHtml = false;   // inside <!-- ... -->
 
-    while (i < text.length) {
+    while (i < fullText.length) {
 
         // ── Outside ASP ───────────────────────────────────────────────────────
         if (!inAsp) {
 
             // Enter / skip HTML comment
-            if (!inHtml && text.slice(i, i + 4) === '<!--') {
+            if (!inHtml && fullText.slice(i, i + 4) === '<!--') {
                 inHtml = true;
                 i += 4;
                 continue;
             }
             if (inHtml) {
-                if (text.slice(i, i + 3) === '-->') { inHtml = false; i += 3; }
+                if (fullText.slice(i, i + 3) === '-->') { inHtml = false; i += 3; }
                 else { i++; }
                 continue;
             }
 
             // <% opens an ASP block (<%=  and  <%-- both included — the char
             // after <% is just the first content character)
-            if (text[i] === '<' && text[i + 1] === '%') {
+            if (fullText[i] === '<' && fullText[i + 1] === '%') {
                 openStack.push(i);
                 inAsp = true;
                 i += 2;
@@ -472,7 +472,7 @@ function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] {
             }
 
             // Stray %> — no open <% above
-            if (text[i] === '%' && text[i + 1] === '>') {
+            if (fullText[i] === '%' && fullText[i + 1] === '>') {
                 const pos   = document.positionAt(i);
                 const range = new vscode.Range(pos, document.positionAt(i + 2));
                 diagnostics.push(Object.assign(
@@ -492,20 +492,20 @@ function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] {
         }
 
         // ── Inside ASP — scan line by line so ' comments are handled correctly ─
-        const lineEnd = text.indexOf('\n', i);
-        const end     = lineEnd === -1 ? text.length : lineEnd + 1;
+        const lineEnd = fullText.indexOf('\n', i);
+        const end     = lineEnd === -1 ? fullText.length : lineEnd + 1;
 
         let j     = i;
         let inStr = false;
         let closedThisLine = false;
 
         while (j < end) {
-            const ch = text[j];
+            const ch = fullText[j];
 
             // String literal — %> inside is not a close tag
             if (inStr) {
                 if (ch === '"') {
-                    if (j + 1 < end && text[j + 1] === '"') { j += 2; continue; } // escaped ""
+                    if (j + 1 < end && fullText[j + 1] === '"') { j += 2; continue; } // escaped ""
                     inStr = false;
                 }
                 j++;
@@ -518,7 +518,7 @@ function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] {
             // Any <% found here is just comment text — not a real nested open.
             if (ch === "'") {
                 while (j < end) {
-                    if (text[j] === '%' && j + 1 < text.length && text[j + 1] === '>') {
+                    if (fullText[j] === '%' && j + 1 < fullText.length && fullText[j + 1] === '>') {
                         openStack.pop(); // matched — close the <%
                         inAsp = false;
                         i     = j + 2;
@@ -536,7 +536,7 @@ function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] {
             }
 
             // %> closes the block
-            if (ch === '%' && j + 1 < text.length && text[j + 1] === '>') {
+            if (ch === '%' && j + 1 < fullText.length && fullText[j + 1] === '>') {
                 openStack.pop(); // matched — remove the corresponding <%
                 inAsp = false;
                 i     = j + 2;

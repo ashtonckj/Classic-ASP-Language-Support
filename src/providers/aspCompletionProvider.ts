@@ -30,9 +30,9 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         context: vscode.CompletionContext
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
-        const content = document.getText();
+        const fullText = document.getText();
         const offset = document.offsetAt(position);
-        const docContext = getZone(content, offset);
+        const docContext = getZone(fullText, offset);
 
         // Only provide ASP completions inside ASP blocks
         if (docContext !== 'asp') {

@@ -56,10 +56,10 @@ export function isInsideAttrValue(textBefore: string): boolean {
  * for HTML angle brackets.
  */
 export function getCurrentTagName(document: vscode.TextDocument, position: vscode.Position): string | null {
-    const text = document.getText();
+    const fullText = document.getText();
     const offset = document.offsetAt(position);
     // Strip ASP blocks so that <% and %> are never mistaken for HTML brackets
-    const beforeCursor = stripAspBlocks(text.substring(0, offset));
+    const beforeCursor = stripAspBlocks(fullText.substring(0, offset));
 
     const lastOpenBracket = beforeCursor.lastIndexOf('<');
     if (lastOpenBracket === -1) { return null; }
@@ -69,7 +69,7 @@ export function getCurrentTagName(document: vscode.TextDocument, position: vscod
     if (textAfterBracket.includes('>')) { return null; }
 
     // Extract tag name from the original (un-stripped) text at the same position
-    const originalAfterBracket = text.substring(0, offset).substring(lastOpenBracket);
+    const originalAfterBracket = fullText.substring(0, offset).substring(lastOpenBracket);
     const tagMatch = originalAfterBracket.match(/^<\/?(\w+)/);
     return tagMatch ? tagMatch[1] : null;
 }
@@ -82,9 +82,9 @@ export function getCurrentTagName(document: vscode.TextDocument, position: vscod
  * ASP blocks are stripped so `<%...%>` angle brackets don't confuse the scan.
  */
 export function isInsideTagForAttributes(document: vscode.TextDocument, position: vscode.Position): boolean {
-    const text = document.getText();
+    const fullText = document.getText();
     const offset = document.offsetAt(position);
-    const beforeCursor = stripAspBlocks(text.substring(0, offset));
+    const beforeCursor = stripAspBlocks(fullText.substring(0, offset));
 
     const lastOpenBracket = beforeCursor.lastIndexOf('<');
     const lastCloseBracket = beforeCursor.lastIndexOf('>');

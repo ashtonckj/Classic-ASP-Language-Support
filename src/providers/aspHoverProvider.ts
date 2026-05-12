@@ -267,7 +267,7 @@ export class AspHoverProvider implements vscode.HoverProvider {
         }
 
         const allSymbols = collectAllSymbols(document);
-        const docText    = document.getText();
+        const fullText = document.getText();
 
         // ── 1. COM member after dot — e.g. rs.EOF, conn.Execute ──────────────
         const charBeforeWord = lineText.charAt(wordRange.start.character - 1);
@@ -296,7 +296,7 @@ export class AspHoverProvider implements vscode.HoverProvider {
             if (f.name.toLowerCase() !== wordKey) return false;
             if (f.filePath === document.uri.fsPath) {
                 const fnOffset = document.offsetAt(new vscode.Position(f.line, 0));
-                if (getZone(docText, fnOffset) === 'js') return false;
+                if (getZone(fullText, fnOffset) === 'js') return false;
             }
             return true;
         });

@@ -21,11 +21,11 @@ export class AspSignatureHelpProvider implements vscode.SignatureHelpProvider {
         _context:  vscode.SignatureHelpContext
     ): vscode.ProviderResult<vscode.SignatureHelp> {
 
-        const content = document.getText();
+        const fullText = document.getText();
         const offset  = document.offsetAt(position);
 
         // Only inside ASP blocks (both <% %> and <script language="vbscript"> zones)
-        if (getZone(content, offset) !== 'asp') { return null; }
+        if (getZone(fullText, offset) !== 'asp') { return null; }
 
         const lineText   = document.lineAt(position.line).text;
         const textBefore = lineText.substring(0, position.character);

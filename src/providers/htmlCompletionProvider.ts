@@ -69,11 +69,11 @@ function findUnclosedTag(
     document: vscode.TextDocument,
     position: vscode.Position
 ): { tag: string; openerIndent: string } | null {
-    const text        = document.getText();
+    const fullText = document.getText();
     const cursorOffset = document.offsetAt(position);
 
     // We only scan up to the cursor position
-    const before = text.slice(0, cursorOffset);
+    const before = fullText.slice(0, cursorOffset);
 
     const stack: string[] = [];
 
@@ -138,9 +138,9 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
         context: vscode.CompletionContext
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
-        const content = document.getText();
+        const fullText = document.getText();
         const offset = document.offsetAt(position);
-        if (getZone(content, offset) !== 'html') { return []; }
+        if (getZone(fullText, offset) !== 'html') { return []; }
 
         const textBefore = document.lineAt(position.line).text.substring(0, position.character);
         const currentIndent = textBefore.match(/^([ \t]*)/)?.[1] ?? '';

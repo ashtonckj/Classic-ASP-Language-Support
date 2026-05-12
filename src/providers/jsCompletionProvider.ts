@@ -56,8 +56,8 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         if (!isInJsZone(document, position)) { return undefined; }
 
         const offset  = document.offsetAt(position);
-        const content = document.getText();
-        const { virtualContent, isInScript } = buildVirtualJsContent(content, offset);
+        const fullText = document.getText();
+        const { virtualContent, isInScript } = buildVirtualJsContent(fullText, offset);
         if (!isInScript || token.isCancellationRequested) { return undefined; }
 
         // ── Determine trigger character ──────────────────────────────────────

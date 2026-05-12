@@ -48,8 +48,8 @@ interface TagEntry {
 // ── Main scanner ──────────────────────────────────────────────────────────────
 
 function scanHtmlStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
-    const text  = document.getText();
-    const lines = text.split('\n');
+    const fullText  = document.getText();
+    const lines = fullText.split('\n');
     const diagnostics: vscode.Diagnostic[] = [];
 
     // Stack of open structural tags waiting for their closer
@@ -63,52 +63,52 @@ function scanHtmlStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
 
     let i = 0;
 
-    while (i < text.length) {
+    while (i < fullText.length) {
 
         // ── HTML comment  <!-- ... --> ────────────────────────────────────────
-        if (!inAspBlock && !inHtmlComment && text.slice(i, i + 4) === '<!--') {
+        if (!inAspBlock && !inHtmlComment && fullText.slice(i, i + 4) === '<!--') {
             inHtmlComment = true;
             i += 4;
             continue;
         }
         if (inHtmlComment) {
-            if (text.slice(i, i + 3) === '-->') { inHtmlComment = false; i += 3; }
+            if (fullText.slice(i, i + 3) === '-->') { inHtmlComment = false; i += 3; }
             else { i++; }
             continue;
         }
 
         // ── ASP block  <% ... %> ─────────────────────────────────────────────
-        if (!inAspBlock && text[i] === '<' && text[i + 1] === '%') {
+        if (!inAspBlock && fullText[i] === '<' && fullText[i + 1] === '%') {
             inAspBlock = true;
             i += 2;
             continue;
         }
         if (inAspBlock) {
-            if (text[i] === '%' && text[i + 1] === '>') { inAspBlock = false; i += 2; }
+            if (fullText[i] === '%' && fullText[i + 1] === '>') { inAspBlock = false; i += 2; }
             else { i++; }
             continue;
         }
 
         // ── Skip script / style block content ────────────────────────────────
         if (inScript) {
-            if (/^<\/script\s*>/i.test(text.slice(i))) { inScript = false; }
+            if (/^<\/script\s*>/i.test(fullText.slice(i))) { inScript = false; }
             i++;
             continue;
         }
         if (inStyle) {
-            if (/^<\/style\s*>/i.test(text.slice(i))) { inStyle = false; }
+            if (/^<\/style\s*>/i.test(fullText.slice(i))) { inStyle = false; }
             i++;
             continue;
         }
 
         // ── HTML tag ──────────────────────────────────────────────────────────
-        if (text[i] !== '<') { i++; continue; }
+        if (fullText[i] !== '<') { i++; continue; }
 
         // Collect the full tag (up to next >), skipping ASP blocks inside attrs
         let tagEnd = i + 1;
         let inStr: string | null = null;
-        while (tagEnd < text.length) {
-            const ch = text[tagEnd];
+        while (tagEnd < fullText.length) {
+            const ch = fullText[tagEnd];
             if (inStr) {
                 if (ch === inStr) inStr = null;
                 tagEnd++;
@@ -116,9 +116,9 @@ function scanHtmlStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
             }
             if (ch === '"' || ch === "'") { inStr = ch; tagEnd++; continue; }
             // Skip embedded ASP blocks inside attributes: <tag attr="<%= x %>">
-            if (ch === '<' && text[tagEnd + 1] === '%') {
-                while (tagEnd < text.length) {
-                    if (text[tagEnd] === '%' && text[tagEnd + 1] === '>') { tagEnd += 2; break; }
+            if (ch === '<' && fullText[tagEnd + 1] === '%') {
+                while (tagEnd < fullText.length) {
+                    if (fullText[tagEnd] === '%' && fullText[tagEnd + 1] === '>') { tagEnd += 2; break; }
                     tagEnd++;
                 }
                 continue;
@@ -127,7 +127,7 @@ function scanHtmlStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
             tagEnd++;
         }
 
-        const raw     = text.slice(i, tagEnd);
+        const raw     = fullText.slice(i, tagEnd);
         const isClose = raw.startsWith('</');
 
         // Extract tag name

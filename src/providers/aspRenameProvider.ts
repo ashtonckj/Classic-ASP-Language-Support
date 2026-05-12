@@ -32,12 +32,12 @@ export class AspRenameProvider implements vscode.RenameProvider {
 
         const word    = document.getText(wordRange);
         const offset  = document.offsetAt(position);
-        const content = document.getText();
+        const fullText = document.getText();
 
         // Only allow rename inside ASP blocks — renaming HTML tag names or CSS
         // identifiers is not something this provider handles.
         // getZone covers both <% %> blocks and <script language="vbscript"> blocks.
-        if (getZone(content, offset) !== 'asp') {
+        if (getZone(fullText, offset) !== 'asp') {
             throw new Error('Rename is only supported for VBScript symbols inside ASP blocks.');
         }
 
@@ -74,7 +74,7 @@ export class AspRenameProvider implements vscode.RenameProvider {
         if (!wordRange) { return null; }
 
         const oldName  = document.getText(wordRange);
-        const docText  = document.getText();
+        const fullText = document.getText();
         const docPath  = document.uri.fsPath;
         const edit     = new vscode.WorkspaceEdit();
 
@@ -96,7 +96,7 @@ export class AspRenameProvider implements vscode.RenameProvider {
         // + every other .asp / .inc file in the workspace that might reference
         // this symbol transitively (e.g. a page that includes the file where the
         // symbol is declared). resolveIncludePaths handles circular guards.
-        const includedPaths = resolveIncludePaths(docText, docPath);
+        const includedPaths = resolveIncludePaths(fullText, docPath);
         const includedSet   = new Set<string>([docPath, ...includedPaths].map(p => p.toLowerCase()));
 
         // Collect all .asp and .inc files in the workspace
@@ -120,7 +120,7 @@ export class AspRenameProvider implements vscode.RenameProvider {
         }
 
         const filesToSearch: { fsPath: string; getText: () => string }[] = [
-            { fsPath: docPath, getText: () => docText },
+            { fsPath: docPath, getText: () => fullText },
             ...includedPaths.map(p => ({
                 fsPath: p,
                 getText: () => {

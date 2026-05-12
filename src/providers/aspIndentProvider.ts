@@ -664,7 +664,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
 
         const position        = editor.selection.active;
         const document        = editor.document;
-        const docText         = document.getText();
+        const fullText        = document.getText();
         const line            = document.lineAt(position.line);
         const textBefore      = line.text.substring(0, position.character);
         const textAfter       = line.text.substring(position.character);
@@ -721,7 +721,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             return;
         }
 
-        if (isInAspBlock(document, position, docText)) {
+        if (isInAspBlock(document, position, fullText)) {
 
             // After <% or <%= on its own line: VBScript code sits at the same indent
             // as <% itself — no extra level added. <% is at HTML child level and
@@ -1061,11 +1061,11 @@ export function registerSmartQuoteHandler(context: vscode.ExtensionContext) {
 
         const position = change.range.start;
         const document = event.document;
-        const content  = document.getText();
+        const fullText = document.getText();
         const offset   = document.offsetAt(position) + 1; // +1 for the char just inserted
 
         // Determine zone AFTER the insertion
-        const zone = getZone(content, offset);
+        const zone = getZone(fullText, offset);
 
         // Only auto-close in html / css / js — never in asp (VBScript comment)
         if (zone === 'asp') { return; }

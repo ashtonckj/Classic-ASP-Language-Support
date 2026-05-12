@@ -85,37 +85,37 @@ function isVbScriptTag(attrs: string): boolean {
     return false;
 }
 
-export function getZone(content: string, offset: number): Zone {
+export function getZone(fullText: string, offset: number): Zone {
     // ASP zone — <% ... %> blocks, handles comments and strings internally
-    if (isInsideAspBlock(content, offset)) { return 'asp'; }
+    if (isInsideAspBlock(fullText, offset)) { return 'asp'; }
 
     // CSS zone — inside <style> ... </style>
     let searchFrom = 0;
     while (true) {
-        const styleOpen = content.indexOf('<style', searchFrom);
+        const styleOpen = fullText.indexOf('<style', searchFrom);
         if (styleOpen === -1 || styleOpen >= offset) { break; }
 
-        const styleTagEnd = content.indexOf('>', styleOpen);
+        const styleTagEnd = fullText.indexOf('>', styleOpen);
         if (styleTagEnd === -1) { break; }
 
-        const styleClose = content.indexOf('</style>', styleTagEnd);
+        const styleClose = fullText.indexOf('</style>', styleTagEnd);
         if (styleTagEnd < offset && (styleClose === -1 || offset <= styleClose)) { return 'css'; }
 
-        searchFrom = styleClose === -1 ? content.length : styleClose + 8;
+        searchFrom = styleClose === -1 ? fullText.length : styleClose + 8;
     }
 
     // Script zone — single pass over all <script> tags to avoid misclassification.
     // VBScript blocks are treated as ASP zone; all others default to JS zone.
     searchFrom = 0;
     while (true) {
-        const scriptOpen = content.indexOf('<script', searchFrom);
+        const scriptOpen = fullText.indexOf('<script', searchFrom);
         if (scriptOpen === -1 || scriptOpen >= offset) { break; }
 
-        const scriptTagEnd = content.indexOf('>', scriptOpen);
+        const scriptTagEnd = fullText.indexOf('>', scriptOpen);
         if (scriptTagEnd === -1) { break; }
 
-        const attrs = content.slice(scriptOpen + 7, scriptTagEnd);
-        const scriptClose = content.indexOf('</script>', scriptTagEnd);
+        const attrs = fullText.slice(scriptOpen + 7, scriptTagEnd);
+        const scriptClose = fullText.indexOf('</script>', scriptTagEnd);
 
         if (scriptTagEnd < offset && (scriptClose === -1 || offset <= scriptClose)) {
             // Cursor is inside this script block — decide which zone it belongs to
@@ -130,7 +130,7 @@ export function getZone(content: string, offset: number): Zone {
             }
         }
 
-        searchFrom = scriptClose === -1 ? content.length : scriptClose + 9;
+        searchFrom = scriptClose === -1 ? fullText.length : scriptClose + 9;
     }
 
     return 'html';

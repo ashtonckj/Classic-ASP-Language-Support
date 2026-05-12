@@ -148,11 +148,11 @@ export class JsSemanticTokensProvider implements vscode.DocumentSemanticTokensPr
 
         if (token.isCancellationRequested) { return undefined; }
 
-        const content  = document.getText();
-        const jsRanges = getJsRanges(content);
+        const fullText = document.getText();
+        const jsRanges = getJsRanges(fullText);
         if (jsRanges.length === 0) { return undefined; }
 
-        const { virtualContent } = buildVirtualJsContent(content, 0);
+        const { virtualContent } = buildVirtualJsContent(fullText, 0);
 
         if (token.isCancellationRequested) { return undefined; }
 

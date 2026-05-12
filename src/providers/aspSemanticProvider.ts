@@ -33,20 +33,20 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
     ): vscode.ProviderResult<vscode.SemanticTokens> {
 
         const builder    = new vscode.SemanticTokensBuilder(COMBINED_SEMANTIC_LEGEND);
-        const text       = document.getText();
+        const fullText = document.getText();
         const allSymbols = collectAllSymbols(document);
 
         // Build a per-character ASP-zone bitmap once from the raw text.
         // inAsp(offset) scans backwards on every call — O(distance to nearest
         // boundary). At 4k lines that's ~96k calls × avg half-file scan ≈ very slow.
         // aspMap[offset] === 1 replaces every hot-path call with a single array lookup.
-        const aspMap = new Uint8Array(text.length);
+        const aspMap = new Uint8Array(fullText.length);
         {
             let inside = false;
-            for (let i = 0; i < text.length; i++) {
-                if (!inside && text[i] === '<' && i + 1 < text.length && text[i + 1] === '%') {
+            for (let i = 0; i < fullText.length; i++) {
+                if (!inside && fullText[i] === '<' && i + 1 < fullText.length && fullText[i + 1] === '%') {
                     inside = true; aspMap[i] = 1; i++; aspMap[i] = 1;
-                } else if (inside && text[i] === '%' && i + 1 < text.length && text[i + 1] === '>') {
+                } else if (inside && fullText[i] === '%' && i + 1 < fullText.length && fullText[i + 1] === '>') {
                     inside = false; i++;
                 } else if (inside) {
                     aspMap[i] = 1;
@@ -56,7 +56,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             // so semantic tokens are emitted for VBScript code in those blocks.
             const vbsRe = /<script\b[^>]*\blanguage\s*=\s*["']vbscript["'][^>]*>([\s\S]*?)<\/script\s*>/gi;
             let vm: RegExpExecArray | null;
-            while ((vm = vbsRe.exec(text)) !== null) {
+            while ((vm = vbsRe.exec(fullText)) !== null) {
                 const contentStart = vm.index + vm[0].indexOf(vm[1]);
                 const contentEnd   = contentStart + vm[1].length;
                 for (let i = contentStart; i < contentEnd; i++) { aspMap[i] = 1; }
@@ -79,7 +79,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         // Returns true when a same-document symbol sits inside a JS <script> block.
         function isJsZoneSymbol(filePath: string, line: number): boolean {
             if (filePath !== docPath) { return false; }
-            return getZone(text, document.offsetAt(new vscode.Position(line, 0))) === 'js';
+            return getZone(fullText, document.offsetAt(new vscode.Position(line, 0))) === 'js';
         }
 
         const funcMap = new Map<string, 'function' | 'Sub'>();
