@@ -45,20 +45,6 @@ const CLOSER_TO_OPENER: { closer: RegExp; opener: RegExp; isMidBlock?: boolean; 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /**
- * Returns true when `position` is inside a <% ... %> ASP block.
- * Delegates to the canonical comment-aware isInsideAspBlock from documentHelper
- * so that %> inside VBScript comment lines (') is never treated as a close tag.
- *
- * Accepts an optional pre-fetched `docText` so callers that already hold the
- * full document string avoid allocating it a second time.
- */
-function isInAspBlock(document: vscode.TextDocument, position: vscode.Position, docText?: string): boolean {
-    const text   = docText ?? document.getText();
-    const offset = document.offsetAt(position);
-    return isInsideVirtualAspBlock(text, offset);
-}
-
-/**
  * Returns the indent unit string from editor options.
  * Shared by Enter and Tab handlers to avoid duplicating those 3 lines.
  */
@@ -535,7 +521,8 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
 
             if (textBefore.endsWith('<!--')) {
                 // Don't auto-close inside a VBScript block — HTML comments are not valid there
-                if (!isInAspBlock(event.document, position)) {
+                const fullText = event.document.getText();
+                if (!isInsideVirtualAspBlock(fullText, event.document.offsetAt(position))) {
                     const textAfter = line.text.substring(position.character + 1);
                     if (!textAfter.trim().startsWith('-->')) {
                         const insertPos = new vscode.Position(position.line, position.character + 1);
@@ -626,12 +613,12 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
 
         if (!VBSCRIPT_EXACT_CLOSER.test(currentTrimmed)) { return; }
 
-        // getText() is called once here and passed into isInAspBlock so there is
-        // only one full-document string allocation per snap event.  This only runs
+        // getText() is called once here and passed into isInsideVirtualAspBlock so there is
+        // only one full-document string allocation per snap event. This only runs
         // when the line already matches VBSCRIPT_EXACT_CLOSER, so ordinary keystrokes
         // never reach this point.
-        const docText = event.document.getText();
-        if (!isInAspBlock(event.document, new vscode.Position(changePos.line, currentLine.text.length), docText)) { return; }
+        const fullText = event.document.getText();
+        if (!isInsideVirtualAspBlock(fullText, event.document.offsetAt(new vscode.Position(changePos.line, currentLine.text.length)))) { return; }
 
         const openerIndent = findMatchingOpenerIndent(event.document, changePos.line, currentTrimmed, snapIndentUnit);
         if (openerIndent === null || openerIndent === currentIndent) { return; }
@@ -721,7 +708,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             return;
         }
 
-        if (isInAspBlock(document, position, fullText)) {
+        if (isInsideVirtualAspBlock(fullText, document.offsetAt(position))) {
 
             // After <% or <%= on its own line: VBScript code sits at the same indent
             // as <% itself — no extra level added. <% is at HTML child level and
@@ -979,7 +966,7 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
 
         // Fetch document text once — only reached on blank lines where smart
         // indent actually runs, so this allocation is never wasted on normal tabs.
-        const docText   = editor.document.getText();
+        const fullText = editor.document.getText();
 
         const indentUnit = getIndentUnit(editor);
 
@@ -996,7 +983,7 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
         }
 
         const currentIndent = lineText.match(/^(\s*)/)?.[1] ?? '';
-        const inAsp = isInAspBlock(editor.document, position, docText);
+        const inAsp = isInsideVirtualAspBlock(fullText, editor.document.offsetAt(position));
 
         let targetIndent: string;
         if (prevLineText === '%>') {
