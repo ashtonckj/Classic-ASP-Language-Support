@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../utils/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
-import { getZone, isInsideAspBlock } from '../utils/zoneUtils';
+import { getZone, isInsideVirtualAspBlock } from '../utils/zoneUtils';
 import * as path from 'path';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -194,7 +194,7 @@ function getAspContext(document: vscode.TextDocument, position: vscode.Position)
     const offset   = document.offsetAt(position);
 
     // VBScript block — use the canonical comment/string-aware scanner.
-    if (isInsideAspBlock(fullText, offset)) { return 'vbscript'; }
+    if (isInsideVirtualAspBlock(fullText, offset)) { return 'vbscript'; }
 
     // <script> block — single pass. VBScript blocks return 'vbscript';
     // all other script blocks return 'script'. Doing this in one loop

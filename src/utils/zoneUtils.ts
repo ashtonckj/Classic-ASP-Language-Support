@@ -11,7 +11,7 @@ export type Zone = 'asp' | 'css' | 'js' | 'html';
  * For UX, the listed will not be considered as an ASP block:
  * i) Closing ASP tag (%>) in ASP comments (')
  */
-export function isInsideAspBlock(text: string, offset: number): boolean {
+export function isInsideVirtualAspBlock(text: string, offset: number): boolean {
     let i = 0;
     let inAsp = false;
 
@@ -87,7 +87,7 @@ function isVbScriptTag(attrs: string): boolean {
 
 export function getZone(fullText: string, offset: number): Zone {
     // ASP zone — <% ... %> blocks, handles comments and strings internally
-    if (isInsideAspBlock(fullText, offset)) { return 'asp'; }
+    if (isInsideVirtualAspBlock(fullText, offset)) { return 'asp'; }
 
     // CSS zone — inside <style> ... </style>
     let searchFrom = 0;

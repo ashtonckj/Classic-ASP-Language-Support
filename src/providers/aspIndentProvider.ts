@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { isSelfClosingTag } from '../constants/htmlTags';
-import { isInsideAspBlock, getZone } from '../utils/zoneUtils';
+import { isInsideVirtualAspBlock, getZone } from '../utils/zoneUtils';
 
 // ── VBScript block keyword constants ───────────────────────────────────────
 
@@ -55,7 +55,7 @@ const CLOSER_TO_OPENER: { closer: RegExp; opener: RegExp; isMidBlock?: boolean; 
 function isInAspBlock(document: vscode.TextDocument, position: vscode.Position, docText?: string): boolean {
     const text   = docText ?? document.getText();
     const offset = document.offsetAt(position);
-    return isInsideAspBlock(text, offset);
+    return isInsideVirtualAspBlock(text, offset);
 }
 
 /**
