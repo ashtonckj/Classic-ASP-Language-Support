@@ -42,24 +42,24 @@ export function getRegionsInsideRange(
     return interiorRegions;
 }
 
-export function getAspRegions(doc: TextDocument): AspRegion[] {
+export function getAspRegions(document: TextDocument): AspRegion[] {
     // If we're not in an ASP context, no need to decorate
-    if (doc.languageId != "asp") {
+    if (document.languageId != "asp") {
         return [];
     }
 
-    const text = doc.getText();
+    const fullText = document.getText();
     // const brackets: DecorationOptions[] = [];
     const brackets: Range[] = [];
 
     let match: RegExpExecArray | null;
 
-    while ((match = ASP_BRACKETS.exec(text)) !== null) {
+    while ((match = ASP_BRACKETS.exec(fullText)) !== null) {
         // Bracket start
-        const startPos = doc.positionAt(match.index);
+        const startPos = document.positionAt(match.index);
 
         // Bracket end
-        const endPos = doc.positionAt(match.index + match[0].length);
+        const endPos = document.positionAt(match.index + match[0].length);
 
         // const decoration = { range: new Range(startPos, endPos) };
 
