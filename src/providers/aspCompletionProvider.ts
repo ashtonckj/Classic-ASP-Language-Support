@@ -33,9 +33,7 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         const offset = document.offsetAt(position);
 
         // Only provide ASP completions inside ASP blocks
-        if (getZone(fullText, offset) !== 'asp') {
-            return [];
-        }
+        if (getZone(fullText, offset) !== 'asp') return [];
 
         const textBefore   = getTextBeforeCursor(document, position);
         const lineText     = document.lineAt(position.line).text.substring(0, position.character);
