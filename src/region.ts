@@ -1,11 +1,5 @@
 import * as vscode from "vscode";
 
-/** Find opening and closing brackets for ASP code
- * 1) Opening tag
- * 2) Closing tag
- */
-const ASP_BRACKETS = /(<%=|<%|%>)/g;
-
 interface AspRegion {
     openingBracket: vscode.Range;
     codeBlock: vscode.Range;
@@ -18,8 +12,9 @@ export function getAspRegions(document: vscode.TextDocument): AspRegion[] {
     const fullText = document.getText();
     const brackets: vscode.Range[] = [];
     let match: RegExpExecArray | null;
+    const pattern = new RegExp(`(<%=|<%|%>)`, 'g')
 
-    while ((match = ASP_BRACKETS.exec(fullText)) !== null) {
+    while ((match = pattern.exec(fullText)) !== null) {
         const startPos = document.positionAt(match.index);
         const endPos = document.positionAt(match.index + match[0].length);
         brackets.push(new vscode.Range(startPos, endPos));
