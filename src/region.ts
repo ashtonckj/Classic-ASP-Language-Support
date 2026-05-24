@@ -1,6 +1,11 @@
 import * as vscode from "vscode";
 import { ASP_BRACKETS } from "./patterns";
-import { AspRegion } from "./types";
+
+export interface AspRegion {
+    openingBracket: vscode.Range;
+    codeBlock: vscode.Range;
+    closingBracket: vscode.Range;
+}
 
 export function getAspRegions(document: vscode.TextDocument): AspRegion[] {
     // If we're not in an ASP context, no need to decorate
