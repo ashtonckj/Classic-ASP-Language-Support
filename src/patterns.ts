@@ -1,9 +1,3 @@
-/* eslint-disable max-len */
-
-import { Position, TextDocument } from "vscode";
-import { getAspRegions } from "./region";
-import { AspRegion } from "./types";
-
 /**
  * Matches a Function
  *

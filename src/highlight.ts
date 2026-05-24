@@ -1,31 +1,31 @@
-import { ExtensionContext, Range, TextEditorDecorationType, window, workspace } from "vscode";
+import * as vscode from 'vscode';
 import { getAspRegions } from "./region";
 
-export function addRegionHighlights(context: ExtensionContext) {
+export function addRegionHighlights(context: vscode.ExtensionContext) {
 	// Declare all variables at the top of the function
 	let timeout: NodeJS.Timeout | null = null;
-	let bracketDecorationType: TextEditorDecorationType;
-	let codeBlockDecorationType: TextEditorDecorationType;
+	let bracketDecorationType: vscode.TextEditorDecorationType;
+	let codeBlockDecorationType: vscode.TextEditorDecorationType;
 	let configurationDidChange = false;
 
-	let activeEditor = window.activeTextEditor;
+	let activeEditor = vscode.window.activeTextEditor;
 	if (activeEditor) {
 		triggerUpdateDecorations();
 	}
 
-	window.onDidChangeActiveTextEditor(editor => {
+	vscode.window.onDidChangeActiveTextEditor(editor => {
 		activeEditor = editor;
 		if (editor) {
 			triggerUpdateDecorations();
 		}
 	}, null, context.subscriptions);
 
-	workspace.onDidChangeConfiguration(() => {
+	vscode.workspace.onDidChangeConfiguration(() => {
 		configurationDidChange = true;
 		triggerUpdateDecorations();
 	});
 
-	workspace.onDidChangeTextDocument(event => {
+	vscode.workspace.onDidChangeTextDocument(event => {
 		if (activeEditor && event.document === activeEditor.document) {
 			triggerUpdateDecorations();
 		}
@@ -38,15 +38,13 @@ export function addRegionHighlights(context: ExtensionContext) {
 		timeout = setTimeout(updateDecorations, 200);
 	}
 
-	function setDecorationTypes() {
-		const aspConfig = workspace.getConfiguration("aspLanguageSupport");
+	function setDecorationTypes(config: vscode.WorkspaceConfiguration) {
+		const bracketLightColor = config.get<string>("bracketLightColor");
+		const bracketDarkColor = config.get<string>("bracketDarkColor");
+		const codeBlockLightColor = config.get<string>("codeBlockLightColor");
+		const codeBlockDarkColor = config.get<string>("codeBlockDarkColor");
 
-		const bracketLightColor = aspConfig.get<string>("bracketLightColor");
-		const bracketDarkColor = aspConfig.get<string>("bracketDarkColor");
-		const codeBlockLightColor = aspConfig.get<string>("codeBlockLightColor");
-		const codeBlockDarkColor = aspConfig.get<string>("codeBlockDarkColor");
-
-		bracketDecorationType = window.createTextEditorDecorationType({
+		bracketDecorationType = vscode.window.createTextEditorDecorationType({
 			light: {
 				backgroundColor: bracketLightColor
 			},
@@ -55,7 +53,7 @@ export function addRegionHighlights(context: ExtensionContext) {
 			}
 		});
 
-		codeBlockDecorationType = window.createTextEditorDecorationType({
+		codeBlockDecorationType = vscode.window.createTextEditorDecorationType({
 			light: {
 				backgroundColor: codeBlockLightColor
 			},
@@ -70,12 +68,12 @@ export function addRegionHighlights(context: ExtensionContext) {
 			return;
 		}
 
-		const aspConfig = workspace.getConfiguration("aspLanguageSupport");
-		const highlightAspRegions: boolean = aspConfig.get<boolean>("highlightAspRegions", true);
+		const config = vscode.workspace.getConfiguration("aspLanguageSupport");
+		const highlightAspRegions: boolean = config.get<boolean>("highlightAspRegions", true);
 
 		// Create our decoration types
 		if(!bracketDecorationType || !codeBlockDecorationType) {
-			setDecorationTypes();
+			setDecorationTypes(config);
 		}
 
 		if(configurationDidChange || !highlightAspRegions) {
@@ -85,7 +83,7 @@ export function addRegionHighlights(context: ExtensionContext) {
 			if (codeBlockDecorationType) {
 				codeBlockDecorationType.dispose();
 			}
-			setDecorationTypes();
+			setDecorationTypes(config);
 
 			configurationDidChange = false;
 		}
@@ -100,8 +98,8 @@ export function addRegionHighlights(context: ExtensionContext) {
 			return;
 		}
 
-		const blocks: Range[] = [];
-		const brackets: Range[] = [];
+		const blocks: vscode.Range[] = [];
+		const brackets: vscode.Range[] = [];
 
 		for(const region of regions) {
 			brackets.push(region.openingBracket);

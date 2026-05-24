@@ -1,48 +1,8 @@
-import { Position, Range, TextDocument } from "vscode";
+import * as vscode from 'vscode';
 import { ASP_BRACKETS } from "./patterns";
 import { AspRegion } from "./types";
 
-export function replaceCharacter(
-    origString: string,
-    replaceChar: string,
-    index: number,
-) {
-    let firstPart = origString.substr(0, index);
-    let lastPart = origString.substr(index + 1);
-
-    let newString = firstPart + replaceChar + lastPart;
-    return newString;
-}
-
-export function regionIsInsideAspRegion(
-    regions: AspRegion[],
-    position: Position,
-): boolean {
-    for (const region of regions) {
-        if (region.codeBlock.contains(position)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-export function getRegionsInsideRange(
-    regions: AspRegion[],
-    range: Range,
-): Range[] {
-    const interiorRegions: Range[] = [];
-
-    for (const region of regions) {
-        if (range.contains(region.codeBlock)) {
-            interiorRegions.push(region.codeBlock);
-        }
-    }
-
-    return interiorRegions;
-}
-
-export function getAspRegions(document: TextDocument): AspRegion[] {
+export function getAspRegions(document: vscode.TextDocument): AspRegion[] {
     // If we're not in an ASP context, no need to decorate
     if (document.languageId != "asp") {
         return [];
@@ -50,7 +10,7 @@ export function getAspRegions(document: TextDocument): AspRegion[] {
 
     const fullText = document.getText();
     // const brackets: DecorationOptions[] = [];
-    const brackets: Range[] = [];
+    const brackets: vscode.Range[] = [];
 
     let match: RegExpExecArray | null;
 
@@ -63,7 +23,7 @@ export function getAspRegions(document: TextDocument): AspRegion[] {
 
         // const decoration = { range: new Range(startPos, endPos) };
 
-        brackets.push(new Range(startPos, endPos));
+        brackets.push(new vscode.Range(startPos, endPos));
     }
 
     let index = 0;
@@ -75,7 +35,7 @@ export function getAspRegions(document: TextDocument): AspRegion[] {
         if (index + 1 < max) {
             const start = brackets[index];
             const end = brackets[index + 1];
-            const block = new Range(start.end, end.start);
+            const block = new vscode.Range(start.end, end.start);
 
             aspRegions.push({
                 openingBracket: start,
@@ -88,24 +48,4 @@ export function getAspRegions(document: TextDocument): AspRegion[] {
     });
 
     return aspRegions;
-}
-
-/** Returns true when we are inside an ASP code block. */
-export function positionIsInsideAspRegion(
-    doc: TextDocument,
-    position: Position,
-): { isInsideRegion: boolean; regions: AspRegion[] } {
-    const regions = getAspRegions(doc);
-
-    if (regions.length === 0) {
-        return { isInsideRegion: false, regions: regions };
-    }
-
-    for (const region of regions) {
-        if (region.codeBlock.contains(position)) {
-            return { isInsideRegion: true, regions: regions };
-        }
-    }
-
-    return { isInsideRegion: false, regions: regions };
 }
