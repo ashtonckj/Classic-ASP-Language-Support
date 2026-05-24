@@ -7,7 +7,7 @@ export type Zone = 'asp' | 'css' | 'js' | 'html';
 
 /**
  * Returns true when `offset` falls inside a <% ... %> ASP block.
- * Any <% %> will be considered as an ASP block.
+ * Any <% %> will be considered as an ASP block but...
  * For UX, the listed will not be considered as an ASP block:
  * i) Closing ASP tag (%>) in ASP comments (')
  */
@@ -69,6 +69,32 @@ export function isInsideVirtualAspBlock(text: string, offset: number): boolean {
                 if (offset < end) { return true; }
                 i = end;
             }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Returns true when `offset` falls inside a <% ... %> ASP block.
+ * Strictly literal — %> always closes, regardless of strings or comments.
+ */
+export function isInsideActualAspBlock(text: string, offset: number): boolean {
+    let i = 0;
+    let inAsp = false;
+
+    while (i < text.length) {
+        if (!inAsp) {
+            const openIdx = text.indexOf('<%', i);
+            if (openIdx === -1 || openIdx >= offset) return false;
+            inAsp = true;
+            i = openIdx + 2;
+        } else {
+            const closeIdx = text.indexOf('%>', i);
+            if (closeIdx === -1) return true;          // unclosed block — offset is inside
+            if (offset < closeIdx + 2) return true;   // offset is before or within %>
+            inAsp = false;
+            i = closeIdx + 2;
         }
     }
 
