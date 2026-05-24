@@ -251,7 +251,7 @@ function escapeRegex(s: string): string {
 /**
  * Builds a Uint8Array where aspMap[i] === 1 means offset i is inside <% %>.
  *
- * Mirrors the line-by-line logic of isInsideAspBlock in aspUtils.ts so that:
+ * Mirrors the line-by-line logic of isInsideVirtualAspBlock in zoneUtils.ts so that:
  *   - %> inside a VBScript comment line (') is NOT treated as a block close
  *   - %> inside a string literal ("...") is NOT treated as a block close
  */
