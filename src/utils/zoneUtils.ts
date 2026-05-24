@@ -10,6 +10,7 @@ export type Zone = 'asp' | 'css' | 'js' | 'html';
  * Any <% %> will be considered as an ASP block but...
  * For UX, the listed will not be considered as an ASP block:
  * i) Closing ASP tag (%>) in ASP comments (')
+ * ii) Closing ASP tag (%>) inside a string literal ("...")
  */
 function isInsideVirtualAspBlock(text: string, offset: number): boolean {
     let i = 0;
