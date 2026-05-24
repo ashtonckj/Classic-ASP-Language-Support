@@ -46,10 +46,6 @@ function blankNonNewlines(s: string): string {
  * to avoid duplicating the same regex logic in each file.
  */
 export function getJsRanges(content: string): Array<{ start: number; end: number }> {
-    // Pre-compute ASP block extents so we can skip any <script> tag whose
-    // opening `<` falls inside a <% ... %> block (e.g. a VBScript string
-    // like Response.Write "<script>" & ...).  A tag inside an ASP block is
-    // never a real DOM script element — it's just text being output.
     const aspRanges: Array<{ start: number; end: number }> = [];
     const aspRe = /<%[\s\S]*?%>/g;
     let aspM: RegExpExecArray | null;
@@ -59,28 +55,77 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
     const isInsideAsp = (offset: number): boolean =>
         aspRanges.some(r => offset >= r.start && offset < r.end);
 
+    /**
+     * Find the index of the closing '>' of a <script> opening tag, starting
+     * at `from`. Unlike a simple indexOf('>'), this skips over any embedded
+     * ASP blocks (<%...%>) so that a '>' inside e.g. <%=fn()%> is not
+     * mistaken for the end of the tag.
+     */
+    function findTagClose(from: number): number {
+        let i = from;
+        while (i < content.length) {
+            // If we're at the start of an ASP block, jump past it entirely.
+            if (content[i] === '<' && content[i + 1] === '%') {
+                const aspEnd = content.indexOf('%>', i);
+                if (aspEnd === -1) { return -1; } // malformed — give up
+                i = aspEnd + 2;
+                continue;
+            }
+            if (content[i] === '>') { return i; }
+            i++;
+        }
+        return -1;
+    }
+
     const ranges: Array<{ start: number; end: number }> = [];
-    const re = /<script(\s[^>]*)?>/gi;
-    let m: RegExpExecArray | null;
+    // Match only the literal '<script' opener; we'll find the '>' ourselves.
+    const re = /<script(\s[^]*?)?(?=>|<%)/gi;  // rough match to locate the tag start
+    // Simpler: just search for '<script' and handle the rest manually.
+    let searchFrom = 0;
 
-    while ((m = re.exec(content)) !== null) {
-        // Skip <script> tags that appear inside ASP blocks — they are part of
-        // a VBScript string being written to the response, not real script elements.
-        if (isInsideAsp(m.index)) { continue; }
+    while (true) {
+        const scriptOpen = content.indexOf('<script', searchFrom);
+        if (scriptOpen === -1) { break; }
 
-        const attrs  = m[1] ?? '';
-        const tagEnd = m.index + m[0].length;
+        // Must be followed by '>' or whitespace (not e.g. '<scriptx')
+        const charAfter = content[scriptOpen + 7];
+        if (charAfter !== '>' && charAfter !== ' ' && charAfter !== '\t' &&
+            charAfter !== '\n' && charAfter !== '\r' && charAfter !== '/') {
+            searchFrom = scriptOpen + 7;
+            continue;
+        }
 
-        const typeMatch = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
-        if (typeMatch && !/javascript|module/i.test(typeMatch[1])) { continue; }
-        if (/\blanguage\s*=\s*["']vbscript["']/i.test(attrs))      { continue; }
+        if (isInsideAsp(scriptOpen)) {
+            searchFrom = scriptOpen + 7;
+            continue;
+        }
 
+        // Find the real end of the opening tag, skipping over embedded ASP blocks.
+        const scriptTagEnd = findTagClose(scriptOpen + 7);
+        if (scriptTagEnd === -1) { break; }
+
+        // Extract attributes — but ASP blocks inside them are noise; blank them
+        // out temporarily just for attribute parsing.
+        const rawAttrs = content.slice(scriptOpen + 7, scriptTagEnd);
+        const cleanAttrs = rawAttrs.replace(/<%[\s\S]*?%>/g, m => ' '.repeat(m.length));
+
+        const typeMatch = cleanAttrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
+        if (typeMatch && !/javascript|module/i.test(typeMatch[1])) {
+            searchFrom = scriptTagEnd + 1;
+            continue;
+        }
+        if (/\blanguage\s*=\s*["']vbscript["']/i.test(cleanAttrs)) {
+            searchFrom = scriptTagEnd + 1;
+            continue;
+        }
+
+        const tagEnd = scriptTagEnd + 1; // index of first char after '>'
         const rest     = content.slice(tagEnd);
         const closeIdx = rest.search(/<\/script\s*>/i);
         const end      = closeIdx === -1 ? content.length : tagEnd + closeIdx;
 
         ranges.push({ start: tagEnd, end });
-        re.lastIndex = end;
+        searchFrom = end;
     }
 
     return ranges;
