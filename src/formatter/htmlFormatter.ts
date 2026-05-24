@@ -26,18 +26,18 @@ export interface PrettierSettings {
 }
 
 export function getPrettierSettings(): PrettierSettings {
-    const c = vscode.workspace.getConfiguration('aspLanguageSupport.prettier');
+    const config = vscode.workspace.getConfiguration('aspLanguageSupport.prettier');
     return {
-        printWidth:                c.get<number>('printWidth',                80),
-        tabWidth:                  c.get<number>('tabWidth',                  2),
-        useTabs:                   c.get<boolean>('useTabs',                  false),
-        semi:                      c.get<boolean>('semi',                     true),
-        singleQuote:               c.get<boolean>('singleQuote',              false),
-        bracketSameLine:           c.get<boolean>('bracketSameLine',          false),
-        arrowParens:               c.get<string>('arrowParens',               'always'),
-        trailingComma:             c.get<string>('trailingComma',             'es5'),
-        endOfLine:                 c.get<string>('endOfLine',                 'lf'),
-        htmlWhitespaceSensitivity: c.get<string>('htmlWhitespaceSensitivity', 'css'),
+        printWidth:                config.get<number>('printWidth',                80),
+        tabWidth:                  config.get<number>('tabWidth',                  2),
+        useTabs:                   config.get<boolean>('useTabs',                  false),
+        semi:                      config.get<boolean>('semi',                     true),
+        singleQuote:               config.get<boolean>('singleQuote',              false),
+        bracketSameLine:           config.get<boolean>('bracketSameLine',          false),
+        arrowParens:               config.get<string>('arrowParens',               'always'),
+        trailingComma:             config.get<string>('trailingComma',             'es5'),
+        endOfLine:                 config.get<string>('endOfLine',                 'lf'),
+        htmlWhitespaceSensitivity: config.get<string>('htmlWhitespaceSensitivity', 'css'),
     };
 }
 
