@@ -169,17 +169,17 @@ function buildVbsVariableMap(content: string): Map<string, string> {
  *     <%= "[]" %>              →  ([])     [array literal in VBScript string]
  *     <%= "true" %>            →  (false)  [boolean literal in VBScript string]
  *     <%= "anything" %>        →  ("")     [other string literals]
- *   
+ *
  *   Variable names (heuristic):
  *     <%= vbdict %>            →  ({})     [name contains "dict", "obj", "json", etc.]
  *     <%= arrItems %>          →  ([])     [name contains "arr", "array", "list", etc.]
  *     <%= strName %>           →  ("")     [name contains "str", "text", "name", etc.]
- *   
+ *
  *   Server objects:
  *     <%= RS("field") %>       →  ("")     [database recordset fields are typically strings]
  *     <%= Request.Form("x") %> →  ("")     [Request collections always return strings]
  *     <%= Session("y") %>      →  ("")     [Session/Application most commonly store strings]
- *   
+ *
  *   Fallback:
  *     <%= unknown %>           →  0        [safe numeric fallback]
  */
@@ -558,13 +558,6 @@ export function getJsLanguageService(): JsLanguageService {
 export function disposeJsLanguageService(): void {
     _service?.dispose();
     _service = undefined;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Zone helpers
-// ─────────────────────────────────────────────────────────────────────────────
-export function isInJsZone(document: vscode.TextDocument, position: vscode.Position): boolean {
-    return getZone(document.getText(), document.offsetAt(position)) === 'js';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

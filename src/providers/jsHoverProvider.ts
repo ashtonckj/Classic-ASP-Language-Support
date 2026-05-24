@@ -15,11 +15,8 @@
  */
 
 import * as vscode from 'vscode';
-import {
-    buildVirtualJsContent,
-    getJsLanguageService,
-    isInJsZone,
-} from '../utils/jsUtils';
+import { buildVirtualJsContent, getJsLanguageService } from '../utils/jsUtils';
+import { getZone } from '../utils/zoneUtils';
 
 export class JsHoverProvider implements vscode.HoverProvider {
 
@@ -29,11 +26,11 @@ export class JsHoverProvider implements vscode.HoverProvider {
         token:    vscode.CancellationToken
     ): vscode.ProviderResult<vscode.Hover> {
 
-        if (!isInJsZone(document, position)) { return undefined; }
-
-        const offset  = document.offsetAt(position);
         const fullText = document.getText();
+        const offset  = document.offsetAt(position);
         const { virtualContent, isInScript } = buildVirtualJsContent(fullText, offset);
+
+        if (getZone(fullText, offset) !== 'js') { return undefined; }
         if (!isInScript || token.isCancellationRequested) { return undefined; }
 
         const svc = getJsLanguageService();

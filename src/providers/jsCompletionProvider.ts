@@ -25,12 +25,8 @@
  */
 
 import * as vscode from 'vscode';
-import {
-    buildVirtualJsContent,
-    getJsLanguageService,
-    isInJsZone,
-    tsKindToVsKind,
-} from '../utils/jsUtils';
+import { buildVirtualJsContent, getJsLanguageService, tsKindToVsKind, } from '../utils/jsUtils';
+import { getZone } from '../utils/zoneUtils';
 
 interface ItemData {
     name:           string;
@@ -53,11 +49,11 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         context:         vscode.CompletionContext,
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
-        if (!isInJsZone(document, position)) { return undefined; }
-
-        const offset  = document.offsetAt(position);
         const fullText = document.getText();
+        const offset  = document.offsetAt(position);
         const { virtualContent, isInScript } = buildVirtualJsContent(fullText, offset);
+
+        if (getZone(fullText, offset) !== 'js') { return undefined; }
         if (!isInScript || token.isCancellationRequested) { return undefined; }
 
         // ── Determine trigger character ──────────────────────────────────────
