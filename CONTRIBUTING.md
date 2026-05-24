@@ -81,41 +81,59 @@ submitting a PR.
 
 ```
 src/
-├── extension.ts                  # Entry point — registers all providers
+├── extension.ts                            # Entry point — registers all providers
+├── highlight.ts                            # Background highlighting for asp code sections
 ├── formatter/
-│   ├── aspFormatter.ts           # VBScript indentation and keyword casing
-│   └── htmlFormatter.ts          # HTML/CSS/JS formatting via Prettier
+│   ├── aspFormatter.ts                     # VBScript indentation and keyword casing
+│   └── htmlFormatter.ts                    # HTML/CSS/JS formatting via Prettier
 ├── providers/
-│   ├── aspCompletionProvider.ts  # VBScript IntelliSense
-│   ├── aspHoverProvider.ts       # Hover docs for keywords, functions, COM
-│   ├── aspIndentProvider.ts      # Enter/Tab smart indent + auto-close
-│   ├── aspSemanticProvider.ts    # Semantic token colouring (VBScript + SQL)
-│   ├── aspStructureDiagnostics*  # Mismatched block detection
-│   ├── cssCompletionProvider.ts  # CSS completions inside <style> and style=""
-│   ├── cssDiagnosticsProvider.ts # CSS error/warning squiggles
-│   ├── htmlCompletionProvider.ts # HTML tag and attribute completions
-│   ├── htmlStructureDiagnostics* # Mismatched HTML tag detection
-│   ├── includeProvider.ts        # #include resolution and symbol extraction
-│   ├── jsCompletionProvider.ts   # JavaScript completions inside <script>
-│   ├── linkProvider.ts           # Ctrl+Click navigation for file paths
-│   └── sqlSemanticProvider.ts    # SQL string detection and token colouring
+│   ├── aspCompletionProvider.ts            # VBScript intelliSense
+│   ├── aspDefinitionProvider.ts            # VBScript definitions
+│   ├── aspDocumentSymbolProvider.ts        # VBScript breadcrumb bar
+│   ├── aspHoverProvider.ts                 # VBScript hover docs
+│   ├── aspIndentProvider.ts                # Enter/Tab smart indent + auto-close
+│   ├── aspRenameProvider.ts                # Auto-rename variables in all linked files
+│   ├── aspSemanticProvider.ts              # Semantic token colouring (VBScript + SQL)
+│   ├── aspSignatureHelpProvider.ts         # VBScript parameter hints
+│   ├── aspStructureDiagnosticsProvider.ts  # Mismatched block detection
+│   ├── aspWorkspaceSymbolProvider.ts       # VBScript workspace-wide symbol search
+│   │
+│   ├── cssCompletionProvider.ts            # CSS completions inside <style> and style=""
+│   ├── cssDiagnosticsProvider.ts           # CSS error/warning squiggles
+│   ├── cssHoverProvider.ts                 # CSS hover docs
+│   │
+│   ├── htmlCompletionProvider.ts           # HTML tag and attribute completions
+│   ├── htmlStructureDiagnosticsProvider.ts # Mismatched HTML tag detection
+│   ├── includeProvider.ts                  # #include resolution and symbol extraction
+│   │
+│   ├── jsCompletionProvider.ts             # JavaScript completions inside <script>
+│   ├── jsDiagnosticsProvider.ts            # JavaScript error/warning squiggles
+│   ├── jsDocumentSymbolProvider.ts         # JavaScript breadcrumb bar
+│   ├── jsHoverProvider.ts                  # JavaScript hover docs
+│   ├── jsSeanticProvider.ts                # JavaScript semantic colouring
+│   ├── jsSignatureHelpProvider.ts          # JavaScript parameter hints
+│   │
+│   ├── linkProvider.ts                     # Ctrl+Click navigation for file paths
+│   └── sqlSemanticProvider.ts              # SQL string detection and token colouring
 ├── constants/
-│   ├── aspKeywords.ts            # VBScript keywords and built-in functions
-│   ├── comObjects.ts             # COM object members (ADODB, Scripting, etc.)
-│   ├── htmlGlobals.ts            # HTML global attributes and event attributes
-│   ├── htmlTags.ts               # HTML tag list with self-closing flags
-│   └── jsKeywords.ts             # JavaScript keywords and snippets
+│   ├── aspKeywords.ts                      # VBScript keywords and built-in functions
+│   ├── comObjects.ts                       # COM object members (ADODB, Scripting, etc.)
+│   ├── htmlGlobals.ts                      # HTML global attributes and event attributes
+│   ├── htmlTags.ts                         # HTML tag list with self-closing flags
 └── utils/
-    ├── aspUtils.ts               # Core ASP zone detection (isInsideAspBlock)
-    ├── cssUtils.ts               # Virtual CSS document helpers
-    ├── documentHelper.ts         # Cursor context helpers
-    └── htmlLinkUtils.ts          # HTML file-link attribute detection
+    ├── asp-dom.d.ts                        # Connects HTML tags with Javascript
+    ├── cssUtils.ts                         # Virtual CSS document helpers
+    ├── documentHelper.ts                   # Cursor context helpers
+    ├── htmlLinkUtils.ts                    # HTML file-link attribute detection
+    ├── jsUtils.ts                          # TypeScript Language Service wrapper
+    ├── region.ts                           # Background highlighting zone detection
+    └── zoneUtils.ts                        # Core ASP zone detection
 syntaxes/
-└── asp.tmLanguage.json           # TextMate grammar for syntax highlighting
+└── asp.tmLanguage.json                     # TextMate grammar for syntax highlighting
 snippets/
-├── asp.json                      # ASP/VBScript snippets
-├── html.json                     # HTML snippets
-└── javascript.json               # JavaScript snippets
+├── asp.json                                # ASP/VBScript snippets
+├── html.json                               # HTML snippets
+└── javascript.json                         # JavaScript snippets
 ```
 
 ---
