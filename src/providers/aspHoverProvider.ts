@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../utils/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
-import { getZone, isInsideVirtualAspBlock } from '../utils/zoneUtils';
+import { getZone } from '../utils/zoneUtils';
 import * as path from 'path';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -181,45 +181,6 @@ const THREE_WORD_COMPOUNDS: Record<string, string> = {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-// Context detection
-// Uses the canonical isInsideAspBlock from aspUtils (comment + string aware)
-// and a simple script-block scan for the JS zone.
-// ─────────────────────────────────────────────────────────────────────────────
-
-type AspContext = 'vbscript' | 'script' | 'html';
-
-function getAspContext(document: vscode.TextDocument, position: vscode.Position): AspContext {
-    const fullText = document.getText();
-    const offset   = document.offsetAt(position);
-
-    // VBScript block — use the canonical comment/string-aware scanner.
-    if (isInsideVirtualAspBlock(fullText, offset)) { return 'vbscript'; }
-
-    // <script> block — single pass. VBScript blocks return 'vbscript';
-    // all other script blocks return 'script'. Doing this in one loop
-    // prevents a VBScript block from accidentally matching the JS branch.
-    let searchFrom = 0;
-    while (true) {
-        const scriptOpen = fullText.indexOf('<script', searchFrom);
-        if (scriptOpen === -1 || scriptOpen >= offset) { break; }
-        const tagEnd      = fullText.indexOf('>', scriptOpen);
-        if (tagEnd === -1) { break; }
-        const scriptTag   = fullText.slice(scriptOpen, tagEnd + 1);
-        const scriptClose = fullText.indexOf('</script', tagEnd);
-        if (tagEnd < offset && (scriptClose === -1 || offset <= scriptClose)) {
-            if (/language\s*=\s*["']vbscript["']/i.test(scriptTag)) {
-                return 'vbscript';
-            }
-            return 'script';
-        }
-        searchFrom = scriptClose === -1 ? fullText.length : scriptClose + 9;
-    }
-
-    return 'html';
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Hover provider
 // • VBScript context (<% %>): all hovers — keywords, symbols, COM members.
 // • Script context (<script>):  symbol/COM hovers only, no keyword docs.
@@ -232,15 +193,14 @@ export class AspHoverProvider implements vscode.HoverProvider {
         position: vscode.Position
     ): vscode.ProviderResult<vscode.Hover> {
 
+        const fullText = document.getText();
+        const offset = document.offsetAt(position);
         const lineText = document.lineAt(position.line).text;
 
         // Suppress hover inside HTML file-link attributes (href, src, etc.)
         if (isCursorInHtmlFileLinkAttribute(lineText, position.character)) return null;
 
-        const context = getAspContext(document, position);
-
-        // No hovers inside plain HTML
-        if (context === 'html') return null;
+        if (getZone(fullText, offset) !== 'asp') return null;
 
         const wordRange = document.getWordRangeAtPosition(position, /\w+/);
         if (!wordRange) return null;
@@ -267,7 +227,6 @@ export class AspHoverProvider implements vscode.HoverProvider {
         }
 
         const allSymbols = collectAllSymbols(document);
-        const fullText = document.getText();
 
         // ── 1. COM member after dot — e.g. rs.EOF, conn.Execute ──────────────
         const charBeforeWord = lineText.charAt(wordRange.start.character - 1);
@@ -352,10 +311,6 @@ export class AspHoverProvider implements vscode.HoverProvider {
         if (BUILTIN_FUNCTION_DOCS[wordKey]) {
             return new vscode.Hover(new vscode.MarkdownString(BUILTIN_FUNCTION_DOCS[wordKey]));
         }
-
-        // ── 7. VBScript keywords — only inside <% %> blocks ──────────────────
-        // Keyword docs are VBScript-specific so we suppress them inside <script>.
-        if (context !== 'vbscript') return null;
 
         // Suppress hover inside comments. Strip string literals first so a quote
         // inside a string isn't mistaken for a comment delimiter.

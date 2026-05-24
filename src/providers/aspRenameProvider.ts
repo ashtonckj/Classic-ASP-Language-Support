@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { collectAllSymbols, resolveIncludePaths } from './includeProvider';
-import { isInsideVirtualAspBlock, getZone } from '../utils/zoneUtils';
+import { getZone } from '../utils/zoneUtils';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import path from 'path';
 

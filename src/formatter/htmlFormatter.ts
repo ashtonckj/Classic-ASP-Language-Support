@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as prettier from 'prettier';
-import { formatSingleAspBlock, getAspSettings, FormatBlockResult } from './aspFormatter';
-import { isInsideVirtualAspBlock } from '../utils/zoneUtils';
+import { formatSingleAspBlock, getAspSettings } from './aspFormatter';
 
 // ─── Prettier settings ─────────────────────────────────────────────────────
 
