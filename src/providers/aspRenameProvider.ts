@@ -26,12 +26,10 @@ export class AspRenameProvider implements vscode.RenameProvider {
     ): vscode.ProviderResult<vscode.Range | { range: vscode.Range; placeholder: string }> {
 
         const wordRange = document.getWordRangeAtPosition(position, /\w+/);
-        if (!wordRange) {
-            throw new Error('No symbol found at cursor position.');
-        }
+        if (!wordRange) throw new Error('No symbol found at cursor position.');
 
-        const word    = document.getText(wordRange);
-        const offset  = document.offsetAt(position);
+        const word = document.getText(wordRange);
+        const offset = document.offsetAt(position);
         const fullText = document.getText();
 
         // Only allow rename inside ASP blocks — renaming HTML tag names or CSS
@@ -46,13 +44,15 @@ export class AspRenameProvider implements vscode.RenameProvider {
         }
 
         // Make sure it actually matches a known user-defined symbol.
-        const symbols   = collectAllSymbols(document);
+        const symbols = collectAllSymbols(document);
         const wordLower = word.toLowerCase();
-        const known     =
-            symbols.functions   .some(s => s.name.toLowerCase() === wordLower) ||
-            symbols.variables   .some(s => s.name.toLowerCase() === wordLower) ||
-            symbols.constants   .some(s => s.name.toLowerCase() === wordLower) ||
-            symbols.comVariables.some(s => s.name.toLowerCase() === wordLower);
+        const known =
+            symbols.functions.some((s) => s.name.toLowerCase() === wordLower) ||
+            symbols.variables.some((s) => s.name.toLowerCase() === wordLower) ||
+            symbols.constants.some((s) => s.name.toLowerCase() === wordLower) ||
+            symbols.comVariables.some(
+                (s) => s.name.toLowerCase() === wordLower,
+            );
 
         if (!known) {
             throw new Error(`"${word}" is not a recognised VBScript symbol.`);
@@ -67,16 +67,16 @@ export class AspRenameProvider implements vscode.RenameProvider {
     provideRenameEdits(
         document: vscode.TextDocument,
         position: vscode.Position,
-        newName:  string
+        newName: string
     ): vscode.ProviderResult<vscode.WorkspaceEdit> {
 
         const wordRange = document.getWordRangeAtPosition(position, /\w+/);
-        if (!wordRange) { return null; }
+        if (!wordRange) return null;
 
-        const oldName  = document.getText(wordRange);
+        const oldName = document.getText(wordRange);
         const fullText = document.getText();
-        const docPath  = document.uri.fsPath;
-        const edit     = new vscode.WorkspaceEdit();
+        const docPath = document.uri.fsPath;
+        const edit = new vscode.WorkspaceEdit();
 
         // Validate the new name is a legal VBScript identifier.
         if (!/^[a-zA-Z_]\w*$/.test(newName)) {
@@ -97,7 +97,9 @@ export class AspRenameProvider implements vscode.RenameProvider {
         // this symbol transitively (e.g. a page that includes the file where the
         // symbol is declared). resolveIncludePaths handles circular guards.
         const includedPaths = resolveIncludePaths(fullText, docPath);
-        const includedSet   = new Set<string>([docPath, ...includedPaths].map(p => p.toLowerCase()));
+        const includedSet = new Set<string>(
+            [docPath, ...includedPaths].map((p) => p.toLowerCase()),
+        );
 
         // Collect all .asp and .inc files in the workspace
         const workspaceFiles: { fsPath: string; getText: () => string }[] = [];
@@ -110,22 +112,30 @@ export class AspRenameProvider implements vscode.RenameProvider {
                         workspaceFiles.push({
                             fsPath: fp,
                             getText: () => {
-                                try { return fs.readFileSync(fp, 'utf8'); }
-                                catch { return ''; }
+                                try {
+                                    return fs.readFileSync(fp, 'utf8');
+                                } catch {
+                                    return '';
+                                }
                             },
                         });
                     }
                 }
-            } catch { /* skip unreadable folders */ }
+            } catch {
+                /* skip unreadable folders */
+            }
         }
 
         const filesToSearch: { fsPath: string; getText: () => string }[] = [
             { fsPath: docPath, getText: () => fullText },
-            ...includedPaths.map(p => ({
+            ...includedPaths.map((p) => ({
                 fsPath: p,
                 getText: () => {
-                    try { return fs.readFileSync(p, 'utf8'); }
-                    catch { return ''; }
+                    try {
+                        return fs.readFileSync(p, 'utf8');
+                    } catch {
+                        return '';
+                    }
                 },
             })),
             ...workspaceFiles,
@@ -133,19 +143,19 @@ export class AspRenameProvider implements vscode.RenameProvider {
 
         for (const file of filesToSearch) {
             const text = file.getText();
-            if (!text) { continue; }
+            if (!text) continue;
 
-            const fileUri  = vscode.Uri.file(file.fsPath);
-            const ranges   = findAllOccurrences(text, oldName);
+            const fileUri = vscode.Uri.file(file.fsPath);
+            const ranges = findAllOccurrences(text, oldName);
 
             for (const { line, character } of ranges) {
                 edit.replace(
                     fileUri,
                     new vscode.Range(
                         new vscode.Position(line, character),
-                        new vscode.Position(line, character + oldName.length)
+                        new vscode.Position(line, character + oldName.length),
                     ),
-                    newName
+                    newName,
                 );
             }
         }
@@ -163,8 +173,11 @@ export class AspRenameProvider implements vscode.RenameProvider {
 function findAspFiles(dir: string): string[] {
     const results: string[] = [];
     let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-    catch { return results; }
+    try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+        return results;
+    }
 
     for (const entry of entries) {
         if (entry.name.startsWith('.') || entry.name === 'node_modules') { continue; }
@@ -210,7 +223,7 @@ function findAllOccurrences(
         const offset = match.index;
 
         // Must be inside an ASP block
-        if (!aspMap[offset]) { continue; }
+        if (!aspMap[offset]) continue;
 
         // Must not be inside a string literal or comment on the same line.
         // We check the slice of the line up to this token's column.
@@ -218,7 +231,7 @@ function findAllOccurrences(
         const colInLine = offset - lineStart;
         const lineSlice = text.slice(lineStart, offset);
 
-        if (isInStringOrComment(lineSlice)) { continue; }
+        if (isInStringOrComment(lineSlice)) continue;
 
         // Compute line number from offset for constructing vscode.Position
         const lineNumber = countNewlines(text, offset);
@@ -241,66 +254,88 @@ function escapeRegex(s: string): string {
  * Mirrors the line-by-line logic of isInsideAspBlock in aspUtils.ts so that:
  *   - %> inside a VBScript comment line (') is NOT treated as a block close
  *   - %> inside a string literal ("...") is NOT treated as a block close
- *   - HTML comments (<!-- ... -->) prevent <% from opening a block
  */
 function buildAspMap(text: string): Uint8Array {
-    const map  = new Uint8Array(text.length);
-    let i      = 0;
-    let inside = false;
+    const map = new Uint8Array(text.length);
+    let i = 0;
+    let inAsp = false;
 
     while (i < text.length) {
-        if (!inside) {
-            // Skip HTML comments — <% inside <!-- --> is not real ASP
-            if (text.slice(i, i + 4) === '<!--') {
-                const closeIdx = text.indexOf('-->', i + 4);
-                i = closeIdx === -1 ? text.length : closeIdx + 3;
-                continue;
-            }
-            if (text[i] === '<' && text[i + 1] === '%') {
-                inside = true;
-                map[i] = 1; map[i + 1] = 1;
-                i += 2;
-            } else {
-                i++;
-            }
+        if (!inAsp) {
+            const openIdx = text.indexOf('<%', i);
+            if (openIdx === -1) break;
+
+            // Mark the opening bracket
+            map[openIdx] = 1; map[openIdx + 1] = 1;
+
+            inAsp = true;
+            i = openIdx + 2;
         } else {
-            // Process line-by-line so VBScript comment lines are handled correctly
             const lineEnd = text.indexOf('\n', i);
-            const end     = lineEnd === -1 ? text.length : lineEnd + 1;
-            let j         = i;
-            let inStr     = false;
-            let found     = false;
+            const end = lineEnd === -1 ? text.length : lineEnd + 1;
+
+            let j = i;
+            let inStr = false;
+            let found = false;
 
             while (j < end) {
                 const ch = text[j];
+
                 if (inStr) {
                     if (ch === '"') {
-                        if (j + 1 < end && text[j + 1] === '"') { j += 2; continue; }
+                        if (j + 1 < end && text[j + 1] === '"') {
+                            map[j] = 1;
+                            map[j + 1] = 1;
+                            j += 2;
+                            continue;
+                        }
                         inStr = false;
                     }
-                    map[j] = 1; j++;
+                    map[j] = 1;
+                    j++;
                     continue;
                 }
-                if (ch === '"') { inStr = true; map[j] = 1; j++; continue; }
 
-                // VBScript comment — scan only for %> to close the block
+                if (ch === '"') {
+                    inStr = true;
+                    map[j] = 1;
+                    j++;
+                    continue;
+                }
+
                 if (ch === "'") {
+                    // VBScript comment — mark rest of line as inside ASP
                     while (j < end) {
-                        if (text[j] === '%' && j + 1 < text.length && text[j + 1] === '>') {
-                            inside = false; i = j + 2; found = true; break;
-                        }
-                        map[j] = 1; j++;
+                        map[j] = 1;
+                        j++;
                     }
-                    if (!found) { i = end; found = true; }
+                    i = end;
+                    found = true;
                     break;
                 }
 
                 if (ch === '%' && j + 1 < text.length && text[j + 1] === '>') {
-                    inside = false; i = j + 2; found = true; break;
+                    const closeEnd = j + 2;
+                    // Mark the closing bracket
+                    map[j] = 1;
+                    map[j + 1] = 1;
+                    inAsp = false;
+                    i = closeEnd;
+                    found = true;
+                    break;
                 }
-                map[j] = 1; j++;
+
+                map[j] = 1;
+                j++;
             }
-            if (!found) { i = end; }
+
+            if (!found) {
+                // Mark rest of line as inside ASP
+                while (i < end) {
+                    map[i] = 1;
+                    i++;
+                }
+            }
         }
     }
 
@@ -326,17 +361,23 @@ function isInStringOrComment(lineSlice: string): boolean {
         if (inString) {
             if (ch === '"') {
                 // "" inside a string is an escaped quote — stay in string
-                if (lineSlice[i + 1] === '"') { i++; }
-                else { inString = false; }
+                if (lineSlice[i + 1] === '"') {
+                    i++;
+                } else {
+                    inString = false;
+                }
             }
             continue;
         }
 
-        if (ch === '"') { inString = true; continue; }
+        if (ch === '"') {
+            inString = true;
+            continue;
+        }
 
         // A lone ' outside a string opens a VBScript comment to end-of-line,
         // meaning the token (which comes after this slice) is inside a comment.
-        if (ch === "'") { return true; }
+        if (ch === "'") return true;
     }
 
     // If inString is still true here the quote was never closed on this line,
@@ -352,7 +393,7 @@ function isInStringOrComment(lineSlice: string): boolean {
 function countNewlines(text: string, offset: number): number {
     let count = 0;
     for (let i = 0; i < offset; i++) {
-        if (text[i] === '\n') { count++; }
+        if (text[i] === '\n') count++;
     }
     return count;
 }
