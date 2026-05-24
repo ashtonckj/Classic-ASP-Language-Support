@@ -1,7 +1,12 @@
 import * as vscode from "vscode";
-import { ASP_BRACKETS } from "./patterns";
 
-export interface AspRegion {
+/** Find opening and closing brackets for ASP code
+ * 1) Opening tag
+ * 2) Closing tag
+ */
+const ASP_BRACKETS = /(<%=|<%|%>)/g;
+
+interface AspRegion {
     openingBracket: vscode.Range;
     codeBlock: vscode.Range;
     closingBracket: vscode.Range;
