@@ -319,10 +319,10 @@ export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
         return cached.symbols;
     }
 
-    const docText  = document.getText();
-    const combined = extractSymbols(docText, docPath);
+    const fullText = document.getText();
+    const combined = extractSymbols(fullText, docPath);
 
-    for (const incPath of resolveIncludePaths(docText, docPath)) {
+    for (const incPath of resolveIncludePaths(fullText, docPath)) {
         try {
             const incSymbols = extractSymbols(fs.readFileSync(incPath, 'utf8'), incPath);
             combined.variables    .push(...incSymbols.variables);

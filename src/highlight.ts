@@ -1,115 +1,87 @@
-import { ExtensionContext, Range, TextEditorDecorationType, window, workspace } from "vscode";
-import { getAspRegions } from "./region";
+import * as vscode from "vscode";
+import { getAspRegions } from "./utils/region"
 
-export function addRegionHighlights(context: ExtensionContext) {
-	// Declare all variables at the top of the function
-	let timeout: NodeJS.Timeout | null = null;
-	let bracketDecorationType: TextEditorDecorationType;
-	let codeBlockDecorationType: TextEditorDecorationType;
-	let configurationDidChange = false;
+export function addRegionHighlights(context: vscode.ExtensionContext) {
+    // Declare all variables at the top of the function
+    let timeout: NodeJS.Timeout | null = null;
+    let bracketDecorationType: vscode.TextEditorDecorationType;
+    let codeBlockDecorationType: vscode.TextEditorDecorationType;
+    let configurationDidChange = false;
 
-	let activeEditor = window.activeTextEditor;
-	if (activeEditor) {
-		triggerUpdateDecorations();
-	}
+    let activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor) triggerUpdateDecorations();
 
-	window.onDidChangeActiveTextEditor(editor => {
-		activeEditor = editor;
-		if (editor) {
-			triggerUpdateDecorations();
-		}
-	}, null, context.subscriptions);
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+        activeEditor = editor;
+        if (editor) triggerUpdateDecorations();
+    }, null, context.subscriptions);
 
-	workspace.onDidChangeConfiguration(() => {
-		configurationDidChange = true;
-		triggerUpdateDecorations();
-	});
+    vscode.workspace.onDidChangeConfiguration(() => {
+        configurationDidChange = true;
+        triggerUpdateDecorations();
+    });
 
-	workspace.onDidChangeTextDocument(event => {
-		if (activeEditor && event.document === activeEditor.document) {
-			triggerUpdateDecorations();
-		}
-	}, null, context.subscriptions);
+    vscode.workspace.onDidChangeTextDocument((event) => {
+        if (activeEditor && event.document === activeEditor.document) {
+            triggerUpdateDecorations();
+        }
+    }, null, context.subscriptions);
 
-	function triggerUpdateDecorations() {
-		if (timeout) {
-			clearTimeout(timeout);
-		}
-		timeout = setTimeout(updateDecorations, 200);
-	}
+    function triggerUpdateDecorations() {
+        if (timeout) clearTimeout(timeout);
+        timeout = setTimeout(updateDecorations, 200);
+    }
 
-	function setDecorationTypes() {
-		const aspConfig = workspace.getConfiguration("aspLanguageSupport");
+    function setDecorationTypes(config: vscode.WorkspaceConfiguration) {
+        bracketDecorationType = vscode.window.createTextEditorDecorationType({
+            light: { backgroundColor: config.get<string>("bracketLightColor") },
+            dark:  { backgroundColor: config.get<string>("bracketDarkColor") },
+        });
+        codeBlockDecorationType = vscode.window.createTextEditorDecorationType({
+            light: { backgroundColor: config.get<string>("codeBlockLightColor") },
+            dark:  { backgroundColor: config.get<string>("codeBlockDarkColor") },
+        });
+    }
 
-		const bracketLightColor = aspConfig.get<string>("bracketLightColor");
-		const bracketDarkColor = aspConfig.get<string>("bracketDarkColor");
-		const codeBlockLightColor = aspConfig.get<string>("codeBlockLightColor");
-		const codeBlockDarkColor = aspConfig.get<string>("codeBlockDarkColor");
+    function updateDecorations() {
+        if (!activeEditor) return;
 
-		bracketDecorationType = window.createTextEditorDecorationType({
-			light: {
-				backgroundColor: bracketLightColor
-			},
-			dark: {
-				backgroundColor: bracketDarkColor
-			}
-		});
+        const config = vscode.workspace.getConfiguration("aspLanguageSupport");
+        const highlightAspRegions = config.get<boolean>("highlightAspRegions", true);
 
-		codeBlockDecorationType = window.createTextEditorDecorationType({
-			light: {
-				backgroundColor: codeBlockLightColor
-			},
-			dark: {
-				backgroundColor: codeBlockDarkColor
-			}
-		});
-	}
+        // Create our decoration types
+        if (!bracketDecorationType || !codeBlockDecorationType) {
+            setDecorationTypes(config);
+        }
 
-	function updateDecorations() {
-		if (!activeEditor) {
-			return;
-		}
+        if (configurationDidChange || !highlightAspRegions) {
+            if (bracketDecorationType) {
+                bracketDecorationType.dispose();
+            }
+            if (codeBlockDecorationType) {
+                codeBlockDecorationType.dispose();
+            }
+            setDecorationTypes(config);
 
-		const aspConfig = workspace.getConfiguration("aspLanguageSupport");
-		const highlightAspRegions: boolean = aspConfig.get<boolean>("highlightAspRegions", true);
+            configurationDidChange = false;
+        }
 
-		// Create our decoration types
-		if(!bracketDecorationType || !codeBlockDecorationType) {
-			setDecorationTypes();
-		}
+        if (!highlightAspRegions) return;
 
-		if(configurationDidChange || !highlightAspRegions) {
-			if (bracketDecorationType) {
-				bracketDecorationType.dispose();
-			}
-			if (codeBlockDecorationType) {
-				codeBlockDecorationType.dispose();
-			}
-			setDecorationTypes();
+        const regions = getAspRegions(activeEditor.document);
 
-			configurationDidChange = false;
-		}
+        if (!regions || regions.length === 0) return;
 
-		if (!highlightAspRegions) {
-			return;
-		}
+        const blocks: vscode.Range[] = [];
+        const brackets: vscode.Range[] = [];
 
-		const regions = getAspRegions(activeEditor.document);
+        for (const region of regions) {
+            brackets.push(region.openingBracket);
+            blocks.push(region.codeBlock);
+            brackets.push(region.closingBracket);
+        }
 
-		if (!regions || regions.length === 0) {
-			return;
-		}
-
-		const blocks: Range[] = [];
-		const brackets: Range[] = [];
-
-		for(const region of regions) {
-			brackets.push(region.openingBracket);
-			blocks.push(region.codeBlock);
-			brackets.push(region.closingBracket);
-		}
-
-		activeEditor.setDecorations(bracketDecorationType, brackets);
-		activeEditor.setDecorations(codeBlockDecorationType, blocks);
-	}
+        activeEditor.setDecorations(bracketDecorationType, brackets);
+        activeEditor.setDecorations(codeBlockDecorationType, blocks);
+    }
 }

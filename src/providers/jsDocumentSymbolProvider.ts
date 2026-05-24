@@ -354,27 +354,27 @@ export class JsDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
 
         if (document.languageId !== 'asp') { return []; }
 
-        const content = document.getText();
+        const fullText = document.getText();
 
         const jsRanges: Array<{ start: number; end: number }> = [];
         const scriptOpenRe = /<script(\s[^>]*)?>/gi;
         let m: RegExpExecArray | null;
-        while ((m = scriptOpenRe.exec(content)) !== null) {
+        while ((m = scriptOpenRe.exec(fullText)) !== null) {
             const attrs  = m[1] ?? '';
             const tagEnd = m.index + m[0].length;
             const typeMatch = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
             if (typeMatch && !/javascript|module/i.test(typeMatch[1])) { continue; }
             if (/\blanguage\s*=\s*["']vbscript["']/i.test(attrs)) { continue; }
-            const rest     = content.slice(tagEnd);
+            const rest     = fullText.slice(tagEnd);
             const closeIdx = rest.search(/<\/script\s*>/i);
-            const end      = closeIdx === -1 ? content.length : tagEnd + closeIdx;
+            const end      = closeIdx === -1 ? fullText.length : tagEnd + closeIdx;
             jsRanges.push({ start: tagEnd, end });
             scriptOpenRe.lastIndex = end;
         }
 
         if (jsRanges.length === 0 || token.isCancellationRequested) { return []; }
 
-        const { virtualContent } = buildVirtualJsContent(content, 0);
+        const { virtualContent } = buildVirtualJsContent(fullText, 0);
         const svc = getJsLanguageService();
         svc.updateContent(virtualContent);
 

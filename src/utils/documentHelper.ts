@@ -1,66 +1,4 @@
 import * as vscode from 'vscode';
-import { isInsideAspBlock } from './aspUtils';
-
-export enum ContextType {
-    HTML,
-    CSS,
-    JAVASCRIPT,
-    ASP,
-    UNKNOWN
-}
-
-// Determine what context the cursor is in
-export function getContext(document: vscode.TextDocument, position: vscode.Position): ContextType {
-    const text = document.getText();
-    const offset = document.offsetAt(position);
-
-    // Check if inside ASP block <% ... %>
-    if (isInsideAspBlock(text, offset)) {
-        return ContextType.ASP;
-    }
-
-    // Check if inside <style> tag
-    if (isInsideTag(text, offset, 'style')) {
-        return ContextType.CSS;
-    }
-
-    // Check if inside <script> tag
-    if (isInsideTag(text, offset, 'script')) {
-        return ContextType.JAVASCRIPT;
-    }
-
-    // Default to HTML
-    return ContextType.HTML;
-}
-
-// Check if cursor is inside a specific HTML tag
-export function isInsideTag(text: string, offset: number, tagName: string): boolean {
-    const beforeCursor = text.substring(0, offset);
-    const afterCursor = text.substring(offset);
-
-    const openTagRegex = new RegExp(`<${tagName}[^>]*>`, 'gi');
-    const closeTagRegex = new RegExp(`</${tagName}>`, 'gi');
-
-    let openMatches = 0;
-    let closeMatches = 0;
-
-    let match;
-    while ((match = openTagRegex.exec(beforeCursor)) !== null) {
-        openMatches++;
-    }
-
-    while ((match = closeTagRegex.exec(beforeCursor)) !== null) {
-        closeMatches++;
-    }
-
-    if (openMatches > closeMatches) {
-        // Check if there's a closing tag after cursor
-        const nextClose = afterCursor.search(closeTagRegex);
-        return nextClose !== -1;
-    }
-
-    return false;
-}
 
 /**
  * Replaces every <%...%> block in a string with an equal-length run of spaces.
@@ -71,50 +9,15 @@ function stripAspBlocks(text: string): string {
     return text.replace(/<%[\s\S]*?%>/g, match => ' '.repeat(match.length));
 }
 
-// Get the current tag name at cursor position
-export function getCurrentTagName(document: vscode.TextDocument, position: vscode.Position): string | null {
-    const text = document.getText();
-    const offset = document.offsetAt(position);
-    // Strip ASP blocks so that <% and %> are never mistaken for HTML brackets
-    const beforeCursor = stripAspBlocks(text.substring(0, offset));
-
-    // Look for the last < before cursor
-    const lastOpenBracket = beforeCursor.lastIndexOf('<');
-    if (lastOpenBracket === -1) {
-        return null;
-    }
-
-    // Check if we're still inside the tag (haven't closed it yet)
-    const textAfterBracket = beforeCursor.substring(lastOpenBracket);
-    const hasClosingBracket = textAfterBracket.includes('>');
-
-    if (hasClosingBracket) {
-        return null;
-    }
-
-    // Extract tag name from original (un-stripped) text at the same offset
-    const originalAfterBracket = text.substring(0, offset).substring(lastOpenBracket);
-    const tagMatch = originalAfterBracket.match(/^<\/?(\w+)/);
-    if (tagMatch) {
-        return tagMatch[1];
-    }
-
-    return null;
-}
-
-// Check if cursor is right after '<' for tag completion
-export function isAfterOpenBracket(document: vscode.TextDocument, position: vscode.Position): boolean {
-    const lineText = document.lineAt(position.line).text;
-    const charBeforeCursor = lineText.charAt(position.character - 1);
-    return charBeforeCursor === '<';
-}
-
 /**
- * Returns true when textBefore (everything on the line up to the cursor) is
- * inside a quoted HTML attribute value.  Scans forward tracking quote state so
- * that a literal `<` typed inside a value is never mistaken for a tag opener.
+ * Returns true when `textBefore` (everything on the line up to the cursor) is
+ * inside a quoted HTML attribute value.
+ *
+ * Scans forward tracking quote state so that a literal `<` typed inside a value
+ * (e.g. href="<") is never mistaken for a tag opener. Only `<` characters that
+ * appear *outside* quotes are treated as potential tag openers.
  */
-export function isInsideAttrValueStr(textBefore: string): boolean {
+export function isInsideAttrValue(textBefore: string): boolean {
     let inQuote: string | null = null;
     let lastTagOpen = -1;
 
@@ -128,7 +31,7 @@ export function isInsideAttrValueStr(textBefore: string): boolean {
                 const next = textBefore[i + 1];
                 if (next && /[a-zA-Z\/]/.test(next)) {
                     lastTagOpen = i;
-                    inQuote = null;
+                    inQuote = null; // entering a new tag context resets quote state
                 }
             }
         }
@@ -136,6 +39,7 @@ export function isInsideAttrValueStr(textBefore: string): boolean {
 
     if (lastTagOpen === -1) { return false; }
 
+    // Rescan from the last real tag opener to determine the final quote state
     inQuote = null;
     for (const ch of textBefore.slice(lastTagOpen)) {
         if (!inQuote && (ch === '"' || ch === "'")) { inQuote = ch; }
@@ -144,31 +48,62 @@ export function isInsideAttrValueStr(textBefore: string): boolean {
     return inQuote !== null;
 }
 
-// Check if cursor is inside a tag for attribute completion
-export function isInsideTagForAttributes(document: vscode.TextDocument, position: vscode.Position): boolean {
-    const text = document.getText();
+/**
+ * Returns the name of the HTML tag the cursor is currently inside (between `<`
+ * and `>`), or null if the cursor is not inside an opening tag.
+ *
+ * ASP blocks are stripped before scanning so `<%` / `%>` are never mistaken
+ * for HTML angle brackets.
+ */
+export function getCurrentTagName(document: vscode.TextDocument, position: vscode.Position): string | null {
+    const fullText = document.getText();
     const offset = document.offsetAt(position);
-    // Strip ASP blocks so <%...%> brackets are invisible to the HTML bracket scan
-    const beforeCursor = stripAspBlocks(text.substring(0, offset));
+    // Strip ASP blocks so that <% and %> are never mistaken for HTML brackets
+    const beforeCursor = stripAspBlocks(fullText.substring(0, offset));
+
+    const lastOpenBracket = beforeCursor.lastIndexOf('<');
+    if (lastOpenBracket === -1) { return null; }
+
+    // If there is a `>` between the last `<` and the cursor, we're not inside a tag
+    const textAfterBracket = beforeCursor.substring(lastOpenBracket);
+    if (textAfterBracket.includes('>')) { return null; }
+
+    // Extract tag name from the original (un-stripped) text at the same position
+    const originalAfterBracket = fullText.substring(0, offset).substring(lastOpenBracket);
+    const tagMatch = originalAfterBracket.match(/^<\/?(\w+)/);
+    return tagMatch ? tagMatch[1] : null;
+}
+
+/**
+ * Returns true when the cursor is positioned inside an HTML opening tag (i.e.
+ * between `<tagname` and the closing `>`), meaning attribute completions are
+ * appropriate.
+ *
+ * ASP blocks are stripped so `<%...%>` angle brackets don't confuse the scan.
+ */
+export function isInsideTagForAttributes(document: vscode.TextDocument, position: vscode.Position): boolean {
+    const fullText = document.getText();
+    const offset = document.offsetAt(position);
+    const beforeCursor = stripAspBlocks(fullText.substring(0, offset));
 
     const lastOpenBracket = beforeCursor.lastIndexOf('<');
     const lastCloseBracket = beforeCursor.lastIndexOf('>');
 
-    // We're inside a tag if the last < is after the last >
+    // Inside a tag when the last `<` comes after the last `>`
     return lastOpenBracket > lastCloseBracket;
 }
 
-// Get line text before cursor
+/**
+ * Returns the text on the current line up to (but not including) the cursor.
+ */
 export function getTextBeforeCursor(document: vscode.TextDocument, position: vscode.Position): string {
-    const line = document.lineAt(position.line);
-    return line.text.substring(0, position.character);
+    return document.lineAt(position.line).text.substring(0, position.character);
 }
 
-// Get word at position
+/**
+ * Returns the word at the cursor position, or an empty string if there is none.
+ */
 export function getWordAtPosition(document: vscode.TextDocument, position: vscode.Position): string {
     const range = document.getWordRangeAtPosition(position);
-    if (range) {
-        return document.getText(range);
-    }
-    return '';
+    return range ? document.getText(range) : '';
 }

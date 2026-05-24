@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { getCSSLanguageService } from 'vscode-css-languageservice';
-import { getZone, buildCssDoc, getInlineStyleContext, buildInlineCssDoc } from '../utils/cssUtils';
+import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc } from '../utils/cssUtils';
+import { getZone } from '../utils/zoneUtils';
 
 const cssService = getCSSLanguageService();
 
@@ -9,18 +10,18 @@ export class CssHoverProvider implements vscode.HoverProvider {
         document: vscode.TextDocument,
         position: vscode.Position
     ): vscode.Hover | null {
-        const content = document.getText();
+        const fullText = document.getText();
         const offset  = document.offsetAt(position);
-        const zone    = getZone(content, offset);
+        const zone    = getZone(fullText, offset);
 
         // ── Inline style="" attribute hover ───────────────────────────────────
         // Run for all non-css zones — style="" can appear in HTML, ASP, or JS zones.
         if (zone !== 'css') {
-            const inlineCtx = getInlineStyleContext(content, offset);
+            const inlineCtx = getInlineStyleContext(fullText, offset);
             if (inlineCtx) {
                 const lsDoc = buildInlineCssDoc(
                     document.uri.toString(),
-                    content,
+                    fullText,
                     document.version,
                     inlineCtx.valueStart,
                     inlineCtx.valueEnd
@@ -35,7 +36,7 @@ export class CssHoverProvider implements vscode.HoverProvider {
         }
 
         // ── <style> block hover ───────────────────────────────────────────────
-        const lsDoc = buildCssDoc(document.uri.toString(), content, document.version, offset);
+        const lsDoc = buildCssDoc(document.uri.toString(), fullText, document.version, offset);
         if (!lsDoc) return null;
 
         const stylesheet = cssService.parseStylesheet(lsDoc);

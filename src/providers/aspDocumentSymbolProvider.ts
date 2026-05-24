@@ -20,9 +20,9 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
 
         if (document.languageId !== 'asp') { return []; }
 
-        const text    = document.getText();
+        const fullText = document.getText();
         const docPath = document.uri.fsPath;
-        const symbols = extractSymbols(text, docPath);
+        const symbols = extractSymbols(fullText, docPath);
 
         const result: vscode.DocumentSymbol[] = [];
 

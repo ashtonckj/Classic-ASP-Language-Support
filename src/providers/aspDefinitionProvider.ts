@@ -25,9 +25,7 @@ export class AspDefinitionProvider implements vscode.DefinitionProvider {
         // linkProvider.ts via the DocumentLink API, which also owns the tooltip.
         // Returning anything here would cause VS Code to show both the symbol hover
         // ("function test — defined in this file") and the link tooltip simultaneously.
-        if (isCursorInHtmlFileLinkAttribute(lineText, position.character)) {
-            return null;
-        }
+        if (isCursorInHtmlFileLinkAttribute(lineText, position.character)) return null;
 
         // VBScript symbol lookup
         const wordRange = document.getWordRangeAtPosition(position, /\w+/);

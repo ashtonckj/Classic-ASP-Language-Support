@@ -6,7 +6,8 @@
 
 import * as vscode from 'vscode';
 import { getCSSLanguageService, DiagnosticSeverity as LsSeverity } from 'vscode-css-languageservice';
-import { buildCssDoc, getZone, getInlineStyleContext, buildInlineCssDoc } from '../utils/cssUtils';
+import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc } from '../utils/cssUtils';
+import { getZone } from '../utils/zoneUtils';
 
 const cssService = getCSSLanguageService();
 
@@ -45,13 +46,13 @@ function validateDocument(
         return;
     }
 
-    const content = document.getText();
+    const fullText = document.getText();
     const diagnostics: vscode.Diagnostic[] = [];
 
     // Scan through all <style> blocks in the document
     let searchFrom = 0;
     while (true) {
-        const styleOpen = content.indexOf('<style', searchFrom);
+        const styleOpen = fullText.indexOf('<style', searchFrom);
         if (styleOpen === -1) break;
 
         // Skip <style text that appears inside an HTML comment (<!-- ... -->),
@@ -59,20 +60,20 @@ function validateDocument(
         // getZone returns 'html' only for genuine top-level HTML markup.
         // The HTML comment check must be explicit because getZone returns 'html'
         // for comment content too (comments are not a distinct zone).
-        if (isInsideHtmlComment(content, styleOpen) || getZone(content, styleOpen) !== 'html') {
+        if (isInsideHtmlComment(fullText, styleOpen) || getZone(fullText, styleOpen) !== 'html') {
             searchFrom = styleOpen + 6;
             continue;
         }
 
-        const styleTagEnd = content.indexOf('>', styleOpen);
+        const styleTagEnd = fullText.indexOf('>', styleOpen);
         if (styleTagEnd === -1) break;
 
-        const styleClose = content.indexOf('</style>', styleTagEnd);
+        const styleClose = fullText.indexOf('</style>', styleTagEnd);
         const cssStart = styleTagEnd + 1;
 
         const lsDoc = buildCssDoc(
             document.uri.toString(),
-            content,
+            fullText,
             document.version,
             cssStart + 1  // +1 so we're inside the block
         );
@@ -133,15 +134,15 @@ function validateDocument(
             const offset = lineOffset + valueStart;
 
             // Skip if inside an ASP block or a <style> tag
-            const zone = getZone(content, offset);
+            const zone = getZone(fullText, offset);
             if (zone === 'css' || zone === 'asp') { searchCol = valueEnd + 1; continue; }
 
-            const inlineCtx = getInlineStyleContext(content, offset);
+            const inlineCtx = getInlineStyleContext(fullText, offset);
             if (!inlineCtx) { searchCol = valueEnd + 1; continue; }
 
             const lsDoc = buildInlineCssDoc(
                 document.uri.toString(),
-                content,
+                fullText,
                 document.version,
                 inlineCtx.valueStart,
                 inlineCtx.valueEnd

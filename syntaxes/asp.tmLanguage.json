@@ -2,7 +2,10 @@
     "name": "Classic ASP",
     "scopeName": "text.html.asp",
     "comment": "Classic ASP with HTML (SQL Highlighting in Strings)",
-    "fileTypes": ["asp", "asa"],
+    "fileTypes": [
+        "asp",
+        "asa"
+    ],
     "foldingStartMarker": "(?i)^\\s*(Public|Private)?\\s*(Class|Function|Sub|Property)\\s*([a-zA-Z_]\\w*)\\s*(\\(.*\\)\\s*)?$",
     "foldingStopMarker": "(?i)^\\s*End (Class|Function|Sub|Property)\\s*$",
     "injections": {
@@ -16,10 +19,61 @@
     },
     "patterns": [
         {
+            "include": "#vbscript-script-tag"
+        },
+        {
             "include": "text.html.derivative"
         }
     ],
     "repository": {
+        "vbscript-script-tag": {
+            "patterns": [
+                {
+                    "comment": "VBScript block — double-quoted: <script language=\"vbscript\"> or <script type=\"text/vbscript\">",
+                    "name": "meta.embedded.block.asp",
+                    "begin": "(?i)(<script\\b(?=[^>]*\\blanguage\\s*=\\s*\"vbscript\")[^>]*>)",
+                    "end": "(?i)(</script\\s*>)",
+                    "contentName": "source.vbscript.embedded.asp",
+                    "beginCaptures": {
+                        "1": {
+                            "patterns": [{ "include": "text.html.derivative" }]
+                        }
+                    },
+                    "endCaptures": {
+                        "1": {
+                            "patterns": [{ "include": "text.html.derivative" }]
+                        }
+                    },
+                    "patterns": [
+                        {
+                            "include": "#vbscript-code"
+                        }
+                    ]
+                },
+                {
+                    "comment": "VBScript block — single-quoted: <script language='vbscript'>",
+                    "name": "meta.embedded.block.asp",
+                    "begin": "(?i)(<script\\b(?=[^>]*\\blanguage\\s*=\\s*'vbscript')[^>]*>)",
+                    "end": "(?i)(</script\\s*>)",
+                    "contentName": "source.vbscript.embedded.asp",
+                    "beginCaptures": {
+                        "1": {
+                            "patterns": [{ "include": "text.html.derivative" }]
+                        }
+                    },
+                    "endCaptures": {
+                        "1": {
+                            "patterns": [{ "include": "text.html.derivative" }]
+                        }
+                    },
+                    "patterns": [
+                        {
+                            "include": "#vbscript-code"
+                        }
+                    ]
+                }
+            ]
+        },
         "asp-tag": {
             "patterns": [
                 {

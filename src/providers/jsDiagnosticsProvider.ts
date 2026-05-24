@@ -31,11 +31,11 @@ const SUPPRESSED_CODES = new Set([
 ]);
 
 function getDiagnosticsForDocument(document: vscode.TextDocument): vscode.Diagnostic[] {
-    const content  = document.getText();
-    const jsRanges = getJsRanges(content);
+    const fullText = document.getText();
+    const jsRanges = getJsRanges(fullText);
     if (jsRanges.length === 0) { return []; }
 
-    const { virtualContent } = buildVirtualJsContent(content, 0);
+    const { virtualContent } = buildVirtualJsContent(fullText, 0);
     const svc = getJsLanguageService();
     svc.updateContent(virtualContent);
 

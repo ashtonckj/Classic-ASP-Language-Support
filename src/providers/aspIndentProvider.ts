@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { isSelfClosingTag } from '../constants/htmlTags';
-import { isInsideAspBlock, getZone } from '../utils/aspUtils';
+import { getZone } from '../utils/zoneUtils';
 
 // ── VBScript block keyword constants ───────────────────────────────────────
 
@@ -43,20 +43,6 @@ const CLOSER_TO_OPENER: { closer: RegExp; opener: RegExp; isMidBlock?: boolean; 
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Returns true when `position` is inside a <% ... %> ASP block.
- * Delegates to the canonical comment-aware isInsideAspBlock from documentHelper
- * so that %> inside VBScript comment lines (') is never treated as a close tag.
- *
- * Accepts an optional pre-fetched `docText` so callers that already hold the
- * full document string avoid allocating it a second time.
- */
-function isInAspBlock(document: vscode.TextDocument, position: vscode.Position, docText?: string): boolean {
-    const text   = docText ?? document.getText();
-    const offset = document.offsetAt(position);
-    return isInsideAspBlock(text, offset);
-}
 
 /**
  * Returns the indent unit string from editor options.
@@ -535,7 +521,8 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
 
             if (textBefore.endsWith('<!--')) {
                 // Don't auto-close inside a VBScript block — HTML comments are not valid there
-                if (!isInAspBlock(event.document, position)) {
+                const fullText = event.document.getText();
+                if (getZone(fullText, event.document.offsetAt(position)) !== 'asp') {
                     const textAfter = line.text.substring(position.character + 1);
                     if (!textAfter.trim().startsWith('-->')) {
                         const insertPos = new vscode.Position(position.line, position.character + 1);
@@ -626,12 +613,12 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
 
         if (!VBSCRIPT_EXACT_CLOSER.test(currentTrimmed)) { return; }
 
-        // getText() is called once here and passed into isInAspBlock so there is
-        // only one full-document string allocation per snap event.  This only runs
+        // getText() is called once here and passed into getZone so there is
+        // only one full-document string allocation per snap event. This only runs
         // when the line already matches VBSCRIPT_EXACT_CLOSER, so ordinary keystrokes
         // never reach this point.
-        const docText = event.document.getText();
-        if (!isInAspBlock(event.document, new vscode.Position(changePos.line, currentLine.text.length), docText)) { return; }
+        const fullText = event.document.getText();
+        if (getZone(fullText, event.document.offsetAt(new vscode.Position(changePos.line, currentLine.text.length))) !== 'asp') { return; }
 
         const openerIndent = findMatchingOpenerIndent(event.document, changePos.line, currentTrimmed, snapIndentUnit);
         if (openerIndent === null || openerIndent === currentIndent) { return; }
@@ -664,7 +651,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
 
         const position        = editor.selection.active;
         const document        = editor.document;
-        const docText         = document.getText();
+        const fullText        = document.getText();
         const line            = document.lineAt(position.line);
         const textBefore      = line.text.substring(0, position.character);
         const textAfter       = line.text.substring(position.character);
@@ -721,7 +708,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             return;
         }
 
-        if (isInAspBlock(document, position, docText)) {
+        if (getZone(fullText, document.offsetAt(position)) === 'asp') {
 
             // After <% or <%= on its own line: VBScript code sits at the same indent
             // as <% itself — no extra level added. <% is at HTML child level and
@@ -979,7 +966,7 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
 
         // Fetch document text once — only reached on blank lines where smart
         // indent actually runs, so this allocation is never wasted on normal tabs.
-        const docText   = editor.document.getText();
+        const fullText = editor.document.getText();
 
         const indentUnit = getIndentUnit(editor);
 
@@ -996,7 +983,7 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
         }
 
         const currentIndent = lineText.match(/^(\s*)/)?.[1] ?? '';
-        const inAsp = isInAspBlock(editor.document, position, docText);
+        const inAsp = getZone(fullText, editor.document.offsetAt(position)) === 'asp';
 
         let targetIndent: string;
         if (prevLineText === '%>') {
@@ -1061,11 +1048,11 @@ export function registerSmartQuoteHandler(context: vscode.ExtensionContext) {
 
         const position = change.range.start;
         const document = event.document;
-        const content  = document.getText();
+        const fullText = document.getText();
         const offset   = document.offsetAt(position) + 1; // +1 for the char just inserted
 
         // Determine zone AFTER the insertion
-        const zone = getZone(content, offset);
+        const zone = getZone(fullText, offset);
 
         // Only auto-close in html / css / js — never in asp (VBScript comment)
         if (zone === 'asp') { return; }

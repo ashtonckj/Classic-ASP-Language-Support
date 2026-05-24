@@ -2,11 +2,11 @@ import * as vscode from 'vscode';
 import { HTML_TAGS, isSelfClosingTag } from '../constants/htmlTags';
 import { getAttributesForTag } from '../constants/htmlGlobals';
 import {
-    getContext,
-    ContextType,
     getCurrentTagName,
+    isInsideAttrValue,
     isInsideTagForAttributes
 } from '../utils/documentHelper';
+import { getZone } from '../utils/zoneUtils';
 
 
 // ── Cached completion items — built once, reused on every keystroke ────────
@@ -69,11 +69,11 @@ function findUnclosedTag(
     document: vscode.TextDocument,
     position: vscode.Position
 ): { tag: string; openerIndent: string } | null {
-    const text        = document.getText();
+    const fullText = document.getText();
     const cursorOffset = document.offsetAt(position);
 
     // We only scan up to the cursor position
-    const before = text.slice(0, cursorOffset);
+    const before = fullText.slice(0, cursorOffset);
 
     const stack: string[] = [];
 
@@ -127,51 +127,6 @@ function findUnclosedTag(
     return null;
 }
 
-/**
- * Returns true when the cursor (represented by textBefore — everything on the
- * line up to the cursor) is inside a quoted HTML attribute value.
- *
- * The naive approach of doing `textBefore.lastIndexOf('<')` breaks when the
- * user types a literal `<` inside an attribute value (e.g. href="<"), because
- * that `<` becomes the new "last <" and the quote-state scan never sees the
- * opening quote.
- *
- * The correct approach scans forward, tracking quote state, and records only
- * `<` characters that appear *outside* quotes as potential tag openers.  Once
- * we know the offset of the last real tag-opening `<`, we rescan from there to
- * determine the current quote state.
- */
-function isInsideAttrValue(textBefore: string): boolean {
-    let inQuote: string | null = null;
-    let lastTagOpen = -1;
-
-    for (let i = 0; i < textBefore.length; i++) {
-        const ch = textBefore[i];
-        if (inQuote) {
-            if (ch === inQuote) { inQuote = null; }
-        } else {
-            if (ch === '"' || ch === "'") { inQuote = ch; }
-            else if (ch === '<') {
-                const next = textBefore[i + 1];
-                if (next && /[a-zA-Z\/]/.test(next)) {
-                    lastTagOpen = i;
-                    inQuote = null; // entering a new tag context resets quote state
-                }
-            }
-        }
-    }
-
-    if (lastTagOpen === -1) { return false; }
-
-    // Rescan from the tag opener to get the final quote state
-    inQuote = null;
-    for (const ch of textBefore.slice(lastTagOpen)) {
-        if (!inQuote && (ch === '"' || ch === "'")) { inQuote = ch; }
-        else if (inQuote && ch === inQuote) { inQuote = null; }
-    }
-    return inQuote !== null;
-}
-
 // ── Completion provider ────────────────────────────────────────────────────
 
 export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
@@ -183,7 +138,9 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
         context: vscode.CompletionContext
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
-        if (getContext(document, position) !== ContextType.HTML) { return []; }
+        const fullText = document.getText();
+        const offset = document.offsetAt(position);
+        if (getZone(fullText, offset) !== 'html') { return []; }
 
         const textBefore = document.lineAt(position.line).text.substring(0, position.character);
         const currentIndent = textBefore.match(/^([ \t]*)/)?.[1] ?? '';
