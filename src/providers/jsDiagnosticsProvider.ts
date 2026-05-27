@@ -21,6 +21,7 @@ import {
 
 const SUPPRESSED_CODES = new Set([
     2304,   // Cannot find name 'X'
+    2592,   // Cannot find name '$' / 'jQuery' (TS hint variant of 2304 for known library globals)
     2339,   // Property 'X' does not exist on type 'Y'
     2345,   // Argument of type 'X' is not assignable to parameter of type 'Y'
     2322,   // Type 'X' is not assignable to type 'Y'
@@ -28,7 +29,7 @@ const SUPPRESSED_CODES = new Set([
     7005,   // Variable 'X' implicitly has an 'any' type
     2531,   // Object is possibly 'null'
     2532,   // Object is possibly 'undefined'
-    2349,   // This expression is not callable
+    2349,   // This expression is not callable (e.g. window[name]() dynamic dispatch)
 ]);
 
 function getDiagnosticsForDocument(document: vscode.TextDocument): vscode.Diagnostic[] {
