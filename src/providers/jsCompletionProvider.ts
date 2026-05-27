@@ -29,9 +29,9 @@ import { buildVirtualJsContent, getJsLanguageService, tsKindToVsKind, } from '..
 import { getZone } from '../utils/zoneUtils';
 
 interface ItemData {
-    name:           string;
-    offset:         number;
-    source?:        string;
+    name:    string;
+    offset:  number;
+    source?: string;
     /** True when the entry kind is Function or Method — used in resolveCompletionItem
      *  to decide whether to inject a call-snippet. */
     isFunctionLike: boolean;
@@ -43,10 +43,10 @@ const FRESH_CONTEXT_CHARS = new Set([' ', '\t', '\n', ';', '{', '}', '(', ',', '
 export class JsCompletionProvider implements vscode.CompletionItemProvider {
 
     provideCompletionItems(
-        document:        vscode.TextDocument,
-        position:        vscode.Position,
-        token:           vscode.CancellationToken,
-        context:         vscode.CompletionContext,
+        document: vscode.TextDocument,
+        position: vscode.Position,
+        token:    vscode.CancellationToken,
+        context:  vscode.CompletionContext,
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
         const fullText = document.getText();
