@@ -170,7 +170,7 @@
             {
                 "command": "asp.insertTab",
                 "key": "tab",
-                "when": "editorTextFocus && !editorReadonly && editorLangId == asp && !suggestWidgetVisible && !editorHasSelection && !inlineSuggestionVisible && !inlineEditVisible && !inlineEditsVisible"
+                "when": "editorTextFocus && !editorReadonly && editorLangId == asp && !suggestWidgetVisible && !editorHasSelection && !inlineSuggestionVisible && !inlineEditIsVisible && !tabShouldAcceptInlineEdit && !tabShouldJumpToInlineEdit"
             }
         ],
         "configuration": [
