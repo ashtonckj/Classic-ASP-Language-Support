@@ -293,7 +293,7 @@ function classifyLine(raw: string): LineAction[] {
 
 function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
     const fullText = document.getText();
-    const lineCount   = document.lineCount;
+    const lineCount = document.lineCount;
     const diagnostics: vscode.Diagnostic[] = [];
     const stack: BlockEntry[] = [];
 
@@ -423,147 +423,45 @@ function closerFor(kind: BlockKind): string {
 //
 // Checks that every <% has a matching %> and vice versa, across the whole file.
 //
-// Rules that match real ASP/VBScript behaviour (and isInsideAspBlock):
-//   • Inside an HTML comment <!-- ... -->  →  <% is not a real open tag
-//   • Inside a string literal "..."        →  %> is not a real close tag
-//   • After a VBScript comment marker '   →  %> to end-of-line is not a real
-//                                             close tag (same as isInsideAspBlock)
-//   • <% inside an already-open ASP block →  ignored (VBScript is not nestable)
-//
 // Flagged cases:
 //   Stray %>   — no matching <% above it  →  Warning on the %>  (2 chars)
 //   Unclosed <% — no matching %> in file  →  Warning on the <%  (2 chars)
-
 function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] {
     const fullText = document.getText();
     const diagnostics: vscode.Diagnostic[] = [];
 
-    // Stack of unclosed <% positions (absolute text offsets)
-    const openStack: number[] = [];
-
-    let i      = 0;
-    let inAsp  = false;
-    let inHtml = false;   // inside <!-- ... -->
-
-    while (i < fullText.length) {
-
-        // ── Outside ASP ───────────────────────────────────────────────────────
-        if (!inAsp) {
-
-            // Enter / skip HTML comment
-            if (!inHtml && fullText.slice(i, i + 4) === '<!--') {
-                inHtml = true;
-                i += 4;
-                continue;
-            }
-            if (inHtml) {
-                if (fullText.slice(i, i + 3) === '-->') { inHtml = false; i += 3; }
-                else { i++; }
-                continue;
-            }
-
-            // <% opens an ASP block (<%=  and  <%-- both included — the char
-            // after <% is just the first content character)
-            if (fullText[i] === '<' && fullText[i + 1] === '%') {
-                openStack.push(i);
-                inAsp = true;
-                i += 2;
-                continue;
-            }
-
-            // Stray %> — no open <% above
-            if (fullText[i] === '%' && fullText[i + 1] === '>') {
-                const pos   = document.positionAt(i);
-                const range = new vscode.Range(pos, document.positionAt(i + 2));
-                diagnostics.push(Object.assign(
-                    new vscode.Diagnostic(
-                        range,
-                        `Unexpected '%>' — no opening '<%' found`,
-                        vscode.DiagnosticSeverity.Warning
-                    ),
-                    { source: 'Classic ASP (tags)' }
-                ));
-                i += 2;
-                continue;
-            }
-
-            i++;
-            continue;
-        }
-
-        // ── Inside ASP — scan line by line so ' comments are handled correctly ─
-        const lineEnd = fullText.indexOf('\n', i);
-        const end     = lineEnd === -1 ? fullText.length : lineEnd + 1;
-
-        let j     = i;
-        let inStr = false;
-        let closedThisLine = false;
-
-        while (j < end) {
-            const ch = fullText[j];
-
-            // String literal — %> inside is not a close tag
-            if (inStr) {
-                if (ch === '"') {
-                    if (j + 1 < end && fullText[j + 1] === '"') { j += 2; continue; } // escaped ""
-                    inStr = false;
-                }
-                j++;
-                continue;
-            }
-            if (ch === '"') { inStr = true; j++; continue; }
-
-            // VBScript inline comment — rest of line is comment text, but %>
-            // still closes the ASP block. Keep scanning for %> only.
-            // Any <% found here is just comment text — not a real nested open.
-            if (ch === "'") {
-                while (j < end) {
-                    if (fullText[j] === '%' && j + 1 < fullText.length && fullText[j + 1] === '>') {
-                        openStack.pop(); // matched — close the <%
-                        inAsp = false;
-                        i     = j + 2;
-                        closedThisLine = true;
-                        break;
-                    }
-                    j++;
-                }
-                // Whether or not we found %>, done with this line
-                if (!closedThisLine) {
-                    i = end;
-                    closedThisLine = true; // prevent the !closedThisLine path below
-                }
-                break;
-            }
-
-            // %> closes the block
-            if (ch === '%' && j + 1 < fullText.length && fullText[j + 1] === '>') {
-                openStack.pop(); // matched — remove the corresponding <%
-                inAsp = false;
-                i     = j + 2;
-                closedThisLine = true;
-                break;
-            }
-
-            j++;
-        }
-
-        if (!closedThisLine) {
-            i = end; // advance to next line, stay inAsp
+    // Find every %> — if getZone at its position is not 'asp', it's a stray closer.
+    const closeRegex = /%>/g;
+    let m: RegExpExecArray | null;
+    while ((m = closeRegex.exec(fullText)) !== null) {
+        if (getZone(fullText, m.index) !== 'asp') {
+            const pos = document.positionAt(m.index);
+            diagnostics.push(Object.assign(
+                new vscode.Diagnostic(
+                    new vscode.Range(pos, document.positionAt(m.index + 2)),
+                    `Unexpected '%>' — no opening '<%' found`,
+                    vscode.DiagnosticSeverity.Warning
+                ),
+                { source: 'Classic ASP (tags)' }
+            ));
         }
     }
 
-    // Anything left on the open stack is an unclosed <%
-    for (const openOffset of openStack) {
-        const pos   = document.positionAt(openOffset);
-        const range = new vscode.Range(pos, document.positionAt(openOffset + 2));
-        diagnostics.push(Object.assign(
-            new vscode.Diagnostic(
-                range,
-                `Unclosed '<%' — no matching '%>' found`,
-                vscode.DiagnosticSeverity.Warning
-            ),
-            { source: 'Classic ASP (tags)' }
-        ));
+    // Find every <% — if getZone just inside the block (offset+2) is not 'asp',
+    // the block was never properly closed.
+    const openRegex = /<%/g;
+    while ((m = openRegex.exec(fullText)) !== null) {
+        if (getZone(fullText, m.index + 2) !== 'asp') {
+            const pos = document.positionAt(m.index);
+            diagnostics.push(Object.assign(
+                new vscode.Diagnostic(
+                    new vscode.Range(pos, document.positionAt(m.index + 2)),
+                    `Unclosed '<%' — no matching '%>' found`,
+                    vscode.DiagnosticSeverity.Warning
+                ),
+                { source: 'Classic ASP (tags)' }
+            ));
+        }
     }
 
     return diagnostics;
