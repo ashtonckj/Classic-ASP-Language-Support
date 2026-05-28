@@ -250,9 +250,9 @@ function blankAspBlock(asp: string, vbsVarMap?: Map<string, string>, insideJsStr
             }
 
             // 3. Name heuristics (last resort for untracked names)
-            else if (/(dict|obj|object|json|map|hash|config|options|settings|params|payload|data|test)/i.test(expr)) { placeholder = '({})'; }
-            else if (/(arr|array|list|items|collection|rows|results)/i.test(expr))                                   { placeholder = '([])'; }
-            else if (/(str|string|text|msg|message|title|desc|description)/i.test(expr))                             { placeholder = '("")'; }
+            else if (/\b(dict|obj|object|json|map|hash|config|options|settings|params|payload|data|test)\b/i.test(expr)) { placeholder = '({})'; }
+            else if (/\b(arr|array|list|items|collection|rows|results)\b/i.test(expr))                                   { placeholder = '([])'; }
+            else if (/\b(str|string|text|msg|message|title|desc|description)\b/i.test(expr))                             { placeholder = '("")'; }
             else if (/\b(RS|Recordset)\s*[\(\[]/i.test(expr) || /\.Fields\s*[\(\[]/i.test(expr))                     { placeholder = '("")'; }
             else if (/\bRequest\s*\.\s*(Form|QueryString|ServerVariables|Cookies)\s*[\(\[]/i.test(expr))             { placeholder = '("")'; }
             else if (/\b(Session|Application)\s*[\(\[]/i.test(expr))                                                 { placeholder = '("")'; }
