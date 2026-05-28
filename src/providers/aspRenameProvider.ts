@@ -258,89 +258,24 @@ function escapeRegex(s: string): string {
 function buildAspMap(text: string): Uint8Array {
     const map = new Uint8Array(text.length);
     let i = 0;
-    let inAsp = false;
 
     while (i < text.length) {
-        if (!inAsp) {
-            const openIdx = text.indexOf('<%', i);
-            if (openIdx === -1) break;
+        const openIdx = text.indexOf('<%', i);
+        if (openIdx === -1) break;
 
-            // Mark the opening bracket
-            map[openIdx] = 1; map[openIdx + 1] = 1;
+        const closeIdx = text.indexOf('%>', openIdx + 2);
+        const end = closeIdx === -1 ? text.length : closeIdx + 2;
 
-            inAsp = true;
-            i = openIdx + 2;
-        } else {
-            const lineEnd = text.indexOf('\n', i);
-            const end = lineEnd === -1 ? text.length : lineEnd + 1;
-
-            let j = i;
-            let inStr = false;
-            let found = false;
-
-            while (j < end) {
-                const ch = text[j];
-
-                if (inStr) {
-                    if (ch === '"') {
-                        if (j + 1 < end && text[j + 1] === '"') {
-                            map[j] = 1;
-                            map[j + 1] = 1;
-                            j += 2;
-                            continue;
-                        }
-                        inStr = false;
-                    }
-                    map[j] = 1;
-                    j++;
-                    continue;
-                }
-
-                if (ch === '"') {
-                    inStr = true;
-                    map[j] = 1;
-                    j++;
-                    continue;
-                }
-
-                if (ch === "'") {
-                    // VBScript comment — mark rest of line as inside ASP
-                    while (j < end) {
-                        map[j] = 1;
-                        j++;
-                    }
-                    i = end;
-                    found = true;
-                    break;
-                }
-
-                if (ch === '%' && j + 1 < text.length && text[j + 1] === '>') {
-                    const closeEnd = j + 2;
-                    // Mark the closing bracket
-                    map[j] = 1;
-                    map[j + 1] = 1;
-                    inAsp = false;
-                    i = closeEnd;
-                    found = true;
-                    break;
-                }
-
-                map[j] = 1;
-                j++;
-            }
-
-            if (!found) {
-                // Mark rest of line as inside ASP
-                while (i < end) {
-                    map[i] = 1;
-                    i++;
-                }
-            }
+        for (let j = openIdx; j < end; j++) {
+            map[j] = 1;
         }
+
+        i = closeIdx === -1 ? text.length : closeIdx + 2;
     }
 
     return map;
 }
+
 /**
  * Returns true when `lineSlice` (the text from line start up to but not
  * including the token) indicates the token is inside a string literal or

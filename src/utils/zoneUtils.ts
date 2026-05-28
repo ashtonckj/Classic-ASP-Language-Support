@@ -7,80 +7,9 @@ export type Zone = 'asp' | 'css' | 'js' | 'html';
 
 /**
  * Returns true when `offset` falls inside a <% ... %> ASP block.
- * Any <% %> will be considered as an ASP block but...
- * For UX, the listed will not be considered as an ASP block:
- * i) Closing ASP tag (%>) in ASP comments (')
- * ii) Closing ASP tag (%>) inside a string literal ("...")
- */
-function isInsideVirtualAspBlock(text: string, offset: number): boolean {
-    let i = 0;
-    let inAsp = false;
-
-    while (i < text.length) {
-        if (!inAsp) {
-            const openIdx = text.indexOf('<%', i);
-            if (openIdx === -1 || openIdx >= offset) { return false; }
-
-            inAsp = true;
-            i = openIdx + 2;
-        } else {
-            const lineEnd = text.indexOf('\n', i);
-            const end = lineEnd === -1 ? text.length : lineEnd + 1;
-
-            let j = i;
-            let inStr = false;
-            let found = false;
-
-            while (j < end) {
-                const ch = text[j];
-
-                if (inStr) {
-                    if (ch === '"') {
-                        if (j + 1 < end && text[j + 1] === '"') { j += 2; continue; }
-                        inStr = false;
-                    }
-                    j++;
-                    continue;
-                }
-
-                if (ch === '"') { inStr = true; j++; continue; }
-
-                if (ch === "'") {
-                    // VBScript comment — ignore any %> for the rest of this line
-                    // but we still need to check if offset is on this line
-                    if (offset < end) { return true; }
-                    i = end;
-                    found = true;
-                    break;
-                }
-
-                if (ch === '%' && j + 1 < text.length && text[j + 1] === '>') {
-                    const closeEnd = j + 2;
-                    if (offset < closeEnd) { return true; }
-                    inAsp = false;
-                    i = closeEnd;
-                    found = true;
-                    break;
-                }
-
-                j++;
-            }
-
-            if (!found) {
-                if (offset < end) { return true; }
-                i = end;
-            }
-        }
-    }
-
-    return false;
-}
-
-/**
- * Returns true when `offset` falls inside a <% ... %> ASP block.
  * Strictly literal — %> always closes, regardless of strings or comments.
  */
-function isInsideActualAspBlock(text: string, offset: number): boolean {
+function isInsideAspBlock(text: string, offset: number): boolean {
     let i = 0;
     let inAsp = false;
 
@@ -114,7 +43,7 @@ function isVbScriptTag(attrs: string): boolean {
 
 export function getZone(fullText: string, offset: number): Zone {
     // ASP zone — <% ... %> blocks, handles comments and strings internally
-    if (isInsideVirtualAspBlock(fullText, offset)) { return 'asp'; }
+    if (isInsideAspBlock(fullText, offset)) { return 'asp'; }
 
     // CSS zone — inside <style> ... </style>
     let searchFrom = 0;
