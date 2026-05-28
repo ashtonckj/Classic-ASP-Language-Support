@@ -330,7 +330,7 @@ function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
         // <%If x Then%>, <%Else%> are classified correctly.
         // classifyLine anchors some patterns at ^ (e.g. /^end\s+if/) so the
         // leading <% must be removed before classification.
-        const classifyText = lineText.replace(/^\s*<%=?\s*/i, '').replace(/\s*%>\s*$/i, '');
+        const classifyText = lineText.replace(/<%=?\s*/gi, ' ').replace(/\s*%>/gi, ' ').trim();
 
         const actions = classifyLine(classifyText);
 
