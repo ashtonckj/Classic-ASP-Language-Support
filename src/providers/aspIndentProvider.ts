@@ -1050,53 +1050,159 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
 // it helps, without the annoyance of a trailing ' on every VBScript comment line.
 
 export function registerSmartQuoteHandler(context: vscode.ExtensionContext) {
-    const disposable = vscode.workspace.onDidChangeTextDocument(event => {
+    // Each entry marks a closing quote we auto-inserted so we can skip over it
+    // on the next keypress instead of inserting a third quote.
+    // Stored as { line, column } in the pre-edit coordinate space and shifted
+    // by the cleanup listener when earlier text on the same line changes.
+    const autoClosedPositions: { line: number; column: number }[] = [];
+
+    const disposable = vscode.commands.registerCommand('type', (args: { text: string }): Thenable<unknown> => {
         const editor = vscode.window.activeTextEditor;
-        if (!editor || event.document !== editor.document) { return; }
-        if (event.document.languageId !== 'asp')           { return; }
-        if (event.contentChanges.length === 0)             { return; }
+        const fallThrough = (): Thenable<unknown> => vscode.commands.executeCommand('default:type', args);
 
-        const change = event.contentChanges[0];
+        if (!editor)                              { return fallThrough(); }
+        if (editor.document.languageId !== 'asp') { return fallThrough(); }
+        if (args.text !== "'")                    { return fallThrough(); }
 
-        // Only act when a bare single quote was typed (not a paste or multi-char)
-        if (change.text !== "'") { return; }
-
-        const position = change.range.start;
-        const document = event.document;
+        const document = editor.document;
         const fullText = document.getText();
-        const offset   = document.offsetAt(position) + 1; // +1 for the char just inserted
 
-        // Determine zone AFTER the insertion
-        const zone = getZone(fullText, offset);
+        // ── Multi-cursor: reject non-empty selections immediately ────────────
+        const selections = editor.selections;
+        for (const sel of selections) {
+            if (!sel.isEmpty) { return fallThrough(); }
+        }
 
-        // Only auto-close in html / css / js — never in asp (VBScript comment)
-        if (zone === 'asp') { return; }
-
-        // Don't auto-close if the character immediately after is already a '
-        // (prevents doubling up when cursor is already between quotes)
-        const lineText  = document.lineAt(position.line).text;
-        const nextChar  = lineText[position.character + 1];
-        if (nextChar === "'") { return; }
-
-        // Don't auto-close if we're currently inside a string literal —
-        // the typed ' is the closing quote, not an opening one.
-        // Quick check: count unescaped ' chars before cursor on the same line.
-        const textBefore = lineText.slice(0, position.character + 1);
-        let quoteCount   = 0;
-        for (let i = 0; i < textBefore.length - 1; i++) {
-            if (textBefore[i] === "'" && textBefore[i - 1] !== '\\') { quoteCount++; }
+        // ── Zone-check: if ANY cursor is in ASP, fall through for all ────────
+        for (const sel of selections) {
+            if (getZone(fullText, document.offsetAt(sel.active)) === 'asp') {
+                return fallThrough();
             }
-        // Odd number of preceding quotes means we're inside a string — this ' closes it
-        if (quoteCount % 2 === 1) { return; }
+        }
 
-        // Insert the closing ' and place cursor between the pair
-        const insertPos = new vscode.Position(position.line, position.character + 1);
-        editor.edit(eb => eb.insert(insertPos, "'"), { undoStopBefore: false, undoStopAfter: false })
-            .then(() => {
-                const p = new vscode.Position(position.line, position.character + 1);
-                editor.selection = new vscode.Selection(p, p);
+        // ── Per-cursor decision ──────────────────────────────────────────────
+        type Action = 'overtype' | 'close-string' | 'auto-close';
+        const actions: { sel: vscode.Selection; action: Action }[] = [];
+
+        for (const sel of selections) {
+            const pos       = sel.active;
+            const lineText  = document.lineAt(pos.line).text;
+            const charAfter = lineText[pos.character];
+
+            // Overtype: cursor is right before a quote we previously auto-inserted.
+            if (charAfter === "'" &&
+                autoClosedPositions.some(p => p.line === pos.line && p.column === pos.character)) {
+                actions.push({ sel, action: 'overtype' });
+                continue;
+            }
+
+            // Count unescaped single quotes before cursor to determine parity.
+            // A quote preceded by an odd number of backslashes is considered escaped.
+            const textBefore = lineText.slice(0, pos.character);
+            let quoteCount = 0;
+            for (let i = 0; i < textBefore.length; i++) {
+                if (textBefore[i] !== "'") { continue; }
+                let backslashes = 0;
+                let j = i - 1;
+                while (j >= 0 && textBefore[j] === '\\') { backslashes++; j--; }
+                if (backslashes % 2 === 0) { quoteCount++; }
+            }
+
+            actions.push({ sel, action: quoteCount % 2 === 1 ? 'close-string' : 'auto-close' });
+        }
+
+        // ── All cursors overtypes → skip them all, no insert ────────────────
+        if (actions.every(a => a.action === 'overtype')) {
+            editor.selections = actions.map(({ sel }) => {
+                const pos = sel.active;
+                // Remove from tracking
+                const idx = autoClosedPositions.findIndex(
+                    p => p.line === pos.line && p.column === pos.character
+                );
+                if (idx !== -1) { autoClosedPositions.splice(idx, 1); }
+                const next = new vscode.Position(pos.line, pos.character + 1);
+                return new vscode.Selection(next, next);
+            });
+            return Promise.resolve();
+        }
+
+        // ── Any cursor is closing a string → fall through for all ────────────
+        if (actions.some(a => a.action === 'close-string')) {
+            return fallThrough();
+        }
+
+        // ── All cursors get auto-close ───────────────────────────────────────
+        // Capture positions BEFORE the edit — document offsets shift after insert.
+        const insertPositions = actions.map(a => a.sel.active);
+
+        return editor.edit(
+            eb => {
+                for (const pos of insertPositions) {
+                    eb.insert(pos, "''");
+                }
+            },
+            { undoStopBefore: true, undoStopAfter: false }
+        ).then(() => {
+            // Park each cursor between its two quotes.
+            // editor.edit with insert leaves cursor after the inserted text (+2),
+            // so we step back 1 to sit between the quotes.
+            // Also track the closing quote's column (opening quote col + 1 in
+            // original coordinates; after insert that column is +1 from original).
+            editor.selections = insertPositions.map(pos => {
+                const between = new vscode.Position(pos.line, pos.character + 1);
+                // The closing quote sits one column after the opening quote we inserted.
+                autoClosedPositions.push({ line: pos.line, column: pos.character + 1 });
+                return new vscode.Selection(between, between);
+            });
+            if (autoClosedPositions.length > 200) {
+                autoClosedPositions.splice(0, autoClosedPositions.length - 200);
+            }
         });
     });
 
-    context.subscriptions.push(disposable);
+    // ── Stale position cleanup ───────────────────────────────────────────────
+    // When the document changes we shift tracked columns forward/backward to
+    // match any inserts or deletes that happened before them on the same line,
+    // and drop any entry whose character is no longer a single quote.
+    const cleanupDisposable = vscode.workspace.onDidChangeTextDocument(event => {
+        if (event.document !== vscode.window.activeTextEditor?.document) { return; }
+        if (autoClosedPositions.length === 0) { return; }
+
+        for (const change of event.contentChanges) {
+            const changeLine  = change.range.start.line;
+            const changeCol   = change.range.start.character;
+            const removedCols = change.range.end.character - change.range.start.character;
+            const insertedCols = change.text.includes('\n') ? 0 : change.text.length;
+            const delta = insertedCols - removedCols;
+
+            for (let i = autoClosedPositions.length - 1; i >= 0; i--) {
+                const entry = autoClosedPositions[i];
+                if (entry.line !== changeLine) { continue; }
+
+                if (entry.column < changeCol) {
+                    // Change happened at or after this entry — but if it overlaps
+                    // (changeCol < entry.column + 1 when removedCols > 0), invalidate.
+                    if (change.range.end.character > entry.column) {
+                        autoClosedPositions.splice(i, 1); // the quote itself was deleted
+                    }
+                    // Otherwise the entry is to the left of the change, unaffected.
+                } else {
+                    // Change happened before this entry — shift the column.
+                    entry.column += delta;
+                    if (entry.column < 0) { autoClosedPositions.splice(i, 1); }
+                }
+            }
+        }
+
+        // Final pass: drop any entry that is no longer pointing at a ' character.
+        const doc = event.document;
+        for (let i = autoClosedPositions.length - 1; i >= 0; i--) {
+            const { line, column } = autoClosedPositions[i];
+            if (line >= doc.lineCount) { autoClosedPositions.splice(i, 1); continue; }
+            const lineText = doc.lineAt(line).text;
+            if (lineText[column] !== "'") { autoClosedPositions.splice(i, 1); }
+        }
+    });
+
+    context.subscriptions.push(disposable, cleanupDisposable);
 }
