@@ -35,6 +35,7 @@ const SUPPRESSED_CODES = new Set([
     2531,   // Object is possibly 'null'
     2532,   // Object is possibly 'undefined'
     2349,   // This expression is not callable (e.g. window[name]() dynamic dispatch)
+    2367,   // Comparison does not have overlap
 ]);
 
 function getDiagnosticsForDocument(document: vscode.TextDocument): vscode.Diagnostic[] {
