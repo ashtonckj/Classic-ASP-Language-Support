@@ -654,7 +654,9 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         const textBefore      = line.text.substring(0, position.character);
         const textAfter       = line.text.substring(position.character);
         const currentLineText = textBefore.trim();
-        const indent          = textBefore.match(/^(\s*)/)?.[0] || '';
+        const indent = position.character > 0
+            ? textBefore.match(/^(\s*)/)?.[0] || ''
+            : line.text.match(/^(\s*)/)?.[1] || '';
         const indentUnit      = getIndentUnit(editor);
 
         // ── ASP / VBScript block handling ───────────────────────────────
@@ -939,7 +941,22 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             }
         }
 
-        return vscode.commands.executeCommand('default:type', { text: '\n' });
+        if (position.character === 0 && line.text.trim() === '' && line.text.length > 0) {
+            // Cursor at col 0, line is pure whitespace — clear the current line's
+            // spaces and insert a new line with that same indent
+            editor.edit(eb => {
+                eb.replace(line.range, `\n${indent}`);
+            }).then(() => {
+                const p = new vscode.Position(position.line + 1, indent.length);
+                editor.selection = new vscode.Selection(p, p);
+            });
+        } else {
+            editor.edit(eb => eb.insert(position, `\n${indent}`)).then(() => {
+                const p = new vscode.Position(position.line + 1, indent.length);
+                editor.selection = new vscode.Selection(p, p);
+            });
+        }
+        return;
     });
 
     context.subscriptions.push(disposable);
