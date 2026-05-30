@@ -16,7 +16,7 @@
  */
 
 import * as vscode from 'vscode';
-import * as ts     from 'typescript';
+import * as ts from 'typescript';
 import {
     buildVirtualJsContent,
     getJsLanguageService,
