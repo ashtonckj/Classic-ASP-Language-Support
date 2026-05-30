@@ -6,6 +6,42 @@
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
 
 /**
+ * Replaces ASP expressions (<%...%>) in CSS content with syntactically valid
+ * CSS placeholders so the language service doesn't generate false-positive errors.
+ *
+ * The replacement strategy is context-aware:
+ *   - After a '#' (hex colour prefix): replace with '000000' to complete the hex literal
+ *   - After 'rgb(' / 'rgba(' / 'hsl(' / 'hsla(': replace each argument with '0'
+ *   - Otherwise: replace with a valid token whose character count roughly matches,
+ *     keeping column positions stable for accurate error mapping.
+ *
+ * ASP block comments (<%-- ... --%>) are treated the same way — they are also
+ * invalid CSS and get the same placeholder treatment.
+ */
+export function stripAspExpressions(css: string): string {
+    return css.replace(/<%[\s\S]*?%>/g, (match, offset) => {
+        // Check what immediately precedes the ASP tag (ignoring whitespace)
+        const before = css.slice(0, offset).trimEnd();
+
+        // Hex colour: background-color: #<%=...%>
+        if (before.endsWith('#')) {
+            return '000000'.slice(0, Math.max(6, match.length));
+        }
+
+        // CSS function argument: rgb(<%=r%>, ...)  /  rgba(  /  hsl(  /  hsla(
+        if (/(?:rgba?|hsla?)\(\s*$/.test(before)) {
+            return '0';
+        }
+
+        // Generic value / selector fragment — use a valid identifier-like token.
+        // Pad to the same length so character offsets in *subsequent* content stay
+        // accurate (important for inline-style error position remapping).
+        const placeholder = 'asp';
+        return placeholder.padEnd(match.length, '_');
+    });
+}
+
+/**
  * Builds a position-aligned virtual CSS TextDocument from the <style> block
  * the cursor is currently inside. Returns null if the offset is not in a CSS zone.
  */
@@ -29,7 +65,8 @@ export function buildCssDoc(
             const cssEnd = styleClose === -1 ? content.length : styleClose;
 
             const prefix = content.slice(0, cssStart).replace(/[^\n]/g, ' ');
-            const cssContent = prefix + content.slice(cssStart, cssEnd);
+            const rawCss = content.slice(cssStart, cssEnd);
+            const cssContent = prefix + stripAspExpressions(rawCss);
 
             return LsTextDocument.create(uri + '.css', 'css', version, cssContent);
         }
@@ -39,7 +76,8 @@ export function buildCssDoc(
 }
 
 /**
- * Detects if the cursor is inside a style="" attribute value and returns the info needed to build a virtual CSS document for inline styles.
+ * Detects if the cursor is inside a style="" attribute value and returns the info needed
+ * to build a virtual CSS document for inline styles.
  * Returns null if the cursor is not inside a style="" attribute.
  */
 export function getInlineStyleContext(
@@ -80,7 +118,8 @@ export function getInlineStyleContext(
 
 /**
  * Builds a virtual CSS TextDocument for an inline style="" attribute.
- * Wraps the declaration list in a fake ruleset so the CSS service can parse it as valid CSS and return property/value completions.
+ * Wraps the declaration list in a fake ruleset so the CSS service can parse it
+ * as valid CSS and return property/value completions.
  */
 export function buildInlineCssDoc(
     uri: string,
@@ -89,7 +128,8 @@ export function buildInlineCssDoc(
     valueStart: number,
     valueEnd: number
 ): LsTextDocument {
-    const declarations = content.slice(valueStart, valueEnd);
+    const rawDeclarations = content.slice(valueStart, valueEnd);
+    const declarations = stripAspExpressions(rawDeclarations);
     // Add a space after opening brace so the CSS service always sees at least one character of whitespace to anchor completions against
     const wrappedCss = `* {  ${declarations} }`;
     return LsTextDocument.create(uri + '.inline.css', 'css', version, wrappedCss);
