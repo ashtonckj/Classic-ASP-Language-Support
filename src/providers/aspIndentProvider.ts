@@ -49,7 +49,7 @@ const CLOSER_TO_OPENER: { closer: RegExp; opener: RegExp; isMidBlock?: boolean; 
  * Shared by Enter and Tab handlers to avoid duplicating those 3 lines.
  */
 function getIndentUnit(editor: vscode.TextEditor): string {
-    const tabSize  = editor.options.tabSize as number || 4;
+    const tabSize = editor.options.tabSize as number || 4;
     const useSpaces = editor.options.insertSpaces !== false;
     return useSpaces ? ' '.repeat(tabSize) : '\t';
 }
@@ -167,9 +167,9 @@ function findMatchingOpenerIndent(
     const targetIdx = CLOSER_TO_OPENER.findIndex(p => p.closer.test(closerText));
     if (targetIdx === -1) { return null; }
 
-    const targetEntry   = CLOSER_TO_OPENER[targetIdx];
-    const targetIsMid   = !!targetEntry.isMidBlock;
-    const snapOffset    = targetEntry.snapOffset ?? 0;
+    const targetEntry = CLOSER_TO_OPENER[targetIdx];
+    const targetIsMid = !!targetEntry.isMidBlock;
+    const snapOffset = targetEntry.snapOffset ?? 0;
 
     // All mid-block entries in the same family (ElseIf + Else, both family 'if').
     // When a pure closer (End If) scans past them they are transparent — depth unchanged.
@@ -200,7 +200,7 @@ function findMatchingOpenerIndent(
         if (lineEndsContinuation(rawLine) || prevLineEnds) {
             // Part of a continuation chain — resolve the full logical line.
             const resolved = getLogicalLineEndingAt(document, i);
-            text      = resolved.text;
+            text = resolved.text;
             startLine = resolved.startLine;
             // Jump i past the earlier physical lines of this chain so the outer
             // loop doesn't re-process them.
@@ -209,7 +209,7 @@ function findMatchingOpenerIndent(
             }
         } else {
             // Fast path — plain line with no continuation involved.
-            text      = rawLine.trim();
+            text = rawLine.trim();
             startLine = i;
         }
 
@@ -363,8 +363,6 @@ function findEnclosingHtmlChildIndent(
 }
 
 
-
-
 // ── Line-continuation patterns that mean a trailing _ is NOT an identifier ──
 // Each pattern matches the text BEFORE the _ on the line (trimmed).
 // If any matches, the _ is a line continuation and suggestions must be hidden.
@@ -515,8 +513,8 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
 
         // ---- HTML comment auto-close: <!-- → <!-- | -->
         if (change.text === '-' && change.range.start.character >= 3) {
-            const position  = change.range.start;
-            const line      = event.document.lineAt(position.line);
+            const position = change.range.start;
+            const line = event.document.lineAt(position.line);
             const textBefore = line.text.substring(0, position.character + 1);
 
             if (textBefore.endsWith('<!--')) {
@@ -538,9 +536,9 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
 
         // ---- HTML tag auto-close: <div> → <div></div>
         if (change.text === '>') {
-            const position        = change.range.start;
-            const line            = event.document.lineAt(position.line);
-            const textBefore      = line.text.substring(0, position.character);
+            const position = change.range.start;
+            const line = event.document.lineAt(position.line);
+            const textBefore = line.text.substring(0, position.character);
             const textAfterCursor = line.text.substring(position.character + 1);
 
             // Don't auto-close when `>` is typed inside a quoted attribute value.
@@ -1070,7 +1068,7 @@ export function registerSmartQuoteHandler(context: vscode.ExtensionContext) {
         let quoteCount   = 0;
         for (let i = 0; i < textBefore.length - 1; i++) {
             if (textBefore[i] === "'" && textBefore[i - 1] !== '\\') { quoteCount++; }
-        }
+            }
         // Odd number of preceding quotes means we're inside a string — this ' closes it
         if (quoteCount % 2 === 1) { return; }
 
@@ -1080,7 +1078,7 @@ export function registerSmartQuoteHandler(context: vscode.ExtensionContext) {
             .then(() => {
                 const p = new vscode.Position(position.line, position.character + 1);
                 editor.selection = new vscode.Selection(p, p);
-            });
+        });
     });
 
     context.subscriptions.push(disposable);
