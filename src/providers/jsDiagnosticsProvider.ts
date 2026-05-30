@@ -8,6 +8,11 @@
  * noisy for small inline scripts that don't import modules (missing names,
  * type mismatches, implicit any, etc.). Only structural errors like wrong
  * argument counts and genuine syntax errors are surfaced.
+ *
+ * FIX: preambleLength is now subtracted from every diagnostic start position
+ * before converting to a VS Code Range.  Previously, diagnostics inside the
+ * first <script> block appeared shifted forward by the preamble size, pointing
+ * at completely wrong lines in the editor.
  */
 
 import * as vscode from 'vscode';
@@ -15,7 +20,7 @@ import * as ts     from 'typescript';
 import {
     buildVirtualJsContent,
     getJsLanguageService,
-    getJsRanges,        // ← now shared from jsUtils (fix #2)
+    getJsRanges,
     tsSeverityToVs,
 } from '../utils/jsUtils';
 
@@ -37,7 +42,7 @@ function getDiagnosticsForDocument(document: vscode.TextDocument): vscode.Diagno
     const jsRanges = getJsRanges(fullText);
     if (jsRanges.length === 0) { return []; }
 
-    const { virtualContent } = buildVirtualJsContent(fullText, 0);
+    const { virtualContent, preambleLength } = buildVirtualJsContent(fullText, 0);
     const svc = getJsLanguageService();
     svc.updateContent(virtualContent);
 
@@ -54,18 +59,28 @@ function getDiagnosticsForDocument(document: vscode.TextDocument): vscode.Diagno
         const code = typeof d.code === 'number' ? d.code : 0;
         if (SUPPRESSED_CODES.has(code)) { continue; }
 
-        // FIX #4: use `d.start! <= r.end` (was `< r.end`) so that a diagnostic
-        // whose start sits exactly on the last character of a JS range is still
-        // accepted. `end` in getJsRanges is the offset of `<` in `</script>`,
-        // which is a valid position for a token that abuts the closing tag.
-        if (!jsRanges.some(r => d.start! >= r.start && d.start! <= r.end)) { continue; }
+        // FIX: convert the virtual-file diagnostic position back to document
+        // space by subtracting the preamble offset before range comparison and
+        // before calling document.positionAt.
+        const docStart = d.start - preambleLength;
+
+        // Skip diagnostics that fall inside the preamble itself (shouldn't
+        // normally happen, but guard defensively).
+        if (docStart < 0) { continue; }
+
+        // `end` in getJsRanges is the offset of `<` in `</script>`, which is a
+        // valid position for a token that abuts the closing tag (use <=).
+        if (!jsRanges.some(r => docStart >= r.start && docStart <= r.end)) { continue; }
 
         const message = typeof d.messageText === 'string'
             ? d.messageText
             : ts.flattenDiagnosticMessageText(d.messageText, '\n');
 
         const diag = new vscode.Diagnostic(
-            new vscode.Range(document.positionAt(d.start), document.positionAt(d.start + d.length)),
+            new vscode.Range(
+                document.positionAt(docStart),
+                document.positionAt(docStart + d.length)
+            ),
             message,
             tsSeverityToVs(d.category)
         );

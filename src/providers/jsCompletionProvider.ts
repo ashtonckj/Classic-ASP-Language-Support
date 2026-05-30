@@ -22,6 +22,9 @@
  *   This fixes the previous behaviour where isIncomplete was always false,
  *   meaning that after typing a fresh identifier VS Code would use only the
  *   stale list from the last '.' trigger and miss newly visible globals.
+ *
+ * FIX: preambleLength is now applied — offset is shifted INTO the virtual
+ *   file before TS queries, and completion detail offsets are shifted BACK.
  */
 
 import * as vscode from 'vscode';
@@ -30,6 +33,7 @@ import { getZone } from '../utils/zoneUtils';
 
 interface ItemData {
     name:    string;
+    /** Offset already adjusted to virtual-file space (i.e. raw offset + preambleLength). */
     offset:  number;
     source?: string;
     /** True when the entry kind is Function or Method — used in resolveCompletionItem
@@ -51,23 +55,24 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
 
         const fullText = document.getText();
         const offset  = document.offsetAt(position);
-        const { virtualContent, isInScript } = buildVirtualJsContent(fullText, offset);
+        const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset);
 
         if (getZone(fullText, offset) !== 'js') { return undefined; }
         if (!isInScript || token.isCancellationRequested) { return undefined; }
 
         // ── Determine trigger character ──────────────────────────────────────
-        // Prefer the explicit trigger VS Code gives us; fall back to inspecting
-        // the character that precedes the cursor in case VS Code invoked us
-        // via explicit Ctrl+Space rather than auto-trigger.
         const explicitTrigger = context.triggerCharacter;
-        const prevChar        = offset > 0 ? virtualContent[offset - 1] : '';
+        // FIX: prevChar must be looked up in the virtual content at the
+        // preamble-shifted position so string/comment state is correct.
+        const virtualOffset   = offset + preambleLength;
+        const prevChar        = virtualOffset > 0 ? virtualContent[virtualOffset - 1] : '';
         const triggerChar     = explicitTrigger ?? (prevChar === '.' ? '.' : undefined);
 
         const svc = getJsLanguageService();
         svc.updateContent(virtualContent);
 
-        const completions = svc.getCompletions(offset, triggerChar);
+        // FIX: shift offset into virtual-file space
+        const completions = svc.getCompletions(virtualOffset, triggerChar);
         if (!completions || token.isCancellationRequested) { return undefined; }
 
         const items = completions.entries.map(entry => {
@@ -83,26 +88,21 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
 
             if (item.kind === vscode.CompletionItemKind.Function ||
                 item.kind === vscode.CompletionItemKind.Method) {
-                // Keep commitCharacters so typing '(' still commits — the
-                // snippet insertText is only applied on Tab/Enter via resolve.
                 item.commitCharacters = ['('];
             }
 
             const isFunctionLike = item.kind === vscode.CompletionItemKind.Function
                                  || item.kind === vscode.CompletionItemKind.Method;
 
+            // Store the virtual-file offset (already preamble-shifted) so
+            // resolveCompletionItem can pass it straight to the TS service.
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (item as any).data = { name: entry.name, offset, source: entry.source, isFunctionLike } satisfies ItemData;
+            (item as any).data = { name: entry.name, offset: virtualOffset, source: entry.source, isFunctionLike } satisfies ItemData;
 
             return item;
         });
 
         // ── isIncomplete decision ────────────────────────────────────────────
-        // After '.' or '[' the list is member-scoped and complete — VS Code's
-        // built-in prefix filter can narrow it without a re-request.
-        // In a fresh expression context (space, open-paren, etc.) we mark
-        // incomplete so VS Code re-requests as the user continues typing,
-        // ensuring globals added after the last trigger are always visible.
         const afterDotOrBracket = triggerChar === '.' || triggerChar === '[';
         const inFreshContext    = FRESH_CONTEXT_CHARS.has(prevChar) || prevChar === '';
         const incomplete        = !afterDotOrBracket && inFreshContext;
@@ -119,6 +119,7 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         const data = (item as any).data as ItemData | undefined;
         if (!data || token.isCancellationRequested) { return item; }
 
+        // data.offset is already in virtual-file space — pass it directly.
         const details = getJsLanguageService().getCompletionDetails(data.name, data.offset, data.source);
         if (!details || token.isCancellationRequested) { return item; }
 
@@ -141,18 +142,6 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         }
 
         // ── Call-snippet injection ───────────────────────────────────────────
-        // Only applies to functions/methods, and only when the TS service has
-        // not already provided its own insertText (e.g. for destructuring
-        // completions the service supplies a custom snippet we must not clobber).
-        //
-        // We inspect the displayParts the service just returned to detect
-        // whether the function has any parameters:
-        //   • Parts contain a 'parameterName' or 'punctuation' '...' → has params
-        //   • displayParts go straight from '(' to ')' with nothing between → no params
-        //
-        // Results:
-        //   has params  →  name($0)     cursor lands inside the parens
-        //   no params   →  name()$0     cursor lands after the parens
         if (data.isFunctionLike && !item.insertText) {
             const parts     = details.displayParts ?? [];
             const openIdx   = parts.findIndex(p => p.kind === 'punctuation' && p.text === '(');

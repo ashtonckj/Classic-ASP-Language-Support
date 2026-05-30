@@ -15,13 +15,18 @@
  *   tokenType  = encoded >> 8   (1-indexed: class=1 … member=12)
  *   modifiers  = encoded & 0xFF (bit flags: declaration=1, defaultLibrary=16, …)
  *   'member' in the TS source corresponds to 'method' in VS Code's token types.
+ *
+ * FIX: preambleLength is now subtracted from every token offset before the
+ * JS-range membership test and before calling document.positionAt. Previously,
+ * all semantic tokens were painted at positions shifted forward by the preamble
+ * size, miscolouring completely wrong regions of the editor.
  */
 
 import * as vscode from 'vscode';
 import {
     buildVirtualJsContent,
     getJsLanguageService,
-    getJsRanges,        // ← now shared from jsUtils (fix #2)
+    getJsRanges,
 } from '../utils/jsUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -152,7 +157,7 @@ export class JsSemanticTokensProvider implements vscode.DocumentSemanticTokensPr
         const jsRanges = getJsRanges(fullText);
         if (jsRanges.length === 0) { return undefined; }
 
-        const { virtualContent } = buildVirtualJsContent(fullText, 0);
+        const { virtualContent, preambleLength } = buildVirtualJsContent(fullText, 0);
 
         if (token.isCancellationRequested) { return undefined; }
 
@@ -169,20 +174,24 @@ export class JsSemanticTokensProvider implements vscode.DocumentSemanticTokensPr
         for (let i = 0; i + 2 < spans.length; i += 3) {
             if (token.isCancellationRequested) { break; }
 
-            const offset  = spans[i];
-            const length  = spans[i + 1];
-            const encoded = spans[i + 2];
+            const virtualOffset = spans[i];
+            const length        = spans[i + 1];
+            const encoded       = spans[i + 2];
 
-            // FIX #4: use `offset <= r.end` (was `offset < r.end`) so that a
-            // token whose start sits exactly on the last character before
-            // `</script>` is not incorrectly stripped. Matches the same fix
-            // applied in jsDiagnosticsProvider.
-            if (!jsRanges.some(r => offset >= r.start && offset <= r.end)) { continue; }
+            // FIX: convert virtual-file offset → document offset by subtracting preambleLength.
+            // Tokens that fall inside the preamble itself (virtualOffset < preambleLength) are
+            // preamble-generated declarations — skip them, they have no counterpart in the source.
+            const docOffset = virtualOffset - preambleLength;
+            if (docOffset < 0) { continue; }
+
+            // Use <= r.end so a token that abuts the closing </script> tag is not dropped.
+            if (!jsRanges.some(r => docOffset >= r.start && docOffset <= r.end)) { continue; }
 
             const { typeIdx, modBits } = decode(encoded);
             if (typeIdx === -1) { continue; }
 
-            const pos = document.positionAt(offset);
+            // FIX: use docOffset (document space) for positionAt, not the virtual offset.
+            const pos = document.positionAt(docOffset);
             builder.push(pos.line, pos.character, length, typeIdx, modBits);
         }
 

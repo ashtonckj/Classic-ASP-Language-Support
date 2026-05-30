@@ -8,6 +8,9 @@
  *   • si.documentation and paramDoc are now wrapped in MarkdownString so
  *     JSDoc formatting (backticks, links, bold) renders correctly in the
  *     signature help tooltip — previously they were plain strings.
+ *   • FIX: preambleLength is now applied — cursor offset is shifted INTO
+ *     the virtual file before the TS query so signature help fires at the
+ *     correct position when a preamble is present.
  *
  * Registered in extension.ts alongside AspSignatureHelpProvider so the two
  * never conflict — AspSignatureHelpProvider only fires inside ASP zones and
@@ -28,7 +31,7 @@ export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
 
         const fullText = document.getText();
         const offset  = document.offsetAt(position);
-        const { virtualContent, isInScript } = buildVirtualJsContent(fullText, offset);
+        const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset);
 
         if (getZone(fullText, offset) !== 'js') { return undefined; }
         if (!isInScript || token.isCancellationRequested) { return undefined; }
@@ -36,7 +39,8 @@ export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
         const svc = getJsLanguageService();
         svc.updateContent(virtualContent);
 
-        const items = svc.getSignatureHelp(offset);
+        // FIX: shift cursor offset into virtual-file space (add preambleLength)
+        const items = svc.getSignatureHelp(offset + preambleLength);
         if (!items || token.isCancellationRequested) { return undefined; }
 
         const help            = new vscode.SignatureHelp();
@@ -67,7 +71,6 @@ export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
                 const paramLabel   = p.displayParts.map(q => q.text).join('');
                 const paramDocText = p.documentation?.map(q => q.text).join('') ?? '';
 
-                // ParameterInformation also accepts MarkdownString for documentation
                 const paramDoc = paramDocText
                     ? (() => {
                         const md = new vscode.MarkdownString(paramDocText, true);

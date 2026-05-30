@@ -12,6 +12,10 @@
  *       Plain text documentation paragraph.
  *   • Strips Node.js-specific content by virtue of jsUtils now blocking
  *     @types/node via types:[]
+ *   • FIX: preambleLength is now applied — offset is shifted INTO the virtual
+ *     file before the TS query, and the returned textSpan is shifted BACK before
+ *     being converted to a VS Code Range. Without this, the hover highlight and
+ *     tooltip appeared at the wrong position whenever the preamble was non-empty.
  */
 
 import * as vscode from 'vscode';
@@ -28,7 +32,7 @@ export class JsHoverProvider implements vscode.HoverProvider {
 
         const fullText = document.getText();
         const offset  = document.offsetAt(position);
-        const { virtualContent, isInScript } = buildVirtualJsContent(fullText, offset);
+        const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset);
 
         if (getZone(fullText, offset) !== 'js') { return undefined; }
         if (!isInScript || token.isCancellationRequested) { return undefined; }
@@ -36,7 +40,8 @@ export class JsHoverProvider implements vscode.HoverProvider {
         const svc = getJsLanguageService();
         svc.updateContent(virtualContent);
 
-        const info = svc.getQuickInfo(offset);
+        // FIX: shift cursor offset into virtual-file space (add preambleLength)
+        const info = svc.getQuickInfo(offset + preambleLength);
         if (!info || token.isCancellationRequested) { return undefined; }
 
         const displayText = info.displayParts?.map(p => p.text).join('') ?? '';
@@ -62,10 +67,15 @@ export class JsHoverProvider implements vscode.HoverProvider {
 
         let range: vscode.Range | undefined;
         if (info.textSpan) {
-            range = new vscode.Range(
-                document.positionAt(info.textSpan.start),
-                document.positionAt(info.textSpan.start + info.textSpan.length)
-            );
+            // FIX: shift span positions BACK from virtual-file space (subtract preambleLength)
+            const spanStart = info.textSpan.start - preambleLength;
+            const spanEnd   = spanStart + info.textSpan.length;
+            if (spanStart >= 0) {
+                range = new vscode.Range(
+                    document.positionAt(spanStart),
+                    document.positionAt(spanEnd)
+                );
+            }
         }
 
         return new vscode.Hover(md, range);

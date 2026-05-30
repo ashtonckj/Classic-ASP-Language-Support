@@ -5,8 +5,67 @@
  *
  * Maintains a single JsLanguageService singleton that is shared across all JS
  * providers (completion, hover, diagnostics, semantic tokens, document symbols).
- * The virtual file 'asp-embedded.js' is updated with blanked content before each
+ * The virtual file 'asp-embedded.js' is updated with projected content before each
  * query so offset positions stay exact across the whole document.
+ *
+ * ── ASP → JS Projection strategy (Option B — any-typed variable projection) ───
+ *
+ * The core problem with fake-literal placeholders ("", 0, [], false) was that
+ * TypeScript narrows those to specific types, causing TS2367 errors when they
+ * are later compared to other values in JS `if` / `switch` / `===` expressions.
+ *
+ * The solution is a TWO-PASS system:
+ *
+ *   PASS 1 — Preamble generation (runs over the whole document)
+ *     • Every VBScript variable name found in ANY <% ... %> statement block is
+ *       collected and declared as `var <name>: any` in a preamble injected at
+ *       the top of the virtual file.
+ *     • Every expression slot <%= expr %> is assigned a unique sentinel name
+ *       __ASP_1__, __ASP_2__, … which are also declared `var __ASP_N__: any`.
+ *     • Because these are declared with type `any`, TypeScript can never narrow
+ *       them to a specific literal type, regardless of what JS code does with
+ *       them afterwards.
+ *
+ *   PASS 2 — Inline substitution (offset-preserving, as before)
+ *     • Statement blocks  <% code %>  →  block comment /* ... *​/ (same shape)
+ *     • Expression blocks <%= expr %> →  __ASP_N__  padded to same character
+ *       width, so all downstream source positions remain valid.
+ *
+ * EXAMPLES
+ *   Source (.asp):
+ *     <%
+ *       userId = Session("id")
+ *       count  = RS("total")
+ *     %>
+ *     <script>
+ *       var x = <%= userId %>;
+ *       if (x === "hello") { }        // ← no TS2367: x is any
+ *       if (<%= count %> > 0) { }     // ← no TS2367: __ASP_1__ is any
+ *     </script>
+ *
+ *   Virtual JS produced:
+ *     var userId: any;                // ← preamble declarations
+ *     var count: any;
+ *     var __ASP_1__: any;
+ *     var __ASP_2__: any;
+ *
+ *     (blanked HTML)
+ *     (blanked script tag)
+ *       var x = userId    ;           // ← inline substitution, same width
+ *       if (x === "hello") { }
+ *       if (__ASP_1__    > 0) { }
+ *     (blanked close tag)
+ *
+ * OFFSET PRESERVATION
+ *   The preamble is prepended — it shifts every body offset by `preambleLength`
+ *   characters inside the virtual file.  All providers MUST:
+ *     • ADD    preambleLength to cursor/hover offsets before querying the TS service.
+ *     • SUBTRACT preambleLength from diagnostic/token/span start positions before
+ *       reporting back to VS Code (document.positionAt).
+ *
+ *   Within the body, every inline replacement is the same byte-length as the
+ *   original ASP block (newlines preserved, non-newlines padded with spaces),
+ *   so body-relative positions are unmoved.
  */
 
 import * as path   from 'path';
@@ -23,11 +82,19 @@ export const ASP_DOM_TYPES_FILENAME = 'asp-dom.d.ts';
 // Locates every JS <script>…</script> block in the document. Everything outside
 // those blocks is replaced with spaces (newlines preserved) so TS offset
 // positions remain valid for the whole file. ASP blocks inside script zones
-// are also blanked.
+// are projected to any-typed variable references (see file-level comment).
 // ─────────────────────────────────────────────────────────────────────────────
 export interface VirtualJsResult {
     virtualContent: string;
     isInScript:     boolean;
+    /**
+     * Number of characters in the generated preamble that was prepended to the
+     * virtual content.  Every provider MUST:
+     *   • ADD    preambleLength to cursor/hover/offset before querying the TS service.
+     *   • SUBTRACT preambleLength from diagnostic/token/span positions before
+     *     reporting back to VS Code (document.positionAt).
+     */
+    preambleLength: number;
 }
 
 function blankNonNewlines(s: string): string {
@@ -42,8 +109,8 @@ function blankNonNewlines(s: string): string {
  * Blocks with a non-JS `type` attribute (e.g. `type="text/html"`) and blocks
  * with `language="vbscript"` are excluded.
  *
- * Shared by jsDiagnosticsProvider, jsSemanticProvider, and jsDocumentSymbolProvider
- * to avoid duplicating the same regex logic in each file.
+ * Shared by jsDiagnosticsProvider, jsSemanticProvider, jsDocumentSymbolProvider,
+ * and jsCompletionProvider to avoid duplicating the same regex logic in each file.
  */
 export function getJsRanges(content: string): Array<{ start: number; end: number }> {
     const aspRanges: Array<{ start: number; end: number }> = [];
@@ -78,9 +145,6 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
     }
 
     const ranges: Array<{ start: number; end: number }> = [];
-    // Match only the literal '<script' opener; we'll find the '>' ourselves.
-    const re = /<script(\s[^]*?)?(?=>|<%)/gi;  // rough match to locate the tag start
-    // Simpler: just search for '<script' and handle the rest manually.
     let searchFrom = 0;
 
     while (true) {
@@ -131,198 +195,275 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
     return ranges;
 }
 
-/**
- * Scans all VBScript <% ... %> blocks in the document and builds a map of
- * variable name → inferred JS placeholder, based on their last assignment.
- *
- * Handles:
- *   vbval = "{}"       → '({})'
- *   vbval = "[]"       → '([])'
- *   vbval = "true"     → '(false)'
- *   vbval = "some str" → '("")'
- *   vbval = 42         → '0'
- *   vbval = True       → '(false)'
- *   vbval = Array(...)  → '([])'
- *   vbval = Dict(...)   → '({})'  (Scripting.Dictionary)
- */
-function buildVbsVariableMap(content: string): Map<string, string> {
-    const map = new Map<string, string>();
+// ─────────────────────────────────────────────────────────────────────────────
+// Pass 1 — preamble builder
+//
+// Scans the entire document (outside and inside JS ranges alike) and collects:
+//   a) Every VBScript variable name assigned inside any <% ... %> block.
+//   b) A sequential sentinel name __ASP_N__ for every <%= expr %> expression
+//      block that appears *inside* a JS <script> range.
+//
+// Returns:
+//   preamble        — the `var x: any;` declaration block to prepend
+//   exprSentinels   — Map<aspBlock start-offset → sentinel name> for pass 2
+// ─────────────────────────────────────────────────────────────────────────────
 
-    // Extract all statement <% ... %> blocks (not <%=)
+interface PreambleResult {
+    preamble:      string;                 // e.g. "var userId: any;\nvar __ASP_1__: any;\n"
+    exprSentinels: Map<number, string>;    // aspBlock start-offset → sentinel name
+}
+
+/**
+ * JavaScript reserved words and common built-ins that must never appear in the
+ * preamble as `var <name>: any` declarations — doing so causes TS parse errors
+ * (e.g. `var If: any` or `var Then: any` from VBScript If/Then comparisons).
+ *
+ * VBScript keywords that look like assignments (e.g. `If x = y Then`) would be
+ * matched by the assignment regex and incorrectly added to the preamble without
+ * this guard.
+ */
+const JS_RESERVED = new Set([
+    // JS reserved words
+    'break','case','catch','class','const','continue','debugger','default',
+    'delete','do','else','export','extends','finally','for','function','if',
+    'import','in','instanceof','let','new','return','static','super','switch',
+    'this','throw','try','typeof','var','void','while','with','yield',
+    // Strict mode / future reserved
+    'enum','implements','interface','package','private','protected','public',
+    // Common globals we never want to shadow
+    'undefined','null','true','false','NaN','Infinity','arguments',
+    'window','document','console','alert','confirm','prompt',
+]);
+
+/**
+ * Collects all VBScript identifier names that are assigned (=) inside any
+ * <%  ... %> statement block in `content`.  Names are lowercased for
+ * deduplication, but the original casing of the first occurrence is kept.
+ *
+ * FIX: JS reserved words / built-in globals are excluded so they never appear
+ * as `var <keyword>: any` in the preamble, which would cause TS parse errors.
+ * (VBScript `If x = y Then` would otherwise add `If` as a variable.)
+ */
+function collectVbsVarNames(content: string): string[] {
+    const seen  = new Set<string>();
+    const names: string[] = [];
+
+    // <%(?!=) matches <% but NOT <%= (expression blocks)
     const aspRe = /<%(?!=)([\s\S]*?)%>/g;
     let m: RegExpExecArray | null;
-
     while ((m = aspRe.exec(content)) !== null) {
         const block = m[1];
-
-        // Match: identifier = <rhs>  (whole line, case-insensitive VBScript)
-        const assignRe = /^\s*([A-Za-z_]\w*)\s*=\s*(.+?)\s*$/gm;
+        // Match any line of the form:  identifier = …   (VBScript assignment)
+        // Also catches   Set obj = CreateObject(...)   via the optional `Set `.
+        const assignRe = /^\s*(?:Set\s+)?([A-Za-z_]\w*)\s*=/gm;
         let a: RegExpExecArray | null;
-
         while ((a = assignRe.exec(block)) !== null) {
-            const varName = a[1].toLowerCase();
-            const rhs     = a[2].trim();
-
-            let placeholder: string;
-
-            if      (/^["'](\{[\s\S]*\}|\{\})["']$/.test(rhs)) { placeholder = '({})'; }
-            else if (/^["'](\[[\s\S]*\]|\[\])["']$/.test(rhs)) { placeholder = '([])'; }
-            else if (/^["'](true|false)["']$/i.test(rhs))      { placeholder = '(false)'; }
-            else if (/^["'][\s\S]*["']$/.test(rhs))            { placeholder = '("")'; }
-            else if (/^(true|false)$/i.test(rhs))              { placeholder = '(false)'; }
-            else if (/^-?\d+(\.\d+)?$/.test(rhs))              { placeholder = '0'; }
-            else if (/\bArray\s*\(/i.test(rhs))                { placeholder = '([])'; }
-            else if (/\bCreateObject\s*\(\s*["']Scripting\.Dictionary["']\s*\)/i.test(rhs)) { placeholder = '({})'; }
-            else                                               { continue; } // unknown — don't overwrite
-
-            map.set(varName, placeholder);
+            const raw = a[1];
+            // FIX: skip JS reserved words / globals that would cause parse errors
+            if (JS_RESERVED.has(raw.toLowerCase())) { continue; }
+            const key = raw.toLowerCase();
+            if (!seen.has(key)) {
+                seen.add(key);
+                names.push(raw);
+            }
         }
     }
-
-    return map;
+    return names;
 }
 
 /**
- * Replaces a single ASP block with syntactically valid JS so the TS service
- * never sees a bare hole in an expression context.
+ * Builds the preamble and the expression-sentinel map for the virtual file.
  *
- * IMPROVED VERSION: Uses heuristic pattern matching to infer better types
- * instead of always defaulting to `0`.
- *
- *   <%= expr %>  →  expression block: replace with a JS literal based on
- *                   pattern matching (object, array, string, or number).
- *                   Character count is preserved with padding.
- *
- *   <% code %>   →  statement block: replace with a JS block comment padded
- *                   to the same length.
- *
- * PATTERN MATCHING STRATEGY:
- *   1. Literal values (most accurate): <%= "{}" %>, <%= "[]" %>, <%= "text" %>
- *   2. Variable name heuristics: <%= vbdict %>, <%= arrItems %>, <%= strName %>
- *   3. Server object methods: <%= RS("field") %>, <%= Request.Form("x") %>
- *
- * LIMITATIONS:
- *   - Cannot evaluate VBScript expressions at edit-time
- *   - Variable name heuristics are imperfect (false positives/negatives possible)
- *   - Cannot track variable assignments or function returns
- *   - This is inherent to static analysis without a VBScript runtime
- *
- * SUPPORTED PATTERNS:
- *   Literal values:
- *     <%= "{}" %>              →  ({})     [object literal in VBScript string]
- *     <%= "[]" %>              →  ([])     [array literal in VBScript string]
- *     <%= "true" %>            →  (false)  [boolean literal in VBScript string]
- *     <%= "anything" %>        →  ("")     [other string literals]
- *
- *   Variable names (heuristic):
- *     <%= vbdict %>            →  ({})     [name contains "dict", "obj", "json", etc.]
- *     <%= arrItems %>          →  ([])     [name contains "arr", "array", "list", etc.]
- *     <%= strName %>           →  ("")     [name contains "str", "text", "name", etc.]
- *
- *   Server objects:
- *     <%= RS("field") %>       →  ("")     [database recordset fields are typically strings]
- *     <%= Request.Form("x") %> →  ("")     [Request collections always return strings]
- *     <%= Session("y") %>      →  ("")     [Session/Application most commonly store strings]
- *
- *   Fallback:
- *     <%= unknown %>           →  0        [safe numeric fallback]
+ * @param content   Raw ASP source text.
+ * @param jsRanges  Pre-computed JS script ranges (from getJsRanges).
  */
-function blankAspBlock(asp: string, vbsVarMap?: Map<string, string>, insideJsString = false): string {
-    const isExpression = asp.startsWith('<%=');
+function buildPreamble(content: string, jsRanges: Array<{ start: number; end: number }>): PreambleResult {
+    // ── Collect VBScript variable names from statement blocks ────────────────
+    const vbsNames = collectVbsVarNames(content);
 
-    if (isExpression) {
-        const expr = asp.slice(3, -2).trim();
-        let placeholder = '0';
+    // ── Assign sentinel names to expression blocks inside JS ranges ──────────
+    const exprSentinels = new Map<number, string>();
+    let   sentinelIndex = 1;
 
-        // When inside a JS string literal (e.g. var x = "<%= ... %>"), any placeholder
-        // containing quotes would escape the string and produce a virtual syntax error.
-        // Force a plain numeric placeholder — safe in all string contexts.
-        if (!insideJsString) {
-            // 1. LITERAL VALUES in the expression itself (highest confidence)
-            if      (/^["'](\{[\s\S]*\}|\{\})["']$/s.test(expr)) { placeholder = '({})'; }
-            else if (/^["'](\[[\s\S]*\]|\[\])["']$/s.test(expr)) { placeholder = '([])'; }
-            else if (/^["'](true|false)["']$/i.test(expr))       { placeholder = '(false)'; }
-            else if (/^["'][\s\S]*["']$/s.test(expr))            { placeholder = '("")'; }
-
-            // 2. VBScript variable map lookup — check what the var was assigned above
-            else if (vbsVarMap?.has(expr.toLowerCase())) {
-                placeholder = vbsVarMap.get(expr.toLowerCase())!;
-            }
-
-            // 3. Name heuristics (last resort for untracked names)
-            else if (/\b(dict|obj|object|json|map|hash|config|options|settings|params|payload|data|test)\b/i.test(expr)) { placeholder = '({})'; }
-            else if (/\b(arr|array|list|items|collection|rows|results)\b/i.test(expr))                                   { placeholder = '([])'; }
-            else if (/\b(str|string|text|msg|message|title|desc|description)\b/i.test(expr))                             { placeholder = '("")'; }
-            else if (/\b(RS|Recordset)\s*[\(\[]/i.test(expr) || /\.Fields\s*[\(\[]/i.test(expr))                     { placeholder = '("")'; }
-            else if (/\bRequest\s*\.\s*(Form|QueryString|ServerVariables|Cookies)\s*[\(\[]/i.test(expr))             { placeholder = '("")'; }
-            else if (/\b(Session|Application)\s*[\(\[]/i.test(expr))                                                 { placeholder = '("")'; }
+    for (const r of jsRanges) {
+        const js    = content.slice(r.start, r.end);
+        const aspRe = /<%=[\s\S]*?%>/g;
+        let   m: RegExpExecArray | null;
+        while ((m = aspRe.exec(js)) !== null) {
+            const absOffset = r.start + m.index;
+            exprSentinels.set(absOffset, `__ASP_${sentinelIndex++}__`);
         }
-
-        // Build blanked output (same length-preserving logic as before)
-        const blanked  = asp.replace(/[^\n]+/g, m => ' '.repeat(m.length));
-        const totalLen = blanked.length;
-        let leadingNewlines = 0;
-        while (leadingNewlines < totalLen && blanked[leadingNewlines] === '\n') { leadingNewlines++; }
-
-        const available = totalLen - leadingNewlines;
-        if (placeholder.length > available) { placeholder = '0'; }
-
-        const padded = placeholder.padEnd(available, ' ').slice(0, available);
-        return blanked.slice(0, leadingNewlines) + padded;
     }
 
-    // Statement block
-    return asp.replace(/[^\n]+/g, m => ' '.repeat(m.length))
-              .replace(/^\ {2}/, '/*')
-              .replace(/\ {2}$/, '*/');
+    // ── Build preamble lines ─────────────────────────────────────────────────
+    const lines: string[] = [
+        '// [asp-projection] any-typed preamble — auto-generated, do not edit',
+    ];
+
+    // Declared VBScript variables — visible to all JS in the page.
+    for (const name of vbsNames) {
+        lines.push(`var ${name}: any;`);
+    }
+
+    // Sentinel variables for expression slots.
+    for (const sentinel of exprSentinels.values()) {
+        lines.push(`var ${sentinel}: any;`);
+    }
+
+    lines.push('');   // blank line separator before the body
+    const preamble = lines.join('\n') + '\n';
+
+    return { preamble, exprSentinels };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Pass 2 — inline substitution
+//
+// Replaces each ASP block in the JS body with an offset-preserving token:
+//   Statement block  <% code %>    →  /* code */   (block comment, same shape)
+//   Expression block <%= expr %>   →  __ASP_N__    (sentinel name, padded)
+//
+// The sentinel name is looked up from the map built in pass 1.  If the block
+// does not appear in the map (e.g. an expression block outside any JS range
+// that somehow slipped through) a bare `0` fallback is used — harmless because
+// it won't be seen by the JS range walker.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Replaces a single ASP block with its offset-preserving virtual-JS form.
+ *
+ * @param asp           The raw ASP block text, e.g. `<%= userId %>`.
+ * @param sentinel      For expression blocks, the pre-assigned __ASP_N__ name.
+ *                      Pass `undefined` for statement blocks (they become comments).
+ * @param insideJsStr   True when the block sits inside a JS string literal
+ *                      (quoted string or template literal).
+ *
+ * FIX: statement-block comment substitution now uses positional slice instead of
+ * regex replace so it works correctly for multiline blocks that start with a newline.
+ */
+function substituteAspBlock(asp: string, sentinel: string | undefined, insideJsStr: boolean): string {
+    const isExpression = asp.startsWith('<%=');
+
+    // ── Statement block: becomes a /* … */ comment of the same shape ─────────
+    if (!isExpression) {
+        // Build the blanked version (spaces replace non-newline chars, newlines kept)
+        const blanked = blankNonNewlines(asp);
+        // Find where the first non-newline run starts and place /* and */
+        // at the very first two positions of that run, preserving all newlines.
+        const firstNonNl = blanked.indexOf(' ');
+        if (firstNonNl === -1 || blanked.length < 4) {
+            // Degenerate block too short to comment — return blanked spaces
+            return blanked;
+        }
+        // Place /* at [firstNonNl] and */ at [last two non-newline positions]
+        // The blanked string has the same length as `asp`, so we just overwrite.
+        let chars = blanked.split('');
+        chars[firstNonNl]     = '/';
+        chars[firstNonNl + 1] = '*';
+        // Find the last non-newline position for */
+        let lastNonNl = chars.length - 1;
+        while (lastNonNl > firstNonNl && chars[lastNonNl] === '\n') { lastNonNl--; }
+        if (lastNonNl > firstNonNl + 1) {
+            chars[lastNonNl - 1] = '*';
+            chars[lastNonNl]     = '/';
+        }
+        return chars.join('');
+    }
+
+    // ── Expression block: replaced with sentinel name (or fallback) ───────────
+    const blanked        = blankNonNewlines(asp);
+    const totalLen       = blanked.length;
+    let   leadingNewlines = 0;
+    while (leadingNewlines < totalLen && blanked[leadingNewlines] === '\n') {
+        leadingNewlines++;
+    }
+    const available = totalLen - leadingNewlines;
+
+    let token: string;
+
+    if (insideJsStr) {
+        // Must break out of the string to inject the any-typed sentinel.
+        // Pattern:  " + __ASP_N__ + "   — bridges both single and double quotes
+        // and template literals.
+        const bridged = sentinel
+            ? `" + ${sentinel} + "`
+            : `" + (undefined as any) + "`;
+        token = bridged.length <= available
+            ? bridged.padEnd(available, ' ').slice(0, available)
+            : '0'.padEnd(available, ' ').slice(0, available);
+    } else {
+        const name = sentinel ?? '(undefined as any)';
+        token = name.length <= available
+            ? name.padEnd(available, ' ').slice(0, available)
+            : '0'.padEnd(available, ' ').slice(0, available);
+    }
+
+    return blanked.slice(0, leadingNewlines) + token;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// buildVirtualJsContent — public entry point
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function buildVirtualJsContent(content: string, offset: number): VirtualJsResult {
-    const jsRanges = getJsRanges(content);
+    const jsRanges  = getJsRanges(content);
     const isInScript = jsRanges.some(r => offset >= r.start && offset <= r.end);
 
-    // Build VBScript variable type map ONCE for the whole document
-    const vbsVarMap = buildVbsVariableMap(content);
+    // ── Pass 1: build preamble + sentinel map ────────────────────────────────
+    const { preamble, exprSentinels } = buildPreamble(content, jsRanges);
+    const preambleLength = preamble.length;
 
-    let out  = '';
+    // ── Pass 2: build offset-preserving body ────────────────────────────────
+    let body = '';
     let prev = 0;
-    for (const r of jsRanges) {
-        out += blankNonNewlines(content.slice(prev, r.start));
 
-        // Walk the JS range manually to track whether each ASP block sits inside a JS
-        // string literal — if it does, blankAspBlock must emit a quote-free placeholder.
+    for (const r of jsRanges) {
+        // Everything before (and between) script ranges → blanked spaces
+        body += blankNonNewlines(content.slice(prev, r.start));
+
+        // Walk the JS range, substituting each ASP block
         const js    = content.slice(r.start, r.end);
         const aspRe = /<%[\s\S]*?%>/g;
-        let jsOut   = '';
-        let jsPrev  = 0;
-        let inStr   = false;
-        let strChar = '';
+        let   jsOut  = '';
+        let   jsPrev = 0;
+        // FIX: track template literals (backtick) in addition to ' and "
+        let   inStr  = false;
+        let   strCh  = '';
 
         let m: RegExpExecArray | null;
         while ((m = aspRe.exec(js)) !== null) {
-            // Scan literal JS text between last match and this one to update string state
+            // Track string state in the literal JS text before this block
             const between = js.slice(jsPrev, m.index);
             for (let i = 0; i < between.length; i++) {
                 const ch = between[i];
                 if (!inStr) {
-                    if (ch === '"' || ch === "'") { inStr = true; strChar = ch; }
+                    if (ch === '"' || ch === "'" || ch === '`') { inStr = true; strCh = ch; }
                 } else {
-                    if (ch === '\\') { i++; continue; }        // skip escaped char
-                    if (ch === strChar) { inStr = false; strChar = ''; }
+                    if (ch === '\\') { i++; continue; }     // escaped char — skip next
+                    if (ch === strCh) { inStr = false; strCh = ''; }
                 }
             }
+
+            // Look up the sentinel for this expression block (by absolute offset)
+            const absOffset = r.start + m.index;
+            const sentinel  = exprSentinels.get(absOffset);
+
             jsOut += between;
-            jsOut += blankAspBlock(m[0], vbsVarMap, inStr);
+            jsOut += substituteAspBlock(m[0], sentinel, inStr);
             jsPrev = m.index + m[0].length;
         }
         jsOut += js.slice(jsPrev);
-        out += jsOut;
-
-        prev = r.end;
+        body  += jsOut;
+        prev   = r.end;
     }
-    out += blankNonNewlines(content.slice(prev));
 
-    return { virtualContent: out, isInScript };
+    body += blankNonNewlines(content.slice(prev));
+
+    return {
+        virtualContent: preamble + body,
+        isInScript,
+        preambleLength,
+    };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
