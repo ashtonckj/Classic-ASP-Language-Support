@@ -68,9 +68,9 @@
  *   so body-relative positions are unmoved.
  */
 
-import * as path   from 'path';
-import * as fs     from 'fs';
-import * as ts     from 'typescript';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as ts from 'typescript';
 import * as vscode from 'vscode';
 
 export const VIRTUAL_FILENAME = 'asp-embedded.js';
@@ -86,7 +86,7 @@ export const ASP_DOM_TYPES_FILENAME = 'asp-dom.d.ts';
 // ─────────────────────────────────────────────────────────────────────────────
 export interface VirtualJsResult {
     virtualContent: string;
-    isInScript:     boolean;
+    isInScript: boolean;
     /**
      * Number of characters in the generated preamble that was prepended to the
      * virtual content.  Every provider MUST:
@@ -114,9 +114,9 @@ function blankNonNewlines(s: string): string {
  */
 export function getJsRanges(content: string): Array<{ start: number; end: number }> {
     const aspRanges: Array<{ start: number; end: number }> = [];
-    const aspRe = /<%[\s\S]*?%>/g;
+    const aspRegex = /<%[\s\S]*?%>/g;
     let aspM: RegExpExecArray | null;
-    while ((aspM = aspRe.exec(content)) !== null) {
+    while ((aspM = aspRegex.exec(content)) !== null) {
         aspRanges.push({ start: aspM.index, end: aspM.index + aspM[0].length });
     }
     const isInsideAsp = (offset: number): boolean =>
@@ -209,7 +209,7 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface PreambleResult {
-    preamble:      string;                 // e.g. "var userId: any;\nvar __ASP_1__: any;\n"
+    preamble: string;                 // e.g. "var userId: any;\nvar __ASP_1__: any;\n"
     exprSentinels: Map<number, string>;    // aspBlock start-offset → sentinel name
 }
 
@@ -245,21 +245,35 @@ const JS_RESERVED = new Set([
  * (VBScript `If x = y Then` would otherwise add `If` as a variable.)
  */
 function collectVbsVarNames(content: string): string[] {
-    const seen  = new Set<string>();
+    const seen = new Set<string>();
     const names: string[] = [];
 
-    // <%(?!=) matches <% but NOT <%= (expression blocks)
-    const aspRe = /<%(?!=)([\s\S]*?)%>/g;
+    // <%(?!=) matches <% but NOT <%= (expression blocks, e.g. <%=variable%>)
+    const aspRegex = /<%(?!=)([\s\S]*?)%>/g;
     let m: RegExpExecArray | null;
-    while ((m = aspRe.exec(content)) !== null) {
-        const block = m[1];
-        // Match any line of the form:  identifier = …   (VBScript assignment)
-        // Also catches   Set obj = CreateObject(...)   via the optional `Set `.
-        const assignRe = /^\s*(?:Set\s+)?([A-Za-z_]\w*)\s*=/gm;
-        let a: RegExpExecArray | null;
-        while ((a = assignRe.exec(block)) !== null) {
-            const raw = a[1];
-            // FIX: skip JS reserved words / globals that would cause parse errors
+    while ((m = aspRegex.exec(content)) !== null) {
+        // Collapse VBScript line continuations (" _\n") before pattern matching,
+        // otherwise continued lines (e.g. `testing = 10 Then`) are mistaken for assignments.
+        const block = m[1].replace(/ _\r?\n/g, ' ');
+
+        // Matches assignments:  [Set|Const] identifier = ...
+        const assignedRegex = /^\s*(?:Set|Const)?\s*([A-Za-z_]\w*)\s*=/gm;
+        // Matches Dim declarations, including comma-separated lists:  Dim foo, bar, baz
+        const declaredRegex = /^\s*Dim\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)/gim;
+        let assignedVar: RegExpExecArray | null;
+        let declaredVar: RegExpExecArray | null;
+
+        while ((assignedVar = assignedRegex.exec(block)) !== null) {
+            const raw = assignedVar[1];
+            if (JS_RESERVED.has(raw.toLowerCase())) { continue; }
+            const key = raw.toLowerCase();
+            if (!seen.has(key)) {
+                seen.add(key);
+                names.push(raw);
+            }
+        }
+        while ((declaredVar = declaredRegex.exec(block)) !== null) {
+            const raw = declaredVar[1];
             if (JS_RESERVED.has(raw.toLowerCase())) { continue; }
             const key = raw.toLowerCase();
             if (!seen.has(key)) {
@@ -287,9 +301,9 @@ function buildPreamble(content: string, jsRanges: Array<{ start: number; end: nu
 
     for (const r of jsRanges) {
         const js    = content.slice(r.start, r.end);
-        const aspRe = /<%=[\s\S]*?%>/g;
+        const aspRegex = /<%=[\s\S]*?%>/g;
         let   m: RegExpExecArray | null;
-        while ((m = aspRe.exec(js)) !== null) {
+        while ((m = aspRegex.exec(js)) !== null) {
             const absOffset = r.start + m.index;
             exprSentinels.set(absOffset, `__ASP_${sentinelIndex++}__`);
         }
@@ -423,7 +437,7 @@ export function buildVirtualJsContent(content: string, offset: number): VirtualJ
 
         // Walk the JS range, substituting each ASP block
         const js    = content.slice(r.start, r.end);
-        const aspRe = /<%[\s\S]*?%>/g;
+        const aspRegex = /<%[\s\S]*?%>/g;
         let   jsOut  = '';
         let   jsPrev = 0;
         // FIX: track template literals (backtick) in addition to ' and "
@@ -431,7 +445,7 @@ export function buildVirtualJsContent(content: string, offset: number): VirtualJ
         let   strCh  = '';
 
         let m: RegExpExecArray | null;
-        while ((m = aspRe.exec(js)) !== null) {
+        while ((m = aspRegex.exec(js)) !== null) {
             // Track string state in the literal JS text before this block
             const between = js.slice(jsPrev, m.index);
             for (let i = 0; i < between.length; i++) {
