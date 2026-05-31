@@ -259,7 +259,10 @@ function collectVbsVarNames(content: string): string[] {
             const raw = assignedVar[1];
             if (JS_RESERVED.has(raw.toLowerCase())) { continue; }
             const key = raw.toLowerCase();
-            if (!seen.has(key)) { seen.add(key); names.push(raw); }
+            if (!seen.has(key)) {
+                seen.add(key);
+                names.push(raw);
+            }
         }
 
         // Matches Dim declarations, including comma-separated lists:  Dim foo, bar, baz
@@ -269,7 +272,10 @@ function collectVbsVarNames(content: string): string[] {
             const raw = declaredVar[1];
             if (JS_RESERVED.has(raw.toLowerCase())) { continue; }
             const key = raw.toLowerCase();
-            if (!seen.has(key)) { seen.add(key); names.push(raw); }
+            if (!seen.has(key)) {
+                seen.add(key);
+                names.push(raw);
+            }
         }
     }
     return names;
@@ -280,6 +286,7 @@ function collectVbsVarNames(content: string): string[] {
  * JS ranges, and maps their absolute offset to a sanitised sentinel name.
  */
 function collectExprSentinels(content: string, jsRanges: Array<{ start: number; end: number }>): Map<number, string> {
+    const seen = new Set<string>();
     const exprSentinels = new Map<number, string>();
 
     for (const range of jsRanges) {
@@ -287,9 +294,14 @@ function collectExprSentinels(content: string, jsRanges: Array<{ start: number; 
         const aspRegex = /<%=\s*([\s\S]*?)\s*%>/g;
         let sentinelVar: RegExpExecArray | null;
         while ((sentinelVar = aspRegex.exec(js)) !== null) {
-            if (JS_RESERVED.has(sentinelVar[1].toLowerCase())) { continue; }
+            const raw = sentinelVar[1];
+            if (JS_RESERVED.has(raw.toLowerCase())) { continue; }
             const absOffset = range.start + sentinelVar.index;
-            exprSentinels.set(absOffset, sentinelVar[1].replace(/\s+/g, '_'));
+            const key = raw.toLowerCase();
+            if (!seen.has(key)) {
+                seen.add(key);
+                exprSentinels.set(absOffset, raw.replace(/\s+/g, '_'));
+            }
         }
     }
 
@@ -384,7 +396,7 @@ function substituteAspBlock(asp: string, sentinel: string | undefined, insideJsS
 
     if (insideJsStr) {
         // Must break out of the string to inject the any-typed sentinel.
-        // Pattern:  " + __ASP_N__ + "   — bridges both single and double quotes
+        // Pattern:  " + _asp_ + "   — bridges both single and double quotes
         // and template literals.
         const bridged = sentinel
             ? `" + ${sentinel} + "`
@@ -427,7 +439,7 @@ export function buildVirtualJsContent(content: string, offset: number): VirtualJ
         const aspRegex = /<%[\s\S]*?%>/g;
         let jsOut = '';
         let jsPrev = 0;
-        // FIX: track template literals (backtick) in addition to ' and "
+        // Track template literals (backtick) in addition to ' and "
         let inStr = false;
         let strCh = '';
 
@@ -459,7 +471,6 @@ export function buildVirtualJsContent(content: string, offset: number): VirtualJ
     }
 
     body += blankNonNewlines(content.slice(prev));
-
     return {
         virtualContent: preamble + body,
         isInScript,
