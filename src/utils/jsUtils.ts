@@ -237,12 +237,8 @@ const JS_RESERVED = new Set([
 
 /**
  * Collects all VBScript identifier names that are assigned (=) inside any
- * <%  ... %> statement block in `content`.  Names are lowercased for
+ * <%  ... %> statement block in `content`. Names are lowercased for
  * deduplication, but the original casing of the first occurrence is kept.
- *
- * FIX: JS reserved words / built-in globals are excluded so they never appear
- * as `var <keyword>: any` in the preamble, which would cause TS parse errors.
- * (VBScript `If x = y Then` would otherwise add `If` as a variable.)
  */
 function collectVbsVarNames(content: string): string[] {
     const seen = new Set<string>();
@@ -258,73 +254,69 @@ function collectVbsVarNames(content: string): string[] {
 
         // Matches assignments:  [Set|Const] identifier = ...
         const assignedRegex = /^\s*(?:Set|Const)?\s*([A-Za-z_]\w*)\s*=/gm;
-        // Matches Dim declarations, including comma-separated lists:  Dim foo, bar, baz
-        const declaredRegex = /^\s*Dim\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)/gim;
         let assignedVar: RegExpExecArray | null;
-        let declaredVar: RegExpExecArray | null;
-
         while ((assignedVar = assignedRegex.exec(block)) !== null) {
             const raw = assignedVar[1];
             if (JS_RESERVED.has(raw.toLowerCase())) { continue; }
             const key = raw.toLowerCase();
-            if (!seen.has(key)) {
-                seen.add(key);
-                names.push(raw);
-            }
+            if (!seen.has(key)) { seen.add(key); names.push(raw); }
         }
+
+        // Matches Dim declarations, including comma-separated lists:  Dim foo, bar, baz
+        const declaredRegex = /^\s*Dim\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)/gim;
+        let declaredVar: RegExpExecArray | null;
         while ((declaredVar = declaredRegex.exec(block)) !== null) {
             const raw = declaredVar[1];
             if (JS_RESERVED.has(raw.toLowerCase())) { continue; }
             const key = raw.toLowerCase();
-            if (!seen.has(key)) {
-                seen.add(key);
-                names.push(raw);
-            }
+            if (!seen.has(key)) { seen.add(key); names.push(raw); }
         }
     }
     return names;
 }
 
 /**
+ * Collects all ASP expression blocks (<%= ... %>) that fall within the given
+ * JS ranges, and maps their absolute offset to a sanitised sentinel name.
+ */
+function collectExprSentinels(content: string, jsRanges: Array<{ start: number; end: number }>): Map<number, string> {
+    const exprSentinels = new Map<number, string>();
+
+    for (const range of jsRanges) {
+        const js = content.slice(range.start, range.end);
+        const aspRegex = /<%=\s*([\s\S]*?)\s*%>/g;
+        let sentinelVar: RegExpExecArray | null;
+        while ((sentinelVar = aspRegex.exec(js)) !== null) {
+            if (JS_RESERVED.has(sentinelVar[1].toLowerCase())) { continue; }
+            const absOffset = range.start + sentinelVar.index;
+            exprSentinels.set(absOffset, sentinelVar[1].replace(/\s+/g, '_'));
+        }
+    }
+
+    return exprSentinels;
+}
+
+/**
  * Builds the preamble and the expression-sentinel map for the virtual file.
- *
  * @param content   Raw ASP source text.
  * @param jsRanges  Pre-computed JS script ranges (from getJsRanges).
  */
 function buildPreamble(content: string, jsRanges: Array<{ start: number; end: number }>): PreambleResult {
-    // ── Collect VBScript variable names from statement blocks ────────────────
     const vbsNames = collectVbsVarNames(content);
+    const exprSentinels = collectExprSentinels(content, jsRanges);
 
-    // ── Assign sentinel names to expression blocks inside JS ranges ──────────
-    const exprSentinels = new Map<number, string>();
-    let   sentinelIndex = 1;
-
-    for (const r of jsRanges) {
-        const js    = content.slice(r.start, r.end);
-        const aspRegex = /<%=[\s\S]*?%>/g;
-        let   m: RegExpExecArray | null;
-        while ((m = aspRegex.exec(js)) !== null) {
-            const absOffset = r.start + m.index;
-            exprSentinels.set(absOffset, `__ASP_${sentinelIndex++}__`);
-        }
-    }
-
-    // ── Build preamble lines ─────────────────────────────────────────────────
     const lines: string[] = [
         '// [asp-projection] any-typed preamble — auto-generated, do not edit',
     ];
 
-    // Declared VBScript variables — visible to all JS in the page.
     for (const name of vbsNames) {
-        lines.push(`var ${name}: any;`);
+        lines.push(`var _asp_${name}: any;`);
     }
-
-    // Sentinel variables for expression slots.
     for (const sentinel of exprSentinels.values()) {
-        lines.push(`var ${sentinel}: any;`);
+        lines.push(`var _aspo_${sentinel}: any;`);
     }
 
-    lines.push('');   // blank line separator before the body
+    lines.push('');
     const preamble = lines.join('\n') + '\n';
 
     return { preamble, exprSentinels };
@@ -372,21 +364,21 @@ function substituteAspBlock(asp: string, sentinel: string | undefined, insideJsS
         // Place /* at [firstNonNl] and */ at [last two non-newline positions]
         // The blanked string has the same length as `asp`, so we just overwrite.
         let chars = blanked.split('');
-        chars[firstNonNl]     = '/';
+        chars[firstNonNl] = '/';
         chars[firstNonNl + 1] = '*';
         // Find the last non-newline position for */
         let lastNonNl = chars.length - 1;
         while (lastNonNl > firstNonNl && chars[lastNonNl] === '\n') { lastNonNl--; }
         if (lastNonNl > firstNonNl + 1) {
             chars[lastNonNl - 1] = '*';
-            chars[lastNonNl]     = '/';
+            chars[lastNonNl] = '/';
         }
         return chars.join('');
     }
 
     // ── Expression block: replaced with sentinel name (or fallback) ───────────
-    const blanked        = blankNonNewlines(asp);
-    const totalLen       = blanked.length;
+    const blanked = blankNonNewlines(asp);
+    const totalLen = blanked.length;
     let   leadingNewlines = 0;
     while (leadingNewlines < totalLen && blanked[leadingNewlines] === '\n') {
         leadingNewlines++;
@@ -420,7 +412,7 @@ function substituteAspBlock(asp: string, sentinel: string | undefined, insideJsS
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function buildVirtualJsContent(content: string, offset: number): VirtualJsResult {
-    const jsRanges  = getJsRanges(content);
+    const jsRanges = getJsRanges(content);
     const isInScript = jsRanges.some(r => offset >= r.start && offset <= r.end);
 
     // ── Pass 1: build preamble + sentinel map ────────────────────────────────
@@ -436,13 +428,13 @@ export function buildVirtualJsContent(content: string, offset: number): VirtualJ
         body += blankNonNewlines(content.slice(prev, r.start));
 
         // Walk the JS range, substituting each ASP block
-        const js    = content.slice(r.start, r.end);
+        const js = content.slice(r.start, r.end);
         const aspRegex = /<%[\s\S]*?%>/g;
-        let   jsOut  = '';
-        let   jsPrev = 0;
+        let jsOut = '';
+        let jsPrev = 0;
         // FIX: track template literals (backtick) in addition to ' and "
-        let   inStr  = false;
-        let   strCh  = '';
+        let inStr = false;
+        let strCh = '';
 
         let m: RegExpExecArray | null;
         while ((m = aspRegex.exec(js)) !== null) {
@@ -460,15 +452,15 @@ export function buildVirtualJsContent(content: string, offset: number): VirtualJ
 
             // Look up the sentinel for this expression block (by absolute offset)
             const absOffset = r.start + m.index;
-            const sentinel  = exprSentinels.get(absOffset);
+            const sentinel = exprSentinels.get(absOffset);
 
             jsOut += between;
             jsOut += substituteAspBlock(m[0], sentinel, inStr);
             jsPrev = m.index + m[0].length;
         }
         jsOut += js.slice(jsPrev);
-        body  += jsOut;
-        prev   = r.end;
+        body += jsOut;
+        prev = r.end;
     }
 
     body += blankNonNewlines(content.slice(prev));
