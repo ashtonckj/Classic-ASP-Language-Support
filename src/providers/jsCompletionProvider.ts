@@ -3,28 +3,19 @@
  *
  * TypeScript Language Service completions for <script> blocks.
  *
- * Resolution data is stored on item.data (cast through `any` since older
- * @types/vscode versions don't declare this field publicly) rather than a
- * WeakMap, so it survives VS Code's internal serialize/deserialize cycle
- * between provideCompletionItems and resolveCompletionItem.
+ * Resolution data is stored on item.data so it survives VS Code's internal
+ * serialize/deserialize cycle between provideCompletionItems and resolveCompletionItem.
  *
  * Trigger characters registered in extension.ts: '.', '(', '[', ' '
  *
  * isIncomplete strategy:
- *   • After a trigger character ('.', '(', '[') the list is always full and
- *     final — VS Code's word-based prefix filter handles narrowing, so we
- *     return isIncomplete:false.
- *   • When triggered mid-word (no trigger char, or after a space that starts
- *     a new expression context) we return isIncomplete:true so VS Code
- *     re-requests on every keystroke until the prefix is >= 2 characters,
- *     at which point the built-in filter is fast enough to take over.
+ *   • After a trigger character ('.', '(', '[') the list is complete — VS Code's
+ *     prefix filter handles narrowing, so we return isIncomplete:false.
+ *   • Mid-word (no trigger char, or after a space) we return isIncomplete:true so
+ *     VS Code re-requests on every keystroke until the prefix is >= 2 chars.
  *
- *   This fixes the previous behaviour where isIncomplete was always false,
- *   meaning that after typing a fresh identifier VS Code would use only the
- *   stale list from the last '.' trigger and miss newly visible globals.
- *
- * FIX: preambleLength is now applied — offset is shifted INTO the virtual
- *   file before TS queries, and completion detail offsets are shifted BACK.
+ * Entries prefixed with _asp_ or _aspo_ are filtered out — these are internal
+ * projection variables and should never appear in user-facing suggestions.
  */
 
 import * as vscode from 'vscode';
@@ -71,11 +62,14 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         const svc = getJsLanguageService();
         svc.updateContent(virtualContent);
 
-        // FIX: shift offset into virtual-file space
+        // Shift offset into virtual-file space
         const completions = svc.getCompletions(virtualOffset, triggerChar);
         if (!completions || token.isCancellationRequested) { return undefined; }
 
-        const items = completions.entries.map(entry => {
+        const items = completions.entries
+            // Internal projection variables must never surface to the user.
+            .filter(e => !e.name.startsWith('_asp_') && !e.name.startsWith('_aspo_'))
+            .map(entry => {
             const item      = new vscode.CompletionItem(entry.name, tsKindToVsKind(entry.kind));
             item.sortText   = '0' + (entry.sortText ?? entry.name);
             item.filterText = entry.name;

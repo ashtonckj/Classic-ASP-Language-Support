@@ -5,14 +5,12 @@
  * the TypeScript Language Service. Debounced at 750 ms.
  *
  * Suppressed diagnostic codes are listed in SUPPRESSED_CODES — these are too
- * noisy for small inline scripts that don't import modules (missing names,
- * type mismatches, implicit any, etc.). Only structural errors like wrong
- * argument counts and genuine syntax errors are surfaced.
+ * noisy for small inline scripts that don't import modules. Only structural
+ * errors like wrong argument counts and genuine syntax errors are surfaced.
  *
- * FIX: preambleLength is now subtracted from every diagnostic start position
- * before converting to a VS Code Range.  Previously, diagnostics inside the
- * first <script> block appeared shifted forward by the preamble size, pointing
- * at completely wrong lines in the editor.
+ * preambleLength is subtracted from every diagnostic start position before
+ * converting to a VS Code Range, since the virtual file has the preamble
+ * prepended and all TS positions are relative to that.
  */
 
 import * as vscode from 'vscode';
@@ -60,13 +58,11 @@ function getDiagnosticsForDocument(document: vscode.TextDocument): vscode.Diagno
         const code = typeof d.code === 'number' ? d.code : 0;
         if (SUPPRESSED_CODES.has(code)) { continue; }
 
-        // FIX: convert the virtual-file diagnostic position back to document
-        // space by subtracting the preamble offset before range comparison and
-        // before calling document.positionAt.
+        // Convert virtual-file position back to document space by subtracting
+        // the preamble length. Skip anything that lands inside the preamble itself.
         const docStart = d.start - preambleLength;
 
-        // Skip diagnostics that fall inside the preamble itself (shouldn't
-        // normally happen, but guard defensively).
+        // Guard against diagnostics that fall inside the preamble itself.
         if (docStart < 0) { continue; }
 
         // `end` in getJsRanges is the offset of `<` in `</script>`, which is a

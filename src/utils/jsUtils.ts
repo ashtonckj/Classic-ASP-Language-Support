@@ -8,7 +8,7 @@
  * The virtual file 'asp-embedded.js' is updated with projected content before each
  * query so offset positions stay exact across the whole document.
  *
- * ── ASP → JS Projection strategy (Option B — any-typed variable projection) ───
+ * ── ASP → JS Projection strategy (any-typed variable projection) ────────────
  *
  * The core problem with fake-literal placeholders ("", 0, [], false) was that
  * TypeScript narrows those to specific types, causing TS2367 errors when they
@@ -18,18 +18,17 @@
  *
  *   PASS 1 — Preamble generation (runs over the whole document)
  *     • Every VBScript variable name found in ANY <% ... %> statement block is
- *       collected and declared as `var <name>: any` in a preamble injected at
- *       the top of the virtual file.
- *     • Every expression slot <%= expr %> is assigned a unique sentinel name
- *       __ASP_1__, __ASP_2__, … which are also declared `var __ASP_N__: any`.
- *     • Because these are declared with type `any`, TypeScript can never narrow
- *       them to a specific literal type, regardless of what JS code does with
- *       them afterwards.
+ *       collected and declared as `var _asp_<name>: any` in a preamble prepended
+ *       to the top of the virtual file.
+ *     • Every expression slot <%= expr %> inside a JS range gets a sanitised
+ *       sentinel name `_aspo_<expr>`, also declared as `var _aspo_<expr>: any`.
+ *     • Declaring with type `any` prevents TypeScript from narrowing these to
+ *       literal types regardless of how the JS code uses them.
  *
- *   PASS 2 — Inline substitution (offset-preserving, as before)
- *     • Statement blocks  <% code %>  →  block comment /* ... *​/ (same shape)
- *     • Expression blocks <%= expr %> →  __ASP_N__  padded to same character
- *       width, so all downstream source positions remain valid.
+ *   PASS 2 — Inline substitution (offset-preserving)
+ *     • Statement blocks  <% code %>   →  block comment ... (same shape)
+ *     • Expression blocks <%= expr %>  →  _aspo_<expr>  padded to the same
+ *       character width, so all downstream source positions stay valid.
  *
  * EXAMPLES
  *   Source (.asp):
@@ -40,20 +39,20 @@
  *     <script>
  *       var x = <%= userId %>;
  *       if (x === "hello") { }        // ← no TS2367: x is any
- *       if (<%= count %> > 0) { }     // ← no TS2367: __ASP_1__ is any
+ *       if (<%= count %> > 0) { }     // ← no TS2367: _aspo_count is any
  *     </script>
  *
  *   Virtual JS produced:
- *     var userId: any;                // ← preamble declarations
- *     var count: any;
- *     var __ASP_1__: any;
- *     var __ASP_2__: any;
+ *     var _asp_userId: any;           // ← preamble declarations
+ *     var _asp_count: any;
+ *     var _aspo_userId: any;
+ *     var _aspo_count: any;
  *
  *     (blanked HTML)
  *     (blanked script tag)
- *       var x = userId    ;           // ← inline substitution, same width
+ *       var x = _aspo_userId ;        // ← inline substitution, same width
  *       if (x === "hello") { }
- *       if (__ASP_1__    > 0) { }
+ *       if (_aspo_count   > 0) { }
  *     (blanked close tag)
  *
  * OFFSET PRESERVATION
@@ -198,19 +197,20 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
 // ─────────────────────────────────────────────────────────────────────────────
 // Pass 1 — preamble builder
 //
-// Scans the entire document (outside and inside JS ranges alike) and collects:
-//   a) Every VBScript variable name assigned inside any <% ... %> block.
-//   b) A sequential sentinel name __ASP_N__ for every <%= expr %> expression
-//      block that appears *inside* a JS <script> range.
+// Scans the entire document and collects:
+//   a) Every VBScript variable name assigned inside any <% ... %> block
+//      → declared as `var _asp_<name>: any` in the preamble.
+//   b) Every <%= expr %> expression block inside a JS <script> range
+//      → assigned a sanitised sentinel `_aspo_<expr>`, also declared as `any`.
 //
 // Returns:
-//   preamble        — the `var x: any;` declaration block to prepend
-//   exprSentinels   — Map<aspBlock start-offset → sentinel name> for pass 2
+//   preamble        — the `var _asp_*/var _aspo_*: any;` block to prepend
+//   exprSentinels   — Map<aspBlock start-offset → sentinel name> used by pass 2
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface PreambleResult {
-    preamble: string;                 // e.g. "var userId: any;\nvar __ASP_1__: any;\n"
-    exprSentinels: Map<number, string>;    // aspBlock start-offset → sentinel name
+    preamble: string;                       // e.g. "var _asp_userId: any;\nvar _aspo_userId: any;\n"
+    exprSentinels: Map<number, string>;     // aspBlock start-offset → sentinel name
 }
 
 /**
@@ -326,26 +326,21 @@ function buildPreamble(content: string, jsRanges: Array<{ start: number; end: nu
 // Pass 2 — inline substitution
 //
 // Replaces each ASP block in the JS body with an offset-preserving token:
-//   Statement block  <% code %>    →  /* code */   (block comment, same shape)
-//   Expression block <%= expr %>   →  __ASP_N__    (sentinel name, padded)
+//   Statement block  <% code %>    →  /* code */     (block comment, same shape)
+//   Expression block <%= expr %>   →  _aspo_<expr>   (sentinel name, space-padded)
 //
-// The sentinel name is looked up from the map built in pass 1.  If the block
-// does not appear in the map (e.g. an expression block outside any JS range
-// that somehow slipped through) a bare `0` fallback is used — harmless because
-// it won't be seen by the JS range walker.
+// The sentinel name is looked up from the map built in pass 1. If a block
+// is missing from the map (e.g. an expression block outside any JS range),
+// a bare `0` fallback is used — harmless since it won't be seen by JS.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Replaces a single ASP block with its offset-preserving virtual-JS form.
  *
  * @param asp           The raw ASP block text, e.g. `<%= userId %>`.
- * @param sentinel      For expression blocks, the pre-assigned __ASP_N__ name.
+ * @param sentinel      For expression blocks, the pre-assigned _aspo_<expr> name.
  *                      Pass `undefined` for statement blocks (they become comments).
- * @param insideJsStr   True when the block sits inside a JS string literal
- *                      (quoted string or template literal).
- *
- * FIX: statement-block comment substitution now uses positional slice instead of
- * regex replace so it works correctly for multiline blocks that start with a newline.
+ * @param insideJsStr   True when the block sits inside a JS string literal.
  */
 function substituteAspBlock(asp: string, sentinel: string | undefined, insideJsStr: boolean): string {
     const isExpression = asp.startsWith('<%=');
@@ -379,7 +374,7 @@ function substituteAspBlock(asp: string, sentinel: string | undefined, insideJsS
     // ── Expression block: replaced with sentinel name (or fallback) ───────────
     const blanked = blankNonNewlines(asp);
     const totalLen = blanked.length;
-    let   leadingNewlines = 0;
+    let leadingNewlines = 0;
     while (leadingNewlines < totalLen && blanked[leadingNewlines] === '\n') {
         leadingNewlines++;
     }
