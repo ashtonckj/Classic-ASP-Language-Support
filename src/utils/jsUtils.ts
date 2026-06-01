@@ -349,31 +349,23 @@ function buildPreamble(content: string, jsRanges: Array<{ start: number; end: nu
 /**
  * Replaces a single ASP block with its offset-preserving virtual-JS form.
  *
- * @param asp           The raw ASP block text, e.g. `<%= userId %>`.
- * @param sentinel      For expression blocks, the pre-assigned _aspo_<expr> name.
- *                      Pass `undefined` for statement blocks (they become comments).
- * @param insideJsStr   True when the block sits inside a JS string literal.
+ * @param asp       The raw ASP block text, e.g. `<%= userId %>`.
+ * @param sentinel  For expression blocks, the pre-assigned _aspo_<expr> name.
+ *                  Pass `undefined` for statement blocks (they become comments).
  */
-function substituteAspBlock(asp: string, sentinel: string | undefined, insideJsStr: boolean): string {
+function substituteAspBlock(asp: string, sentinel: string | undefined): string {
     const isExpression = asp.startsWith('<%=');
 
     // ── Statement block: becomes a /* … */ comment of the same shape ─────────
     if (!isExpression) {
-        // Build the blanked version (spaces replace non-newline chars, newlines kept)
         const blanked = blankNonNewlines(asp);
-        // Find where the first non-newline run starts and place /* and */
-        // at the very first two positions of that run, preserving all newlines.
         const firstNonNl = blanked.indexOf(' ');
         if (firstNonNl === -1 || blanked.length < 4) {
-            // Degenerate block too short to comment — return blanked spaces
             return blanked;
         }
-        // Place /* at [firstNonNl] and */ at [last two non-newline positions]
-        // The blanked string has the same length as `asp`, so we just overwrite.
         let chars = blanked.split('');
         chars[firstNonNl] = '/';
         chars[firstNonNl + 1] = '*';
-        // Find the last non-newline position for */
         let lastNonNl = chars.length - 1;
         while (lastNonNl > firstNonNl && chars[lastNonNl] === '\n') { lastNonNl--; }
         if (lastNonNl > firstNonNl + 1) {
@@ -392,24 +384,10 @@ function substituteAspBlock(asp: string, sentinel: string | undefined, insideJsS
     }
     const available = totalLen - leadingNewlines;
 
-    let token: string;
-
-    if (insideJsStr) {
-        // Must break out of the string to inject the any-typed sentinel.
-        // Pattern:  " + _asp_ + "   — bridges both single and double quotes
-        // and template literals.
-        const bridged = sentinel
-            ? `" + ${sentinel} + "`
-            : `" + (undefined as any) + "`;
-        token = bridged.length <= available
-            ? bridged.padEnd(available, ' ').slice(0, available)
-            : '0'.padEnd(available, ' ').slice(0, available);
-    } else {
-        const name = sentinel ?? '(undefined as any)';
-        token = name.length <= available
-            ? name.padEnd(available, ' ').slice(0, available)
-            : '0'.padEnd(available, ' ').slice(0, available);
-    }
+    const name = sentinel ?? '(undefined as any)';
+    const token = name.length <= available
+        ? name.padEnd(available, ' ').slice(0, available)
+        : '0'.padEnd(available, ' ').slice(0, available);
 
     return blanked.slice(0, leadingNewlines) + token;
 }
@@ -430,47 +408,33 @@ export function buildVirtualJsContent(content: string, offset: number): VirtualJ
     let body = '';
     let prev = 0;
 
-    for (const r of jsRanges) {
+    for (const range of jsRanges) {
         // Everything before (and between) script ranges → blanked spaces
-        body += blankNonNewlines(content.slice(prev, r.start));
+        body += blankNonNewlines(content.slice(prev, range.start));
 
         // Walk the JS range, substituting each ASP block
-        const js = content.slice(r.start, r.end);
+        const jsSection = content.slice(range.start, range.end);
         const aspRegex = /<%[\s\S]*?%>/g;
         let jsOut = '';
         let jsPrev = 0;
-        // Track template literals (backtick) in addition to ' and "
-        let inStr = false;
-        let strCh = '';
 
         let m: RegExpExecArray | null;
-        while ((m = aspRegex.exec(js)) !== null) {
-            // Track string state in the literal JS text before this block
-            const between = js.slice(jsPrev, m.index);
-            for (let i = 0; i < between.length; i++) {
-                const ch = between[i];
-                if (!inStr) {
-                    if (ch === '"' || ch === "'" || ch === '`') { inStr = true; strCh = ch; }
-                } else {
-                    if (ch === '\\') { i++; continue; }     // escaped char — skip next
-                    if (ch === strCh) { inStr = false; strCh = ''; }
-                }
-            }
-
-            // Look up the sentinel for this expression block (by absolute offset)
-            const absOffset = r.start + m.index;
+        while ((m = aspRegex.exec(jsSection)) !== null) {
+            const between = jsSection.slice(jsPrev, m.index);
+            const absOffset = range.start + m.index;
             const sentinel = exprSentinels.get(absOffset);
 
             jsOut += between;
-            jsOut += substituteAspBlock(m[0], sentinel, inStr);
+            jsOut += substituteAspBlock(m[0], sentinel);
             jsPrev = m.index + m[0].length;
         }
-        jsOut += js.slice(jsPrev);
+        jsOut += jsSection.slice(jsPrev);
         body += jsOut;
-        prev = r.end;
+        prev = range.end;
     }
 
     body += blankNonNewlines(content.slice(prev));
+    console.log(preamble + body);
     return {
         virtualContent: preamble + body,
         isInScript,
