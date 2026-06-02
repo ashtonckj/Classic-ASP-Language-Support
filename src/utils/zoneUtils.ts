@@ -85,38 +85,48 @@ function isInsideAspBlock(fullText: string, offset: number): boolean {
  * Scan `text` from position `from` and return the index of the next real
  * occurrence of `tag` (e.g. `'<style'`, `'<script'`, `'</style>'`) that is
  * NOT inside:
- *   • an HTML comment  (<!-- ... -->)
- *   • an ASP block     (<% ... %>)
+ *   • an HTML comment   (<!-- ... -->)
+ *   • an ASP block      (<% ... %>)
  *   • a VBScript string or line comment inside an ASP block
+ *   • a sibling HTML tag's attribute list (e.g. a `<script` string inside
+ *     an onclick="..." attribute of some other tag)
  *
  * Returns -1 if none is found before `stopBefore` (default: end-of-string).
  *
  * How the walk works
  * ------------------
- * We walk character-by-character (jumping in bulk where safe) and maintain two
- * state bits:
- *   inAsp  — we are inside <% ... %>
+ * Four boolean state bits are maintained:
+ *   inAsp        — inside <% ... %>
+ *   inHtmlComment — inside <!-- ... -->
+ *   inHtmlTag    — inside the attribute list of a (non-matching) HTML tag
+ *   inHtmlString — inside a quoted attribute value ("..." or '...') within
+ *                  an HTML tag; sub-state of inHtmlTag
+ *
+ * The `>` character only closes an HTML tag (inHtmlTag → false) when we are
+ * NOT inside a quoted attribute value (inHtmlString), preventing a `>` that
+ * appears in e.g. onclick="a > b" from prematurely ending the tag walk.
  *
  * Inside an ASP block we also skip VBScript strings ("...") and line comments
  * (' ... \n) so that a %> inside a string can't fool us — and so that a
- * `<style` inside a VBScript string doesn't get counted as a real tag.
+ * `<script` inside a VBScript string literal isn't counted as a real tag.
  */
-function findNextRealTag(
+export function findNextRealTag(
     text: string,
     tag: string,
     from: number,
     stopBefore: number = text.length,
 ): number {
     let i = from;
-    let inAsp = false;
-    let inHtmlTag = false;
-    let inHtmlString = false;
-    let htmlStringQuote = '';
+    let inAsp         = false;
     let inHtmlComment = false;
+    let inHtmlTag     = false;
+    let inHtmlString  = false;
+    let htmlStringQuote = '';
 
     while (i < stopBefore) {
         const ch = text[i];
 
+        // ── Inside an ASP block ──────────────────────────────────────────────
         if (inAsp) {
             if (ch === '"') {
                 i = skipVbsString(text, i);
@@ -135,6 +145,7 @@ function findNextRealTag(
             continue;
         }
 
+        // ── Inside an HTML comment ───────────────────────────────────────────
         if (inHtmlComment) {
             if (text.startsWith('-->', i)) {
                 inHtmlComment = false;
@@ -145,15 +156,34 @@ function findNextRealTag(
             continue;
         }
 
+        // ── Inside a quoted attribute value ─────────────────────────────────
+        // Must be checked before the generic inHtmlTag branch so that a `>`
+        // inside onclick="a > b" does not prematurely close the tag.
         if (inHtmlString) {
             if (ch === htmlStringQuote) {
-                inHtmlString = false;
+                inHtmlString  = false;
                 htmlStringQuote = '';
             }
             i++;
             continue;
         }
 
+        // ── Inside an HTML tag's attribute list ─────────────────────────────
+        if (inHtmlTag) {
+            if (ch === '"' || ch === "'") {
+                inHtmlString    = true;
+                htmlStringQuote = ch;
+                i++;
+                continue;
+            }
+            if (ch === '>') {
+                inHtmlTag = false;
+            }
+            i++;
+            continue;
+        }
+
+        // ── Outside all special contexts ─────────────────────────────────────
         if (ch === '<') {
             if (text.startsWith('!--', i + 1)) {
                 inHtmlComment = true;
@@ -166,6 +196,7 @@ function findNextRealTag(
                 continue;
             }
 
+            // Check whether this `<` is the tag we're looking for.
             if (text.slice(i, i + tag.length).toLowerCase() === tag) {
                 const afterTag = i + tag.length;
                 const next = text[afterTag];
@@ -174,21 +205,11 @@ function findNextRealTag(
                 }
             }
 
+            // Some other HTML tag — track its attribute list so we don't
+            // accidentally match our target inside an attribute value.
             inHtmlTag = true;
             i++;
             continue;
-        }
-
-        if (inHtmlTag) {
-            if (ch === '"' || ch === "'") {
-                inHtmlString = true;
-                htmlStringQuote = ch;
-                i++;
-                continue;
-            }
-            if (ch === '>') {
-                inHtmlTag = false;
-            }
         }
 
         i++;
