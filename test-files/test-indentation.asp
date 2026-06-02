@@ -327,21 +327,21 @@ End Function
      ACTION:  on the line below, place cursor between  <%  and  %>,  press [Enter]
      EXPECTED:
          <%
-             (cursor here at col 0 — same level as the <%)
+             (cursor here at col 0 — same level as the opening tag)
          %>                                                                    -->
 
 <%  %>
 
-<!-- D2. [Enter] after a standalone  <%
-     ACTION:  cursor at end of the  <%  line inside the block below, press [Enter]
-     EXPECTED: new line at col 0  (VBScript code level matches <% level)      -->
+<!-- D2. [Enter] after a standalone asp opening tag
+     ACTION:  cursor at end of the asp opening tag line inside the block below, press [Enter]
+     EXPECTED: new line at col 0  (VBScript code level matches the opening tag level)      -->
 
 <%
 Response.Write "hello"
 %>
 
-<!-- D3. [Enter] after a standalone  %>  inside a list
-     ACTION:  cursor at end of the  %>  line inside the ul below, press [Enter]
+<!-- D3. [Enter] after a standalone asp closing tag inside a list
+     ACTION:  cursor at end of the asp closing tag line inside the ul below, press [Enter]
      EXPECTED: new line at col 4  (inside the ul's child indent)              -->
 
 <ul>
@@ -394,17 +394,17 @@ End If
 
 %>
 
-<!-- E4. Tab on a blank line immediately after  <%
-     ACTION:  click on the blank line right after the  <%  below, press [Tab]
-     EXPECTED: cursor at col 0  (no extra indent added for the <% line itself) -->
+<!-- E4. Tab on a blank line immediately after asp opening tag
+     ACTION:  click on the blank line right after the asp opening tag below, press [Tab]
+     EXPECTED: cursor at col 0  (no extra indent added for the asp opening tag line itself) -->
 
 <%
 
 Response.Write "test"
 %>
 
-<!-- E5. Tab below  %>  inside a div  →  div's child indent
-     ACTION:  click on the blank line immediately after the  %>  inside the
+<!-- E5. Tab below the asp closing tag inside a div  →  div's child indent
+     ACTION:  click on the blank line immediately after the asp closing tag inside the
               div below, then press [Tab]
      EXPECTED: cursor at col 4  (the div's child indent)                      -->
 
