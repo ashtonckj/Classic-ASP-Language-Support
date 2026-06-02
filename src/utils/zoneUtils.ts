@@ -314,19 +314,17 @@ function isVbScriptTag(attrs: string): boolean {
 
 export function getZone(fullText: string, offset: number): Zone {
     // 1. ASP zone — <% ... %> blocks
-    if (isInsideAspBlock(fullText, offset)) { console.log('asp'); return 'asp'; }
+    if (isInsideAspBlock(fullText, offset)) { return 'asp'; }
 
     // 2. CSS zone — inside a real <style> … </style>
-    if (isInsideCssBlock(fullText, offset)) { console.log('css'); return 'css'; }
+    if (isInsideCssBlock(fullText, offset)) { return 'css'; }
 
     // 3. Script zone — inside a real <script> … </script>
     const jsInfo = isInsideJsBlock(fullText, offset);
     if (jsInfo.inside) {
-        console.log(jsInfo.isVbs ? 'asp' : 'js');
         return jsInfo.isVbs ? 'asp' : 'js';
     }
 
     // 4. Fall back to HTML
-    console.log('html');
     return 'html';
 }

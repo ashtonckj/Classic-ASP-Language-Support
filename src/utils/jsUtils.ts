@@ -594,7 +594,7 @@ export function buildVirtualJsContent(content: string, offset: number): VirtualJ
     }
 
     body += blankNonNewlines(content.slice(prev));
-    console.log(preamble + body);
+
     return {
         virtualContent: preamble + body,
         isInScript,
