@@ -54,27 +54,23 @@ function skipHtmlComment(text: string, start: number): number {
 
 /**
  * Returns true when `offset` falls inside a <% ... %> ASP block.
- *
- * The scan is intentionally literal for the block delimiters themselves
- * (VBScript strings / comments cannot contain `%>` in a way that would fool
- * us in practice), which matches the original behaviour.
  */
-function isInsideAspBlock(text: string, offset: number): boolean {
-    let i = 0;
+function isInsideAspBlock(fullText: string, offset: number): boolean {
+    let pos = 0;
     let inAsp = false;
 
-    while (i < text.length) {
+    while (pos < fullText.length) {
         if (!inAsp) {
-            const openIdx = text.indexOf('<%', i);
+            const openIdx = fullText.indexOf('<%', pos);
             if (openIdx === -1 || openIdx >= offset) return false;
             inAsp = true;
-            i = openIdx + 2;
+            pos = openIdx + 2;
         } else {
-            const closeIdx = text.indexOf('%>', i);
+            const closeIdx = fullText.indexOf('%>', pos);
             if (closeIdx === -1) return true;         // unclosed block — offset is inside
             if (offset < closeIdx + 2) return true;   // offset is before or within %>
             inAsp = false;
-            i = closeIdx + 2;
+            pos = closeIdx + 2;
         }
     }
 
@@ -113,22 +109,20 @@ function findNextRealTag(
 ): number {
     let i = from;
     let inAsp = false;
+    let inHtmlTag = false;
+    let inHtmlString = false;
+    let htmlStringQuote = '';
+    let inHtmlComment = false;
 
     while (i < stopBefore) {
         const ch = text[i];
 
         if (inAsp) {
-            // ----------------------------------------------------------------
-            // Inside an ASP block — skip VBScript constructs so we don't
-            // misinterpret their contents, then watch for %>
-            // ----------------------------------------------------------------
             if (ch === '"') {
                 i = skipVbsString(text, i);
                 continue;
             }
             if (ch === "'") {
-                // Could be a VBScript comment OR an HTML attribute quote that
-                // leaked here — treat it as a line comment (safe for .asp).
                 i = skipVbsLineComment(text, i + 1);
                 continue;
             }
@@ -141,31 +135,59 @@ function findNextRealTag(
             continue;
         }
 
-        // --------------------------------------------------------------------
-        // Outside ASP — watch for context openers before checking for tag
-        // --------------------------------------------------------------------
-
-        // HTML comment
-        if (ch === '<' && text.startsWith('!--', i + 1)) {
-            i = skipHtmlComment(text, i);
+        if (inHtmlComment) {
+            if (text.startsWith('-->', i)) {
+                inHtmlComment = false;
+                i += 3;
+                continue;
+            }
+            i++;
             continue;
         }
 
-        // ASP block
-        if (ch === '<' && text[i + 1] === '%') {
-            inAsp = true;
-            i += 2;
+        if (inHtmlString) {
+            if (ch === htmlStringQuote) {
+                inHtmlString = false;
+                htmlStringQuote = '';
+            }
+            i++;
             continue;
         }
 
-        // Candidate tag?
-        if (text.startsWith(tag, i)) {
-            // Extra guard: the character right after the tag name must be
-            // whitespace, `>`, or `/` — so `<scriptx` won't match `<script`.
-            const afterTag = i + tag.length;
-            const next = text[afterTag];
-            if (next === undefined || /[\s>/]/.test(next)) {
-                return i;
+        if (ch === '<') {
+            if (text.startsWith('!--', i + 1)) {
+                inHtmlComment = true;
+                i += 4;
+                continue;
+            }
+            if (text[i + 1] === '%') {
+                inAsp = true;
+                i += 2;
+                continue;
+            }
+
+            if (text.slice(i, i + tag.length).toLowerCase() === tag) {
+                const afterTag = i + tag.length;
+                const next = text[afterTag];
+                if (next === undefined || /[\s>/]/.test(next)) {
+                    return i;
+                }
+            }
+
+            inHtmlTag = true;
+            i++;
+            continue;
+        }
+
+        if (inHtmlTag) {
+            if (ch === '"' || ch === "'") {
+                inHtmlString = true;
+                htmlStringQuote = ch;
+                i++;
+                continue;
+            }
+            if (ch === '>') {
+                inHtmlTag = false;
             }
         }
 
@@ -271,17 +293,19 @@ function isVbScriptTag(attrs: string): boolean {
 
 export function getZone(fullText: string, offset: number): Zone {
     // 1. ASP zone — <% ... %> blocks
-    if (isInsideAspBlock(fullText, offset)) { return 'asp'; }
+    if (isInsideAspBlock(fullText, offset)) { console.log('asp'); return 'asp'; }
 
     // 2. CSS zone — inside a real <style> … </style>
-    if (isInsideCssBlock(fullText, offset)) { return 'css'; }
+    if (isInsideCssBlock(fullText, offset)) { console.log('css'); return 'css'; }
 
     // 3. Script zone — inside a real <script> … </script>
     const jsInfo = isInsideJsBlock(fullText, offset);
     if (jsInfo.inside) {
+        console.log(jsInfo.isVbs ? 'asp' : 'js');
         return jsInfo.isVbs ? 'asp' : 'js';
     }
 
     // 4. Fall back to HTML
+    console.log('html');
     return 'html';
 }

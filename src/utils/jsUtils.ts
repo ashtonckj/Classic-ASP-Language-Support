@@ -144,6 +144,7 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
     const searchable = content
         .replace(/<!--[\s\S]*?-->/g, m => blankNonNewlines(m))
         .replace(/<%[\s\S]*?%>/g,    m => blankNonNewlines(m));
+    const searchableLower = searchable.toLowerCase();
 
     /**
      * Find the index of the closing '>' of a <script> opening tag, starting
@@ -152,10 +153,21 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
      */
     function findTagClose(from: number): number {
         let i = from;
+        let inQuote: string | null = null;
+
         while (i < searchable.length) {
-            // ASP blocks in searchable are already blanked, so no need to skip
-            // them — just look for the closing >.
-            if (searchable[i] === '>') { return i; }
+            const ch = searchable[i];
+            if (inQuote) {
+                if (ch === inQuote) { inQuote = null; }
+                i++;
+                continue;
+            }
+            if (ch === '"' || ch === "'") {
+                inQuote = ch;
+                i++;
+                continue;
+            }
+            if (ch === '>') { return i; }
             i++;
         }
         return -1;
@@ -238,7 +250,7 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
     let searchFrom = 0;
 
     while (true) {
-        const scriptOpen = searchable.indexOf('<script', searchFrom);
+        const scriptOpen = searchableLower.indexOf('<script', searchFrom);
         if (scriptOpen === -1) { break; }
 
         const charAfter = searchable[scriptOpen + 7];
