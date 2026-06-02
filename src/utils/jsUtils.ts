@@ -136,31 +136,99 @@ function sanitizeToIdentifier(raw: string): string {
 // and jsCompletionProvider to avoid duplicating the same regex logic in each file.
 // ─────────────────────────────────────────────────────────────────────────────
 export function getJsRanges(content: string): Array<{ start: number; end: number }> {
-    const aspRanges: Array<{ start: number; end: number }> = [];
-    const aspRegex = /<%[\s\S]*?%>/g;
-    let aspM: RegExpExecArray | null;
-    while ((aspM = aspRegex.exec(content)) !== null) {
-        aspRanges.push({ start: aspM.index, end: aspM.index + aspM[0].length });
-    }
-    const isInsideAsp = (offset: number): boolean =>
-        aspRanges.some(r => offset >= r.start && offset < r.end);
+
+    // Pre-blank HTML comments and ASP blocks so any <script> tags inside them
+    // are invisible to the search below. Newlines are preserved so all offsets
+    // into `content` remain valid — only the non-newline characters are replaced
+    // with spaces in the search copy.
+    const searchable = content
+        .replace(/<!--[\s\S]*?-->/g, m => blankNonNewlines(m))
+        .replace(/<%[\s\S]*?%>/g,    m => blankNonNewlines(m));
 
     /**
      * Find the index of the closing '>' of a <script> opening tag, starting
-     * at `from`. Unlike a simple indexOf('>'), this skips over any embedded
-     * ASP blocks (<%...%>) so that a '>' inside e.g. <%=fn()%> is not
-     * mistaken for the end of the tag.
+     * at `from`. Works directly on `searchable` where ASP blocks are already
+     * blanked, so a stray '>' inside a block can't fool it.
      */
     function findTagClose(from: number): number {
         let i = from;
+        while (i < searchable.length) {
+            // ASP blocks in searchable are already blanked, so no need to skip
+            // them — just look for the closing >.
+            if (searchable[i] === '>') { return i; }
+            i++;
+        }
+        return -1;
+    }
+
+    /**
+     * Scans JS source text (from `start` in `content`) character by character,
+     * tracking string and line-comment state, and returns the absolute offset of
+     * the first `</script` that is NOT inside a string literal or line comment.
+     *
+     * This prevents `var s = '</script>'` from being mistaken for the real closing
+     * tag of the surrounding <script> block.
+     *
+     * Template literals (backticks) are also tracked. Nested template expressions
+     * `${}` are intentionally not recursed into — the heuristic is good enough for
+     * the single-file ASP use-case and avoids a full parser.
+     */
+    function findScriptClose(start: number): number {
+        let i = start;
+        let inStr = false;
+        let strChar = '';
+        let inLine = false;   // inside a // line comment
+
         while (i < content.length) {
-            if (content[i] === '<' && content[i + 1] === '%') {
-                const aspEnd = content.indexOf('%>', i);
-                if (aspEnd === -1) { return -1; }
-                i = aspEnd + 2;
+            // ── line comment ─────────────────────────────────────────────────
+            if (inLine) {
+                if (content[i] === '\n') { inLine = false; }
+                i++;
                 continue;
             }
-            if (content[i] === '>') { return i; }
+
+            // ── inside a string literal ───────────────────────────────────
+            if (inStr) {
+                if (content[i] === '\\' && strChar !== '`') {
+                    i += 2;   // skip escaped character
+                    continue;
+                }
+                if (content[i] === strChar) { inStr = false; }
+                i++;
+                continue;
+            }
+
+            // ── outside any string/comment ────────────────────────────────
+            // Detect start of line comment
+            if (content[i] === '/' && content[i + 1] === '/') {
+                inLine = true;
+                i += 2;
+                continue;
+            }
+            // Detect start of block comment — scan to */
+            if (content[i] === '/' && content[i + 1] === '*') {
+                const end = content.indexOf('*/', i + 2);
+                i = end === -1 ? content.length : end + 2;
+                continue;
+            }
+            // Detect start of string
+            if (content[i] === '"' || content[i] === "'" || content[i] === '`') {
+                inStr   = true;
+                strChar = content[i];
+                i++;
+                continue;
+            }
+            // Detect </script>  (case-insensitive, optional whitespace before >)
+            if (content[i] === '<' && content[i + 1] === '/') {
+                const slice = content.slice(i, i + 9).toLowerCase();
+                if (slice.startsWith('</script')) {
+                    // Make sure it's </script> or </script  (not </scriptx)
+                    const ch = content[i + 8];
+                    if (ch === '>' || ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+                        return i;
+                    }
+                }
+            }
             i++;
         }
         return -1;
@@ -170,17 +238,12 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
     let searchFrom = 0;
 
     while (true) {
-        const scriptOpen = content.indexOf('<script', searchFrom);
+        const scriptOpen = searchable.indexOf('<script', searchFrom);
         if (scriptOpen === -1) { break; }
 
-        const charAfter = content[scriptOpen + 7];
+        const charAfter = searchable[scriptOpen + 7];
         if (charAfter !== '>' && charAfter !== ' ' && charAfter !== '\t' &&
             charAfter !== '\n' && charAfter !== '\r' && charAfter !== '/') {
-            searchFrom = scriptOpen + 7;
-            continue;
-        }
-
-        if (isInsideAsp(scriptOpen)) {
             searchFrom = scriptOpen + 7;
             continue;
         }
@@ -188,23 +251,21 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
         const scriptTagEnd = findTagClose(scriptOpen + 7);
         if (scriptTagEnd === -1) { break; }
 
-        const rawAttrs = content.slice(scriptOpen + 7, scriptTagEnd);
-        const cleanAttrs = rawAttrs.replace(/<%[\s\S]*?%>/g, m => ' '.repeat(m.length));
+        const attrs = searchable.slice(scriptOpen + 7, scriptTagEnd);
 
-        const typeMatch = cleanAttrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
+        const typeMatch = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
         if (typeMatch && !/javascript|module/i.test(typeMatch[1])) {
             searchFrom = scriptTagEnd + 1;
             continue;
         }
-        if (/\blanguage\s*=\s*["']vbscript["']/i.test(cleanAttrs)) {
+        if (/\blanguage\s*=\s*["']vbscript["']/i.test(attrs)) {
             searchFrom = scriptTagEnd + 1;
             continue;
         }
 
-        const tagEnd = scriptTagEnd + 1;
-        const rest = content.slice(tagEnd);
-        const closeIdx = rest.search(/<\/script\s*>/i);
-        const end = closeIdx === -1 ? content.length : tagEnd + closeIdx;
+        const tagEnd   = scriptTagEnd + 1;
+        const closeIdx = findScriptClose(tagEnd);
+        const end      = closeIdx === -1 ? content.length : closeIdx;
 
         ranges.push({ start: tagEnd, end });
         searchFrom = end;
