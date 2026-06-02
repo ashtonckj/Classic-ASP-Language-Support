@@ -8,11 +8,6 @@
  * noisy for small inline scripts that don't import modules. Only structural
  * errors like wrong argument counts and genuine syntax errors are surfaced.
  *
- * TS2367 (comparison overlap) is intentionally NOT suppressed — the any-typed
- * preamble system ensures all ASP expression blocks are typed as `any`, so
- * TypeScript can no longer produce false 2367 errors from them. If a 2367
- * fires now, it's a genuine type mismatch in the user's own JS code.
- *
  * preambleLength is subtracted from every diagnostic start position before
  * converting to a VS Code Range, since the virtual file has the preamble
  * prepended and all TS positions are relative to that.
@@ -38,6 +33,7 @@ const SUPPRESSED_CODES = new Set([
     2531,   // Object is possibly 'null'
     2532,   // Object is possibly 'undefined'
     2349,   // This expression is not callable (e.g. window[name]() dynamic dispatch)
+    2367,   // Comparison does not have overlap
 ]);
 
 function getDiagnosticsForDocument(document: vscode.TextDocument): vscode.Diagnostic[] {
