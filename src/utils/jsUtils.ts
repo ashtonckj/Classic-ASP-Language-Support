@@ -8,7 +8,7 @@
  * The virtual file 'asp-embedded.js' is updated with projected content before each
  * query so offset positions stay exact across the whole document.
  *
- * ── ASP → JS Projection strategy (any-typed variable projection) ────────────
+ * ── ASP → JS Projection strategy ────────────────────────────────────────────
  *
  * The core problem with fake-literal placeholders ("", 0, [], false) was that
  * TypeScript narrows those to specific types, causing TS2367 errors when they
@@ -17,42 +17,46 @@
  * The solution is a TWO-PASS system:
  *
  *   PASS 1 — Preamble generation (runs over the whole document)
- *     • Every VBScript variable name found in ANY <% ... %> statement block is
- *       collected and declared as `var _asp_<name>: any` in a preamble prepended
- *       to the top of the virtual file.
+ *     • Every VBScript `Const` declaration is collected and declared in the
+ *       preamble with its inferred TypeScript type (string | number | boolean).
+ *       Consts are reliable because VBScript guarantees they are never reassigned.
+ *       → e.g. `Const MAX = 10`  produces  `var _asp_MAX: number;`
  *     • Every expression slot <%= expr %> inside a JS range gets a sanitised
- *       sentinel name `_aspo_<expr>`, also declared as `var _aspo_<expr>: any`.
- *     • Declaring with type `any` prevents TypeScript from narrowing these to
- *       literal types regardless of how the JS code uses them.
+ *       sentinel name `_asp_<sanitized>`, declared as `var _asp_<sanitized>: any`.
+ *     • A universal catch-all `var _asp: any` is always emitted so that statement
+ *       blocks <% %> sitting inline in JS expressions can safely substitute to
+ *       the token `_asp` without TypeScript complaining.
  *
  *   PASS 2 — Inline substitution (offset-preserving)
- *     • Statement blocks  <% code %>   →  block comment ... (same shape)
- *     • Expression blocks <%= expr %>  →  _aspo_<expr>  padded to the same
- *       character width, so all downstream source positions stay valid.
+ *     • Statement blocks  <% code %>   →  `_asp` padded to the same width
+ *     • Expression blocks <%= expr %>  →  `_asp_<sanitized>` padded to the same width
  *
  * EXAMPLES
  *   Source (.asp):
  *     <%
- *       userId = Session("id")
- *       count  = RS("total")
+ *       Const MAX_ITEMS = 25
+ *       Const GREETING  = "Hello"
+ *       If testing = true Then Response.Write "0" Else Response.Write "10"
  *     %>
  *     <script>
  *       var x = <%= userId %>;
- *       if (x === "hello") { }        // ← no TS2367: x is any
- *       if (<%= count %> > 0) { }     // ← no TS2367: _aspo_count is any
+ *       var limit = <% If testing = true Then Response.Write "0" Else Response.Write "10" %>;
+ *       if (x === "hello") { }
+ *       if (<%= MAX_ITEMS %> > 0) { }
  *     </script>
  *
  *   Virtual JS produced:
- *     var _asp_userId: any;           // ← preamble declarations
- *     var _asp_count: any;
- *     var _aspo_userId: any;
- *     var _aspo_count: any;
+ *     var _asp: any;                     // ← catch-all for statement blocks
+ *     var _asp_MAX_ITEMS: number;        // ← typed from Const literal
+ *     var _asp_GREETING: string;         // ← typed from Const literal
+ *     var _asp_userId: any;              // ← expression sentinel
  *
  *     (blanked HTML)
  *     (blanked script tag)
- *       var x = _aspo_userId ;        // ← inline substitution, same width
+ *       var x = _asp_userId  ;           // ← inline substitution, same width
+ *       var limit = _asp      ...  ;     // ← statement block → _asp padded
  *       if (x === "hello") { }
- *       if (_aspo_count   > 0) { }
+ *       if (_asp_MAX_ITEMS   > 0) { }
  *     (blanked close tag)
  *
  * OFFSET PRESERVATION
@@ -72,20 +76,15 @@ import * as fs from 'fs';
 import * as ts from 'typescript';
 import * as vscode from 'vscode';
 
-export const VIRTUAL_FILENAME = 'asp-embedded.js';
+export const VIRTUAL_FILENAME    = 'asp-embedded.js';
 export const ASP_DOM_TYPES_FILENAME = 'asp-dom.d.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// buildVirtualJsContent
-//
-// Locates every JS <script>…</script> block in the document. Everything outside
-// those blocks is replaced with spaces (newlines preserved) so TS offset
-// positions remain valid for the whole file. ASP blocks inside script zones
-// are projected to any-typed variable references (see file-level comment).
+// VirtualJsResult
 // ─────────────────────────────────────────────────────────────────────────────
 export interface VirtualJsResult {
     virtualContent: string;
-    isInScript: boolean;
+    isInScript:     boolean;
     /**
      * Number of characters in the generated preamble that was prepended to the
      * virtual content.  Every provider MUST:
@@ -96,21 +95,46 @@ export interface VirtualJsResult {
     preambleLength: number;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
 function blankNonNewlines(s: string): string {
     return s.replace(/[^\n]+/g, m => ' '.repeat(m.length));
 }
 
 /**
- * Returns the character offsets of every JavaScript <script> block in `content`.
- * `start` is the index of the first character after `>`, `end` is the index of
- * the `<` that begins `</script>` — so JS content is `content.slice(start, end)`.
+ * Turns an arbitrary VBScript expression string into a safe JS identifier
+ * segment.  All non-word characters are collapsed to a single underscore,
+ * and leading/trailing underscores are stripped.
  *
- * Blocks with a non-JS `type` attribute (e.g. `type="text/html"`) and blocks
- * with `language="vbscript"` are excluded.
- *
- * Shared by jsDiagnosticsProvider, jsSemanticProvider, jsDocumentSymbolProvider,
- * and jsCompletionProvider to avoid duplicating the same regex logic in each file.
+ * Examples:
+ *   "userId"            → "userId"
+ *   "Trim(userId)"      → "Trim_userId"
+ *   "userId & lastName" → "userId_lastName"
+ *   "RS(\"total\")"     → "RS_total"
  */
+function sanitizeToIdentifier(raw: string): string {
+    const sanitized = raw
+        .trim()
+        .replace(/[^A-Za-z0-9_]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+    return sanitized || 'expr';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getJsRanges
+//
+// Returns the character offsets of every JavaScript <script> block in `content`.
+// `start` is the index of the first character after `>`, `end` is the index of
+// the `<` that begins `</script>` — so JS content is `content.slice(start, end)`.
+//
+// Blocks with a non-JS `type` attribute (e.g. `type="text/html"`) and blocks
+// with `language="vbscript"` are excluded.
+//
+// Shared by jsDiagnosticsProvider, jsSemanticProvider, jsDocumentSymbolProvider,
+// and jsCompletionProvider to avoid duplicating the same regex logic in each file.
+// ─────────────────────────────────────────────────────────────────────────────
 export function getJsRanges(content: string): Array<{ start: number; end: number }> {
     const aspRanges: Array<{ start: number; end: number }> = [];
     const aspRegex = /<%[\s\S]*?%>/g;
@@ -130,10 +154,9 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
     function findTagClose(from: number): number {
         let i = from;
         while (i < content.length) {
-            // If we're at the start of an ASP block, jump past it entirely.
             if (content[i] === '<' && content[i + 1] === '%') {
                 const aspEnd = content.indexOf('%>', i);
-                if (aspEnd === -1) { return -1; } // malformed — give up
+                if (aspEnd === -1) { return -1; }
                 i = aspEnd + 2;
                 continue;
             }
@@ -150,7 +173,6 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
         const scriptOpen = content.indexOf('<script', searchFrom);
         if (scriptOpen === -1) { break; }
 
-        // Must be followed by '>' or whitespace (not e.g. '<scriptx')
         const charAfter = content[scriptOpen + 7];
         if (charAfter !== '>' && charAfter !== ' ' && charAfter !== '\t' &&
             charAfter !== '\n' && charAfter !== '\r' && charAfter !== '/') {
@@ -163,12 +185,9 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
             continue;
         }
 
-        // Find the real end of the opening tag, skipping over embedded ASP blocks.
         const scriptTagEnd = findTagClose(scriptOpen + 7);
         if (scriptTagEnd === -1) { break; }
 
-        // Extract attributes — but ASP blocks inside them are noise; blank them
-        // out temporarily just for attribute parsing.
         const rawAttrs = content.slice(scriptOpen + 7, scriptTagEnd);
         const cleanAttrs = rawAttrs.replace(/<%[\s\S]*?%>/g, m => ' '.repeat(m.length));
 
@@ -182,10 +201,10 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
             continue;
         }
 
-        const tagEnd = scriptTagEnd + 1; // index of first char after '>'
-        const rest     = content.slice(tagEnd);
+        const tagEnd = scriptTagEnd + 1;
+        const rest = content.slice(tagEnd);
         const closeIdx = rest.search(/<\/script\s*>/i);
-        const end      = closeIdx === -1 ? content.length : tagEnd + closeIdx;
+        const end = closeIdx === -1 ? content.length : tagEnd + closeIdx;
 
         ranges.push({ start: tagEnd, end });
         searchFrom = end;
@@ -197,111 +216,128 @@ export function getJsRanges(content: string): Array<{ start: number; end: number
 // ─────────────────────────────────────────────────────────────────────────────
 // Pass 1 — preamble builder
 //
-// Scans the entire document and collects:
-//   a) Every VBScript variable name assigned inside any <% ... %> block
-//      → declared as `var _asp_<name>: any` in the preamble.
-//   b) Every <%= expr %> expression block inside a JS <script> range
-//      → assigned a sanitised sentinel `_aspo_<expr>`, also declared as `any`.
+// Collects:
+//   a) VBScript `Const` declarations anywhere in <% %> blocks, with their
+//      inferred TypeScript type (string | number | boolean).  Consts are
+//      guaranteed immutable in VBScript so their literal type is reliable.
+//   b) Every <%= expr %> expression block inside a JS range, mapped to a
+//      sanitised sentinel name _asp_<sanitized>, typed as `any`.
+//   c) Always emits `var _asp: any` as a universal catch-all for statement
+//      blocks that appear inline in JS expressions.
 //
 // Returns:
-//   preamble        — the `var _asp_*/var _aspo_*: any;` block to prepend
+//   preamble        — the typed/any declarations to prepend
 //   exprSentinels   — Map<aspBlock start-offset → sentinel name> used by pass 2
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface PreambleResult {
-    preamble: string;                       // e.g. "var _asp_userId: any;\nvar _aspo_userId: any;\n"
-    exprSentinels: Map<number, string>;     // aspBlock start-offset → sentinel name
+    preamble: string;
+    exprSentinels: Map<number, string>;  // absolute offset → sentinel name e.g. "_asp_userId"
 }
 
 /**
- * JavaScript reserved words and common built-ins that must never appear in the
- * preamble as `var <name>: any` declarations — doing so causes TS parse errors
- * (e.g. `var If: any` or `var Then: any` from VBScript If/Then comparisons).
+ * Infers the TypeScript type of a VBScript Const literal value.
  *
- * VBScript keywords that look like assignments (e.g. `If x = y Then`) would be
- * matched by the assignment regex and incorrectly added to the preamble without
- * this guard.
+ * VBScript Const literals can only be:
+ *   • String literals   "hello"  or  'hello'
+ *   • Numeric literals  42  /  3.14  /  -1  /  &H1F (hex)
+ *   • Boolean literals  True  /  False
+ *
+ * Anything else (e.g. a function call or variable reference on the right-hand
+ * side, which is actually illegal in VBScript Const but may appear in malformed
+ * code) falls back to `any`.
  */
-const JS_RESERVED = new Set([
-    // JS reserved words
-    'break','case','catch','class','const','continue','debugger','default',
-    'delete','do','else','export','extends','finally','for','function','if',
-    'import','in','instanceof','let','new','return','static','super','switch',
-    'this','throw','try','typeof','var','void','while','with','yield',
-    // Strict mode / future reserved
-    'enum','implements','interface','package','private','protected','public',
-    // Common globals we never want to shadow
-    'undefined','null','true','false','NaN','Infinity','arguments',
-    'window','document','console','alert','confirm','prompt',
-]);
+function inferVbsConstType(value: string): string {
+    const v = value.trim();
+    // String literal
+    if ((v.startsWith('"') && v.endsWith('"')) ||
+        (v.startsWith("'") && v.endsWith("'"))) {
+        return 'string';
+    }
+    // Boolean literal (VBScript is case-insensitive)
+    if (/^true$/i.test(v) || /^false$/i.test(v)) {
+        return 'boolean';
+    }
+    // Numeric literal — decimal, float, negative, or hex (&Hxx)
+    if (/^-?\d+(\.\d+)?$/.test(v) || /^&H[0-9A-Fa-f]+$/i.test(v)) {
+        return 'number';
+    }
+    return 'any';
+}
 
 /**
- * Collects all VBScript identifier names that are assigned (=) inside any
- * <%  ... %> statement block in `content`. Names are lowercased for
- * deduplication, but the original casing of the first occurrence is kept.
+ * Collects all VBScript `Const` declarations from <% %> statement blocks.
+ * Returns a map of identifier name → inferred TypeScript type string.
+ *
+ * Only `Const` is used here because it is the only VBScript construct that
+ * guarantees a fixed, statically-known value — regular variables can be
+ * reassigned to any type at runtime, making type inference unreliable.
+ *
+ * Future improvement: extend this to track Dim + single-assignment patterns,
+ * or map VBScript subtype functions (CStr, CInt, CBool) to TS types.
  */
-function collectVbsVarNames(content: string): string[] {
+function collectVbsConsts(content: string): Map<string, string> {
     const seen = new Set<string>();
-    const names: string[] = [];
+    const consts = new Map<string, string>(); // original-cased name → TS type
 
-    // <%(?!=) matches <% but NOT <%= (expression blocks, e.g. <%=variable%>)
+    // Only statement blocks — not expression blocks
     const aspRegex = /<%(?!=)([\s\S]*?)%>/g;
     let m: RegExpExecArray | null;
     while ((m = aspRegex.exec(content)) !== null) {
-        // Collapse VBScript line continuations (" _\n") before pattern matching,
-        // otherwise continued lines (e.g. `testing = 10 Then`) are mistaken for assignments.
         const block = m[1].replace(/ _\r?\n/g, ' ');
 
-        // Matches assignments:  [Set|Const] identifier = ...
-        const assignedRegex = /^\s*(?:Set|Const)?\s*([A-Za-z_]\w*)\s*=/gm;
-        let assignedVar: RegExpExecArray | null;
-        while ((assignedVar = assignedRegex.exec(block)) !== null) {
-            const raw = assignedVar[1];
-            if (JS_RESERVED.has(raw.toLowerCase())) { continue; }
-            const key = raw.toLowerCase();
-            if (!seen.has(key)) {
-                seen.add(key);
-                names.push(raw);
-            }
-        }
-
-        // Matches Dim declarations, including comma-separated lists:  Dim foo, bar, baz
-        const declaredRegex = /^\s*Dim\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)/gim;
-        let declaredVar: RegExpExecArray | null;
-        while ((declaredVar = declaredRegex.exec(block)) !== null) {
-            const raw = declaredVar[1];
-            if (JS_RESERVED.has(raw.toLowerCase())) { continue; }
-            const key = raw.toLowerCase();
-            if (!seen.has(key)) {
-                seen.add(key);
-                names.push(raw);
-            }
+        // Matches:  Const NAME = <value>
+        // The value ends at end-of-line (or colon for multi-statement lines).
+        const constRegex = /^\s*Const\s+([A-Za-z_]\w*)\s*=\s*([^\r\n:]+)/gim;
+        let c: RegExpExecArray | null;
+        while ((c = constRegex.exec(block)) !== null) {
+            const name = c[1];
+            const key = name.toLowerCase();
+            if (seen.has(key)) { continue; }
+            seen.add(key);
+            consts.set(name, inferVbsConstType(c[2]));
         }
     }
-    return names;
+
+    return consts;
 }
 
 /**
  * Collects all ASP expression blocks (<%= ... %>) that fall within the given
  * JS ranges, and maps their absolute offset to a sanitised sentinel name.
+ *
+ * The sentinel name is `_asp_<sanitized>` where <sanitized> is the expression
+ * with all non-identifier characters replaced by underscores, so that arbitrary
+ * expressions like `Trim(userId)` or `userId & lastName` produce valid JS
+ * identifiers (`_asp_Trim_userId`, `_asp_userId_lastName`).
+ *
+ * Collision note: two different expressions that sanitize to the same name
+ * (e.g. `Trim(x)` and `Trim x`) share the same sentinel and both get typed
+ * as `any` — this is intentional and safe since both are unknown at static
+ * analysis time.
  */
-function collectExprSentinels(content: string, jsRanges: Array<{ start: number; end: number }>): Map<number, string> {
-    const seen = new Set<string>();
-    const exprSentinels = new Map<number, string>();
+function collectExprSentinels(
+    content: string,
+    jsRanges: Array<{ start: number; end: number }>
+): Map<number, string> {
+    const seen: Map<string, string> = new Map();
+    const exprSentinels: Map<number, string> = new Map();
 
     for (const range of jsRanges) {
         const js = content.slice(range.start, range.end);
         const aspRegex = /<%=\s*([\s\S]*?)\s*%>/g;
-        let sentinelVar: RegExpExecArray | null;
-        while ((sentinelVar = aspRegex.exec(js)) !== null) {
-            const raw = sentinelVar[1];
-            if (JS_RESERVED.has(raw.toLowerCase())) { continue; }
-            const absOffset = range.start + sentinelVar.index;
-            const key = raw.toLowerCase();
+        let m: RegExpExecArray | null;
+        while ((m = aspRegex.exec(js)) !== null) {
+            const raw = m[1];
+            const sanitized = sanitizeToIdentifier(raw);
+            const sentinel = '_asp_' + sanitized;
+            const key = sentinel.toLowerCase();
+            const absOffset = range.start + m.index;
+
             if (!seen.has(key)) {
-                seen.add(key);
-                exprSentinels.set(absOffset, raw.replace(/\s+/g, '_'));
+                seen.set(key, sentinel);
             }
+            exprSentinels.set(absOffset, seen.get(key)!);
         }
     }
 
@@ -313,19 +349,36 @@ function collectExprSentinels(content: string, jsRanges: Array<{ start: number; 
  * @param content   Raw ASP source text.
  * @param jsRanges  Pre-computed JS script ranges (from getJsRanges).
  */
-function buildPreamble(content: string, jsRanges: Array<{ start: number; end: number }>): PreambleResult {
-    const vbsNames = collectVbsVarNames(content);
+function buildPreamble(
+    content: string,
+    jsRanges: Array<{ start: number; end: number }>
+): PreambleResult {
+    const vbsConsts = collectVbsConsts(content);
     const exprSentinels = collectExprSentinels(content, jsRanges);
 
     const lines: string[] = [
-        '// [asp-projection] any-typed preamble — auto-generated, do not edit',
+        '// [asp-projection] preamble — auto-generated, do not edit',
+        // Universal catch-all: statement blocks <% %> inline in JS substitute to `_asp`
+        'var _asp: any;',
     ];
 
-    for (const name of vbsNames) {
-        lines.push(`var _asp_${name}: any;`);
+    // Typed declarations for VBScript Const values
+    for (const [name, tsType] of vbsConsts) {
+        lines.push(`var _asp_${name}: ${tsType};`);
     }
-    for (const sentinel of exprSentinels.values()) {
-        lines.push(`var _aspo_${sentinel}: any;`);
+
+    // Collect unique sentinel names (multiple offsets may share one sentinel)
+    const uniqueSentinels = new Set(exprSentinels.values());
+    for (const sentinel of uniqueSentinels) {
+        // Don't re-declare if a Const with the same sanitized name already exists
+        // (e.g. <%= MAX_ITEMS %> and Const MAX_ITEMS = 25 → keep the typed one)
+        const withoutPrefix = sentinel.slice('_asp_'.length);
+        const alreadyTyped = [...vbsConsts.keys()].some(
+            k => k.toLowerCase() === withoutPrefix.toLowerCase()
+        );
+        if (!alreadyTyped) {
+            lines.push(`var ${sentinel}: any;`);
+        }
     }
 
     lines.push('');
@@ -338,64 +391,50 @@ function buildPreamble(content: string, jsRanges: Array<{ start: number; end: nu
 // Pass 2 — inline substitution
 //
 // Replaces each ASP block in the JS body with an offset-preserving token:
-//   Statement block  <% code %>    →  /* code */     (block comment, same shape)
-//   Expression block <%= expr %>   →  _aspo_<expr>   (sentinel name, space-padded)
+//   Statement block  <% code %>   →  `_asp` padded to the same character width
+//   Expression block <%= expr %>  →  `_asp_<sanitized>` padded to the same width
 //
-// The sentinel name is looked up from the map built in pass 1. If a block
-// is missing from the map (e.g. an expression block outside any JS range),
-// a bare `0` fallback is used — harmless since it won't be seen by JS.
+// The `_asp` catch-all means statement blocks that appear inline in JS
+// expressions (e.g. `var x = <% Response.Write ... %>`) produce valid JS that
+// TypeScript can parse, typed as `any`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Replaces a single ASP block with its offset-preserving virtual-JS form.
+ * Replaces a single ASP block with its offset-preserving virtual-JS token.
  *
- * @param asp       The raw ASP block text, e.g. `<%= userId %>`.
- * @param sentinel  For expression blocks, the pre-assigned _aspo_<expr> name.
- *                  Pass `undefined` for statement blocks (they become comments).
+ * @param asp       The raw ASP block text, e.g. `<%= userId %>` or `<% ... %>`.
+ * @param sentinel  For expression blocks, the pre-assigned `_asp_<sanitized>` name.
+ *                  Pass `undefined` for statement blocks (they substitute to `_asp`).
  */
 function substituteAspBlock(asp: string, sentinel: string | undefined): string {
     const isExpression = asp.startsWith('<%=');
+    const token        = isExpression ? (sentinel ?? '_asp') : '_asp';
 
-    // ── Statement block: becomes a /* … */ comment of the same shape ─────────
-    if (!isExpression) {
-        const blanked = blankNonNewlines(asp);
-        const firstNonNl = blanked.indexOf(' ');
-        if (firstNonNl === -1 || blanked.length < 4) {
-            return blanked;
-        }
-        let chars = blanked.split('');
-        chars[firstNonNl] = '/';
-        chars[firstNonNl + 1] = '*';
-        let lastNonNl = chars.length - 1;
-        while (lastNonNl > firstNonNl && chars[lastNonNl] === '\n') { lastNonNl--; }
-        if (lastNonNl > firstNonNl + 1) {
-            chars[lastNonNl - 1] = '*';
-            chars[lastNonNl] = '/';
-        }
-        return chars.join('');
-    }
-
-    // ── Expression block: replaced with sentinel name (or fallback) ───────────
     const blanked = blankNonNewlines(asp);
     const totalLen = blanked.length;
+
+    // Count any leading newlines — these must be preserved in the output so
+    // that line numbers stay correct.
     let leadingNewlines = 0;
     while (leadingNewlines < totalLen && blanked[leadingNewlines] === '\n') {
         leadingNewlines++;
     }
+
     const available = totalLen - leadingNewlines;
 
-    const name = sentinel ?? '(undefined as any)';
-    const token = name.length <= available
-        ? name.padEnd(available, ' ').slice(0, available)
-        : '0'.padEnd(available, ' ').slice(0, available);
+    // Fit the token into `available` characters, padding with spaces.
+    // If the token is somehow longer than the available space (shouldn't happen
+    // with `_asp` = 4 chars and `<% %>` = 5 minimum), fall back to `_asp`.
+    const fitted = token.length <= available
+        ? token.padEnd(available, ' ').slice(0, available)
+        : '_asp'.padEnd(available, ' ').slice(0, available);
 
-    return blanked.slice(0, leadingNewlines) + token;
+    return blanked.slice(0, leadingNewlines) + fitted;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // buildVirtualJsContent — public entry point
 // ─────────────────────────────────────────────────────────────────────────────
-
 export function buildVirtualJsContent(content: string, offset: number): VirtualJsResult {
     const jsRanges = getJsRanges(content);
     const isInScript = jsRanges.some(r => offset >= r.start && offset <= r.end);
@@ -434,7 +473,7 @@ export function buildVirtualJsContent(content: string, offset: number): VirtualJ
     }
 
     body += blankNonNewlines(content.slice(prev));
-    console.log(preamble + body);
+
     return {
         virtualContent: preamble + body,
         isInScript,
@@ -479,13 +518,11 @@ export class JsLanguageService implements vscode.Disposable {
         this._compilerOptions = makeBrowserCompilerOptions();
         const libDir = path.dirname(ts.getDefaultLibFilePath(this._compilerOptions));
 
-        // Load custom DOM type definitions
-        // Try to load from extension path first, fall back to inline definitions
         this._aspDomTypes = extensionPath
             ? this.loadAspDomTypes(extensionPath)
             : this.getInlineAspDomTypes();
 
-        const self   = this;
+        const self = this;
 
         const host: ts.LanguageServiceHost = {
             getScriptFileNames:     () => [VIRTUAL_FILENAME, ASP_DOM_TYPES_FILENAME],
@@ -512,9 +549,9 @@ export class JsLanguageService implements vscode.Disposable {
                 if (f === ASP_DOM_TYPES_FILENAME) return self._aspDomTypes;
                 return ts.sys.readFile(f);
             },
-            readDirectory:          ts.sys.readDirectory.bind(ts.sys),
-            directoryExists:        ts.sys.directoryExists.bind(ts.sys),
-            getDirectories:         ts.sys.getDirectories.bind(ts.sys),
+            readDirectory: ts.sys.readDirectory.bind(ts.sys),
+            directoryExists: ts.sys.directoryExists.bind(ts.sys),
+            getDirectories: ts.sys.getDirectories.bind(ts.sys),
         };
 
         this._service = ts.createLanguageService(host, ts.createDocumentRegistry());

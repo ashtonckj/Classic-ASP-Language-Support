@@ -14,8 +14,9 @@
  *   • Mid-word (no trigger char, or after a space) we return isIncomplete:true so
  *     VS Code re-requests on every keystroke until the prefix is >= 2 chars.
  *
- * Entries prefixed with _asp_ or _aspo_ are filtered out — these are internal
- * projection variables and should never appear in user-facing suggestions.
+ * Entries prefixed with _asp_ or matching the bare catch-all `_asp` are filtered
+ * out — these are internal projection variables and should never appear in
+ * user-facing suggestions.
  */
 
 import * as vscode from 'vscode';
@@ -68,7 +69,7 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
 
         const items = completions.entries
             // Internal projection variables must never surface to the user.
-            .filter(e => !e.name.startsWith('_asp_') && !e.name.startsWith('_aspo_'))
+            .filter(e => !e.name.startsWith('_asp_') && e.name !== '_asp')
             .map(entry => {
             const item      = new vscode.CompletionItem(entry.name, tsKindToVsKind(entry.kind));
             item.sortText   = '0' + (entry.sortText ?? entry.name);
