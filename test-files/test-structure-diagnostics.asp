@@ -558,8 +558,8 @@ End Function                       ' ← OK
 <script>
     // These tags inside JS must not affect the HTML stack
     var template = '<div class="card"><table><tr><td>JS string</td></tr></table></div>';
-    var open = '<div>';
-    var close = '</div>';
+    var jsopen = '<div>';
+    var jsclose = '</div>';
 </script>
 
 <style>
