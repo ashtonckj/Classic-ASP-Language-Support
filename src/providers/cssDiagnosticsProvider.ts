@@ -23,7 +23,9 @@ function mapSeverity(severity: LsSeverity | undefined): vscode.DiagnosticSeverit
 
 /**
  * Returns true if `pos` falls inside an HTML comment (<!-- ... -->).
- * Used to skip <style> text that appears inside comment blocks.
+ * Used to skip <style>/<script> text that appears inside comment blocks,
+ * because getZone returns 'html' for comment interiors (comments are not
+ * a distinct zone) so the zone check alone is not enough.
  */
 function isInsideHtmlComment(content: string, pos: number): boolean {
     let searchFrom = 0;
@@ -55,13 +57,15 @@ function validateDocument(
         const styleOpen = fullText.indexOf('<style', searchFrom);
         if (styleOpen === -1) break;
 
-        // Skip <style text that appears inside an HTML comment (<!-- ... -->),
+        // Skip <style that appears inside an HTML comment (<!-- ... -->),
         // a <script> block, or an ASP block (<% ... %>).
-        // getZone returns 'html' only for genuine top-level HTML markup.
-        // The HTML comment check must be explicit because getZone returns 'html'
-        // for comment content too (comments are not a distinct zone).
+        // getZone returns 'html' for comment interiors too, so isInsideHtmlComment
+        // must be checked explicitly alongside the zone guard.
         if (isInsideHtmlComment(fullText, styleOpen) || getZone(fullText, styleOpen) !== 'html') {
-            searchFrom = styleOpen + 6;
+            const fakeTagEnd = fullText.indexOf('>', styleOpen);
+            const fakeStyleClose = fullText.indexOf('</style>', styleOpen);
+            if (fakeTagEnd === -1) break; // malformed — nothing more to scan
+            searchFrom = fakeStyleClose !== -1 ? fakeStyleClose + 8 : fakeTagEnd + 1;
             continue;
         }
 
@@ -133,9 +137,12 @@ function validateDocument(
 
             const offset = lineOffset + valueStart;
 
-            // Skip if inside an ASP block or a <style> tag
+            // Skip if inside an ASP block, a <style> block, or an HTML comment.
+            // getZone returns 'html' for comment interiors so isInsideHtmlComment
+            // must be checked explicitly.
             const zone = getZone(fullText, offset);
             if (zone === 'css' || zone === 'asp') { searchCol = valueEnd + 1; continue; }
+            if (isInsideHtmlComment(fullText, offset)) { searchCol = valueEnd + 1; continue; }
 
             const inlineCtx = getInlineStyleContext(fullText, offset);
             if (!inlineCtx) { searchCol = valueEnd + 1; continue; }

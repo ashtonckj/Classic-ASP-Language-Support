@@ -84,12 +84,11 @@ export class CssCompletionProvider implements vscode.CompletionItemProvider {
     ): vscode.CompletionItem[] {
         const fullText = document.getText();
         const offset = document.offsetAt(position);
-        const zone = getZone(fullText, offset);
 
         // ── Inline style="" attribute ──────────────────────────────────────────
         // Run inline detection for html, asp, and js zones — style="" can appear anywhere in the HTML markup regardless of what other zones are nearby.
         // Crucially we do NOT run this for the css zone (inside <style> blocks) because style="" never appears inside a <style> block.
-        if (zone !== 'css') {
+        if (getZone(fullText, offset) !== 'css') {
             const inlineCtx = getInlineStyleContext(fullText, offset);
             if (inlineCtx) {
                 const lsDoc = buildInlineCssDoc(
@@ -116,7 +115,7 @@ export class CssCompletionProvider implements vscode.CompletionItemProvider {
         }
 
         // ── <style> block ──────────────────────────────────────────────────────
-        if (zone !== 'css') return [];
+        if (getZone(fullText, offset) !== 'css') return [];
 
         const lsDoc = buildCssDoc(document.uri.toString(), fullText, document.version, offset);
         if (!lsDoc) return [];
