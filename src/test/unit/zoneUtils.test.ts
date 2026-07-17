@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { getZone } from '../../utils/zoneUtils';
+import { getZone, findTagEnd } from '../../utils/zoneUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ASP block-scanning is LEXICAL (verified against a live IIS/ASP engine):
@@ -87,5 +87,53 @@ describe('getZone — HTML tags are case-insensitive (A9)', () => {
     it('tolerates whitespace in the closing tag (</style >)', () => {
         const text = '<style>.a{color:red}</style ><p>hi</p>';
         assert.strictEqual(getZone(text, text.indexOf('hi')), 'html');
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The end of an opening tag (<style …>, <script …>) must be located by skipping
+// ASP blocks and quoted attribute values — a `>` inside `%>` or inside an
+// attribute string is NOT the tag terminator. And a closing tag that appears
+// inside a `<% … %>` server block does not really close the element. (Author-
+// reported edge cases.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getZone — robust tag-boundary scanning', () => {
+    it('keeps CSS content in the css zone when the tag has an ASP attribute', () => {
+        const text = '<style type="<%= t %>">\n.a { color: red }\n</style>';
+        assert.strictEqual(getZone(text, text.indexOf('color')), 'css');
+    });
+
+    it('keeps JS content in the js zone when the tag has an ASP attribute', () => {
+        const text = '<script src="<%= u %>">\nvar x = 1;\n</script>';
+        assert.strictEqual(getZone(text, text.indexOf('var x')), 'js');
+    });
+
+    it('does not let a </style> inside a <% %> block close the element early', () => {
+        const text = '<style>.a{}<% x = "</style>" %>.b{color:red}</style>';
+        assert.strictEqual(getZone(text, text.indexOf('.b')), 'css');
+    });
+});
+
+describe('findTagEnd — opening-tag terminator', () => {
+    it('returns the plain > for a simple tag', () => {
+        const tag = '<script>';
+        assert.strictEqual(findTagEnd(tag, 0), tag.indexOf('>'));
+    });
+
+    it('skips a > inside a quoted attribute value', () => {
+        const tag = '<style title="a > b">rest';
+        // The real terminator is the > right before "rest", not the one in "a > b".
+        assert.strictEqual(findTagEnd(tag, 0), tag.indexOf('>rest'));
+    });
+
+    it('skips the > of a %> inside an ASP attribute expression', () => {
+        const tag = '<script src="<%= u %>">rest';
+        assert.strictEqual(findTagEnd(tag, 0), tag.indexOf('>rest'));
+    });
+
+    it('returns -1 for an unterminated ASP block in the tag', () => {
+        const tag = '<script src="<%= u ';
+        assert.strictEqual(findTagEnd(tag, 0), -1);
     });
 });
