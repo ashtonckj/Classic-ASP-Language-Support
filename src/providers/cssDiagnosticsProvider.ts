@@ -7,7 +7,7 @@
 import * as vscode from 'vscode';
 import { getCSSLanguageService, DiagnosticSeverity as LsSeverity } from 'vscode-css-languageservice';
 import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc } from '../utils/cssUtils';
-import { getZone } from '../utils/zoneUtils';
+import { getZone, findNextRealTag, findTagEnd, findClosingTag } from '../utils/zoneUtils';
 
 const cssService = getCSSLanguageService();
 
@@ -51,35 +51,39 @@ function validateDocument(
     const fullText = document.getText();
     const diagnostics: vscode.Diagnostic[] = [];
 
-    // Scan through all <style> blocks in the document
+    // Scan through all <style> blocks in the document. findNextRealTag skips a
+    // <style that appears inside an HTML comment, an ASP block, or another tag's
+    // attribute value, and matches case-insensitively.
     let searchFrom = 0;
     while (true) {
-        const styleOpen = fullText.indexOf('<style', searchFrom);
+        const styleOpen = findNextRealTag(fullText, '<style', searchFrom);
         if (styleOpen === -1) break;
 
-        // Skip <style that appears inside an HTML comment (<!-- ... -->),
-        // a <script> block, or an ASP block (<% ... %>).
-        // getZone returns 'html' for comment interiors too, so isInsideHtmlComment
-        // must be checked explicitly alongside the zone guard.
+        // Locate the tag end and matching close the SAME way as getZone/buildCssDoc
+        // (skipping ASP blocks + quoted attribute values, case-insensitive close),
+        // so the probe offset below lands inside the real CSS body. Using a naive
+        // indexOf('>') here previously produced a probe <= the real tag end, which
+        // made buildCssDoc return null and silently dropped diagnostics for any
+        // <style> whose opening tag contained a '>' (e.g. type="<%= x %>").
+        const styleTagEnd = findTagEnd(fullText, styleOpen);
+        if (styleTagEnd === -1) break;
+        const { index: styleClose, length: closeLen } = findClosingTag(fullText, 'style', styleTagEnd + 1);
+        const advance = styleClose === -1 ? fullText.length : styleClose + closeLen;
+
+        // findNextRealTag does not model <script> rawtext, so a <style> literal
+        // inside a <script> block could still match; the zone guard rejects it.
+        // (getZone returns 'html' for comment interiors, so keep the explicit
+        // comment check too.)
         if (isInsideHtmlComment(fullText, styleOpen) || getZone(fullText, styleOpen) !== 'html') {
-            const fakeTagEnd = fullText.indexOf('>', styleOpen);
-            const fakeStyleClose = fullText.indexOf('</style>', styleOpen);
-            if (fakeTagEnd === -1) break; // malformed — nothing more to scan
-            searchFrom = fakeStyleClose !== -1 ? fakeStyleClose + 8 : fakeTagEnd + 1;
+            searchFrom = advance;
             continue;
         }
-
-        const styleTagEnd = fullText.indexOf('>', styleOpen);
-        if (styleTagEnd === -1) break;
-
-        const styleClose = fullText.indexOf('</style>', styleTagEnd);
-        const cssStart = styleTagEnd + 1;
 
         const lsDoc = buildCssDoc(
             document.uri.toString(),
             fullText,
             document.version,
-            cssStart + 1  // +1 so we're inside the block
+            styleTagEnd + 2  // just inside the CSS body
         );
 
         if (lsDoc) {
@@ -113,7 +117,7 @@ function validateDocument(
         }
 
         if (styleClose === -1) break;
-        searchFrom = styleClose + 8;
+        searchFrom = advance;
     }
 
     // ── Inline style="" attribute validation ─────────────────────────────────
