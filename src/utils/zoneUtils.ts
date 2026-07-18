@@ -228,6 +228,86 @@ interface JsBlockInfo {
 }
 
 /**
+ * Find the index of the `>` that terminates the opening tag beginning at/after
+ * `from`. A `>` is only the terminator when it is NOT inside:
+ *   • an ASP block            `<% … %>`  — the `>` in `type="<%= x %>"` is the
+ *     end of the ASP delimiter, not the tag (lexical: first `%>` wins, matching
+ *     the ASP engine — see isInsideAspBlock).
+ *   • a quoted attribute value `"…"` / `'…'` — the `>` in `title="a > b"` is
+ *     literal attribute text.
+ * Returns -1 if no terminator is found (e.g. an unterminated ASP block).
+ *
+ * NOTE: this mirrors findTagClose() in jsUtils.ts, which the JS zone path
+ * already uses. The CSS/zone path historically used a naive indexOf('>') and so
+ * mis-detected these cases; both should ultimately share this one implementation
+ * (plan Module 1).
+ */
+export function findTagEnd(text: string, from: number): number {
+    let i = from;
+    let inString = false;
+    let quote = '';
+
+    while (i < text.length) {
+        const ch = text[i];
+
+        if (inString) {
+            if (ch === quote) { inString = false; quote = ''; }
+            i++;
+            continue;
+        }
+        if (ch === '<' && text[i + 1] === '%') {
+            const aspEnd = text.indexOf('%>', i + 2);
+            if (aspEnd === -1) { return -1; } // unterminated ASP block
+            i = aspEnd + 2;
+            continue;
+        }
+        if (ch === '"' || ch === "'") { inString = true; quote = ch; i++; continue; }
+        if (ch === '>') { return i; }
+        i++;
+    }
+    return -1;
+}
+
+/**
+ * Case-insensitive, whitespace-tolerant search for an HTML closing tag such as
+ * `</style>` or `</script>`, starting at `from`. HTML tag names are not
+ * case-sensitive, so `</STYLE>` and `</style >` must match too.
+ *
+ * ASP blocks are skipped: a `</style>` that appears inside a `<% … %>` server
+ * block is not a real element close (it is VBScript source, evaluated before the
+ * browser ever sees markup). CSS/JS *string* content is deliberately NOT skipped
+ * — per the HTML spec, a literal `</style>`/`</script>` inside a <style>/<script>
+ * rawtext element really does close it.
+ *
+ * Returns the match start index (-1 if none) and matched length so callers can
+ * advance past it. `tagName` is always a fixed literal, so there is no
+ * regex-injection concern.
+ */
+export function findClosingTag(
+    text: string,
+    tagName: string,
+    from: number,
+): { index: number; length: number } {
+    const re = new RegExp(`</${tagName}\\s*>`, 'iy');
+    let i = from;
+
+    while (i < text.length) {
+        if (text[i] === '<' && text[i + 1] === '%') {
+            const aspEnd = text.indexOf('%>', i + 2);
+            i = aspEnd === -1 ? text.length : aspEnd + 2;
+            continue;
+        }
+        if (text[i] === '<') {
+            re.lastIndex = i;
+            const m = re.exec(text);
+            if (m) { return { index: i, length: m[0].length }; }
+        }
+        i++;
+    }
+    return { index: -1, length: 0 };
+}
+
+/**
  * Returns true if `offset` is inside a real `<style>…</style>` block —
  * one that is not inside an HTML comment or ASP block.
  */
@@ -239,23 +319,25 @@ function isInsideCssBlock(text: string, offset: number): boolean {
         const styleOpen = findNextRealTag(text, '<style', searchFrom, offset);
         if (styleOpen === -1) return false; // no real <style before offset
 
-        // Find the end of the opening tag's attribute list
-        const styleTagEnd = text.indexOf('>', styleOpen);
+        // Find the end of the opening tag's attribute list — skipping ASP blocks
+        // and quoted attribute values so a `>` inside `type="<%= x %>"` or
+        // `title="a > b"` is not mistaken for the tag terminator.
+        const styleTagEnd = findTagEnd(text, styleOpen);
         if (styleTagEnd === -1) return false;
 
         // The cursor must be past the end of the opening tag
         if (offset <= styleTagEnd) return false;
 
         // Find the matching </style> — searching from after the opening tag.
-        // We only need a literal search here; content inside <style> is CSS,
-        // not VBScript, so </style> cannot be hidden in a string/comment in
-        // a meaningful way (and ASP blocks inside a style tag are very exotic).
-        const styleClose = text.indexOf('</style>', styleTagEnd + 1);
+        // Case-insensitive + whitespace-tolerant so </STYLE> and </style > also
+        // close the block (HTML tag names are not case-sensitive). Content inside
+        // <style> is CSS, not VBScript, so the close cannot be hidden in a string.
+        const { index: styleClose, length: closeLen } = findClosingTag(text, 'style', styleTagEnd + 1);
         if (styleClose === -1 || offset <= styleClose) {
             return true; // offset is inside this block
         }
 
-        searchFrom = styleClose + 8; // '</style>'.length
+        searchFrom = styleClose + closeLen;
     }
 }
 
@@ -271,13 +353,13 @@ function isInsideJsBlock(text: string, offset: number): JsBlockInfo {
         const scriptOpen = findNextRealTag(text, '<script', searchFrom, offset);
         if (scriptOpen === -1) return NOT_INSIDE;
 
-        const scriptTagEnd = text.indexOf('>', scriptOpen);
+        const scriptTagEnd = findTagEnd(text, scriptOpen);
         if (scriptTagEnd === -1) return NOT_INSIDE;
 
         if (offset <= scriptTagEnd) return NOT_INSIDE;
 
         const attrs = text.slice(scriptOpen + 7, scriptTagEnd);
-        const scriptClose = text.indexOf('</script>', scriptTagEnd + 1);
+        const { index: scriptClose, length: closeLen } = findClosingTag(text, 'script', scriptTagEnd + 1);
 
         if (scriptClose === -1 || offset <= scriptClose) {
             // Offset is inside this script block
@@ -293,7 +375,7 @@ function isInsideJsBlock(text: string, offset: number): JsBlockInfo {
             return NOT_INSIDE;
         }
 
-        searchFrom = scriptClose + 9; // '</script>'.length
+        searchFrom = scriptClose + closeLen;
     }
 }
 

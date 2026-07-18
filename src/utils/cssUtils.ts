@@ -1,9 +1,11 @@
 /**
  * CSS-specific utilities for building virtual CSS documents from .asp files.
- * Imports shared zone detection from aspUtils.ts.
+ * Zone detection (deciding the cursor is in a CSS zone) is done by callers via
+ * getZone() in zoneUtils.ts; this module only extracts/rewrites the CSS content.
  */
 
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
+import { findNextRealTag, findTagEnd, findClosingTag } from './zoneUtils';
 
 /**
  * Replaces ASP expressions (<%...%>) in CSS content with syntactically valid
@@ -53,14 +55,20 @@ export function buildCssDoc(
 ): LsTextDocument | null {
     let searchFrom = 0;
     while (true) {
-        const styleOpen = content.indexOf('<style', searchFrom);
-        if (styleOpen === -1 || styleOpen >= offset) return null;
+        // Next real <style> opening tag before the cursor. findNextRealTag skips
+        // ASP blocks, HTML comments, and attribute strings, so it won't match a
+        // `<style` that is merely text inside them. Case-insensitive.
+        const styleOpen = findNextRealTag(content, '<style', searchFrom, offset);
+        if (styleOpen === -1) return null;
 
-        const styleTagEnd = content.indexOf('>', styleOpen);
-        if (styleTagEnd === -1) return null;
+        // End of the opening tag — skipping ASP blocks and quoted attribute values
+        // so a `>` inside `type="<%= x %>"` / `title="a > b"` is not mistaken for
+        // the tag terminator (which corrupted the extracted CSS).
+        const styleTagEnd = findTagEnd(content, styleOpen);
+        if (styleTagEnd === -1 || offset <= styleTagEnd) return null;
 
-        const styleClose = content.indexOf('</style>', styleTagEnd);
-        if (styleTagEnd < offset && (styleClose === -1 || offset <= styleClose)) {
+        const { index: styleClose, length: closeLen } = findClosingTag(content, 'style', styleTagEnd + 1);
+        if (styleClose === -1 || offset <= styleClose) {
             const cssStart = styleTagEnd + 1;
             const cssEnd = styleClose === -1 ? content.length : styleClose;
 
@@ -71,7 +79,7 @@ export function buildCssDoc(
             return LsTextDocument.create(uri + '.css', 'css', version, cssContent);
         }
 
-        searchFrom = styleClose === -1 ? content.length : styleClose + 8;
+        searchFrom = styleClose + closeLen;
     }
 }
 
