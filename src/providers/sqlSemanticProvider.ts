@@ -1,13 +1,13 @@
 import * as vscode from 'vscode';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Semantic token legend — MUST be the same object used by jsSemanticProvider.ts
-// and registered in extension.ts (COMBINED_SEMANTIC_LEGEND).
+// Token-type index reference.
 //
-// VS Code maps token type indices through whichever legend it sees first for a
-// given language ID. If the ASP provider uses a different legend than the JS
-// provider the indices will be decoded against the wrong legend and every
-// VBScript colour will be wrong.
+// The live legend object is COMBINED_SEMANTIC_LEGEND (jsSemanticProvider.ts),
+// created once and shared by every semantic provider. This block only documents
+// the index → token-type mapping the T_* constants below rely on; keep it in sync
+// with COMBINED_SEMANTIC_LEGEND. (There used to be a second SemanticTokensLegend
+// declared here — it was an unused duplicate and has been removed to avoid drift.)
 //
 // Layout (index order matters — must match COMBINED_SEMANTIC_LEGEND exactly):
 //
@@ -62,23 +62,8 @@ import * as vscode from 'vscode';
 //   8  documentation
 //   9  defaultLibrary
 // ─────────────────────────────────────────────────────────────────────────────
-export const ASP_SEMANTIC_LEGEND = new vscode.SemanticTokensLegend(
-    [
-        // Standard VS Code types — indices 0–22 (must mirror TOKEN_TYPES in jsSemanticProvider.ts)
-        'namespace', 'type', 'class', 'enum', 'interface', 'struct',
-        'typeParameter', 'parameter', 'variable', 'property', 'enumMember',
-        'event', 'function', 'method', 'macro', 'keyword', 'modifier',
-        'comment', 'string', 'number', 'regexp', 'operator', 'decorator',
-        // ASP/SQL-specific types — indices 23–34
-        'sqlDml', 'sqlDdl', 'sqlLogical', 'sqlKeyword', 'sqlFunction', 'sqlType', 'sqlVariable',
-        'sqlNumber', 'sqlBracketPunct', 'sqlBracketContent', 'sqlTable', 'sqlColumn',
-    ],
-    // Modifiers must also mirror TOKEN_MODIFIERS in jsSemanticProvider.ts
-    [
-        'declaration', 'definition', 'readonly', 'static', 'deprecated',
-        'abstract', 'async', 'modification', 'documentation', 'defaultLibrary',
-    ]
-);
+// (The live SemanticTokensLegend is COMBINED_SEMANTIC_LEGEND in
+// jsSemanticProvider.ts — the previously-duplicated copy here was unused.)
 
 // ── VBScript token type indices (positions within COMBINED_SEMANTIC_LEGEND) ──
 // These map to the standard VS Code token types by name, so the editor theme
