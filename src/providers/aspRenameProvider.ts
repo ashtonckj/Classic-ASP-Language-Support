@@ -249,11 +249,14 @@ function escapeRegex(s: string): string {
 }
 
 /**
- * Builds a Uint8Array where aspMap[i] === 1 means offset i is inside <% %>.
+ * Builds a Uint8Array where aspMap[i] === 1 means offset i is inside a <% %>
+ * block.
  *
- * Mirrors the line-by-line logic of isInsideVirtualAspBlock in zoneUtils.ts so that:
- *   - %> inside a VBScript comment line (') is NOT treated as a block close
- *   - %> inside a string literal ("...") is NOT treated as a block close
+ * The scan is purely lexical: the first `%>` closes a block, even one that sits
+ * inside a VBScript string or comment. This matches the ASP engine (and getZone's
+ * isInsideAspBlock), so rename never rewrites text the engine would treat as HTML
+ * output rather than script. String/comment exclusion for the identifier itself
+ * is handled separately by isInStringOrComment().
  */
 function buildAspMap(text: string): Uint8Array {
     const map = new Uint8Array(text.length);
