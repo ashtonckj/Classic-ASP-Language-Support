@@ -19,13 +19,24 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
     vscode.workspace.onDidChangeConfiguration(() => {
         configurationDidChange = true;
         triggerUpdateDecorations();
-    });
+    }, null, context.subscriptions);
 
     vscode.workspace.onDidChangeTextDocument((event) => {
         if (activeEditor && event.document === activeEditor.document) {
             triggerUpdateDecorations();
         }
     }, null, context.subscriptions);
+
+    // Release the decoration types (and any pending timer) on deactivate. They are
+    // recreated inside updateDecorations on config change, so dispose whichever
+    // pair is current at shutdown.
+    context.subscriptions.push({
+        dispose: () => {
+            if (timeout) { clearTimeout(timeout); }
+            bracketDecorationType?.dispose();
+            codeBlockDecorationType?.dispose();
+        },
+    });
 
     function triggerUpdateDecorations() {
         if (timeout) clearTimeout(timeout);
