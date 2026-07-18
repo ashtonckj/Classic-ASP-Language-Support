@@ -45,11 +45,13 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
                 ? new vscode.Position(startLine, nameIdx + fn.name.length)
                 : startPos;
 
-            const kind   = fn.kind === 'Function'
-                ? vscode.SymbolKind.Function
+            const kind   = fn.kind === 'Function' ? vscode.SymbolKind.Function
+                : fn.kind === 'Property'          ? vscode.SymbolKind.Property
                 : vscode.SymbolKind.Method;
 
-            const detail = fn.params ? `(${fn.params})` : '()';
+            const detail = fn.kind === 'Property'
+                ? (fn.params ? `(${fn.params})` : '')
+                : (fn.params ? `(${fn.params})` : '()');
 
             const sym = new vscode.DocumentSymbol(
                 fn.name,
@@ -60,6 +62,34 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
             );
 
             result.push(sym);
+        }
+
+        // ── Classes ───────────────────────────────────────────────────────────
+        for (const cls of symbols.classes) {
+            const startLine = Math.max(0, Math.min(cls.line, document.lineCount - 1));
+            const endLine   = cls.endLine !== -1
+                ? Math.min(cls.endLine, document.lineCount - 1)
+                : startLine;
+
+            const range    = new vscode.Range(
+                new vscode.Position(startLine, 0),
+                document.lineAt(endLine).range.end,
+            );
+
+            const defLine  = document.lineAt(startLine).text;
+            const nameIdx  = defLine.toLowerCase().indexOf(cls.name.toLowerCase());
+            const selStart = nameIdx >= 0 ? new vscode.Position(startLine, nameIdx) : range.start;
+            const selEnd   = nameIdx >= 0
+                ? new vscode.Position(startLine, nameIdx + cls.name.length)
+                : range.start;
+
+            result.push(new vscode.DocumentSymbol(
+                cls.name,
+                '',
+                vscode.SymbolKind.Class,
+                range,
+                new vscode.Range(selStart, selEnd),
+            ));
         }
 
         // ── Constants ─────────────────────────────────────────────────────────

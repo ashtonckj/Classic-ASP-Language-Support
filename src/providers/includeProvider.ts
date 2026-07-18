@@ -12,7 +12,7 @@ export interface FileSymbols {
     constants:    { name: string; value: string; line: number; filePath: string }[];
     functions:    {
         name: string;
-        kind: 'Function' | 'Sub';
+        kind: 'Function' | 'Sub' | 'Property';
         params: string;
         paramNames: string[];
         line: number;
@@ -20,6 +20,7 @@ export interface FileSymbols {
         filePath: string;
     }[];
     comVariables: { name: string; progId: string; line: number; filePath: string }[];
+    classes:      { name: string; line: number; endLine: number; filePath: string }[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,6 +93,7 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         constants:    [],
         functions:    [],
         comVariables: [],
+        classes:      [],
     };
 
     // Strip HTML comments so <!--METADATA ... --> blocks don't produce false symbols.
@@ -109,16 +111,25 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         // Skip full-line VBScript comments
         if (/^\s*'/.test(line)) return;
 
+        // Inline ASP blocks: strip a leading <% / <%= and a trailing %> so a
+        // one-line declaration like `<% Dim x %>` is parsed exactly like its
+        // multi-line form. Lines that merely contain a small <%…%> in the middle
+        // are left untouched (they are not declarations anyway).
+        const codeLine = line.replace(/^(\s*)<%=?/, '$1').replace(/\s*%>\s*$/, '');
+
         // Strip string literals and inline comments so SQL / string content
         // inside quotes is never mistaken for code.
-        const lineNoComment = line.replace(
+        const lineNoComment = codeLine.replace(
             /(['"])(?:(?!\1).)*\1|'.*$/g,
             (m) => m.startsWith("'") ? '' : (m[0] + m[0])
         );
 
         // Dim / ReDim / Public / Private
+        // Guard: `Public`/`Private` also prefix Function/Sub/Property/Class/Const
+        // declarations — those are handled below, not as variables. Without this,
+        // `Public Sub Foo` would be captured as a bogus variable named "Sub Foo".
         const dimMatch = lineNoComment.match(/^\s*(?:Dim|ReDim|Public|Private)\s+([\w,\s]+?)\s*(?:'|$)/i);
-        if (dimMatch) {
+        if (dimMatch && !/^(?:Function|Sub|Property|Class|Const|Default|Static)\b/i.test(dimMatch[1].trim())) {
             dimMatch[1].split(',').map((s: string) => s.trim()).filter(Boolean).forEach(name => {
                 result.variables.push({ name, line: lineIndex, filePath });
             });
@@ -152,9 +163,9 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
             }
         }
 
-        // Const — run on the original line so string values are preserved.
+        // Const — run on the (inline-stripped) line so string values are preserved.
         // Strip only a trailing comment (but not string contents).
-        const lineForConst = line.replace(/'(?:[^"']|"[^"]*")*$/, '').trimEnd();
+        const lineForConst = codeLine.replace(/'(?:[^"']|"[^"]*")*$/, '').trimEnd();
         const constMatch = lineForConst.match(/^\s*(?:Public\s+|Private\s+)?Const\s+(\w+)\s*=\s*(.+?)\s*$/i);
         if (constMatch) {
             result.constants.push({
@@ -185,6 +196,40 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
             });
         }
 
+        // Property Get / Let / Set (a class member; treated like a callable so it
+        // surfaces in the outline, completion, hover, and go-to-definition).
+        const propMatch = lineNoComment.match(
+            /^\s*(?:Public\s+|Private\s+|Default\s+)*Property\s+(?:Get|Let|Set)\s+(\w+)\s*(?:\(([^)]*)\))?/i,
+        );
+        if (propMatch) {
+            const rawParams  = propMatch[2] ? propMatch[2].trim() : '';
+            const paramNames = rawParams.length > 0
+                ? rawParams.split(',').map((p: string) =>
+                    p.trim().replace(/^(?:ByVal|ByRef)\s+/i, '').replace(/\(\)$/, '').trim()
+                  ).filter(Boolean)
+                : [];
+            result.functions.push({
+                name:       propMatch[1],
+                kind:       'Property',
+                params:     rawParams,
+                paramNames,
+                line:       lineIndex,
+                endLine:    -1,
+                filePath,
+            });
+        }
+
+        // Class declaration
+        const classMatch = lineNoComment.match(/^\s*(?:Public\s+|Private\s+)?Class\s+(\w+)/i);
+        if (classMatch) {
+            result.classes.push({
+                name:    classMatch[1],
+                line:    lineIndex,
+                endLine: -1,
+                filePath,
+            });
+        }
+
         // Set x = [Server.]CreateObject("...") — must run on original line, not
         // lineNoComment, because the progId is inside a string literal.
         const setMatch = line.match(/\bSet\s+(\w+)\s*=\s*(?:Server\.)?CreateObject\s*\(\s*["']([^"']+)["']\s*\)/i);
@@ -198,15 +243,27 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         }
     });
 
-    // Second pass — pair each Function/Sub with its End Function/End Sub line
-    const openStack: number[] = [];
-    lines.forEach((line, lineIndex) => {
-        if (/^\s*(?:Public\s+|Private\s+)?(Function|Sub)\s+/i.test(line)) {
-            const fnIndex = result.functions.findIndex(f => f.line === lineIndex);
-            if (fnIndex !== -1) openStack.push(fnIndex);
+    // Second pass — pair each Function/Sub/Property/Class with its matching End
+    // line. VBScript blocks nest (a Class contains members), so use a stack.
+    const openStack: { setEnd: (end: number) => void }[] = [];
+    lines.forEach((rawLine, lineIndex) => {
+        const line = rawLine.replace(/^(\s*)<%=?/, '$1').replace(/\s*%>\s*$/, '');
+
+        const openMatch = line.match(
+            /^\s*(?:Public\s+|Private\s+|Default\s+|Static\s+)*(Function|Sub|Property|Class)\b/i,
+        );
+        if (openMatch) {
+            if (openMatch[1].toLowerCase() === 'class') {
+                const idx = result.classes.findIndex(c => c.line === lineIndex);
+                if (idx !== -1) { openStack.push({ setEnd: (end) => { result.classes[idx].endLine = end; } }); }
+            } else {
+                const idx = result.functions.findIndex(f => f.line === lineIndex);
+                if (idx !== -1) { openStack.push({ setEnd: (end) => { result.functions[idx].endLine = end; } }); }
+            }
         }
-        if (/^\s*End\s+(Function|Sub)\b/i.test(line) && openStack.length > 0) {
-            result.functions[openStack.pop()!].endLine = lineIndex;
+
+        if (/^\s*End\s+(?:Function|Sub|Property|Class)\b/i.test(line) && openStack.length > 0) {
+            openStack.pop()!.setEnd(lineIndex);
         }
     });
 
@@ -329,6 +386,7 @@ export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
             combined.constants    .push(...incSymbols.constants);
             combined.functions    .push(...incSymbols.functions);
             combined.comVariables .push(...incSymbols.comVariables);
+            combined.classes      .push(...incSymbols.classes);
         } catch {
             // Skip unreadable files silently
         }
