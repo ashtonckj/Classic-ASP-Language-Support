@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { collectAllSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../utils/htmlLinkUtils';
 
@@ -34,23 +35,51 @@ export class AspDefinitionProvider implements vscode.DefinitionProvider {
         const word    = document.getText(wordRange).toLowerCase();
         const symbols = collectAllSymbols(document);
 
+        // Functions/Subs/Properties take priority, then variables, constants, and
+        // COM object vars. (Kind-collision disambiguation beyond this order is a
+        // future refinement.)
         for (const fn of symbols.functions) {
-            if (fn.name.toLowerCase() === word)
-                return new vscode.Location(vscode.Uri.file(fn.filePath), new vscode.Position(fn.line, 0));
+            if (fn.name.toLowerCase() === word) { return this.locationFor(document, fn.filePath, fn.line, fn.name); }
         }
         for (const v of symbols.variables) {
-            if (v.name.toLowerCase() === word)
-                return new vscode.Location(vscode.Uri.file(v.filePath), new vscode.Position(v.line, 0));
+            if (v.name.toLowerCase() === word) { return this.locationFor(document, v.filePath, v.line, v.name); }
         }
         for (const c of symbols.constants) {
-            if (c.name.toLowerCase() === word)
-                return new vscode.Location(vscode.Uri.file(c.filePath), new vscode.Position(c.line, 0));
+            if (c.name.toLowerCase() === word) { return this.locationFor(document, c.filePath, c.line, c.name); }
         }
         for (const cv of symbols.comVariables) {
-            if (cv.name.toLowerCase() === word)
-                return new vscode.Location(vscode.Uri.file(cv.filePath), new vscode.Position(cv.line, 0));
+            if (cv.name.toLowerCase() === word) { return this.locationFor(document, cv.filePath, cv.line, cv.name); }
         }
 
         return null;
+    }
+
+    // Builds a Location pointing at the identifier itself (not column 0) so the
+    // editor highlights the name on navigation. Reads the target line from the
+    // open document when possible, otherwise from disk (for #include'd files).
+    private locationFor(
+        document: vscode.TextDocument,
+        filePath: string,
+        line: number,
+        name: string,
+    ): vscode.Location {
+        const uri      = vscode.Uri.file(filePath);
+        const lineText = this.readLine(document, filePath, line);
+        const col      = lineText ? lineText.toLowerCase().indexOf(name.toLowerCase()) : -1;
+
+        return col >= 0
+            ? new vscode.Location(uri, new vscode.Range(line, col, line, col + name.length))
+            : new vscode.Location(uri, new vscode.Position(line, 0));
+    }
+
+    private readLine(document: vscode.TextDocument, filePath: string, line: number): string | null {
+        if (document.uri.fsPath.toLowerCase() === filePath.toLowerCase()) {
+            return line >= 0 && line < document.lineCount ? document.lineAt(line).text : null;
+        }
+        try {
+            return fs.readFileSync(filePath, 'utf8').split(/\r?\n/)[line] ?? null;
+        } catch {
+            return null;
+        }
     }
 }
