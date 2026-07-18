@@ -10,27 +10,16 @@ export type Zone = 'asp' | 'css' | 'js' | 'html';
 // ---------------------------------------------------------------------------
 
 /**
- * Starting at `start`, skip past a VBScript line comment (`' ...` to EOL).
- * Returns the index of the newline character (or end-of-string) so the caller
- * can advance past it themselves.
- */
-function skipVbsLineComment(text: string, start: number): number {
-    const nl = text.indexOf('\n', start);
-    return nl === -1 ? text.length : nl;
-}
-
-/**
  * Starting at `start` (the opening quote), skip past a VBScript double-quoted
- * string.  VBScript uses `""` as the escape for a literal quote — no backslash
- * escaping.  Returns the index *after* the closing quote, or end-of-string if
+ * string. VBScript uses `""` as the escape for a literal quote (no backslash
+ * escaping). Returns the index *after* the closing quote, or end-of-string if
  * the string is never closed.
  */
 function skipVbsString(text: string, start: number): number {
     let i = start + 1; // skip the opening "
     while (i < text.length) {
         if (text[i] === '"') {
-            // "" is an escaped quote — keep going
-            if (text[i + 1] === '"') { i += 2; continue; }
+            if (text[i + 1] === '"') { i += 2; continue; } // "" escaped quote
             return i + 1; // past the closing quote
         }
         i++;
@@ -87,7 +76,7 @@ function isInsideAspBlock(fullText: string, offset: number): boolean {
  * NOT inside:
  *   • an HTML comment   (<!-- ... -->)
  *   • an ASP block      (<% ... %>)
- *   • a VBScript string or line comment inside an ASP block
+ *   • a VBScript string or comment inside an ASP block
  *   • a sibling HTML tag's attribute list (e.g. a `<script` string inside
  *     an onclick="..." attribute of some other tag)
  *
@@ -106,9 +95,18 @@ function isInsideAspBlock(fullText: string, offset: number): boolean {
  * NOT inside a quoted attribute value (inHtmlString), preventing a `>` that
  * appears in e.g. onclick="a > b" from prematurely ending the tag walk.
  *
- * Inside an ASP block we also skip VBScript strings ("...") and line comments
- * (' ... \n) so that a %> inside a string can't fool us — and so that a
- * `<script` inside a VBScript string literal isn't counted as a real tag.
+ * Inside an ASP block, VBScript strings and comments are treated as OPAQUE: a
+ * `<script`/`<style` (or even a `%>`) that appears inside a `"…"` string or a
+ * `'` comment is source data, not markup, so it never starts a JS/CSS zone. This
+ * is what keeps `<% Response.Write "<script>…</script>" %>` from turning the rest
+ * of the document into a JS zone. A comment ends at the block's `%>` or the end of
+ * line, whichever comes first (ASP's `%>` ends the block even mid-comment, so real
+ * markup after `<% ' note %>` is still detected).
+ *
+ * NOTE: this is intentionally more conservative than isInsideAspBlock, which is
+ * purely lexical (first `%>` wins, even in a string — the engine's rule, used for
+ * zone COLOURING). Here we favour never mis-reading string/comment content as a
+ * tag, because a false JS/CSS zone produces a cascade of bogus diagnostics.
  */
 export function findNextRealTag(
     text: string,
@@ -128,12 +126,22 @@ export function findNextRealTag(
 
         // ── Inside an ASP block ──────────────────────────────────────────────
         if (inAsp) {
+            // Skip VBScript strings whole — their contents (including any `<script>`,
+            // `<style>`, or `%>`) are data, never markup.
             if (ch === '"') {
                 i = skipVbsString(text, i);
                 continue;
             }
+            // A `'` comment runs to end-of-line OR the block's `%>`, whichever comes
+            // first (ASP's `%>` ends the block even mid-comment). We stop *before*
+            // the `%>` so the block-close check below still fires and real markup
+            // after `<% ' note %>` is detected.
             if (ch === "'") {
-                i = skipVbsLineComment(text, i + 1);
+                const nl    = text.indexOf('\n', i);
+                const close = text.indexOf('%>', i);
+                i = (close !== -1 && (nl === -1 || close < nl))
+                    ? close
+                    : (nl === -1 ? text.length : nl);
                 continue;
             }
             if (ch === '%' && text[i + 1] === '>') {
@@ -250,15 +258,21 @@ export function findTagEnd(text: string, from: number): number {
     while (i < text.length) {
         const ch = text[i];
 
-        if (inString) {
-            if (ch === quote) { inString = false; quote = ''; }
-            i++;
-            continue;
-        }
+        // ASP blocks are recognized lexically FIRST — before the attribute-string
+        // state below. `<%` opens a server block regardless of surrounding HTML
+        // quoting (the ASP engine runs before HTML parsing) and the first `%>`
+        // closes it. If this were checked after `inString`, an attribute's opening
+        // quote (e.g. title="<%= … %>") would swallow the `<%` as string text, and
+        // a `>` emitted inside the ASP expression could be mistaken for the tag end.
         if (ch === '<' && text[i + 1] === '%') {
             const aspEnd = text.indexOf('%>', i + 2);
             if (aspEnd === -1) { return -1; } // unterminated ASP block
             i = aspEnd + 2;
+            continue;
+        }
+        if (inString) {
+            if (ch === quote) { inString = false; quote = ''; }
+            i++;
             continue;
         }
         if (ch === '"' || ch === "'") { inString = true; quote = ch; i++; continue; }
