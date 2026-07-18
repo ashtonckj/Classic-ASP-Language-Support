@@ -203,19 +203,23 @@ function findTagClose(content: string, from: number): number {
     while (i < content.length) {
         const ch = content[i];
 
+        // ASP blocks first — `<%` opens a server block regardless of HTML
+        // attribute quoting, and the first `%>` closes it. Must precede the
+        // attribute-string handling below, otherwise an attribute's opening quote
+        // (src="<%= … %>") swallows the `<%` and a `>` emitted inside the ASP
+        // expression is mistaken for the tag end. (Mirrors findTagEnd in zoneUtils.)
+        if (ch === '<' && content[i + 1] === '%') {
+            const aspEnd = content.indexOf('%>', i + 2);
+            if (aspEnd === -1) { return -1; }
+            i = aspEnd + 2;
+            continue;
+        }
         if (inString) {
             if (ch === stringQuote) {
                 inString = false;
                 stringQuote = '';
             }
             i++;
-            continue;
-        }
-
-        if (ch === '<' && content[i + 1] === '%') {
-            const aspEnd = content.indexOf('%>', i + 2);
-            if (aspEnd === -1) { return -1; }
-            i = aspEnd + 2;
             continue;
         }
         if (ch === '"' || ch === "'") {
