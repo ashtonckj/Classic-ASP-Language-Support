@@ -200,29 +200,57 @@ export function registerCssDiagnostics(context: vscode.ExtensionContext): void {
     const collection = vscode.languages.createDiagnosticCollection('classic-asp-css');
     context.subscriptions.push(collection);
 
-    // Validate all already-open .asp documents on activation
+    // Debounce validation so a burst of keystrokes triggers a single re-parse of
+    // the document's <style> blocks instead of one per character (it used to run
+    // synchronously on every change). Keyed by document URI, so editing one file
+    // never cancels another file's pending scan.
+    const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const DEBOUNCE_MS = 400;
+
+    function scheduleValidation(document: vscode.TextDocument): void {
+        const key = document.uri.toString();
+        const existing = debounceTimers.get(key);
+        if (existing) { clearTimeout(existing); }
+        debounceTimers.set(key, setTimeout(() => {
+            debounceTimers.delete(key);
+            validateDocument(document, collection);
+        }, DEBOUNCE_MS));
+    }
+
+    // Validate all already-open .asp documents on activation (immediately)
     for (const document of vscode.workspace.textDocuments) {
         validateDocument(document, collection);
     }
 
-    // Validate as you type
+    // Validate as you type — debounced
     context.subscriptions.push(
         vscode.workspace.onDidChangeTextDocument(e => {
-            validateDocument(e.document, collection);
+            scheduleValidation(e.document);
         })
     );
 
-    // Validate when a new document is opened
+    // Validate when a new document is opened (immediately)
     context.subscriptions.push(
         vscode.workspace.onDidOpenTextDocument(document => {
             validateDocument(document, collection);
         })
     );
 
-    // Clear diagnostics when document is closed
+    // Clear diagnostics and any pending timer when a document is closed
     context.subscriptions.push(
         vscode.workspace.onDidCloseTextDocument(document => {
+            const key = document.uri.toString();
+            const existing = debounceTimers.get(key);
+            if (existing) { clearTimeout(existing); debounceTimers.delete(key); }
             collection.delete(document.uri);
         })
     );
+
+    // Cancel all pending timers on deactivate
+    context.subscriptions.push({
+        dispose: () => {
+            for (const timer of debounceTimers.values()) { clearTimeout(timer); }
+            debounceTimers.clear();
+        },
+    });
 }
