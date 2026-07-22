@@ -712,9 +712,70 @@ function formatKeyword(keyword: string, caseStyle: string): string {
 
 // ─── Operator / comma formatting ───────────────────────────────────────────
 
+/**
+ * Like splitByStrings, but also marks VBScript literals that must never be
+ * operator/comma-spaced as opaque: `#…#` date/time literals and `&H…`/`&O…`
+ * hex/octal numbers (with an optional trailing `&` long-type suffix). Prevents
+ * `x = &H1F` → `x = & H1F` and `d = #12/25/2024#` → `d = #12 / 25 / 2024#`.
+ */
+function splitOpaque(code: string): Array<{ text: string; opaque: boolean }> {
+    const parts: Array<{ text: string; opaque: boolean }> = [];
+    let buf = '';
+    const flush = () => { if (buf) { parts.push({ text: buf, opaque: false }); buf = ''; } };
+
+    let i = 0;
+    while (i < code.length) {
+        const ch = code[i];
+
+        // String literal "…"  ("" escapes a quote)
+        if (ch === '"') {
+            flush();
+            let j = i + 1;
+            while (j < code.length) {
+                if (code[j] === '"') {
+                    if (code[j + 1] === '"') { j += 2; continue; }
+                    j++;
+                    break;
+                }
+                j++;
+            }
+            parts.push({ text: code.slice(i, j), opaque: true });
+            i = j;
+            continue;
+        }
+
+        // Date/time literal #…#
+        if (ch === '#') {
+            const end = code.indexOf('#', i + 1);
+            if (end !== -1) {
+                flush();
+                parts.push({ text: code.slice(i, end + 1), opaque: true });
+                i = end + 1;
+                continue;
+            }
+        }
+
+        // Hex/octal literal &H.. / &O.. (optional trailing & long-type suffix)
+        if (ch === '&' && /[HhOo]/.test(code[i + 1] ?? '')) {
+            const m = /^&[HhOo][0-9A-Fa-f]+&?/.exec(code.slice(i));
+            if (m) {
+                flush();
+                parts.push({ text: m[0], opaque: true });
+                i += m[0].length;
+                continue;
+            }
+        }
+
+        buf += ch;
+        i++;
+    }
+    flush();
+    return parts;
+}
+
 function formatOperators(code: string): string {
-    return splitByStrings(code).map(part =>
-        part.isString ? part.text : formatOperatorsInText(part.text)
+    return splitOpaque(code).map(part =>
+        part.opaque ? part.text : formatOperatorsInText(part.text)
     ).join('');
 }
 
@@ -768,7 +829,7 @@ function formatOperatorsInText(text: string): string {
 }
 
 function formatCommas(code: string): string {
-    return splitByStrings(code).map(part =>
-        part.isString ? part.text : part.text.replace(/,(?!\s)/g, ', ')
+    return splitOpaque(code).map(part =>
+        part.opaque ? part.text : part.text.replace(/,(?!\s)/g, ', ')
     ).join('');
 }
