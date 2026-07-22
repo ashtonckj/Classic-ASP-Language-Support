@@ -72,6 +72,32 @@ describe('extractSymbols — Class / Property (A2)', () => {
     });
 });
 
+describe('extractSymbols — ignores JS/CSS zones (A5)', () => {
+    it('does not extract a JS function or var from a <script> block', () => {
+        const text = [
+            '<script>',
+            'function foo() { return 1; }',
+            'var y = 2;',
+            '</script>',
+            '<% Function Bar()',
+            'End Function %>',
+        ].join('\n');
+        const s = extractSymbols(text, 'x.asp');
+        assert.strictEqual(s.functions.some(f => f.name.toLowerCase() === 'foo'), false,
+            `JS function must not leak; got ${JSON.stringify(s.functions.map(f => f.name))}`);
+        assert.strictEqual(s.variables.some(v => v.name.toLowerCase() === 'y'), false,
+            `JS var must not leak; got ${JSON.stringify(s.variables.map(v => v.name))}`);
+        assert.ok(s.functions.some(f => f.name === 'Bar'), 'VBScript function should still be found');
+    });
+
+    it('still extracts symbols from a pure-code include (no <% %> wrappers)', () => {
+        const text = 'Dim total\nFunction Helper()\nEnd Function';
+        const s = extractSymbols(text, 'lib.inc');
+        assert.ok(s.variables.some(v => v.name === 'total'), 'pure-code Dim should be kept');
+        assert.ok(s.functions.some(f => f.name === 'Helper'), 'pure-code Function should be kept');
+    });
+});
+
 describe('extractSymbols — inline declarations (A10)', () => {
     it('captures a variable from a one-line <% Dim x %> block', () => {
         const text = '<body>\n<% Dim total %>\n</body>';

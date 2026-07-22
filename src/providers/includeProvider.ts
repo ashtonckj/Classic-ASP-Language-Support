@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
+import { getZone } from '../utils/zoneUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -101,6 +102,15 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
     const strippedText = text.replace(/<!--[\s\S]*?-->/g, m => m.replace(/[^\n]/g, ' '));
     const lines = strippedText.split('\n');
 
+    // Byte offset of each line's start, so a declaration can be located precisely
+    // enough to ask getZone which embedded language it sits in (see the zone guard
+    // in the loop below).
+    const lineOffsets: number[] = [];
+    {
+        let acc = 0;
+        for (const l of lines) { lineOffsets.push(acc); acc += l.length + 1; }
+    }
+
     // Detect Option Explicit anywhere in the file (outside of string literals).
     // When present, VBScript requires all variables to be declared with Dim/Const,
     // so implicit assignment tracking would only add noise — loop counters, temp
@@ -110,6 +120,15 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
     lines.forEach((line, lineIndex) => {
         // Skip full-line VBScript comments
         if (/^\s*'/.test(line)) return;
+
+        // Ignore declarations that live inside a client-side <script> (JS) or a
+        // <style> (CSS) block — a JS `function foo()` or `x = 1` must never surface
+        // as a VBScript symbol. Zones 'asp' and 'html' are kept: 'html' covers
+        // pure-code include files that have no <% %> wrappers at all.
+        const aspOpen  = line.indexOf('<%');
+        const probeCol = aspOpen !== -1 ? aspOpen + 2 : (line.length - line.trimStart().length);
+        const zone     = getZone(strippedText, lineOffsets[lineIndex] + probeCol);
+        if (zone === 'js' || zone === 'css') { return; }
 
         // Inline ASP blocks: strip a leading <% / <%= and a trailing %> so a
         // one-line declaration like `<% Dim x %>` is parsed exactly like its
