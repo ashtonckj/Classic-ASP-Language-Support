@@ -647,6 +647,13 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             return vscode.commands.executeCommand('default:type', { text: '\n' });
         }
 
+        // Multi-cursor: the smart single-cursor logic below edits and re-positions
+        // one cursor at a time, so it can't safely serve N cursors. Defer to VS
+        // Code's native newline, which inserts and indents at every cursor.
+        if (editor.selections.length > 1) {
+            return vscode.commands.executeCommand('default:type', { text: '\n' });
+        }
+
         const position        = editor.selection.active;
         const document        = editor.document;
         const fullText        = document.getText();
@@ -968,6 +975,12 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
     const disposable = vscode.commands.registerCommand('asp.insertTab', () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor || editor.document.languageId !== 'asp') {
+            return vscode.commands.executeCommand('tab');
+        }
+
+        // Multi-cursor: the smart single-cursor indent below can't serve N cursors,
+        // so defer to the native tab, which indents at every cursor.
+        if (editor.selections.length > 1) {
             return vscode.commands.executeCommand('tab');
         }
 
