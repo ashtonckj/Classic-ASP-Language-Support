@@ -93,14 +93,19 @@ export function registerJsDiagnostics(context: vscode.ExtensionContext): void {
     const collection = vscode.languages.createDiagnosticCollection('classic-asp-js');
     context.subscriptions.push(collection);
 
-    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+    // Per-document debounce timers, keyed by URI, so editing one open .asp file
+    // never cancels another file's pending scan (a single shared timer did).
+    const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
     function schedule(document: vscode.TextDocument): void {
         if (document.languageId !== 'asp') { return; }
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
+        const key = document.uri.toString();
+        const existing = debounceTimers.get(key);
+        if (existing) { clearTimeout(existing); }
+        debounceTimers.set(key, setTimeout(() => {
+            debounceTimers.delete(key);
             collection.set(document.uri, getDiagnosticsForDocument(document));
-        }, 750);
+        }, 750));
     }
 
     for (const doc of vscode.workspace.textDocuments) {
@@ -112,6 +117,19 @@ export function registerJsDiagnostics(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.workspace.onDidOpenTextDocument(schedule),
         vscode.workspace.onDidChangeTextDocument(e => schedule(e.document)),
-        vscode.workspace.onDidCloseTextDocument(doc => collection.delete(doc.uri)),
+        vscode.workspace.onDidCloseTextDocument(doc => {
+            const key = doc.uri.toString();
+            const existing = debounceTimers.get(key);
+            if (existing) { clearTimeout(existing); debounceTimers.delete(key); }
+            collection.delete(doc.uri);
+        }),
     );
+
+    // Cancel any pending timers on deactivate.
+    context.subscriptions.push({
+        dispose: () => {
+            for (const timer of debounceTimers.values()) { clearTimeout(timer); }
+            debounceTimers.clear();
+        },
+    });
 }
