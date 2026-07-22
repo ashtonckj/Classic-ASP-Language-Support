@@ -514,6 +514,25 @@ function splitByStrings(code: string): Array<{ text: string; isString: boolean }
     return parts;
 }
 
+/**
+ * Splits a line into its code portion and a trailing VBScript comment (`' …`),
+ * respecting string literals so an apostrophe inside "…" is not mistaken for the
+ * start of a comment. `comment` includes its leading `'` (or is '' when none).
+ */
+function splitOffComment(line: string): { code: string; comment: string } {
+    let inString = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+            if (line[i + 1] === '"') { i++; continue; } // "" = escaped quote
+            inString = !inString;
+        } else if (!inString && ch === "'") {
+            return { code: line.slice(0, i), comment: line.slice(i) };
+        }
+    }
+    return { code: line, comment: '' };
+}
+
 // ─── Keyword casing ────────────────────────────────────────────────────────
 
 // Multi-word and special-cased keywords that need exact casing.
@@ -644,14 +663,20 @@ const KEYWORD_REGEXES = KEYWORDS_SORTED.map(kw => ({
     re: new RegExp('\\b' + kw.replace(/\s+/g, '\\s+') + '\\b', 'gi'),
 }));
 
-function applyKeywordCase(code: string, caseStyle: string): string {
-    return splitByStrings(code).map(part => {
+export function applyKeywordCase(code: string, caseStyle: string): string {
+    // Split off a trailing VBScript comment FIRST — keyword casing and operator/
+    // comma spacing must never touch comment text. Previously a comment such as
+    // `' loop through next items` was keyword-cased to `' Loop through Next items`
+    // and a URL like `' see http://x/y` became `' see http: / / x/y`.
+    const { code: codeOnly, comment } = splitOffComment(code);
+    const formatted = splitByStrings(codeOnly).map(part => {
         if (part.isString) return part.text;
         let s = applyKeywordCaseToText(part.text, caseStyle);
         s = formatOperators(s);
         s = formatCommas(s);
         return s;
     }).join('');
+    return formatted + comment;
 }
 
 function applyKeywordCaseToText(text: string, caseStyle: string): string {
