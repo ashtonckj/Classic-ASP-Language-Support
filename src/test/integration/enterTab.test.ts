@@ -76,6 +76,19 @@ suite('Enter / Tab handlers (integration)', () => {
         assert.strictEqual(editor.document.lineAt(0).text, '        ');
     });
 
+    test('Enter before } on an indented line keeps the } indented', async () => {
+        const editor = await openAsp('<script>\n    function testing() {\n        \n    }\n</script>');
+        setCursor(editor, 3, 4); // line "    }", cursor right before the }
+
+        await runAndWait(editor, 'asp.insertLineBreak');
+
+        const lines = editor.document.getText().split(/\r?\n/);
+        assert.strictEqual(lines[3], '    ');    // the 4 spaces before the cursor
+        assert.strictEqual(lines[4], '    }');   // } keeps its indent on the new line
+        assert.strictEqual(editor.selection.active.line, 4);
+        assert.strictEqual(editor.selection.active.character, 4);
+    });
+
     test('Enter after a VBScript block opener (<% If … Then) indents the body', async () => {
         const editor = await openAsp('<%\nIf x = 1 Then\n%>');
         const eol = editor.document.lineAt(1).text.length; // end of "If x = 1 Then"

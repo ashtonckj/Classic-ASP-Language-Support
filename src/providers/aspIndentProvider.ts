@@ -666,24 +666,17 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
 
         // When nothing meaningful precedes the cursor (column 0, or only whitespace),
         // none of the smart-indent branches below apply — they key off what was typed
-        // before the cursor. Behave like a plain editor:
-        //   • If text or whitespace FOLLOWS the cursor, split the line and preserve
-        //     it verbatim. (The old fall-through duplicated the indent before
-        //     content, and deferring to the native newline trimmed trailing spaces.)
-        //   • Otherwise (blank line, cursor at end) keep the current indent so a new
-        //     blank indented line is produced.
+        // before the cursor. Maintain the current indent on the new line, like a
+        // plain editor. `indent` is textBefore's leading whitespace, so:
+        //   • at column 0 it's empty → a plain newline (any spaces/content after the
+        //     cursor are preserved, cursor lands at column 0);
+        //   • after some indentation it carries that indent → content or a `}`
+        //     following the cursor lands at the correct column instead of column 0.
         if (currentLineText === '') {
-            if (textAfter.length > 0) {
-                editor.edit(eb => eb.insert(position, '\n')).then(() => {
-                    const p = new vscode.Position(position.line + 1, 0);
-                    editor.selection = new vscode.Selection(p, p);
-                });
-            } else {
-                editor.edit(eb => eb.insert(position, `\n${indent}`)).then(() => {
-                    const p = new vscode.Position(position.line + 1, indent.length);
-                    editor.selection = new vscode.Selection(p, p);
-                });
-            }
+            editor.edit(eb => eb.insert(position, `\n${indent}`)).then(() => {
+                const p = new vscode.Position(position.line + 1, indent.length);
+                editor.selection = new vscode.Selection(p, p);
+            });
             return;
         }
 
