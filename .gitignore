@@ -2,6 +2,9 @@
 node_modules/
 .vscode/
 
+# Downloaded VS Code build used by the integration test harness (@vscode/test-cli)
+.vscode-test/
+
 # Compiled output
 out/
 

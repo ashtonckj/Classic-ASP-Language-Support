@@ -366,7 +366,8 @@
         "pretest": "npm run compile && npm run lint",
         "lint": "eslint src",
         "test": "mocha",
-        "test:unit": "npm run compile && mocha"
+        "test:unit": "npm run compile && mocha",
+        "test:integration": "npm run compile && vscode-test"
     },
     "dependencies": {
         "prettier": "^3.8.1",
@@ -380,6 +381,8 @@
         "@types/vscode": "^1.80.0",
         "@typescript-eslint/eslint-plugin": "^8.53.1",
         "@typescript-eslint/parser": "^8.53.1",
+        "@vscode/test-cli": "^0.0.15",
+        "@vscode/test-electron": "^3.0.0",
         "esbuild": "^0.27.3",
         "eslint": "^8.41.0",
         "mocha": "^11.7.6"
