@@ -1005,6 +1005,14 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
             return vscode.commands.executeCommand('tab');
         }
 
+        // ...and only when the cursor is at the END of that blank line. If there is
+        // whitespace after the cursor, behave like a normal Tab — insert an indent
+        // at the cursor and preserve what follows — instead of snapping the whole
+        // line (which discarded the trailing spaces and mis-placed the cursor).
+        if (position.character !== lineText.length) {
+            return vscode.commands.executeCommand('tab');
+        }
+
         // Fetch document text once — only reached on blank lines where smart
         // indent actually runs, so this allocation is never wasted on normal tabs.
         const fullText = editor.document.getText();
@@ -1058,8 +1066,15 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
             ? targetIndent
             : currentIndent + indentUnit;
 
+        // Replace the line's ENTIRE leading whitespace (the line is blank here),
+        // not just col-0 → cursor. Using `position` as the range end left the
+        // existing spaces in place when the cursor sat before them (e.g. at col 0),
+        // producing doubled/misplaced indentation.
         return editor.edit(eb => {
-            eb.replace(new vscode.Range(new vscode.Position(position.line, 0), position), newIndent);
+            eb.replace(
+                new vscode.Range(new vscode.Position(position.line, 0), new vscode.Position(position.line, lineText.length)),
+                newIndent,
+            );
         }).then(() => {
             const p = new vscode.Position(position.line, newIndent.length);
             editor.selection = new vscode.Selection(p, p);
