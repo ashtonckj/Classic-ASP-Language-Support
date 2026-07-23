@@ -661,10 +661,31 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         const textBefore      = line.text.substring(0, position.character);
         const textAfter       = line.text.substring(position.character);
         const currentLineText = textBefore.trim();
-        const indent = position.character > 0
-            ? textBefore.match(/^(\s*)/)?.[0] || ''
-            : line.text.match(/^(\s*)/)?.[1] || '';
+        const indent          = textBefore.match(/^(\s*)/)?.[0] || '';
         const indentUnit      = getIndentUnit(editor);
+
+        // When nothing meaningful precedes the cursor (column 0, or only whitespace),
+        // none of the smart-indent branches below apply — they key off what was typed
+        // before the cursor. Behave like a plain editor:
+        //   • If text or whitespace FOLLOWS the cursor, split the line and preserve
+        //     it verbatim. (The old fall-through duplicated the indent before
+        //     content, and deferring to the native newline trimmed trailing spaces.)
+        //   • Otherwise (blank line, cursor at end) keep the current indent so a new
+        //     blank indented line is produced.
+        if (currentLineText === '') {
+            if (textAfter.length > 0) {
+                editor.edit(eb => eb.insert(position, '\n')).then(() => {
+                    const p = new vscode.Position(position.line + 1, 0);
+                    editor.selection = new vscode.Selection(p, p);
+                });
+            } else {
+                editor.edit(eb => eb.insert(position, `\n${indent}`)).then(() => {
+                    const p = new vscode.Position(position.line + 1, indent.length);
+                    editor.selection = new vscode.Selection(p, p);
+                });
+            }
+            return;
+        }
 
         // ── ASP / VBScript block handling ───────────────────────────────
 
@@ -948,21 +969,13 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             }
         }
 
-        if (position.character === 0 && line.text.trim() === '' && line.text.length > 0) {
-            // Cursor at col 0, line is pure whitespace — clear the current line's
-            // spaces and insert a new line with that same indent
-            editor.edit(eb => {
-                eb.replace(line.range, `\n${indent}`);
-            }).then(() => {
-                const p = new vscode.Position(position.line + 1, indent.length);
-                editor.selection = new vscode.Selection(p, p);
-            });
-        } else {
-            editor.edit(eb => eb.insert(position, `\n${indent}`)).then(() => {
-                const p = new vscode.Position(position.line + 1, indent.length);
-                editor.selection = new vscode.Selection(p, p);
-            });
-        }
+        // Default HTML newline — maintain the current indent. The col-0 and
+        // whitespace-only cases already returned to the native newline above, so
+        // here the cursor is always past the line's leading whitespace.
+        editor.edit(eb => eb.insert(position, `\n${indent}`)).then(() => {
+            const p = new vscode.Position(position.line + 1, indent.length);
+            editor.selection = new vscode.Selection(p, p);
+        });
         return;
     });
 
