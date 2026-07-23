@@ -296,7 +296,7 @@ function formatMultiLineAspBlock(
  * Decrements the indent level BEFORE printing a line (for closing keywords).
  * Returns the level at which this line should be printed.
  */
-function applyIndentBefore(
+export function applyIndentBefore(
     line:             string,
     level:            number,
     selectCaseStack:  number[],
@@ -334,7 +334,7 @@ function applyIndentBefore(
 /**
  * Increments the indent level AFTER printing a line (for opening keywords).
  */
-function applyIndentAfter(
+export function applyIndentAfter(
     line:            string,
     level:           number,
     selectCaseStack: number[],
@@ -460,6 +460,18 @@ function isSQLStatement(line: string): boolean {
  * keyword matching in applyIndentBefore / applyIndentAfter never fires on
  * text inside a comment.  e.g.  `x = 1 ' End With`  →  `x = 1 `
  */
+/**
+ * True when `line[i..]` begins a legacy `REM` comment: the word REM at a
+ * statement boundary (start of line or right after a `:` separator). The
+ * boundary check avoids matching identifiers that merely contain "rem"
+ * (e.g. `remainder`, `myRem`).
+ */
+function isRemAt(line: string, i: number): boolean {
+    const ch = line[i];
+    if (ch !== 'r' && ch !== 'R') { return false; }
+    return /^rem\b/i.test(line.slice(i)) && /(^|:)\s*$/.test(line.slice(0, i));
+}
+
 function removeStrings(line: string): string {
     let result   = '';
     let inString = false;
@@ -470,8 +482,8 @@ function removeStrings(line: string): string {
             if (i + 1 < line.length && line[i + 1] === '"') { i++; continue; }
             inString = !inString;
         } else if (!inString) {
-            // VBScript comment — everything from here to EOL is non-code.
-            if (line[i] === "'") { break; }
+            // VBScript comment (' or legacy REM) — everything to EOL is non-code.
+            if (line[i] === "'" || isRemAt(line, i)) { break; }
             result += line[i];
         }
     }
@@ -526,7 +538,7 @@ function splitOffComment(line: string): { code: string; comment: string } {
         if (ch === '"') {
             if (line[i + 1] === '"') { i++; continue; } // "" = escaped quote
             inString = !inString;
-        } else if (!inString && ch === "'") {
+        } else if (!inString && (ch === "'" || isRemAt(line, i))) {
             return { code: line.slice(0, i), comment: line.slice(i) };
         }
     }

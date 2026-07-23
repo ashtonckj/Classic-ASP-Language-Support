@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { applyKeywordCase } from '../../formatter/aspFormatter';
+import { applyKeywordCase, applyIndentAfter } from '../../formatter/aspFormatter';
 
 // F1 — keyword casing / operator spacing must never touch a trailing comment.
 describe('applyKeywordCase — trailing comments (F1)', () => {
@@ -52,5 +52,33 @@ describe('applyKeywordCase — numeric / date literals (F2)', () => {
     it('still spaces a genuine & concatenation operator', () => {
         const out = applyKeywordCase('a="x"&y', 'PascalCase');
         assert.ok(out.includes('"x" & y'), `concatenation & should be spaced; got ${JSON.stringify(out)}`);
+    });
+});
+
+// F5 — legacy REM comments must be treated as comments, not code.
+describe('applyKeywordCase — REM comments (F5)', () => {
+    it('does not keyword-case a full-line REM comment', () => {
+        const out = applyKeywordCase('REM loop until the next item', 'PascalCase');
+        assert.strictEqual(out, 'REM loop until the next item');
+    });
+
+    it('does not case a REM comment after a colon separator', () => {
+        const out = applyKeywordCase('x=1 : REM end if here', 'PascalCase');
+        assert.ok(out.includes('REM end if here'), `REM text preserved; got ${JSON.stringify(out)}`);
+    });
+
+    it('does not treat a "rem"-prefixed identifier as a comment', () => {
+        const out = applyKeywordCase('remainder = 5', 'PascalCase');
+        assert.ok(out.includes('remainder'), `identifier preserved; got ${JSON.stringify(out)}`);
+    });
+});
+
+describe('applyIndentAfter — REM comments do not trigger indent (F5)', () => {
+    it('does not indent after a REM comment containing If ... Then', () => {
+        assert.strictEqual(applyIndentAfter('REM if x then do something', 0, []), 0);
+    });
+
+    it('still indents after a real If ... Then block opener', () => {
+        assert.strictEqual(applyIndentAfter('If x Then', 0, []), 1);
     });
 });
