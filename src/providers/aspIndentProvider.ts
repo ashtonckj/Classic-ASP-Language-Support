@@ -687,6 +687,36 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             return;
         }
 
+        const zone = getZone(fullText, document.offsetAt(position));
+
+        // ── JS / CSS brace handling ─────────────────────────────────────
+        // Pressing Enter right after `{` should open an indented block, matching a
+        // real .js/.css file. When a `}` immediately follows the cursor (`{|}` —
+        // typically because the editor auto-closed the brace) expand to three lines
+        // with the `}` on its own line; otherwise just add one indent level. Without
+        // this the fall-through kept the current indent, leaving `}` glued to the
+        // cursor with no indentation.
+        if ((zone === 'js' || zone === 'css') && textBefore.trimEnd().endsWith('{')) {
+            const rest = textAfter.trimStart();
+            if (rest.startsWith('}')) {
+                editor.edit(eb => {
+                    eb.replace(
+                        new vscode.Range(position, new vscode.Position(position.line, line.text.length)),
+                        `\n${indent}${indentUnit}\n${indent}${rest}`,
+                    );
+                }).then(() => {
+                    const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
+                    editor.selection = new vscode.Selection(p, p);
+                });
+            } else {
+                editor.edit(eb => eb.insert(position, `\n${indent}${indentUnit}`)).then(() => {
+                    const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
+                    editor.selection = new vscode.Selection(p, p);
+                });
+            }
+            return;
+        }
+
         // ── ASP / VBScript block handling ───────────────────────────────
 
         // Expand <%|%> on Enter.
@@ -736,7 +766,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             return;
         }
 
-        if (getZone(fullText, document.offsetAt(position)) === 'asp') {
+        if (zone === 'asp') {
 
             // After <% or <%= on its own line: VBScript code sits at the same indent
             // as <% itself — no extra level added. <% is at HTML child level and
