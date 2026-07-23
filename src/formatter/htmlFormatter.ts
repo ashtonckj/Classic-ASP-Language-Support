@@ -235,13 +235,6 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         return code;
     }
 
-    // Strip closing tags on void elements (e.g. </input>, </br>) before Prettier
-    // sees the HTML — Prettier hard-fails on these. The diagnostic provider already
-    // flags them as errors with a quick fix, so silently removing them here just
-    // prevents formatting from being blocked while the user is still fixing them.
-    const VOID_CLOSING_TAG_RE = /<\/(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\s*>/gi;
-    code = code.replace(VOID_CLOSING_TAG_RE, '');
-
     const aspSettings      = getAspSettings();
     const prettierSettings = getPrettierSettings();
 
@@ -335,6 +328,15 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         maskedCode += jsPreMasked[pos];
         pos++;
     }
+
+    // Strip closing tags on void elements (</br>, </input>, …) that Prettier
+    // hard-fails on. Done AFTER masking so a void closer that lives inside a
+    // VBScript string or ASP block (e.g. Response.Write "</br>") is already a
+    // placeholder here and is preserved — the previous raw-text strip silently
+    // deleted it. Real HTML void closers are still removed; the structure
+    // diagnostic continues to flag them for the user to fix.
+    const VOID_CLOSING_TAG_RE = /<\/(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\s*>/gi;
+    maskedCode = maskedCode.replace(VOID_CLOSING_TAG_RE, '');
 
     // ── Step 3: Run Prettier on the masked HTML ──────────────────────────────
 
