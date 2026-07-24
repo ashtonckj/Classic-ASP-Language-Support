@@ -144,12 +144,28 @@ type LineAction =
     | { type: 'open';  kind: BlockKind; opener: string; colOffset: number }
     | { type: 'close'; kind: BlockKind; closer: string; colOffset: number };
 
-function classifyLine(raw: string): LineAction[] {
+export function classifyLine(raw: string): LineAction[] {
     const stripped = removeStrings(raw);
-    const lower    = stripped.toLowerCase().trim();
     const actions: LineAction[] = [];
 
-    if (!lower) return actions;
+    // Classify each `:`-separated statement independently, so a one-liner such as
+    // `For i = 1 To 10 : Next` is seen as an opener AND a closer (they balance, so
+    // no false "Missing Next"). Strings are already removed above, so every `:`
+    // here is a real statement separator.
+    for (const segment of stripped.split(':')) {
+        classifyStatement(segment, raw, actions);
+    }
+    return actions;
+}
+
+// Classifies ONE `:`-separated statement and appends its action (if any).
+function classifyStatement(segment: string, raw: string, actions: LineAction[]): void {
+    // Drop `.member` accesses before matching so `obj.Do`, `rs.With`, `x.Next` are
+    // never read as block keywords — a real block keyword is never preceded by a
+    // dot. (Replaced with a space to preserve word boundaries.)
+    const lower = segment.toLowerCase().replace(/\.\w+/g, ' ').trim();
+
+    if (!lower) return;
 
     // ── Closers first (so ElseIf / Else don't leave a phantom open) ───────────
 
@@ -162,31 +178,31 @@ function classifyLine(raw: string): LineAction[] {
         };
         const k = kindMap[endMatch[1]];
         actions.push({ type: 'close', kind: k, closer: `End ${endMatch[1].charAt(0).toUpperCase() + endMatch[1].slice(1)}`, colOffset: 0 });
-        return actions; // End X never also opens something
+        return; // End X never also opens something
     }
 
     // Next — closes For / For Each
     // Guard: "On Error Resume Next" must NOT be treated as a For closer
     if (/^next(\s|$)/.test(lower) && !/resume\s+next/.test(lower)) {
         actions.push({ type: 'close', kind: 'for', closer: 'Next', colOffset: 0 });
-        return actions;
+        return;
     }
 
     // Wend — closes While
     if (/^wend(\s|$)/.test(lower)) {
         actions.push({ type: 'close', kind: 'while', closer: 'Wend', colOffset: 0 });
-        return actions;
+        return;
     }
 
     // Loop / Loop While / Loop Until — closes Do
     if (/^loop(\s|$)/.test(lower)) {
         actions.push({ type: 'close', kind: 'do', closer: 'Loop', colOffset: 0 });
-        return actions;
+        return;
     }
 
     // ElseIf / Else — neither opens nor closes If (they're mid-block)
     if (/^else(if\b|\s|$)/.test(lower)) {
-        return actions;
+        return;
     }
 
     // ── Openers ───────────────────────────────────────────────────────────────
@@ -194,7 +210,7 @@ function classifyLine(raw: string): LineAction[] {
     // If ... Then <statement on same line> — single-line If, no End If needed
     // Detected by: has "then" followed by non-whitespace content
     if (/\bif\b.*\bthen\b\s+\S/.test(lower)) {
-        return actions; // single-line If
+        return; // single-line If
     }
 
     // If ... Then (block) — now correctly matches even when If and Then were on
@@ -202,26 +218,26 @@ function classifyLine(raw: string): LineAction[] {
     if (/\bif\b.*\bthen\b/.test(lower)) {
         const col = raw.toLowerCase().indexOf('if');
         actions.push({ type: 'open', kind: 'if', opener: 'If', colOffset: col });
-        return actions;
+        return;
     }
 
     // Select Case
     if (/\bselect\s+case\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bselect\b/);
         actions.push({ type: 'open', kind: 'select', opener: 'Select Case', colOffset: col });
-        return actions;
+        return;
     }
 
     // For Each / For <var> = ...
     if (/\bfor\s+each\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bfor\b/);
         actions.push({ type: 'open', kind: 'for', opener: 'For Each', colOffset: col });
-        return actions;
+        return;
     }
     if (/\bfor\s+\w+\s*=/.test(lower)) {
         const col = raw.toLowerCase().search(/\bfor\b/);
         actions.push({ type: 'open', kind: 'for', opener: 'For', colOffset: col });
-        return actions;
+        return;
     }
 
     // Do / Do While / Do Until — must come BEFORE the While check.
@@ -229,18 +245,18 @@ function classifyLine(raw: string): LineAction[] {
     if (/\bdo\s+while\b/.test(lower) && !/\bexit\s+do\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bdo\b/);
         actions.push({ type: 'open', kind: 'do', opener: 'Do While', colOffset: col });
-        return actions;
+        return;
     }
     if (/\bdo\s+until\b/.test(lower) && !/\bexit\s+do\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bdo\b/);
         actions.push({ type: 'open', kind: 'do', opener: 'Do Until', colOffset: col });
-        return actions;
+        return;
     }
     // Bare "Do" — but NOT "Exit Do"
     if (/\bdo\b(\s|$)/.test(lower) && !/\bexit\s+do\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bdo\b/);
         actions.push({ type: 'open', kind: 'do', opener: 'Do', colOffset: col });
-        return actions;
+        return;
     }
 
     // While ... Wend
@@ -248,45 +264,45 @@ function classifyLine(raw: string): LineAction[] {
     if (/\bwhile\b/.test(lower) && !/^loop\b/.test(lower) && !/^do\b/.test(lower) && !/\bexit\s+while\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bwhile\b/);
         actions.push({ type: 'open', kind: 'while', opener: 'While', colOffset: col });
-        return actions;
+        return;
     }
 
     // Function <n>
     if (/\bfunction\b\s+\w+/.test(lower) && !/^\s*end\s+function\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bfunction\b/);
         actions.push({ type: 'open', kind: 'function', opener: 'Function', colOffset: col });
-        return actions;
+        return;
     }
 
     // Sub <n>
     if (/\bsub\b\s+\w+/.test(lower) && !/^\s*end\s+sub\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bsub\b/);
         actions.push({ type: 'open', kind: 'sub', opener: 'Sub', colOffset: col });
-        return actions;
+        return;
     }
 
     // Property Get / Let / Set
     if (/\bproperty\s+(get|let|set)\b/.test(lower) && !/^\s*end\s+property\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bproperty\b/);
         actions.push({ type: 'open', kind: 'property', opener: 'Property', colOffset: col });
-        return actions;
+        return;
     }
 
     // With
     if (/\bwith\b/.test(lower) && !/^\s*end\s+with\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bwith\b/);
         actions.push({ type: 'open', kind: 'with', opener: 'With', colOffset: col });
-        return actions;
+        return;
     }
 
     // Class <n>
     if (/\bclass\b\s+\w+/.test(lower) && !/^\s*end\s+class\b/.test(lower)) {
         const col = raw.toLowerCase().search(/\bclass\b/);
         actions.push({ type: 'open', kind: 'class', opener: 'Class', colOffset: col });
-        return actions;
+        return;
     }
 
-    return actions;
+    return;
 }
 
 // ── Main scanner ──────────────────────────────────────────────────────────────
