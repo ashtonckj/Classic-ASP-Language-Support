@@ -347,6 +347,27 @@ function resolveDirectIncludes(documentText: string, documentPath: string): stri
     return resolved;
 }
 
+/** Finds an open editor document for the given fs path (case-insensitive), if any. */
+function openDocumentFor(fsPath: string): vscode.TextDocument | undefined {
+    const lower = fsPath.toLowerCase();
+    return vscode.workspace.textDocuments.find(
+        d => d.uri.scheme === 'file' && d.uri.fsPath.toLowerCase() === lower,
+    );
+}
+
+/**
+ * Returns an include file's current content, preferring the OPEN editor buffer so
+ * unsaved edits to a .inc are reflected in the including .asp immediately (the way
+ * other language servers resolve dependencies — the editor models what the code
+ * *currently says*, even though the ASP engine reads the saved file at runtime).
+ * Falls back to disk for includes that aren't open. Returns null if unreadable.
+ */
+function readIncludeText(fsPath: string): string | null {
+    const open = openDocumentFor(fsPath);
+    if (open) { return open.getText(); }
+    try { return fs.readFileSync(fsPath, 'utf8'); } catch { return null; }
+}
+
 // Recursively resolves all #include paths starting from a document.
 // `visited` prevents infinite loops when files include each other circularly.
 export function resolveIncludePaths(documentText: string, documentPath: string, visited: Set<string> = new Set()): string[] {
@@ -360,11 +381,11 @@ export function resolveIncludePaths(documentText: string, documentPath: string, 
         if (visited.has(incPath.toLowerCase())) continue;
         resolved.push(incPath);
 
-        try {
-            const incText = fs.readFileSync(incPath, 'utf8');
+        // Read from the open buffer when available so a nested #include added to an
+        // as-yet-unsaved .inc is still discovered.
+        const incText = readIncludeText(incPath);
+        if (incText !== null) {
             resolved.push(...resolveIncludePaths(incText, incPath, visited));
-        } catch {
-            // Skip unreadable files silently
         }
     }
 
@@ -379,39 +400,68 @@ export function resolveIncludePaths(documentText: string, documentPath: string, 
 // on every keystroke across all providers.
 // ─────────────────────────────────────────────────────────────────────────────
 
+interface IncludeStamp { path: string; token: string; }
+
 interface SymbolCache {
-    version:  number;
-    symbols:  FileSymbols;
+    version:       number;
+    symbols:       FileSymbols;
+    includeStamps: IncludeStamp[];
 }
 
 const _symbolCache = new Map<string, SymbolCache>();
+
+/**
+ * A cache-invalidation token for an include. If the file is OPEN in an editor we
+ * use its in-memory buffer version, so unsaved edits refresh the including
+ * document's symbols immediately; otherwise we use its on-disk mtime.
+ */
+function includeToken(fsPath: string): string {
+    const open = openDocumentFor(fsPath);
+    if (open) { return `v${open.version}`; }
+    try { return `m${fs.statSync(fsPath).mtimeMs}`; } catch { return 'missing'; }
+}
+
+/** True only if every recorded include still has the same change token. */
+function includeStampsUnchanged(stamps: IncludeStamp[]): boolean {
+    for (const s of stamps) {
+        if (includeToken(s.path) !== s.token) { return false; }
+    }
+    return true;
+}
 
 export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
     const docPath    = document.uri.fsPath;
     const docVersion = document.version;
 
+    // A cache hit requires BOTH the document version AND every included file's
+    // token (open-buffer version, or disk mtime when not open) to be unchanged —
+    // otherwise editing a .inc (even unsaved) would leave the including document's
+    // merged symbols stale.
     const cached = _symbolCache.get(docPath);
-    if (cached && cached.version === docVersion) {
+    if (cached && cached.version === docVersion && includeStampsUnchanged(cached.includeStamps)) {
         return cached.symbols;
     }
 
     const fullText = document.getText();
     const combined = extractSymbols(fullText, docPath);
+    const includeStamps: IncludeStamp[] = [];
 
     for (const incPath of resolveIncludePaths(fullText, docPath)) {
-        try {
-            const incSymbols = extractSymbols(fs.readFileSync(incPath, 'utf8'), incPath);
-            combined.variables    .push(...incSymbols.variables);
-            combined.constants    .push(...incSymbols.constants);
-            combined.functions    .push(...incSymbols.functions);
-            combined.comVariables .push(...incSymbols.comVariables);
-            combined.classes      .push(...incSymbols.classes);
-        } catch {
-            // Skip unreadable files silently
-        }
+        // Stamp first so a currently-unreadable include still invalidates once it
+        // appears or changes.
+        includeStamps.push({ path: incPath, token: includeToken(incPath) });
+        const incText = readIncludeText(incPath);
+        if (incText === null) { continue; }
+
+        const incSymbols = extractSymbols(incText, incPath);
+        combined.variables    .push(...incSymbols.variables);
+        combined.constants    .push(...incSymbols.constants);
+        combined.functions    .push(...incSymbols.functions);
+        combined.comVariables .push(...incSymbols.comVariables);
+        combined.classes      .push(...incSymbols.classes);
     }
 
-    _symbolCache.set(docPath, { version: docVersion, symbols: combined });
+    _symbolCache.set(docPath, { version: docVersion, symbols: combined, includeStamps });
 
     // Evict stale entries for files no longer open to avoid unbounded growth
     const openPaths = new Set(vscode.workspace.textDocuments.map(d => d.uri.fsPath));
