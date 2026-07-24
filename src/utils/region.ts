@@ -1,4 +1,4 @@
-import * as vscode from "vscode";
+import * as vscode from 'vscode';
 
 interface AspRegion {
     openingBracket: vscode.Range;
@@ -7,12 +7,12 @@ interface AspRegion {
 }
 
 export function getAspRegions(document: vscode.TextDocument): AspRegion[] {
-    if (document.languageId !== "asp") return [];
+    if (document.languageId !== 'asp') return [];
 
     const fullText = document.getText();
     const brackets: vscode.Range[] = [];
     let match: RegExpExecArray | null;
-    const pattern = new RegExp(`(<%=|<%|%>)`, 'g')
+    const pattern = /(<%=|<%|%>)/g;
 
     while ((match = pattern.exec(fullText)) !== null) {
         const startPos = document.positionAt(match.index);
