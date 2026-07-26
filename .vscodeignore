@@ -47,3 +47,15 @@ node_modules/typescript/lib/zh-tw/**
 
 # TypeScript type declarations — only needed at compile time, not at runtime
 node_modules/typescript/lib/typescript.d.ts
+
+# Prettier parser plugins the formatter never loads. The HTML formatter calls
+# prettier.format(..., { parser: 'html' }), which only pulls in html + postcss
+# (embedded CSS) + babel/estree (embedded JS). Everything below is dead weight.
+node_modules/prettier/plugins/typescript.*
+node_modules/prettier/plugins/flow.*
+node_modules/prettier/plugins/markdown.*
+node_modules/prettier/plugins/yaml.*
+node_modules/prettier/plugins/graphql.*
+node_modules/prettier/plugins/angular.*
+node_modules/prettier/plugins/glimmer.*
+node_modules/prettier/plugins/meriyah.*
