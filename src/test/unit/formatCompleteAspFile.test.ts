@@ -38,3 +38,24 @@ describe('formatCompleteAspFile — $ sequences in strings survive restore (Bug 
             `dollar sequences must survive; got ${JSON.stringify(out)}`);
     });
 });
+
+// An ASP block inside <script>/<style> is masked with a JS/CSS-safe
+// identifier (not an HTML comment), so Prettier can't parse it as a comment and
+// reorder the surrounding code.
+describe('formatCompleteAspFile — ASP inside <script> keeps JS order (Bug E)', () => {
+    it('does not reorder statements around a <%= %> in <script>', async () => {
+        const input = '<div>\n<script>\nvar x = <%= "userId" %>;\nalert(x);\n</script>\n</div>';
+        const out   = await formatCompleteAspFile(input);
+
+        const iAssign = out.indexOf('var x =');
+        const iExpr   = out.indexOf('<%= "userId" %>');
+        const iAlert  = out.indexOf('alert(x)');
+
+        assert.ok(iAssign !== -1 && iExpr !== -1 && iAlert !== -1,
+            `all three fragments must be present; got ${JSON.stringify(out)}`);
+        assert.ok(iAssign < iExpr && iExpr < iAlert,
+            `<%= %> must stay between "var x =" and alert(x); got ${JSON.stringify(out)}`);
+        assert.ok(!/var x = alert\(x\)/.test(out),
+            `assignment must not merge with alert(x); got ${JSON.stringify(out)}`);
+    });
+});

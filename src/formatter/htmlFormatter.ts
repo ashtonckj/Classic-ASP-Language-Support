@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as prettier from 'prettier';
 import { formatSingleAspBlock, getAspSettings } from './aspFormatter';
+import { findNextRealTag, findTagEnd, findClosingTag } from '../utils/zoneUtils';
 
 // ─── Prettier settings ─────────────────────────────────────────────────────
 
@@ -43,10 +44,14 @@ export function getPrettierSettings(): PrettierSettings {
 // ─── ASP block types ───────────────────────────────────────────────────────
 
 // Where in the HTML structure an ASP block sits:
-//   normal  – standalone on its own line(s)   → HTML comment placeholder
-//   inline  – inside a quoted attribute value → bare token placeholder
-//   midtag  – between attributes, not quoted  → data- attribute placeholder
-type AspBlockKind = 'normal' | 'inline' | 'midtag';
+//   normal  – standalone on its own line(s)      → HTML comment placeholder
+//   inline  – inside a quoted attribute value    → bare token placeholder
+//   midtag  – between attributes, not quoted     → data- attribute placeholder
+//   rawtext – inside a <script>/<style> body     → bare identifier placeholder
+//             (an HTML-comment placeholder is legal JS/CSS and gets parsed by
+//              Prettier — it would REORDER/corrupt the code — so raw-text blocks
+//              use an identifier token Prettier leaves in place instead)
+type AspBlockKind = 'normal' | 'inline' | 'midtag' | 'rawtext';
 
 interface AspBlock {
     code:       string;
@@ -227,6 +232,48 @@ function classifyContext(emittedSoFar: string): AspBlockKind {
     return 'normal';
 }
 
+// ─── Raw-text (<script>/<style>) ASP handling ───────────────────────────────
+
+/**
+ * A JS/CSS-safe placeholder for an ASP block that lives inside a <script> or
+ * <style> body. Must be a valid identifier in BOTH languages (lowercase so
+ * Prettier's CSS printer can't rewrite its case) and derived deterministically
+ * from the block id so masking, the survival check, and restore all agree.
+ */
+function rawTokenFor(id: string): string {
+    return ('aspraw' + id).replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
+/**
+ * Byte ranges [start, end) of every real <script>/<style> element BODY (between
+ * the opening tag's `>` and the closing tag). Reuses the zone scanners so ASP
+ * blocks, quoted attributes, and VBScript strings are handled the same way the
+ * rest of the extension handles them.
+ */
+function computeRawTextRanges(text: string): Array<[number, number]> {
+    const ranges: Array<[number, number]> = [];
+    for (const tag of ['<script', '<style'] as const) {
+        const name = tag.slice(1); // 'script' | 'style'
+        let from = 0;
+        while (true) {
+            const open = findNextRealTag(text, tag, from);
+            if (open === -1) { break; }
+            const tagEnd = findTagEnd(text, open);
+            if (tagEnd === -1) { break; }
+            const { index: close, length } = findClosingTag(text, name, tagEnd + 1);
+            const bodyStart = tagEnd + 1;
+            const bodyEnd   = close === -1 ? text.length : close;
+            ranges.push([bodyStart, bodyEnd]);
+            from = close === -1 ? text.length : close + length;
+        }
+    }
+    return ranges;
+}
+
+function isInRawText(pos: number, ranges: Array<[number, number]>): boolean {
+    return ranges.some(([s, e]) => pos >= s && pos < e);
+}
+
 // ─── Main entry point ──────────────────────────────────────────────────────
 
 export async function formatCompleteAspFile(code: string): Promise<string> {
@@ -244,6 +291,11 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     // Must happen BEFORE ASP masking so values like onclick="doA('<%= val %>'); doB()"
     // are captured whole — including embedded ASP expressions — as one opaque token.
     const { masked: jsPreMasked, masks: jsAttrMasks } = maskJsEventAttrs(code);
+
+    // <script>/<style> body ranges — ASP blocks inside them need a JS/CSS-safe
+    // identifier placeholder, not an HTML comment (which Prettier would parse as
+    // a JS/CSS comment and reorder around, corrupting the code).
+    const rawRanges = computeRawTextRanges(jsPreMasked);
 
     // ── Step 2: Mask all ASP blocks ──────────────────────────────────────────
     // Each ASP block is replaced with a placeholder that Prettier will treat as
@@ -305,7 +357,9 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             }
 
             const aspBlock   = jsPreMasked.slice(pos, end);
-            const kind       = classifyContext(maskedCode);
+            // A block inside a <script>/<style> body is raw-text; otherwise decide
+            // from the surrounding HTML whether it is inline/midtag/normal.
+            const kind       = isInRawText(pos, rawRanges) ? 'rawtext' : classifyContext(maskedCode);
             const lineNumber = code.slice(0, pos).split('\n').length - 1;
             const id         = `ASPPH${_placeholderCounter++}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 
@@ -319,9 +373,10 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             }
 
             switch (kind) {
-                case 'inline': maskedCode += `ASPINLINE_${id}_END`; break;
-                case 'midtag': maskedCode += `data-asp-${id}="1"`; break;
-                default:       maskedCode += `<!--${id}-->`; break;
+                case 'inline':  maskedCode += `ASPINLINE_${id}_END`; break;
+                case 'midtag':  maskedCode += `data-asp-${id}="1"`;  break;
+                case 'rawtext': maskedCode += rawTokenFor(id);       break;
+                default:        maskedCode += `<!--${id}-->`;        break;
             }
             pos = end;
             continue;
@@ -395,8 +450,9 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
     for (const block of aspBlocks) {
         const needle =
-            block.kind === 'inline' ? `ASPINLINE_${block.id}_END` :
-            block.kind === 'midtag' ? `data-asp-${block.id}`       :
+            block.kind === 'inline'  ? `ASPINLINE_${block.id}_END` :
+            block.kind === 'midtag'  ? `data-asp-${block.id}`       :
+            block.kind === 'rawtext' ? rawTokenFor(block.id)        :
             block.id;
 
         if (!prettifiedCode.includes(needle)) {
@@ -419,8 +475,13 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
     for (const block of aspBlocks) {
         if (block.kind !== 'normal') {
-            // Inline / midtag blocks: format but don't change the tracked level.
-            const result = formatSingleAspBlock(block.code, aspSettings, '', currentIndentLevel);
+            // Inline / midtag / rawtext blocks: format but don't change the tracked
+            // level. Raw-text blocks sit inline in JS/CSS, so keep <% %> on one line
+            // (aspTagsOnSameLine) — a multi-line expansion would split a JS statement.
+            const blockSettings = block.kind === 'rawtext'
+                ? { ...aspSettings, aspTagsOnSameLine: true }
+                : aspSettings;
+            const result = formatSingleAspBlock(block.code, blockSettings, '', currentIndentLevel);
             formattedBlocks.push(result.formatted);
             blockStartLevels.push(-1);
             blockHtmlIndents.push('');
@@ -475,6 +536,14 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
         switch (block.kind) {
 
+            case 'rawtext': {
+                // Identifier placeholder inside <script>/<style>; Prettier kept it
+                // in place, so a straight swap restores the original position.
+                // Function replacement keeps `$`-sequences in the code literal.
+                restoredCode = restoredCode.replace(rawTokenFor(block.id), () => formatted.trim());
+                break;
+            }
+
             case 'inline': {
                 const inlineToken  = `ASPINLINE_${block.id}_END`;
                 const escapedToken = inlineToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -488,7 +557,9 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                     // embeddedLanguageFormatting:'off'), but even if it did we keep
                     // the expression on one line because breaking it would introduce
                     // unwanted whitespace into the rendered HTML.
-                    restoredCode = restoredCode.replace(inlineToken, formatted);
+                    // Function replacement: `$`-sequences in the VBScript (e.g. $&,
+                    // $$ inside a string) must be inserted literally.
+                    restoredCode = restoredCode.replace(inlineToken, () => formatted);
                 } else {
                     // <% ... %> is a code block inside an attribute value.
                     // Prettier may have moved the token onto its own line — strip
@@ -504,9 +575,10 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
             case 'midtag':
                 // Prettier may have normalised quotes/spacing around the attribute.
+                // Function replacement keeps `$`-sequences in the code literal.
                 restoredCode = restoredCode.replace(
                     new RegExp(`\\s*data-asp-${escapedId}\\s*=\\s*["']1["']`),
-                    ` ${formatted}`
+                    () => ` ${formatted}`
                 );
                 break;
 
@@ -567,7 +639,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
                         restoredCode = restoredCode.replace(
                             new RegExp(`[ \\t]*<!--${escapedId}-->`),
-                            `\n${indentedBlock}\n${baseIndent}`
+                            () => `\n${indentedBlock}\n${baseIndent}`
                         );
                     } else {
                         // Expression sitting inline in tag text content (e.g. <td><%= val %></td>)
@@ -575,7 +647,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                         if (isExpression && hasContentBefore && !isInsideQuote) {
                             restoredCode = restoredCode.replace(
                                 new RegExp(`[ \\t]*<!--${escapedId}-->`),
-                                formatted.trim()
+                                () => formatted.trim()
                             );
                             break;
                         }
@@ -620,11 +692,11 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
                         restoredCode = restoredCode.replace(
                             new RegExp(`[ \\t]*<!--${escapedId}-->`),
-                            indentedBlock
+                            () => indentedBlock
                         );
                     }
                 } else {
-                    restoredCode = restoredCode.replace(`<!--${block.id}-->`, formatted);
+                    restoredCode = restoredCode.replace(`<!--${block.id}-->`, () => formatted);
                 }
                 break;
             }
