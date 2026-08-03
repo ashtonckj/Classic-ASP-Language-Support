@@ -1,9 +1,40 @@
 import * as assert from 'assert';
-import { classifyLine } from '../../providers/aspStructureDiagnosticsProvider';
+import { classifyLine, extractAspStatementCode } from '../../providers/aspStructureDiagnosticsProvider';
 
 function kinds(actions: Array<{ type: string; kind: string }>): string[] {
     return actions.map(a => `${a.type}:${a.kind}`);
 }
+
+// Bug A — only the code INSIDE <% %> is VBScript; the HTML around an inline
+// <%= %> must never reach the block classifier (else prose words like "with",
+// "do", "class" fake a block opener and raise a false "Missing End …").
+describe('extractAspStatementCode — HTML prose is not classified as VBScript (Bug A)', () => {
+    it('ignores HTML text around an inline <%= %> output expression', () => {
+        const code = extractAspStatementCode('<td>Total <%= x %> items with tax</td>');
+        assert.strictEqual(code.trim(), '');
+        assert.deepStrictEqual(classifyLine(code), []); // no phantom With
+    });
+
+    it('does not fake a Do / Class opener from prose next to <%= %>', () => {
+        assert.deepStrictEqual(classifyLine(extractAspStatementCode('What to do <%= a %> now')), []);
+        assert.deepStrictEqual(classifyLine(extractAspStatementCode('see class notes <%= b %>')), []);
+    });
+
+    it('still extracts a real inline <% %> statement block', () => {
+        assert.strictEqual(extractAspStatementCode('<% With obj %>').trim(), 'With obj');
+        assert.deepStrictEqual(kinds(classifyLine(extractAspStatementCode('<% With obj %>'))), ['open:with']);
+    });
+
+    it('classifies two <% %> blocks on one line (join with colon)', () => {
+        const code = extractAspStatementCode('<% If a Then %>x<% End If %>');
+        assert.deepStrictEqual(kinds(classifyLine(code)), ['open:if', 'close:if']);
+    });
+
+    it('treats a line with no <% as pure code (multi-line block body)', () => {
+        assert.strictEqual(extractAspStatementCode('With obj'), 'With obj');
+        assert.deepStrictEqual(kinds(classifyLine(extractAspStatementCode('With obj'))), ['open:with']);
+    });
+});
 
 // D1 — a `:`-joined one-liner must be seen as BOTH an opener and a closer, so it
 // balances and no false "Missing …" diagnostic is raised.

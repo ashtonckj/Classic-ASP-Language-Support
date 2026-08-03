@@ -62,6 +62,41 @@ function removeStrings(line: string): string {
     return result;
 }
 
+// ── Extract only real ASP *code* from a physical line ─────────────────────────
+//
+// The structure scanner must classify VBScript, never the HTML around it. A line
+// like  <td>Total <%= x %> items with tax</td>  is mostly HTML; only the text
+// inside <% ... %> is VBScript. The old approach stripped just the <% / %>
+// delimiters and kept everything else, so prose words like "with" / "do" /
+// "class" were misread as block openers (phantom "Missing End With" etc.).
+//
+// Rules:
+//  • No <% on the line → the whole line is code (we are inside a multi-line
+//    <% %> block or a server-side VBScript <script> body — there is no HTML to
+//    strip, and the leading/continuation code must still be classified).
+//  • Otherwise → concatenate ONLY the code inside <% ... %> statement blocks,
+//    joined by " : " so classifyLine (which splits on colons) classifies each.
+//    <%= ... %> output expressions carry no block structure and are ignored.
+export function extractAspStatementCode(lineText: string): string {
+    if (lineText.indexOf('<%') === -1) { return lineText; }
+
+    const codes: string[] = [];
+    let i = 0;
+    while (i < lineText.length) {
+        const open = lineText.indexOf('<%', i);
+        if (open === -1) { break; }
+        const close = lineText.indexOf('%>', open + 2);
+        const end   = close === -1 ? lineText.length : close;
+        // Ignore <%= ... %> (and <% = ... %>) output expressions — they are
+        // Response.Write shorthand and never carry block structure.
+        if (!lineText.slice(open + 2, end).trimStart().startsWith('=')) {
+            codes.push(lineText.slice(open + 2, end));
+        }
+        i = close === -1 ? lineText.length : close + 2;
+    }
+    return codes.join(' : ');
+}
+
 // ── Line-continuation joining ─────────────────────────────────────────────────
 //
 // Returns true when a physical line ends with a VBScript line-continuation (_).
@@ -342,11 +377,11 @@ function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
         // Skip VBScript comment lines and REM lines
         if (trimmed.startsWith("'") || /^rem\s/i.test(trimmed)) { continue; }
 
-        // Strip inline ASP delimiters so that compact forms like <%End If%>,
-        // <%If x Then%>, <%Else%> are classified correctly.
-        // classifyLine anchors some patterns at ^ (e.g. /^end\s+if/) so the
-        // leading <% must be removed before classification.
-        const classifyText = lineText.replace(/<%=?\s*/gi, ' ').replace(/\s*%>/gi, ' ').trim();
+        // Classify ONLY the VBScript inside <% ... %> on this line — never the
+        // surrounding HTML. Compact forms like <%End If%>, <%If x Then%>, <%Else%>
+        // still work because their code is extracted; inline output expressions
+        // (<%= x %>) and HTML prose are excluded so they can't fake a block opener.
+        const classifyText = extractAspStatementCode(lineText).trim();
 
         const actions = classifyLine(classifyText);
 
