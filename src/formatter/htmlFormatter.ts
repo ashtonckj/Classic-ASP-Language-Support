@@ -90,9 +90,11 @@ function restoreJsEventAttrs(code: string, masks: JsAttrMask[]): string {
     let result = code;
     for (const { token, original, quote } of masks) {
         // Prettier may have changed the surrounding quote style — match either.
+        // Use a function replacement so `$`-sequences in the original value
+        // (e.g. $&, $$) are inserted literally, not interpreted by String.replace.
         result = result.replace(
             new RegExp(`["']${token}["']`),
-            `${quote}${original}${quote}`
+            () => `${quote}${original}${quote}`
         );
     }
     return result;

@@ -21,3 +21,20 @@ describe('formatCompleteAspFile — void-tag strip stays out of strings (F4)', (
         assert.ok(!/<\/br>/i.test(out), `a real </br> element should be removed; got ${JSON.stringify(out)}`);
     });
 });
+
+// Restore must insert the formatted VBScript literally. `$&`, `$$` etc.
+// are special in String.replace replacement strings; using them there silently
+// corrupted VBScript strings (`$&` → placeholder text, `$$` → `$`).
+describe('formatCompleteAspFile — $ sequences in strings survive restore (Bug C)', () => {
+    it('preserves $$ and $& in an inline <%= %> expression', async () => {
+        const out = await formatCompleteAspFile('<table><tr><td><%= "a $$ b $& c" %></td></tr></table>');
+        assert.ok(out.includes('$$'), `"$$" must survive; got ${JSON.stringify(out)}`);
+        assert.ok(out.includes('$&'), `"$&" must survive; got ${JSON.stringify(out)}`);
+    });
+
+    it('preserves $$ and $& in a <% %> statement block', async () => {
+        const out = await formatCompleteAspFile('<%\nResponse.Write "x $$ y $& z"\n%>');
+        assert.ok(out.includes('$$') && out.includes('$&'),
+            `dollar sequences must survive; got ${JSON.stringify(out)}`);
+    });
+});
