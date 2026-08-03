@@ -1,5 +1,21 @@
 import * as assert from 'assert';
-import { applyKeywordCase, applyIndentAfter } from '../../formatter/aspFormatter';
+import {
+    applyKeywordCase,
+    applyIndentAfter,
+    applyIndentForLine,
+    formatSingleAspBlock,
+    type AspFormatterSettings,
+} from '../../formatter/aspFormatter';
+
+const DEFAULT_SETTINGS: AspFormatterSettings = {
+    keywordCase: 'PascalCase',
+    useTabs: false,
+    indentSize: 2,
+    aspTagsOnSameLine: false,
+    htmlIndentMode: 'flat',
+};
+
+const leadingSpaces = (line: string): number => (line.match(/^\s*/)?.[0].length ?? 0);
 
 // F1 — keyword casing / operator spacing must never touch a trailing comment.
 describe('applyKeywordCase — trailing comments (F1)', () => {
@@ -80,5 +96,44 @@ describe('applyIndentAfter — REM comments do not trigger indent (F5)', () => {
 
     it('still indents after a real If ... Then block opener', () => {
         assert.strictEqual(applyIndentAfter('If x Then', 0, []), 1);
+    });
+});
+
+// Bug D — a colon joins statements, so a one-line `For … : Next` opens AND
+// closes and must not leave the following line indented one level too deep.
+describe('applyIndentForLine — colon-joined statements (Bug D)', () => {
+    it('nets to zero for `For i = 1 To 3 : Next`', () => {
+        assert.strictEqual(applyIndentForLine('For i = 1 To 3 : Next', 0, []).endLevel, 0);
+    });
+
+    it('still opens (+1) for a lone `For i = 1 To 3`', () => {
+        assert.strictEqual(applyIndentForLine('For i = 1 To 3', 0, []).endLevel, 1);
+    });
+
+    it('keeps a single-line If with a colon body flat', () => {
+        assert.strictEqual(applyIndentForLine('If x Then a = 1 : b = 2', 0, []).endLevel, 0);
+    });
+
+    it('balances `Do : Loop` on one line', () => {
+        assert.strictEqual(applyIndentForLine('Do : Loop', 0, []).endLevel, 0);
+    });
+
+    it('ignores a colon inside a string literal', () => {
+        // `x = "a : b"` is a single assignment, not two statements.
+        assert.strictEqual(applyIndentForLine('x = "a : b"', 0, []).endLevel, 0);
+    });
+});
+
+describe('formatSingleAspBlock — no over-indent after colon-joined loop (Bug D)', () => {
+    it('aligns the line after `For i = 1 To 3 : Next` with the loop, not deeper', () => {
+        const block = '<%\nFor i = 1 To 3 : Next\nResponse.Write "done"\n%>';
+        const out   = formatSingleAspBlock(block, DEFAULT_SETTINGS).formatted;
+        const lines = out.split('\n');
+        const forLine  = lines.find(l => /\bNext\b/.test(l))!;
+        const doneLine = lines.find(l => l.includes('Response.Write "done"'))!;
+        assert.strictEqual(
+            leadingSpaces(doneLine), leadingSpaces(forLine),
+            `"done" must align with the For line; got ${JSON.stringify(out)}`,
+        );
     });
 });

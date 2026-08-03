@@ -67,8 +67,8 @@ export function formatSingleAspBlock(
 
         // Determine the VBScript indent level for this lone statement.
         const selectCaseStack: number[] = [];
-        const levelBefore = applyIndentBefore(content, startLevel, selectCaseStack).level;
-        const levelAfter  = applyIndentAfter(content, levelBefore, selectCaseStack);
+        const { printLevel: levelBefore, endLevel: levelAfter } =
+            applyIndentForLine(content, startLevel, selectCaseStack);
 
         if (settings.aspTagsOnSameLine) {
             return {
@@ -151,7 +151,8 @@ function formatMultiLineAspBlock(
 
             const content = trimmed.slice(2).trim();
             if (content) {
-                aspIndentLevel     = applyIndentBefore(content, aspIndentLevel, selectCaseStack).level;
+                const indent       = applyIndentForLine(content, aspIndentLevel, selectCaseStack);
+                aspIndentLevel     = indent.printLevel;
                 const aspIndent    = getIndentString(baseLevel + aspIndentLevel, settings.useTabs, settings.indentSize);
                 const formatted    = applyKeywordCase(content, settings.keywordCase);
 
@@ -170,7 +171,7 @@ function formatMultiLineAspBlock(
                        isInSQLBlock, sqlBaseIndent } = v);
                 });
 
-                aspIndentLevel = applyIndentAfter(content, aspIndentLevel, selectCaseStack);
+                aspIndentLevel = indent.endLevel;
             }
             continue;
         }
@@ -187,7 +188,8 @@ function formatMultiLineAspBlock(
 
             const content = trimmed.slice(0, -2).trim();
             if (content) {
-                aspIndentLevel     = applyIndentBefore(content, aspIndentLevel, selectCaseStack).level;
+                const indent       = applyIndentForLine(content, aspIndentLevel, selectCaseStack);
+                aspIndentLevel     = indent.printLevel;
                 const aspIndent    = getIndentString(baseLevel + aspIndentLevel, settings.useTabs, settings.indentSize);
                 const formatted    = applyKeywordCase(content, settings.keywordCase);
 
@@ -198,7 +200,7 @@ function formatMultiLineAspBlock(
                     formattedLines.push('%>');
                 }
 
-                aspIndentLevel = applyIndentAfter(content, aspIndentLevel, selectCaseStack);
+                aspIndentLevel = indent.endLevel;
             } else {
                 formattedLines.push('%>');
             }
@@ -268,7 +270,8 @@ function formatMultiLineAspBlock(
         }
 
         // ── Normal VBScript line ─────────────────────────────────────────
-        aspIndentLevel          = applyIndentBefore(trimmed, aspIndentLevel, selectCaseStack).level;
+        const indent            = applyIndentForLine(trimmed, aspIndentLevel, selectCaseStack);
+        aspIndentLevel          = indent.printLevel;
         const aspIndent         = getIndentString(baseLevel + aspIndentLevel, settings.useTabs, settings.indentSize);
         const formattedContent  = applyKeywordCase(trimmed, settings.keywordCase);
 
@@ -281,7 +284,7 @@ function formatMultiLineAspBlock(
         });
 
         formattedLines.push(aspIndent + formattedContent);
-        aspIndentLevel = applyIndentAfter(trimmed, aspIndentLevel, selectCaseStack);
+        aspIndentLevel = indent.endLevel;
     }
 
     return {
@@ -377,6 +380,65 @@ export function applyIndentAfter(
     }
 
     return level;
+}
+
+// ─── Colon-joined statements ────────────────────────────────────────────────
+
+/**
+ * Splits a VBScript logical line into its `:`-separated statements. A colon is a
+ * statement separator in VBScript, so `For i = 1 To 3 : Next` is a COMPLETE loop
+ * on one line. Respects string literals (`""` escapes a quote, a `:` inside "…"
+ * is data) and ignores a trailing comment. Returns at least one (possibly empty)
+ * segment.
+ */
+function splitStatements(line: string): string[] {
+    const { code } = splitOffComment(line);
+    const parts: string[] = [];
+    let cur   = '';
+    let inStr = false;
+
+    for (let i = 0; i < code.length; i++) {
+        const ch = code[i];
+        if (ch === '"') {
+            if (code[i + 1] === '"') { cur += '""'; i++; continue; } // "" escaped quote
+            inStr = !inStr;
+            cur += ch;
+            continue;
+        }
+        if (ch === ':' && !inStr) { parts.push(cur); cur = ''; continue; }
+        cur += ch;
+    }
+    parts.push(cur);
+
+    const nonEmpty = parts.filter(p => p.trim().length > 0);
+    return nonEmpty.length > 0 ? nonEmpty : [''];
+}
+
+/**
+ * Applies the indent deltas of EVERY `:`-separated statement on a line, so a
+ * one-liner such as `For i = 1 To 3 : Next` (open + close) nets to zero and does
+ * not over-indent the following line. For a single-statement line this is exactly
+ * applyIndentBefore → applyIndentAfter (no behaviour change).
+ *
+ * Returns the level to PRINT this line at (after the first statement's dedent)
+ * and the level to carry to the NEXT line (after every statement's delta).
+ */
+export function applyIndentForLine(
+    line:            string,
+    level:           number,
+    selectCaseStack: number[],
+): { printLevel: number; endLevel: number } {
+    const stmts = splitStatements(line);
+    let lvl        = level;
+    let printLevel = level;
+
+    for (let k = 0; k < stmts.length; k++) {
+        const before = applyIndentBefore(stmts[k], lvl, selectCaseStack).level;
+        if (k === 0) { printLevel = before; }
+        lvl = applyIndentAfter(stmts[k], before, selectCaseStack);
+    }
+
+    return { printLevel, endLevel: lvl };
 }
 
 // ─── Line-continuation state ───────────────────────────────────────────────
