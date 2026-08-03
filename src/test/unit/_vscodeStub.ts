@@ -32,3 +32,7 @@ export const window = {
 };
 
 export const ProgressLocation = { SourceControl: 1, Window: 10, Notification: 15 };
+
+// Referenced by a static initializer in htmlStructureDiagnosticsProvider
+// (VoidElementQuickFixProvider.providedCodeActionKinds) at module-load time.
+export const CodeActionKind = { QuickFix: { value: 'quickfix' } };

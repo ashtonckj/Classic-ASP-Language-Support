@@ -23,9 +23,14 @@ import * as vscode from 'vscode';
 
 // ── Structural tags we care about ────────────────────────────────────────────
 
-const STRUCTURAL_TAGS = new Set([
+// Only elements that REQUIRE a closing tag belong here. Table cells/rows/sections
+// (tr, td, th, thead, tbody, tfoot) and list items have OPTIONAL end tags per the
+// HTML spec, so a "missing" </td> or </tr> is never an error — flagging them
+// flooded valid tables with false "Missing closing tag" warnings (which also
+// blocked Format Document, since formatting is refused while diagnostics exist).
+export const STRUCTURAL_TAGS = new Set([
     'div', 'table', 'form', 'section', 'nav',
-    'ul', 'ol', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th',
+    'ul', 'ol',
     'select', 'fieldset', 'figure', 'details', 'summary',
     'article', 'aside', 'header', 'footer', 'main', 'dialog',
 ]);
