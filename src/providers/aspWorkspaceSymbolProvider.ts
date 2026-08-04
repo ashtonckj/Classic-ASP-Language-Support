@@ -93,6 +93,16 @@ function getSymbolsForFile(filePath: string): vscode.SymbolInformation[] {
         ));
     }
 
+    for (const cls of raw.classes) {
+        const line = Math.max(0, cls.line);
+        symbols.push(new vscode.SymbolInformation(
+            cls.name,
+            vscode.SymbolKind.Class,
+            '',
+            new vscode.Location(fileUri, new vscode.Position(line, 0))
+        ));
+    }
+
     _wsCache.set(filePath, { mtime, symbols });
     return symbols;
 }
