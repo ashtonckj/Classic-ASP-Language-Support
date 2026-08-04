@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { ASP_OBJECTS, VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
-import { getTextBeforeCursor } from '../utils/documentHelper';
+import { getTextBeforeCursor, isInsideVbStringOrComment } from '../utils/documentHelper';
 import { collectAllSymbols } from './includeProvider';
 import { COM_TYPE_MAP } from '../constants/comObjects';
 import { getZone } from '../utils/zoneUtils';
@@ -34,6 +34,11 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
 
         // Only provide ASP completions inside ASP blocks
         if (getZone(fullText, offset) !== 'asp') return [];
+
+        // …and not when the caret is inside a VBScript string literal or a comment
+        // (e.g. `x = "rs."` or after a `'`), where the token is data, not code.
+        const fullLine = document.lineAt(position.line).text;
+        if (isInsideVbStringOrComment(fullLine, position.character)) return [];
 
         const textBefore   = getTextBeforeCursor(document, position);
         const lineText     = document.lineAt(position.line).text.substring(0, position.character);
