@@ -133,6 +133,18 @@ export function isSql(text: string): boolean {
         const withoutFrom = textNoStrings.replace(/\bFROM\s+\w+/gi, '');
         if (!SQL_CLAUSES.test(withoutFrom)) { return false; }
     }
+
+    // Guard: a SQL verb immediately followed by an English determiner + a plain
+    // word is prose, not SQL — "update the record", "select a report", "delete a
+    // file". Real SQL after the verb is `*` / DISTINCT / a column list / a table
+    // name / INTO — never "the|a|an <noun>". (An article followed by a SQL keyword,
+    // e.g. "SELECT a FROM t" where `a` is a column, is deliberately left alone.)
+    const verbDet = /\b(SELECT|INSERT|UPDATE|DELETE|EXEC|EXECUTE)\s+(the|a|an|this|that|these|those|my|your|our|their|its|his|her)\s+(\w+)/i
+        .exec(textNoStrings);
+    if (verbDet && !SQL_VERBS.test(verbDet[3]) && !SQL_CLAUSES.test(verbDet[3])) {
+        return false;
+    }
+
     return true;
 }
 
