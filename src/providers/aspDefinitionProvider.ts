@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { collectAllSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../utils/htmlLinkUtils';
+import { getZone } from '../utils/zoneUtils';
+import { isInsideVbStringOrComment } from '../utils/documentHelper';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AspDefinitionProvider
@@ -27,6 +29,15 @@ export class AspDefinitionProvider implements vscode.DefinitionProvider {
         // Returning anything here would cause VS Code to show both the symbol hover
         // ("function test — defined in this file") and the link tooltip simultaneously.
         if (isCursorInHtmlFileLinkAttribute(lineText, position.character)) return null;
+
+        // Only resolve VBScript symbols when the cursor is actually in VBScript.
+        // Without this, Ctrl+Click on a matching word in plain HTML text, in a
+        // client-side <script> (a JS variable), or inside a VBScript string/comment
+        // wrongly jumped to the VBScript definition.
+        const fullText = document.getText();
+        const offset   = document.offsetAt(position);
+        if (getZone(fullText, offset) !== 'asp') return null;
+        if (isInsideVbStringOrComment(lineText, position.character)) return null;
 
         // VBScript symbol lookup
         const wordRange = document.getWordRangeAtPosition(position, /\w+/);

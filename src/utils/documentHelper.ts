@@ -101,6 +101,27 @@ export function getTextBeforeCursor(document: vscode.TextDocument, position: vsc
 }
 
 /**
+ * Returns true when `col` on `lineText` sits inside a VBScript string literal
+ * ("…", with "" as an escaped quote) or after the start of a `'` comment. Used to
+ * suppress IntelliSense / go-to-definition where the token is data, not code
+ * (e.g. `x = "rs."` or a `' Response.` comment). Scans only the current line,
+ * which is sufficient: VBScript strings and `'` comments never span lines.
+ */
+export function isInsideVbStringOrComment(lineText: string, col: number): boolean {
+    let inStr = false;
+    for (let i = 0; i < col && i < lineText.length; i++) {
+        const ch = lineText[i];
+        if (ch === '"') {
+            if (inStr && lineText[i + 1] === '"') { i++; continue; } // "" escaped quote
+            inStr = !inStr;
+        } else if (!inStr && ch === "'") {
+            return true; // rest of the line is a comment
+        }
+    }
+    return inStr;
+}
+
+/**
  * Returns the word at the cursor position, or an empty string if there is none.
  */
 export function getWordAtPosition(document: vscode.TextDocument, position: vscode.Position): string {
