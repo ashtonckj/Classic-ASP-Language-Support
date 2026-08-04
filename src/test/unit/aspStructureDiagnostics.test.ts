@@ -36,6 +36,30 @@ describe('extractAspStatementCode — HTML prose is not classified as VBScript (
     });
 });
 
+// A REM comment (like a ' comment) must never be classified, or a
+// commented-out opener such as `REM If x Then` fakes a "Missing End If".
+describe('classifyLine — REM comments are not classified (Bug H)', () => {
+    it('does not open an If for a REM-commented If', () => {
+        assert.deepStrictEqual(classifyLine('REM If x Then'), []);
+    });
+
+    it('handles the inline <% REM If x Then %> form', () => {
+        assert.deepStrictEqual(classifyLine(extractAspStatementCode('<% REM If x Then %>').trim()), []);
+    });
+
+    it('ignores a REM after a colon separator', () => {
+        assert.deepStrictEqual(classifyLine('x = 1 : REM For each row'), []);
+    });
+
+    it('still classifies a real If (guards against over-stripping)', () => {
+        assert.deepStrictEqual(kinds(classifyLine('If x Then')), ['open:if']);
+    });
+
+    it('does not treat a "rem"-prefixed identifier as a comment', () => {
+        assert.deepStrictEqual(classifyLine('remainder = 5'), []);
+    });
+});
+
 // D1 — a `:`-joined one-liner must be seen as BOTH an opener and a closer, so it
 // balances and no false "Missing …" diagnostic is raised.
 describe('classifyLine — colon-joined statements (D1)', () => {

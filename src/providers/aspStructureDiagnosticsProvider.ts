@@ -47,6 +47,15 @@ type BlockKind =
 
 // ── Strip string literals from a line ─────────────────────────────────────────
 
+// True when line[i..] begins a legacy `REM` comment: the word REM at a statement
+// boundary (start of line, or right after a `:` separator). The boundary check
+// avoids matching identifiers that merely contain "rem" (e.g. `remainder`).
+function isRemAt(line: string, i: number): boolean {
+    const ch = line[i];
+    if (ch !== 'r' && ch !== 'R') { return false; }
+    return /^rem\b/i.test(line.slice(i)) && /(^|:)\s*$/.test(line.slice(0, i));
+}
+
 function removeStrings(line: string): string {
     let result = '';
     let inStr  = false;
@@ -55,7 +64,10 @@ function removeStrings(line: string): string {
             if (inStr && i + 1 < line.length && line[i + 1] === '"') { i++; continue; }
             inStr = !inStr;
         } else if (!inStr) {
-            if (line[i] === "'") break; // VBScript comment
+            // A VBScript comment ( ' or legacy REM ) runs to end-of-line, so its
+            // text must never be classified — otherwise `REM If x Then` or
+            // `x = 1 : REM For each` fakes a block opener ("Missing End If" etc.).
+            if (line[i] === "'" || isRemAt(line, i)) { break; }
             result += line[i];
         }
     }
