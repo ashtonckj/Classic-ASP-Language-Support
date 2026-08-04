@@ -1,9 +1,56 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import { collectAllSymbols, resolveIncludePaths } from './includeProvider';
+import { collectAllSymbols, resolveIncludePaths, extractSymbols, FileSymbols } from './includeProvider';
 import { getZone } from '../utils/zoneUtils';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import path from 'path';
+
+// ── Scope analysis for rename ────────────────────────────────────────────────
+
+/**
+ * Names that are module-level (global) in this file: every Function/Sub/Property
+ * and Class name, plus any variable/constant/COM var declared OUTSIDE all
+ * function bodies. A name that is NOT in this set, when the caret is inside a
+ * function body, is a local (a parameter or an in-body Dim).
+ */
+function moduleLevelNames(sym: FileSymbols, fns: { line: number; endLine: number }[]): Set<string> {
+    const inBody = (line: number) => fns.some(f => f.line <= line && line <= f.endLine);
+    const names = new Set<string>();
+    for (const f of sym.functions)     { names.add(f.name.toLowerCase()); }
+    for (const c of sym.classes)       { names.add(c.name.toLowerCase()); }
+    for (const v of sym.variables)     { if (!inBody(v.line)) { names.add(v.name.toLowerCase()); } }
+    for (const c of sym.constants)     { if (!inBody(c.line)) { names.add(c.name.toLowerCase()); } }
+    for (const cv of sym.comVariables) { if (!inBody(cv.line)) { names.add(cv.name.toLowerCase()); } }
+    return names;
+}
+
+/**
+ * If the caret sits inside a Sub/Function/Property body and `nameLower` is LOCAL
+ * to it (a parameter, or not a module-level symbol), return that body's line
+ * range — the rename must stay inside it, in the current file only. Otherwise
+ * null (the symbol is global; the caller does the wider include-graph search).
+ *
+ * This is what stops F2 on a local `Dim i` from rewriting every `i` in every
+ * function and every file in the workspace.
+ */
+export function computeLocalRenameScope(
+    sym: FileSymbols,
+    caretLine: number,
+    nameLower: string,
+): { line: number; endLine: number } | null {
+    const fns = sym.functions.filter(f => f.endLine >= 0);
+    let body: FileSymbols['functions'][number] | null = null;
+    for (const f of fns) {
+        if (f.line <= caretLine && caretLine <= f.endLine && (!body || f.line > body.line)) {
+            body = f;
+        }
+    }
+    if (!body) { return null; }
+
+    const isParam  = body.paramNames.some(p => p.toLowerCase() === nameLower);
+    const isGlobal = moduleLevelNames(sym, fns).has(nameLower);
+    return (isParam || !isGlobal) ? { line: body.line, endLine: body.endLine } : null;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AspRenameProvider
@@ -90,6 +137,30 @@ export class AspRenameProvider implements vscode.RenameProvider {
         if (VBSCRIPT_KEYWORDS_SET.has(newName.toLowerCase())) {
             vscode.window.showErrorMessage(`"${newName}" is a VBScript keyword and cannot be used as an identifier.`);
             return null;
+        }
+
+        // ── Scope-aware rename ────────────────────────────────────────────────
+        // A local variable/parameter must NOT be renamed across other functions
+        // or other files. If the caret is inside a Sub/Function/Property body and
+        // the symbol is local to it, restrict the edits to that body in THIS file.
+        const localScope = computeLocalRenameScope(
+            extractSymbols(fullText, docPath),
+            position.line,
+            oldName.toLowerCase(),
+        );
+        if (localScope) {
+            for (const { line, character } of findAllOccurrences(fullText, oldName)) {
+                if (line < localScope.line || line > localScope.endLine) { continue; }
+                edit.replace(
+                    document.uri,
+                    new vscode.Range(
+                        new vscode.Position(line, character),
+                        new vscode.Position(line, character + oldName.length),
+                    ),
+                    newName,
+                );
+            }
+            return edit;
         }
 
         // Build the set of files to search: current document + all its includes
