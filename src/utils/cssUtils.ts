@@ -25,21 +25,22 @@ export function stripAspExpressions(css: string): string {
         // Check what immediately precedes the ASP tag (ignoring whitespace)
         const before = css.slice(0, offset).trimEnd();
 
-        // Hex colour: background-color: #<%=...%>
-        if (before.endsWith('#')) {
-            return '000000'.slice(0, Math.max(6, match.length));
-        }
+        // Pick a context-appropriate filler:
+        //   • after '#'            → hex digit '0'   (#000000 …)
+        //   • inside rgb()/hsl()   → digit '0'       (one numeric argument)
+        //   • otherwise            → letter 'a'      (valid value/selector token)
+        const filler =
+            before.endsWith('#') || /(?:rgba?|hsla?)\(\s*$/.test(before) ? '0' : 'a';
 
-        // CSS function argument: rgb(<%=r%>, ...)  /  rgba(  /  hsl(  /  hsla(
-        if (/(?:rgba?|hsla?)\(\s*$/.test(before)) {
-            return '0';
+        // CRITICAL: the placeholder MUST have the SAME length as the match AND
+        // preserve interior newlines. The CSS language service maps diagnostics
+        // back by (line, character); a shorter or single-line placeholder shifted
+        // every warning after the expression onto the wrong column/line.
+        let out = '';
+        for (let i = 0; i < match.length; i++) {
+            out += match[i] === '\n' ? '\n' : filler;
         }
-
-        // Generic value / selector fragment — use a valid identifier-like token.
-        // Pad to the same length so character offsets in *subsequent* content stay
-        // accurate (important for inline-style error position remapping).
-        const placeholder = 'asp';
-        return placeholder.padEnd(match.length, '_');
+        return out;
     });
 }
 

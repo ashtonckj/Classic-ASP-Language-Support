@@ -1,5 +1,43 @@
 import * as assert from 'assert';
-import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc } from '../../utils/cssUtils';
+import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, stripAspExpressions } from '../../utils/cssUtils';
+
+// The ASP→placeholder swap must preserve BOTH length and interior
+// newlines, or CSS diagnostics after the expression land on the wrong line/column
+// (they are mapped back by (line, character) identity).
+describe('stripAspExpressions — length + newline preserving (Bug O)', () => {
+    it('keeps the exact length for a single-line expression', () => {
+        const input = '.a { color: <%= c %>; }';
+        const out   = stripAspExpressions(input);
+        assert.strictEqual(out.length, input.length);
+        assert.ok(!out.includes('<%'), `ASP must be removed; got ${JSON.stringify(out)}`);
+    });
+
+    it('preserves interior newlines of a multi-line expression', () => {
+        const input = '.a {\n  width: <%= GetW()\n             %>px;\n  colr: red;\n}';
+        const out   = stripAspExpressions(input);
+        assert.strictEqual(out.length, input.length, 'length must match');
+        assert.strictEqual(
+            (out.match(/\n/g) ?? []).length,
+            (input.match(/\n/g) ?? []).length,
+            'newline count must match so line numbers stay aligned',
+        );
+        // The `colr` typo must remain on the same line index as in the input.
+        assert.strictEqual(
+            out.split('\n').findIndex(l => l.includes('colr')),
+            input.split('\n').findIndex(l => l.includes('colr')),
+        );
+    });
+
+    it('keeps a hex placeholder the same length', () => {
+        const input = 'color:#<%=c%>;';
+        assert.strictEqual(stripAspExpressions(input).length, input.length);
+    });
+
+    it('keeps an rgb() argument placeholder the same length', () => {
+        const input = 'color: rgb(<%= r %>, 0, 0);';
+        assert.strictEqual(stripAspExpressions(input).length, input.length);
+    });
+});
 
 // buildCssDoc must find the <style> block regardless of tag case (A4), otherwise
 // CSS IntelliSense is silently dead inside <STYLE> blocks even though getZone
