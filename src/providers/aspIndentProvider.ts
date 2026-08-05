@@ -43,6 +43,18 @@ const CLOSER_TO_OPENER: { closer: RegExp; opener: RegExp; isMidBlock?: boolean; 
 ];
 
 /**
+ * True when a trimmed VBScript line opens a block (so the next line indents +1).
+ * A single-line `If … Then <statement>` opens nothing — only a multi-line `If …
+ * Then` (optionally followed by just a ' comment) does. Shared by the Enter and
+ * Tab handlers so they can never disagree.
+ */
+export function isBlockOpener(line: string): boolean {
+    if (!VBSCRIPT_BLOCK_OPENERS.test(line)) { return false; }
+    const isSingleLineIf = /^If\b.+\bThen\s+\S/i.test(line) && !/^If\b.+\bThen\s*'/i.test(line);
+    return !isSingleLineIf;
+}
+
+/**
  * Removes a trailing VBScript comment ( ' … ) from a line, respecting string
  * literals ( "" escapes a quote ). Used when matching opener/closer keywords so
  * that `If b Then   ' note` is still recognised as an If opener.
@@ -915,24 +927,15 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
                 }
             }
 
-            // Block opener → next line +1
-            // Exception: a single-line If statement (e.g. `If x Then y = 1`) has a
-            // real statement after Then and is NOT a block opener — it needs no extra
-            // indent on the next line.  A multi-line If ends with Then (optionally
-            // followed only by a VBScript comment), so we detect the single-line form
-            // by checking whether a non-comment token appears after the Then keyword.
-            if (VBSCRIPT_BLOCK_OPENERS.test(currentLineText)) {
-                // Matches single-line If: "If … Then <non-comment content>"
-                const isSingleLineIf = /^If\b.+\bThen\s+\S/i.test(currentLineText)
-                    && !/^If\b.+\bThen\s*'/i.test(currentLineText);
-                if (!isSingleLineIf) {
+            // Block opener → next line +1. isBlockOpener excludes a single-line
+            // `If … Then <statement>` (which opens nothing) and now also matches
+            // access-modified and Property declarations.
+            if (isBlockOpener(currentLineText)) {
                 editor.edit(eb => eb.insert(position, `\n${indent}${indentUnit}`)).then(() => {
                     const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
                     editor.selection = new vscode.Selection(p, p);
                 });
                 return;
-                }
-                // Single-line If — fall through to default (keep same indent level)
             }
 
             // Default inside ASP → match current indent
@@ -1086,7 +1089,7 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
         } else if (/^<%/.test(prevLineText)) {
             // After <% — VBScript code is at the same level as <%, no extra indent
             targetIndent = baseIndent;
-        } else if (inAsp && VBSCRIPT_BLOCK_OPENERS.test(prevLineText)) {
+        } else if (inAsp && isBlockOpener(prevLineText)) {
             targetIndent = baseIndent + indentUnit;
         } else if (inAsp) {
             targetIndent = baseIndent;
