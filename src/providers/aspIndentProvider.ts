@@ -635,6 +635,10 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
         if (currentTrimmed === '%>') {
             const aspOpenerIndent = findAspOpenerIndent(event.document, changePos.line);
             if (aspOpenerIndent !== null && aspOpenerIndent !== currentIndent) {
+                // Only the leading whitespace is replaced; VS Code shifts the caret
+                // with the content automatically. We deliberately do NOT reposition
+                // the caret ourselves — the old async `.then(set selection)` raced the
+                // user's next keystrokes and scrambled fast typing.
                 editor.edit(eb => {
                     eb.replace(
                         new vscode.Range(
@@ -643,9 +647,6 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
                         ),
                         aspOpenerIndent
                     );
-                }).then(() => {
-                    const p = new vscode.Position(changePos.line, aspOpenerIndent.length + currentTrimmed.length);
-                    editor.selection = new vscode.Selection(p, p);
                 });
             }
             return;
@@ -663,6 +664,10 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
         const openerIndent = findMatchingOpenerIndent(event.document, changePos.line, currentTrimmed, snapIndentUnit);
         if (openerIndent === null || openerIndent === currentIndent) { return; }
 
+        // Replace only the leading whitespace and let VS Code shift the caret with
+        // the content. No manual caret reposition: the old async `.then(set
+        // selection)` re-fired on later keystrokes and fought the user's typing,
+        // which is what made the line feel like it "kept re-indenting".
         editor.edit(eb => {
             eb.replace(
                 new vscode.Range(
@@ -671,9 +676,6 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
                 ),
                 openerIndent
             );
-        }).then(() => {
-            const p = new vscode.Position(changePos.line, openerIndent.length + currentTrimmed.length);
-            editor.selection = new vscode.Selection(p, p);
         });
     });
 
