@@ -42,6 +42,25 @@ const CLOSER_TO_OPENER: { closer: RegExp; opener: RegExp; isMidBlock?: boolean; 
     { closer: /^Case\b/i,           opener: /^Select\s+Case\b/i,                 isMidBlock: true, snapOffset: 1, family: 'select' },
 ];
 
+/**
+ * Removes a trailing VBScript comment ( ' … ) from a line, respecting string
+ * literals ( "" escapes a quote ). Used when matching opener/closer keywords so
+ * that `If b Then   ' note` is still recognised as an If opener.
+ */
+export function stripTrailingComment(line: string): string {
+    let inStr = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+            if (line[i + 1] === '"') { i++; continue; } // "" escaped quote
+            inStr = !inStr;
+        } else if (!inStr && ch === "'") {
+            return line.slice(0, i);
+        }
+    }
+    return line;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /**
@@ -200,7 +219,7 @@ function findMatchingOpenerIndent(
         if (lineEndsContinuation(rawLine) || prevLineEnds) {
             // Part of a continuation chain — resolve the full logical line.
             const resolved = getLogicalLineEndingAt(document, i);
-            text = resolved.text;
+            text = stripTrailingComment(resolved.text).trim();
             startLine = resolved.startLine;
             // Jump i past the earlier physical lines of this chain so the outer
             // loop doesn't re-process them.
@@ -208,8 +227,9 @@ function findMatchingOpenerIndent(
                 i = resolved.startLine;
             }
         } else {
-            // Fast path — plain line with no continuation involved.
-            text = rawLine.trim();
+            // Fast path — plain line with no continuation involved. Strip a trailing
+            // ' comment so `If b Then   ' note` still matches the If opener (N1).
+            text = stripTrailingComment(rawLine).trim();
             startLine = i;
         }
 
@@ -906,11 +926,11 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
                 const isSingleLineIf = /^If\b.+\bThen\s+\S/i.test(currentLineText)
                     && !/^If\b.+\bThen\s*'/i.test(currentLineText);
                 if (!isSingleLineIf) {
-                    editor.edit(eb => eb.insert(position, `\n${indent}${indentUnit}`)).then(() => {
-                        const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
-                        editor.selection = new vscode.Selection(p, p);
-                    });
-                    return;
+                editor.edit(eb => eb.insert(position, `\n${indent}${indentUnit}`)).then(() => {
+                    const p = new vscode.Position(position.line + 1, indent.length + indentUnit.length);
+                    editor.selection = new vscode.Selection(p, p);
+                });
+                return;
                 }
                 // Single-line If — fall through to default (keep same indent level)
             }
