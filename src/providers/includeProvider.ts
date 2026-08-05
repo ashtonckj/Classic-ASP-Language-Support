@@ -147,11 +147,18 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         // Guard: `Public`/`Private` also prefix Function/Sub/Property/Class/Const
         // declarations — those are handled below, not as variables. Without this,
         // `Public Sub Foo` would be captured as a bogus variable named "Sub Foo".
-        const dimMatch = lineNoComment.match(/^\s*(?:Dim|ReDim|Public|Private)\s+([\w,\s]+?)\s*(?:'|$)/i);
+        // Capture the whole declarator list (`.+?`, not `[\w,\s]+?`) so an array
+        // bound like `arr(10)` doesn't abort the match and drop every name on the
+        // line. Each declarator then has its `(…)` bounds and a leading `Preserve`
+        // stripped, and only real identifiers are kept.
+        const dimMatch = lineNoComment.match(/^\s*(?:Dim|ReDim|Public|Private)\s+(.+?)\s*(?:'|$)/i);
         if (dimMatch && !/^(?:Function|Sub|Property|Class|Const|Default|Static)\b/i.test(dimMatch[1].trim())) {
-            dimMatch[1].split(',').map((s: string) => s.trim()).filter(Boolean).forEach(name => {
-                result.variables.push({ name, line: lineIndex, filePath });
-            });
+            dimMatch[1].split(',')
+                .map((s: string) => s.trim().replace(/^Preserve\s+/i, '').replace(/\(.*$/, '').trim())
+                .filter((name: string) => /^[A-Za-z_]\w*$/.test(name))
+                .forEach((name: string) => {
+                    result.variables.push({ name, line: lineIndex, filePath });
+                });
         }
 
         // For Each loop variable  e.g.  For Each item In collection

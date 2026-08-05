@@ -1,9 +1,31 @@
 import * as assert from 'assert';
 import { extractSymbols } from '../../providers/includeProvider';
 
-// A2 — Class / Property Get/Let/Set are now extracted as symbols.
-// A10 — inline `<% Dim x %>` declarations are captured.
+// Class / Property Get/Let/Set are now extracted as symbols.
+// Inline `<% Dim x %>` declarations are captured.
 // Plus a guard so `Public Sub/Class/Property …` never leak in as bogus variables.
+
+// A Dim line with an array bound must still register every declared name.
+describe('extractSymbols — array declarations (Bug U)', () => {
+    it('captures every name on a `Dim arr(10), total, count` line', () => {
+        const s = extractSymbols('<%\nDim arr(10), total, count\n%>', 'x.asp');
+        const names = s.variables.map(v => v.name);
+        for (const n of ['arr', 'total', 'count']) {
+            assert.ok(names.includes(n), `expected "${n}" in ${JSON.stringify(names)}`);
+        }
+    });
+
+    it('handles ReDim Preserve buf(20)', () => {
+        const s = extractSymbols('<%\nReDim Preserve buf(20)\n%>', 'x.asp');
+        assert.ok(s.variables.map(v => v.name).includes('buf'));
+    });
+
+    it('still does not capture `Public Sub Foo` as a variable', () => {
+        const s = extractSymbols('<%\nPublic Sub Foo\nEnd Sub\n%>', 'x.asp');
+        assert.ok(!s.variables.some(v => /^(sub|foo)$/i.test(v.name)),
+            `no bogus var from Public Sub; got ${JSON.stringify(s.variables.map(v => v.name))}`);
+    });
+});
 
 describe('extractSymbols — Class / Property (A2)', () => {
     it('extracts a Class with its matching End Class line', () => {
