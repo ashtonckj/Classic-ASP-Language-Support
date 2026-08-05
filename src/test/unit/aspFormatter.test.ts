@@ -18,7 +18,7 @@ const DEFAULT_SETTINGS: AspFormatterSettings = {
 const leadingSpaces = (line: string): number => (line.match(/^\s*/)?.[0].length ?? 0);
 
 // F1 — keyword casing / operator spacing must never touch a trailing comment.
-describe('applyKeywordCase — trailing comments (F1)', () => {
+describe('applyKeywordCase — trailing comments', () => {
     it('does not keyword-case a trailing comment', () => {
         const out = applyKeywordCase("x = 1 ' loop through next items", 'PascalCase');
         assert.ok(
@@ -48,7 +48,7 @@ describe('applyKeywordCase — trailing comments (F1)', () => {
 });
 
 // F2 — hex/octal (&H/&O) and #date# literals must not be operator-spaced.
-describe('applyKeywordCase — numeric / date literals (F2)', () => {
+describe('applyKeywordCase — numeric / date literals', () => {
     it('does not break a &H hex literal', () => {
         const out = applyKeywordCase('x = &H1F', 'PascalCase');
         assert.ok(out.includes('&H1F'), `hex literal must stay intact; got ${JSON.stringify(out)}`);
@@ -72,7 +72,7 @@ describe('applyKeywordCase — numeric / date literals (F2)', () => {
 });
 
 // F5 — legacy REM comments must be treated as comments, not code.
-describe('applyKeywordCase — REM comments (F5)', () => {
+describe('applyKeywordCase — REM comments', () => {
     it('does not keyword-case a full-line REM comment', () => {
         const out = applyKeywordCase('REM loop until the next item', 'PascalCase');
         assert.strictEqual(out, 'REM loop until the next item');
@@ -89,7 +89,7 @@ describe('applyKeywordCase — REM comments (F5)', () => {
     });
 });
 
-describe('applyIndentAfter — REM comments do not trigger indent (F5)', () => {
+describe('applyIndentAfter — REM comments do not trigger indent', () => {
     it('does not indent after a REM comment containing If ... Then', () => {
         assert.strictEqual(applyIndentAfter('REM if x then do something', 0, []), 0);
     });
@@ -99,9 +99,9 @@ describe('applyIndentAfter — REM comments do not trigger indent (F5)', () => {
     });
 });
 
-// Bug D — a colon joins statements, so a one-line `For … : Next` opens AND
+// A colon joins statements, so a one-line `For … : Next` opens AND
 // closes and must not leave the following line indented one level too deep.
-describe('applyIndentForLine — colon-joined statements (Bug D)', () => {
+describe('applyIndentForLine — colon-joined statements', () => {
     it('nets to zero for `For i = 1 To 3 : Next`', () => {
         assert.strictEqual(applyIndentForLine('For i = 1 To 3 : Next', 0, []).endLevel, 0);
     });
@@ -124,7 +124,7 @@ describe('applyIndentForLine — colon-joined statements (Bug D)', () => {
     });
 });
 
-describe('formatSingleAspBlock — no over-indent after colon-joined loop (Bug D)', () => {
+describe('formatSingleAspBlock — no over-indent after colon-joined loop', () => {
     it('aligns the line after `For i = 1 To 3 : Next` with the loop, not deeper', () => {
         const block = '<%\nFor i = 1 To 3 : Next\nResponse.Write "done"\n%>';
         const out   = formatSingleAspBlock(block, DEFAULT_SETTINGS).formatted;

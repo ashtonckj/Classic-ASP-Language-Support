@@ -4,7 +4,7 @@ import { isSql } from '../../providers/sqlSemanticProvider';
 // SQL-in-string detection must not light up plain English that happens to
 // contain SQL keywords, while still recognising real SQL (including UPDATE…SET
 // and aliased column references).
-describe('isSql — precision vs recall (Bug M)', () => {
+describe('isSql — precision vs recall', () => {
     describe('plain English is NOT SQL', () => {
         for (const s of [
             'Select a report from the history page',

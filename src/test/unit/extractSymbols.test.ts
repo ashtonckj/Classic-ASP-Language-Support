@@ -6,7 +6,7 @@ import { extractSymbols } from '../../providers/includeProvider';
 // Plus a guard so `Public Sub/Class/Property …` never leak in as bogus variables.
 
 // A Dim line with an array bound must still register every declared name.
-describe('extractSymbols — array declarations (Bug U)', () => {
+describe('extractSymbols — array declarations', () => {
     it('captures every name on a `Dim arr(10), total, count` line', () => {
         const s = extractSymbols('<%\nDim arr(10), total, count\n%>', 'x.asp');
         const names = s.variables.map(v => v.name);
@@ -27,7 +27,7 @@ describe('extractSymbols — array declarations (Bug U)', () => {
     });
 });
 
-describe('extractSymbols — Class / Property (A2)', () => {
+describe('extractSymbols — Class / Property', () => {
     it('extracts a Class with its matching End Class line', () => {
         const text = [
             '<%',              // 0
@@ -94,7 +94,7 @@ describe('extractSymbols — Class / Property (A2)', () => {
     });
 });
 
-describe('extractSymbols — ignores JS/CSS zones (A5)', () => {
+describe('extractSymbols — ignores JS/CSS zones', () => {
     it('does not extract a JS function or var from a <script> block', () => {
         const text = [
             '<script>',

@@ -5,7 +5,7 @@ import { formatCompleteAspFile } from '../../formatter/htmlFormatter';
 // stripped from the HTML, but that strip must NOT reach into VBScript strings or
 // ASP blocks (it used to run on the raw file and delete `</br>` from strings —
 // silent data loss). It now runs after ASP/JS masking.
-describe('formatCompleteAspFile — void-tag strip stays out of strings (F4)', () => {
+describe('formatCompleteAspFile — void-tag strip stays out of strings', () => {
     it('preserves a void closing tag emitted from a VBScript string', async () => {
         const input = '<%\nResponse.Write "</br>"\n%>';
         const out = await formatCompleteAspFile(input);
@@ -25,7 +25,7 @@ describe('formatCompleteAspFile — void-tag strip stays out of strings (F4)', (
 // Restore must insert the formatted VBScript literally. `$&`, `$$` etc.
 // are special in String.replace replacement strings; using them there silently
 // corrupted VBScript strings (`$&` → placeholder text, `$$` → `$`).
-describe('formatCompleteAspFile — $ sequences in strings survive restore (Bug C)', () => {
+describe('formatCompleteAspFile — $ sequences in strings survive restore', () => {
     it('preserves $$ and $& in an inline <%= %> expression', async () => {
         const out = await formatCompleteAspFile('<table><tr><td><%= "a $$ b $& c" %></td></tr></table>');
         assert.ok(out.includes('$$'), `"$$" must survive; got ${JSON.stringify(out)}`);
@@ -42,7 +42,7 @@ describe('formatCompleteAspFile — $ sequences in strings survive restore (Bug 
 // An ASP block inside <script>/<style> is masked with a JS/CSS-safe
 // identifier (not an HTML comment), so Prettier can't parse it as a comment and
 // reorder the surrounding code.
-describe('formatCompleteAspFile — ASP inside <script> keeps JS order (Bug E)', () => {
+describe('formatCompleteAspFile — ASP inside <script> keeps JS order', () => {
     it('does not reorder statements around a <%= %> in <script>', async () => {
         const input = '<div>\n<script>\nvar x = <%= "userId" %>;\nalert(x);\n</script>\n</div>';
         const out   = await formatCompleteAspFile(input);

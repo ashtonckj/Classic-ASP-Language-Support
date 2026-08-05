@@ -4,7 +4,7 @@ import { findAspRegionOffsets } from '../../utils/region';
 // The <% %> background-highlight regions are found by pairing each
 // opener with its FIRST %> (like the ASP engine). A stray `%>` in HTML text must
 // not be treated as an opener and shift the pairing of every real block.
-describe('findAspRegionOffsets — lexical <% %> pairing (Bug N)', () => {
+describe('findAspRegionOffsets — lexical <% %> pairing', () => {
     const codeOf = (text: string, r: { code: [number, number] }) =>
         text.slice(r.code[0], r.code[1]);
 

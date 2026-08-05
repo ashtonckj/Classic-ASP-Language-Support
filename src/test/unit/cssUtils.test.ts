@@ -4,7 +4,7 @@ import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, stripAspExpressi
 // The ASP→placeholder swap must preserve BOTH length and interior
 // newlines, or CSS diagnostics after the expression land on the wrong line/column
 // (they are mapped back by (line, character) identity).
-describe('stripAspExpressions — length + newline preserving (Bug O)', () => {
+describe('stripAspExpressions — length + newline preserving', () => {
     it('keeps the exact length for a single-line expression', () => {
         const input = '.a { color: <%= c %>; }';
         const out   = stripAspExpressions(input);
@@ -39,11 +39,11 @@ describe('stripAspExpressions — length + newline preserving (Bug O)', () => {
     });
 });
 
-// buildCssDoc must find the <style> block regardless of tag case (A4), otherwise
+// buildCssDoc must find the <style> block regardless of tag case, otherwise
 // CSS IntelliSense is silently dead inside <STYLE> blocks even though getZone
 // (correctly, after A9) reports the position as the CSS zone.
 
-describe('buildCssDoc — case-insensitive <style> (A4)', () => {
+describe('buildCssDoc — case-insensitive <style>', () => {
     it('builds a CSS doc inside an uppercase <STYLE> block', () => {
         const content = '<STYLE>\n.a { color: red; }\n</STYLE>';
         const offset = content.indexOf('color');

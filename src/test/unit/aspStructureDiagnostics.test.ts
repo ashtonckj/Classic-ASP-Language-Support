@@ -5,10 +5,10 @@ function kinds(actions: Array<{ type: string; kind: string }>): string[] {
     return actions.map(a => `${a.type}:${a.kind}`);
 }
 
-// Bug A — only the code INSIDE <% %> is VBScript; the HTML around an inline
+// Only the code INSIDE <% %> is VBScript; the HTML around an inline
 // <%= %> must never reach the block classifier (else prose words like "with",
 // "do", "class" fake a block opener and raise a false "Missing End …").
-describe('extractAspStatementCode — HTML prose is not classified as VBScript (Bug A)', () => {
+describe('extractAspStatementCode — HTML prose is not classified as VBScript', () => {
     it('ignores HTML text around an inline <%= %> output expression', () => {
         const code = extractAspStatementCode('<td>Total <%= x %> items with tax</td>');
         assert.strictEqual(code.trim(), '');
@@ -38,7 +38,7 @@ describe('extractAspStatementCode — HTML prose is not classified as VBScript (
 
 // A REM comment (like a ' comment) must never be classified, or a
 // commented-out opener such as `REM If x Then` fakes a "Missing End If".
-describe('classifyLine — REM comments are not classified (Bug H)', () => {
+describe('classifyLine — REM comments are not classified', () => {
     it('does not open an If for a REM-commented If', () => {
         assert.deepStrictEqual(classifyLine('REM If x Then'), []);
     });
@@ -62,7 +62,7 @@ describe('classifyLine — REM comments are not classified (Bug H)', () => {
 
 // D1 — a `:`-joined one-liner must be seen as BOTH an opener and a closer, so it
 // balances and no false "Missing …" diagnostic is raised.
-describe('classifyLine — colon-joined statements (D1)', () => {
+describe('classifyLine — colon-joined statements', () => {
     it('sees opener AND closer in `For i = 1 To 10 : Next`', () => {
         assert.deepStrictEqual(kinds(classifyLine('For i = 1 To 10 : Next')), ['open:for', 'close:for']);
     });
@@ -73,7 +73,7 @@ describe('classifyLine — colon-joined statements (D1)', () => {
 });
 
 // D2 — member access (obj.Do, rs.With) must not be read as a block keyword.
-describe('classifyLine — member access is not a block keyword (D2)', () => {
+describe('classifyLine — member access is not a block keyword', () => {
     it('does not open a Do block for obj.Do', () => {
         assert.deepStrictEqual(classifyLine('obj.Do'), []);
     });

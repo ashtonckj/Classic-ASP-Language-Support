@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import { isBlockOpener, stripTrailingComment } from '../../providers/aspIndentProvider';
 
 // The shared opener test used by both Enter and Tab. A single-line `If … Then <stmt>` opens nothing; Property and access-modified declarations DO open a block.
-describe('isBlockOpener (Bugs P, Q)', () => {
+describe('isBlockOpener', () => {
     it('is false for a single-line If … Then <statement>', () => {
         assert.strictEqual(isBlockOpener('If x Then y = 1'), false);
     });
@@ -33,7 +33,7 @@ describe('isBlockOpener (Bugs P, Q)', () => {
 
 // A trailing ' comment must be stripped before opener matching, but
 // an apostrophe inside a string is data, not a comment.
-describe('stripTrailingComment (Bug S)', () => {
+describe('stripTrailingComment', () => {
     it('removes a trailing comment so the opener can be matched', () => {
         assert.strictEqual(stripTrailingComment("If b Then   ' note").trim(), 'If b Then');
     });

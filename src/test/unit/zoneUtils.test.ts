@@ -16,7 +16,7 @@ import { getZone, findTagEnd } from '../../utils/zoneUtils';
 // accidentally make block-scanning string-aware.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('getZone — lexical ASP block boundaries (A8)', () => {
+describe('getZone — lexical ASP block boundaries', () => {
     it('treats code before the first %> as the ASP zone', () => {
         const text = '<% x = "a%>b" %>';
         assert.strictEqual(getZone(text, text.indexOf('x')), 'asp');
@@ -64,7 +64,7 @@ describe('getZone — lexical ASP block boundaries (A8)', () => {
 // tags must be recognised regardless of case. See plan finding A9/A4.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('getZone — HTML tags are case-insensitive (A9)', () => {
+describe('getZone — HTML tags are case-insensitive', () => {
     it('detects CSS inside an uppercase <STYLE> block', () => {
         const text = '<STYLE>\n.a { color: red; }\n</STYLE>';
         assert.strictEqual(getZone(text, text.indexOf('color')), 'css');
