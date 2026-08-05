@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getAspRegions } from "./utils/region"
+import { getAspRegions } from "./utils/region";
 
 export function addRegionHighlights(context: vscode.ExtensionContext) {
     // Declare all variables at the top of the function
