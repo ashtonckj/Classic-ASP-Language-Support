@@ -29,31 +29,9 @@
         "vbscript-script-tag": {
             "patterns": [
                 {
-                    "comment": "VBScript block — double-quoted: <script language=\"vbscript\"> or <script type=\"text/vbscript\">",
+                    "comment": "Server/client VBScript: language=\"vbscript\" (quoted or unquoted) OR type=\"...vbscript\" (e.g. text/vbscript). Mirrors isVbScriptTag/getZone.",
                     "name": "meta.embedded.block.asp",
-                    "begin": "(?i)(<script\\b(?=[^>]*\\blanguage\\s*=\\s*\"vbscript\")[^>]*>)",
-                    "end": "(?i)(</script\\s*>)",
-                    "contentName": "source.vbscript.embedded.asp",
-                    "beginCaptures": {
-                        "1": {
-                            "patterns": [{ "include": "text.html.derivative" }]
-                        }
-                    },
-                    "endCaptures": {
-                        "1": {
-                            "patterns": [{ "include": "text.html.derivative" }]
-                        }
-                    },
-                    "patterns": [
-                        {
-                            "include": "#vbscript-code"
-                        }
-                    ]
-                },
-                {
-                    "comment": "VBScript block — single-quoted: <script language='vbscript'>",
-                    "name": "meta.embedded.block.asp",
-                    "begin": "(?i)(<script\\b(?=[^>]*\\blanguage\\s*=\\s*'vbscript')[^>]*>)",
+                    "begin": "(?i)(<script\\b(?=[^>]*(?:\\blanguage\\s*=\\s*[\"']?vbscript\\b|\\btype\\s*=\\s*[\"'][^\"']*vbscript))[^>]*>)",
                     "end": "(?i)(</script\\s*>)",
                     "contentName": "source.vbscript.embedded.asp",
                     "beginCaptures": {
