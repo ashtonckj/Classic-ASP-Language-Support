@@ -1,5 +1,24 @@
 import * as assert from 'assert';
+import { substituteAspBlock } from '../../utils/jsUtils';
 import { SUPPRESSED_CODES } from '../../providers/jsDiagnosticsProvider';
+
+// A statement <% %> block is projected as `_asp;` (a complete statement) so that
+// an inline block on the same line as other JS doesn't produce two juxtaposed
+// identifiers, which TypeScript rejects as a syntax error (1434). Expression
+// blocks stand in for a value and stay `_asp`/sentinel (no semicolon).
+describe('substituteAspBlock — statement placeholder is terminated', () => {
+    it('gives a statement block a trailing ; and preserves width', () => {
+        const out = substituteAspBlock('<% If x Then %>', undefined);
+        assert.ok(out.startsWith('_asp;'), `should start with "_asp;"; got ${JSON.stringify(out)}`);
+        assert.strictEqual(out.length, '<% If x Then %>'.length, 'width preserved');
+    });
+
+    it('leaves an expression block as a bare value (no semicolon)', () => {
+        const out = substituteAspBlock('<%= userId %>', '_asp_userId');
+        assert.ok(out.startsWith('_asp_userId'), `value token; got ${JSON.stringify(out)}`);
+        assert.ok(!out.includes(';'), 'an expression value must not be semicolon-terminated');
+    });
+});
 
 // Real JS logic errors must surface: 2339 (property does not exist) and 2367
 // (comparison has no overlap) are NOT suppressed — ASP-injected values are typed

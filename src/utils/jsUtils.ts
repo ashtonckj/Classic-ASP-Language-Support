@@ -531,9 +531,13 @@ function buildPreamble(
  * @param sentinel  For expression blocks, the pre-assigned `_asp_<sanitized>` name.
  *                  Pass `undefined` for statement blocks (they substitute to `_asp`).
  */
-function substituteAspBlock(asp: string, sentinel: string | undefined): string {
+export function substituteAspBlock(asp: string, sentinel: string | undefined): string {
     const isExpression = asp.startsWith('<%=');
-    const token        = isExpression ? (sentinel ?? '_asp') : '_asp';
+    // Expression blocks stand in for a VALUE (`var x = _asp_foo`). Statement blocks
+    // stand in for a STATEMENT and get a trailing `;` so that when a <% %> sits
+    // inline with other JS (`a=1; <% If x %> a++;`) the placeholders don't become
+    // two juxtaposed identifiers — which TypeScript flags as a syntax error (1434).
+    const token        = isExpression ? (sentinel ?? '_asp') : '_asp;';
 
     const blanked = blankNonNewlines(asp);
     const totalLen = blanked.length;
