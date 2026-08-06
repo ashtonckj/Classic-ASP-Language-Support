@@ -22,18 +22,22 @@ import {
     tsSeverityToVs,
 } from '../utils/jsUtils';
 
-const SUPPRESSED_CODES = new Set([
-    2304,   // Cannot find name 'X'
-    2592,   // Cannot find name '$' / 'jQuery' (TS hint variant of 2304 for known library globals)
-    2339,   // Property 'X' does not exist on type 'Y'
+// Codes suppressed because embedded ASP <script> lacks whole-project context
+// (cross-file globals, jQuery, DOM null-returns, implicit any). ASP-injected
+// values are projected as `any`, so they never produce genuine type/logic errors
+// on their own — which is why real-bug codes like 2339 (property does not exist)
+// and 2367 (comparison has no overlap) are deliberately NOT suppressed: they only
+// fire on real, fully-typed JS mistakes (e.g. calling a string method on a number).
+export const SUPPRESSED_CODES = new Set([
+    2304,   // Cannot find name 'X'          (functions/vars defined in other blocks/includes)
+    2592,   // Cannot find name '$' / 'jQuery'
     2345,   // Argument of type 'X' is not assignable to parameter of type 'Y'
     2322,   // Type 'X' is not assignable to type 'Y'
     7006,   // Parameter 'X' implicitly has an 'any' type
     7005,   // Variable 'X' implicitly has an 'any' type
-    2531,   // Object is possibly 'null'
+    2531,   // Object is possibly 'null'      (document.getElementById(...) returns | null)
     2532,   // Object is possibly 'undefined'
     2349,   // This expression is not callable (e.g. window[name]() dynamic dispatch)
-    2367,   // Comparison does not have overlap
 ]);
 
 function getDiagnosticsForDocument(document: vscode.TextDocument): vscode.Diagnostic[] {
