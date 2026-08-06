@@ -54,7 +54,11 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             }
             // Also mark content inside <script language="vbscript"> blocks as ASP zone
             // so semantic tokens are emitted for VBScript code in those blocks.
-            const vbsRe = /<script\b[^>]*\blanguage\s*=\s*["']vbscript["'][^>]*>([\s\S]*?)<\/script\s*>/gi;
+            // Recognise server/client VBScript written as language="vbscript"
+            // (quoted or not) OR type="text/vbscript" — mirroring isVbScriptTag /
+            // getZone, which already treat both as the ASP zone. Previously only the
+            // quoted `language="vbscript"` form was coloured.
+            const vbsRe = /<script\b(?=[^>]*(?:\blanguage\s*=\s*["']?vbscript\b|\btype\s*=\s*["'][^"']*vbscript))[^>]*>([\s\S]*?)<\/script\s*>/gi;
             let vm: RegExpExecArray | null;
             while ((vm = vbsRe.exec(fullText)) !== null) {
                 const contentStart = vm.index + vm[0].indexOf(vm[1]);
@@ -765,8 +769,11 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
 
             const lineText   = lineTextCache[li];
             const lineOffset = lineOffsetCache[li];
-            const midOffset  = lineOffset + Math.floor(lineText.length / 2);
-            if (!inAsp(midOffset)) { continue; }
+            // Process the line if any of it could be ASP: it contains a <% opener,
+            // or its very start is already inside a block (a multi-line <% %> body).
+            // A single mid-line probe skipped SQL strings on mixed lines whose
+            // midpoint happened to land in trailing HTML.
+            if (!lineText.includes('<%') && !inAsp(lineOffset)) { continue; }
 
             const trimmedForComment1173 = lineText.trimStart();
             if (trimmedForComment1173.startsWith("'") || /^rem\s/i.test(trimmedForComment1173)) { continue; }
@@ -797,6 +804,9 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             let col = 0;
             while (col < lineText.length) {
                 if (lineText[col] !== '"') { col++; continue; }
+                // Only a quote that is actually inside a <% %> block can start a SQL
+                // string; a quote in the HTML part of a mixed line is not SQL.
+                if (!inAsp(lineOffset + col)) { col++; continue; }
 
                 const group = extractSqlGroup(document, li, col);
 
