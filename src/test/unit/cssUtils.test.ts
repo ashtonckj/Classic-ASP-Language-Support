@@ -135,6 +135,14 @@ describe('inline style="" context (getInlineStyleContext / buildInlineCssDoc)', 
         assert.strictEqual(getInlineStyleContext(content, content.indexOf('hello')), null);
     });
 
+    it('resolves the SECOND style="" on a line (nearest, not first)', () => {
+        const content = '<td style="width:10px">a</td><td style="color:re">b</td>';
+        const off = content.indexOf('color:re') + 'color:re'.length;
+        const ctx = getInlineStyleContext(content, off);
+        assert.ok(ctx, 'expected a context for the second styled element');
+        assert.strictEqual(content.slice(ctx!.valueStart, ctx!.valueEnd), 'color:re');
+    });
+
     it('buildInlineCssDoc wraps the declarations in a ruleset', () => {
         const content = '<p style="color: red">hi</p>';
         const ctx = getInlineStyleContext(content, content.indexOf('red'))!;

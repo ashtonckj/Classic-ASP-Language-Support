@@ -96,12 +96,19 @@ export function getInlineStyleContext(
     const searchStart = Math.max(0, offset - 500);
     const searchArea = content.slice(searchStart, offset);
 
-    // Match style=" or style=' and capture the opening quote
-    const styleAttrMatch = searchArea.match(/style\s*=\s*(["'])([\s\S]*)$/i);
-    if (!styleAttrMatch) return null;
-
-    const openingQuote = styleAttrMatch[1];
-    const valueStart = searchStart + styleAttrMatch.index! + styleAttrMatch[0].length - styleAttrMatch[2].length;
+    // Find the LAST style=" / style=' before the cursor — that is the attribute the
+    // cursor is actually inside. Matching the first one broke when two styled
+    // elements shared a line: the cursor in the second value fell outside the
+    // first value's range and no CSS help was offered.
+    const styleAttrRe = /style\s*=\s*(["'])/gi;
+    let styleMatch: RegExpExecArray | null;
+    let openingQuote = '';
+    let valueStart = -1;
+    while ((styleMatch = styleAttrRe.exec(searchArea)) !== null) {
+        openingQuote = styleMatch[1];
+        valueStart   = searchStart + styleMatch.index + styleMatch[0].length;
+    }
+    if (valueStart === -1) return null;
 
     // Find closing quote — search forward from valueStart (not offset) so that an empty value style="" where offset === closeQuoteIdx still works
     const closeQuoteIdx = content.indexOf(openingQuote, valueStart);
