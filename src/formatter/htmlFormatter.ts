@@ -274,6 +274,104 @@ function isInRawText(pos: number, ranges: Array<[number, number]>): boolean {
     return ranges.some(([s, e]) => pos >= s && pos < e);
 }
 
+// ─── Implied table end-tag normaliser ───────────────────────────────────────
+
+/**
+ * Classic ASP markup very often omits the optional </td> </tr> </th> </thead>
+ * </tbody> </tfoot> end tags. Prettier's HTML parser does not apply the HTML
+ * implied-end-tag rules for these, so a following <tr> is nested inside the
+ * still-open <td> instead of starting a new row. This pass inserts the implied
+ * closers (respecting nested <table>s, which act as a barrier) so Prettier
+ * receives well-formed table structure.
+ *
+ * Only the table family is handled — the case that actually breaks in ASP. HTML
+ * comments are skipped opaquely, so masked ASP placeholder comments are untouched,
+ * and the pass is a no-op on markup that already has explicit end tags.
+ */
+export function insertImpliedTableEndTags(html: string): string {
+    const CLOSEABLE = new Set(['td', 'th', 'tr', 'thead', 'tbody', 'tfoot']);
+    const stack: string[] = [];
+    let out = '';
+    let i = 0;
+    const n = html.length;
+
+    // Emit </top> while the top of the stack should be implicitly closed. Never
+    // pops past a <table> (a nested table is a barrier for cell/row closing).
+    const closeWhile = (shouldClose: (top: string) => boolean): void => {
+        while (stack.length && stack[stack.length - 1] !== 'table'
+               && shouldClose(stack[stack.length - 1])) {
+            out += '</' + stack.pop() + '>';
+        }
+    };
+
+    while (i < n) {
+        // HTML comment (incl. masked ASP placeholder comments) — opaque.
+        if (html.startsWith('<!--', i)) {
+            const end  = html.indexOf('-->', i + 4);
+            const stop = end === -1 ? n : end + 3;
+            out += html.slice(i, stop);
+            i = stop;
+            continue;
+        }
+
+        // A tag: <name …>, </name>, or <name …/>. (<%…%> is already masked away.)
+        if (html[i] === '<' && /[a-zA-Z/]/.test(html[i + 1] ?? '')) {
+            let j = i + 1;
+            let quote = '';
+            while (j < n) {
+                const c = html[j];
+                if (quote)                    { if (c === quote) { quote = ''; } j++; continue; }
+                if (c === '"' || c === "'")   { quote = c; j++; continue; }
+                if (c === '>')                { j++; break; }
+                j++;
+            }
+            const tag       = html.slice(i, j);
+            const isEnd     = tag[1] === '/';
+            const selfClose = /\/\s*>$/.test(tag);
+            const name      = (tag.match(/^<\/?\s*([a-zA-Z][\w:-]*)/)?.[1] ?? '').toLowerCase();
+
+            // Insert implied closers BEFORE emitting this tag.
+            if (!isEnd) {
+                if (name === 'td' || name === 'th') {
+                    closeWhile(t => t === 'td' || t === 'th');
+                } else if (name === 'tr') {
+                    closeWhile(t => t === 'td' || t === 'th' || t === 'tr');
+                } else if (name === 'thead' || name === 'tbody' || name === 'tfoot') {
+                    closeWhile(t => CLOSEABLE.has(t));
+                }
+            } else {
+                if (name === 'tr') {
+                    closeWhile(t => t === 'td' || t === 'th');
+                } else if (name === 'thead' || name === 'tbody' || name === 'tfoot') {
+                    closeWhile(t => t === 'td' || t === 'th' || t === 'tr');
+                } else if (name === 'table') {
+                    closeWhile(t => CLOSEABLE.has(t));
+                }
+            }
+
+            out += tag;
+
+            // Track table-family nesting.
+            if (isEnd) {
+                if (name === 'table') {
+                    if (stack[stack.length - 1] === 'table') { stack.pop(); }
+                } else if (CLOSEABLE.has(name)) {
+                    const idx = stack.lastIndexOf(name);
+                    if (idx !== -1) { stack.length = idx; }
+                }
+            } else if (!selfClose && (name === 'table' || CLOSEABLE.has(name))) {
+                stack.push(name);
+            }
+            i = j;
+            continue;
+        }
+
+        out += html[i];
+        i++;
+    }
+    return out;
+}
+
 // ─── Main entry point ──────────────────────────────────────────────────────
 
 export async function formatCompleteAspFile(code: string): Promise<string> {
@@ -394,6 +492,10 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     // diagnostic continues to flag them for the user to fix.
     const VOID_CLOSING_TAG_RE = /<\/(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\s*>/gi;
     maskedCode = maskedCode.replace(VOID_CLOSING_TAG_RE, '');
+
+    // Insert implied </td> </tr> … closers so Prettier doesn't mis-nest tables
+    // whose optional end tags were omitted (very common in Classic ASP).
+    maskedCode = insertImpliedTableEndTags(maskedCode);
 
     // ── Step 3: Run Prettier on the masked HTML ──────────────────────────────
 
