@@ -135,6 +135,13 @@ describe('inline style="" context (getInlineStyleContext / buildInlineCssDoc)', 
         assert.strictEqual(getInlineStyleContext(content, content.indexOf('hello')), null);
     });
 
+    it('treats a > inside the style value as text, not a tag boundary', () => {
+        const content = `<div style="content: '>'; color: red">x</div>`;
+        const ctx = getInlineStyleContext(content, content.indexOf('color'));
+        assert.ok(ctx, 'expected a context despite the > inside the value');
+        assert.strictEqual(content.slice(ctx!.valueStart, ctx!.valueEnd), "content: '>'; color: red");
+    });
+
     it('resolves the SECOND style="" on a line (nearest, not first)', () => {
         const content = '<td style="width:10px">a</td><td style="color:re">b</td>';
         const off = content.indexOf('color:re') + 'color:re'.length;

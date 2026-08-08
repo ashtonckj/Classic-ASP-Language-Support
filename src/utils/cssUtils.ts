@@ -114,11 +114,10 @@ export function getInlineStyleContext(
     const closeQuoteIdx = content.indexOf(openingQuote, valueStart);
     if (closeQuoteIdx === -1) return null;
 
-    // Make sure we haven't jumped past a tag boundary
-    const tagClose = content.indexOf('>', offset);
-    if (tagClose !== -1 && tagClose < closeQuoteIdx) return null;
-
-    // Cursor must be between valueStart and closeQuoteIdx (inclusive of both ends)
+    // Cursor must be between valueStart and closeQuoteIdx (inclusive of both ends).
+    // The value is fully delimited by the quotes, so a '>' between the cursor and
+    // the closing quote is value text (e.g. content: ">"), not a tag boundary —
+    // the old indexOf('>') check wrongly bailed on those.
     if (offset < valueStart || offset > closeQuoteIdx) return null;
 
     const valueEnd = closeQuoteIdx;
