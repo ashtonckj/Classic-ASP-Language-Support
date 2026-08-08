@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import { collectAllSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../utils/htmlLinkUtils';
 import { getZone } from '../utils/zoneUtils';
-import { isInsideVbStringOrComment } from '../utils/documentHelper';
+import { isInsideVbStringOrComment, indexOfWholeWord } from '../utils/documentHelper';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AspDefinitionProvider
@@ -76,7 +76,7 @@ export class AspDefinitionProvider implements vscode.DefinitionProvider {
     ): vscode.Location {
         const uri      = vscode.Uri.file(filePath);
         const lineText = this.readLine(document, filePath, line);
-        const col      = lineText ? lineText.toLowerCase().indexOf(name.toLowerCase()) : -1;
+        const col      = lineText ? indexOfWholeWord(lineText, name) : -1;
 
         return col >= 0
             ? new vscode.Location(uri, new vscode.Range(line, col, line, col + name.length))

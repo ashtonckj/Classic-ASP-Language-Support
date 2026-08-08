@@ -107,6 +107,17 @@ export function getTextBeforeCursor(document: vscode.TextDocument, position: vsc
  * (e.g. `x = "rs."` or a `' Response.` comment). Scans only the current line,
  * which is sufficient: VBScript strings and `'` comments never span lines.
  */
+/**
+ * Case-insensitive index of the first WHOLE-WORD occurrence of `name` in `line`,
+ * or -1. Used to place the caret/selection on a symbol rather than on the first
+ * substring match (e.g. `count` must not match inside `accountCount`).
+ */
+export function indexOfWholeWord(line: string, name: string): number {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = new RegExp('\\b' + escaped + '\\b', 'i').exec(line);
+    return m ? m.index : -1;
+}
+
 export function isInsideVbStringOrComment(lineText: string, col: number): boolean {
     let inStr = false;
     for (let i = 0; i < col && i < lineText.length; i++) {
