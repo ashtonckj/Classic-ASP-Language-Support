@@ -307,11 +307,11 @@ function findScriptClose(text: string, from: number): number {
             continue;
         }
 
-        // JS string / template literal
-        if (ch === '"' || ch === "'" || ch === '`') {
-            i = skipJsString(text, i);
-            continue;
-        }
+        // NOTE: JS strings are deliberately NOT skipped here. Per the HTML spec a
+        // <script> is raw text — a literal "</script>" inside a JS string really
+        // does close the element (authors must write "<\/script>" to avoid it).
+        // getZone/findClosingTag already follow that rule; skipping strings here
+        // made getJsRanges disagree with getZone about where the script ends.
 
         // ASP block
         if (ch === '<' && text[i + 1] === '%') {
@@ -401,6 +401,22 @@ function inferVbsConstType(value: string): string {
  * Future improvement: extend this to track Dim + single-assignment patterns,
  * or map VBScript subtype functions (CStr, CInt, CBool) to TS types.
  */
+// Returns the part of `s` before the first `:` that sits OUTSIDE a string literal
+// (a VBScript statement separator). A `:` inside "…" (e.g. a URL) is kept.
+export function cutAtStatementColon(s: string): string {
+    let inStr = false;
+    for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (ch === '"') {
+            if (s[i + 1] === '"') { i++; continue; } // "" escaped quote
+            inStr = !inStr;
+        } else if (ch === ':' && !inStr) {
+            return s.slice(0, i);
+        }
+    }
+    return s;
+}
+
 function collectVbsConsts(content: string): Map<string, string> {
     const seen = new Set<string>();
     const consts = new Map<string, string>(); // original-cased name → TS type
@@ -411,16 +427,18 @@ function collectVbsConsts(content: string): Map<string, string> {
     while ((m = aspRegex.exec(content)) !== null) {
         const block = m[1].replace(/ _\r?\n/g, ' ');
 
-        // Matches:  Const NAME = <value>
-        // The value ends at end-of-line (or colon for multi-statement lines).
-        const constRegex = /^\s*Const\s+([A-Za-z_]\w*)\s*=\s*([^\r\n:]+)/gim;
+        // Matches:  Const NAME = <value to end of line>. The value is then cut at a
+        // statement-separating `:` that is OUTSIDE a string, so a URL literal like
+        // "http://x" keeps its `:` (and is typed `string`) instead of being
+        // truncated to "http (which fell back to `any`).
+        const constRegex = /^\s*Const\s+([A-Za-z_]\w*)\s*=\s*(.+)$/gim;
         let c: RegExpExecArray | null;
         while ((c = constRegex.exec(block)) !== null) {
             const name = c[1];
             const key = name.toLowerCase();
             if (seen.has(key)) { continue; }
             seen.add(key);
-            consts.set(name, inferVbsConstType(c[2]));
+            consts.set(name, inferVbsConstType(cutAtStatementColon(c[2])));
         }
     }
 

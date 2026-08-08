@@ -1,6 +1,17 @@
 import * as assert from 'assert';
-import { substituteAspBlock } from '../../utils/jsUtils';
+import { substituteAspBlock, cutAtStatementColon } from '../../utils/jsUtils';
 import { SUPPRESSED_CODES } from '../../providers/jsDiagnosticsProvider';
+
+// A Const value must keep a colon that lives inside a string (e.g. a URL) so it
+// is typed by its literal, but still cut at a real statement-separating colon.
+describe('cutAtStatementColon', () => {
+    it('keeps a colon inside a string literal', () => {
+        assert.strictEqual(cutAtStatementColon('"http://example.com/app"'), '"http://example.com/app"');
+    });
+    it('cuts at a statement-separating colon outside a string', () => {
+        assert.strictEqual(cutAtStatementColon('1 : Const B = 2').trim(), '1');
+    });
+});
 
 // A statement <% %> block is projected as `_asp;` (a complete statement) so that
 // an inline block on the same line as other JS doesn't produce two juxtaposed
