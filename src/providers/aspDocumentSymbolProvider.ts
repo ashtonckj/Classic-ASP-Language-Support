@@ -11,6 +11,7 @@
 
 import * as vscode from 'vscode';
 import { extractSymbols } from './includeProvider';
+import { indexOfWholeWord } from '../utils/documentHelper';
 
 export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
 
@@ -39,7 +40,7 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
 
             // selectionRange highlights just the name on the definition line
             const defLine   = document.lineAt(startLine).text;
-            const nameIdx   = defLine.toLowerCase().indexOf(fn.name.toLowerCase());
+            const nameIdx   = indexOfWholeWord(defLine, fn.name);
             const selStart  = nameIdx >= 0 ? new vscode.Position(startLine, nameIdx) : startPos;
             const selEnd    = nameIdx >= 0
                 ? new vscode.Position(startLine, nameIdx + fn.name.length)
@@ -77,7 +78,7 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
             );
 
             const defLine  = document.lineAt(startLine).text;
-            const nameIdx  = defLine.toLowerCase().indexOf(cls.name.toLowerCase());
+            const nameIdx  = indexOfWholeWord(defLine, cls.name);
             const selStart = nameIdx >= 0 ? new vscode.Position(startLine, nameIdx) : range.start;
             const selEnd   = nameIdx >= 0
                 ? new vscode.Position(startLine, nameIdx + cls.name.length)
@@ -99,7 +100,7 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
             const range   = new vscode.Range(new vscode.Position(line, 0), lineEnd);
 
             const defText = document.lineAt(line).text;
-            const nameIdx = defText.toLowerCase().indexOf(c.name.toLowerCase());
+            const nameIdx = indexOfWholeWord(defText, c.name);
             const selStart = nameIdx >= 0 ? new vscode.Position(line, nameIdx) : range.start;
             const selEnd   = nameIdx >= 0
                 ? new vscode.Position(line, nameIdx + c.name.length)
@@ -121,7 +122,7 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
             const range   = new vscode.Range(new vscode.Position(line, 0), lineEnd);
 
             const defText = document.lineAt(line).text;
-            const nameIdx = defText.toLowerCase().indexOf(cv.name.toLowerCase());
+            const nameIdx = indexOfWholeWord(defText, cv.name);
             const selStart = nameIdx >= 0 ? new vscode.Position(line, nameIdx) : range.start;
             const selEnd   = nameIdx >= 0
                 ? new vscode.Position(line, nameIdx + cv.name.length)

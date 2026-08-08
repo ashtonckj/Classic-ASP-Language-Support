@@ -1,5 +1,17 @@
 import * as assert from 'assert';
-import { isInsideVbStringOrComment } from '../../utils/documentHelper';
+import { isInsideVbStringOrComment, indexOfWholeWord } from '../../utils/documentHelper';
+
+describe('indexOfWholeWord', () => {
+    it('finds the standalone word, not a substring in a longer identifier', () => {
+        assert.strictEqual(indexOfWholeWord('Dim accountCount, count', 'count'), 18);
+    });
+    it('is case-insensitive', () => {
+        assert.strictEqual(indexOfWholeWord('Dim Total', 'total'), 4);
+    });
+    it('returns -1 when the whole word is absent', () => {
+        assert.strictEqual(indexOfWholeWord('Dim accountCounter', 'count'), -1);
+    });
+});
 
 // IntelliSense / go-to-definition must not fire where the token is
 // data: inside a VBScript string literal or after a `'` comment.
