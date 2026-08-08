@@ -12,6 +12,36 @@ import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
 import { getZone } from '../utils/zoneUtils';
 
+/**
+ * Given the text before the cursor, find the call the cursor is inside and which
+ * argument (0-based) it is on. Scans forward so string literals are skipped —
+ * a `(`, `)` or `,` inside "…" is data, not call syntax. Returns null when the
+ * cursor is not inside an argument list.
+ */
+export function findActiveCall(textBefore: string): { openParenCol: number; activeParam: number } | null {
+    const parenStack: number[] = [];
+    const commaCounts: number[] = [];
+    let inStr = false;
+
+    for (let i = 0; i < textBefore.length; i++) {
+        const ch = textBefore[i];
+        if (inStr) {
+            if (ch === '"') {
+                if (textBefore[i + 1] === '"') { i++; continue; } // "" escaped quote
+                inStr = false;
+            }
+            continue;
+        }
+        if (ch === '"')      { inStr = true; }
+        else if (ch === '(') { parenStack.push(i); commaCounts.push(0); }
+        else if (ch === ')') { parenStack.pop(); commaCounts.pop(); }
+        else if (ch === ',' && parenStack.length > 0) { commaCounts[commaCounts.length - 1]++; }
+    }
+
+    if (parenStack.length === 0) { return null; }
+    return { openParenCol: parenStack[parenStack.length - 1], activeParam: commaCounts[commaCounts.length - 1] };
+}
+
 export class AspSignatureHelpProvider implements vscode.SignatureHelpProvider {
 
     provideSignatureHelp(
@@ -30,26 +60,9 @@ export class AspSignatureHelpProvider implements vscode.SignatureHelpProvider {
         const lineText   = document.lineAt(position.line).text;
         const textBefore = lineText.substring(0, position.character);
 
-        // Find the function call that the cursor is currently inside.
-        // Walk backwards from the cursor looking for an unmatched `(`.
-        // Track depth so nested calls like Func(Other(x), y) work correctly.
-        let depth        = 0;
-        let openParenCol = -1;
-        let activeParam  = 0;
-
-        for (let i = textBefore.length - 1; i >= 0; i--) {
-            const ch = textBefore[i];
-            if (ch === ')') { depth++; continue; }
-            if (ch === '(') {
-                if (depth > 0) { depth--; continue; }
-                openParenCol = i;
-                break;
-            }
-            // Count commas at depth 0 to determine active parameter
-            if (ch === ',' && depth === 0) { activeParam++; }
-        }
-
-        if (openParenCol < 0) { return null; }
+        const call = findActiveCall(textBefore);
+        if (!call) { return null; }
+        const { openParenCol, activeParam } = call;
 
         // Extract the function name immediately before the `(`
         const beforeParen = textBefore.substring(0, openParenCol);
