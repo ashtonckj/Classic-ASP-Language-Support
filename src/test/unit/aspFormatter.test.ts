@@ -69,6 +69,15 @@ describe('applyKeywordCase — numeric / date literals', () => {
         const out = applyKeywordCase('a="x"&y', 'PascalCase');
         assert.ok(out.includes('"x" & y'), `concatenation & should be spaced; got ${JSON.stringify(out)}`);
     });
+
+    it('spaces \\ (integer divide) and ^ (power)', () => {
+        assert.strictEqual(applyKeywordCase('x = 10\\3', 'PascalCase'), 'x = 10 \\ 3');
+        assert.strictEqual(applyKeywordCase('y = 2^8', 'PascalCase'), 'y = 2 ^ 8');
+    });
+
+    it('does not space a trailing & Long-type suffix (100&)', () => {
+        assert.strictEqual(applyKeywordCase('z = 100&', 'PascalCase'), 'z = 100&');
+    });
 });
 
 // F5 — legacy REM comments must be treated as comments, not code.

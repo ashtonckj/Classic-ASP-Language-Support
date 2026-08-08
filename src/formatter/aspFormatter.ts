@@ -840,6 +840,20 @@ function splitOpaque(code: string): Array<{ text: string; opaque: boolean }> {
             }
         }
 
+        // Decimal literal with a trailing & Long-type suffix (e.g. 100&). Keep the
+        // & attached so it isn't spaced as a concatenation operator (100 &). Only
+        // matched at a token start so a concatenation like `100 & x` is untouched.
+        const prevCh = i > 0 ? code[i - 1] : '';
+        if (/[0-9]/.test(ch) && !/[\w.]/.test(prevCh)) {
+            const m = /^\d+&/.exec(code.slice(i));
+            if (m) {
+                flush();
+                parts.push({ text: m[0], opaque: true });
+                i += m[0].length;
+                continue;
+            }
+        }
+
         buf += ch;
         i++;
     }
@@ -887,9 +901,12 @@ function formatOperatorsInText(text: string): string {
     // We require at least one optional space on each side, then replace.
     r = r.replace(/([\w\d\)_\]])\s*-\s*/g, '$1 - ');
 
-    // ── * / & ────────────────────────────────────────────────────────────────
+    // ── * / \ ^ & ─────────────────────────────────────────────────────────────
+    // `\` is integer division and `^` is exponentiation — both always binary.
     r = r.replace(/\s*\*\s*/g, ' * ');
     r = r.replace(/\s*\/\s*/g, ' / ');
+    r = r.replace(/\s*\\\s*/g, ' \\ ');
+    r = r.replace(/\s*\^\s*/g, ' ^ ');
     r = r.replace(/\s*&\s*/g,  ' & ');
 
     // ── < > (skip already-processed compounds) ──────────────────────────────
