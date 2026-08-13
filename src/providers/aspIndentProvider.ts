@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { isSelfClosingTag } from '../constants/htmlTags';
-import { getZone } from '../utils/zoneUtils';
+import { getZone, Zone } from '../utils/zoneUtils';
 
 // ── VBScript block keyword constants ───────────────────────────────────────
 
@@ -544,6 +544,56 @@ export function registerLineContinuationGuard(context: vscode.ExtensionContext) 
 
 // ── Auto-closing tag + auto-snap VBScript closers ──────────────────────────
 
+/**
+ * Decides whether a `>` just typed should be followed by an auto-inserted
+ * closing tag, and for which element. Returns null when it should not.
+ *
+ * `textBefore` is the line up to (not including) the typed `>`. `zoneAt` is
+ * called only if every cheaper check passes, so callers can defer the
+ * whole-document scan it needs.
+ *
+ * Bails when:
+ *   • the `>` sits inside a quoted attribute value — `<a href="<>">` closes the
+ *     inner `<`, not the tag;
+ *   • the user typed `/>` themselves — `<div />` needs nothing appended;
+ *   • there is no `<tag` immediately before the caret, or it is a void element;
+ *   • the caret is not in markup. This last one is what keeps
+ *     `Response.Write "<div>"` — the ordinary way to emit HTML in Classic ASP —
+ *     from getting `</div>` injected into the middle of the string. The
+ *     attribute-value guard cannot catch it: that guard only arms once a tag
+ *     opener has been seen on the line, and inside a VBScript string there is
+ *     none. Same for `document.write("<div>")` in a <script>.
+ */
+export function tagToAutoClose(textBefore: string, zoneAt: () => Zone): string | null {
+    let inQuote: string | null = null;
+    let lastRealTagOpen = -1;
+    for (let i = 0; i < textBefore.length; i++) {
+        const ch = textBefore[i];
+        if (inQuote) {
+            if (ch === inQuote) { inQuote = null; }
+        } else {
+            if (ch === '"' || ch === "'") { inQuote = ch; }
+            else if (ch === '<') {
+                const next = textBefore[i + 1];
+                if (next && /[a-zA-Z/!]/.test(next)) {
+                    lastRealTagOpen = i;
+                    inQuote = null;
+                }
+            }
+        }
+    }
+    if (lastRealTagOpen !== -1 && inQuote !== null) { return null; }
+
+    if (/\/\s*$/.test(textBefore)) { return null; }
+
+    const tagMatch = textBefore.match(/<(\w+)(?:\s+[^>]*)?$/);
+    if (!tagMatch || isSelfClosingTag(tagMatch[1])) { return null; }
+
+    if (zoneAt() !== 'html') { return null; }
+
+    return tagMatch[1];
+}
+
 export function registerAutoClosingTag(context: vscode.ExtensionContext) {
     const disposable = vscode.workspace.onDidChangeTextDocument(event => {
         const editor = vscode.window.activeTextEditor;
@@ -583,40 +633,21 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
             const textBefore = line.text.substring(0, position.character);
             const textAfterCursor = line.text.substring(position.character + 1);
 
-            // Don't auto-close when `>` is typed inside a quoted attribute value.
-            // e.g. <a href="<>"> — the `>` closes the inner `<`, not the tag itself.
-            // Scan forward through textBefore tracking quote state to find the last
-            // real (outside-quotes) tag-opening `<`. If we're still inside a quote
-            // after that point, the `>` belongs inside an attribute value — bail out.
-            let inQuote: string | null = null;
-            let lastRealTagOpen = -1;
-            for (let i = 0; i < textBefore.length; i++) {
-                const ch = textBefore[i];
-                if (inQuote) {
-                    if (ch === inQuote) { inQuote = null; }
-                } else {
-                    if (ch === '"' || ch === "'") { inQuote = ch; }
-                    else if (ch === '<') {
-                        const next = textBefore[i + 1];
-                        if (next && /[a-zA-Z\/!]/.test(next)) {
-                            lastRealTagOpen = i;
-                            inQuote = null;
-                        }
-                    }
-                }
-            }
-            if (lastRealTagOpen !== -1 && inQuote !== null) { return; }
+            // The zone is only consulted once the cheap text checks have passed, so
+            // an ordinary `>` keystroke never pays for a full-document getText().
+            const tagName = tagToAutoClose(
+                textBefore,
+                () => getZone(event.document.getText(), event.document.offsetAt(position)),
+            );
+            if (!tagName) { return; }
 
-            const tagMatch = textBefore.match(/<(\w+)(?:\s+[^>]*)?$/);
-            if (tagMatch && !isSelfClosingTag(tagMatch[1])) {
-                const expectedClosing = `</${tagMatch[1]}>`;
-                if (!textAfterCursor.trim().startsWith(expectedClosing)) {
-                    const insertPos = new vscode.Position(position.line, position.character + 1);
-                    editor.edit(eb => eb.insert(insertPos, expectedClosing)).then(() => {
-                        const p = new vscode.Position(position.line, position.character + 1);
-                        editor.selection = new vscode.Selection(p, p);
-                    });
-                }
+            const expectedClosing = `</${tagName}>`;
+            if (!textAfterCursor.trim().startsWith(expectedClosing)) {
+                const insertPos = new vscode.Position(position.line, position.character + 1);
+                editor.edit(eb => eb.insert(insertPos, expectedClosing)).then(() => {
+                    const p = new vscode.Position(position.line, position.character + 1);
+                    editor.selection = new vscode.Selection(p, p);
+                });
             }
             return;
         }
