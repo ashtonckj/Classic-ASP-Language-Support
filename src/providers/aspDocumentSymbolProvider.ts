@@ -27,6 +27,57 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
 
         const result: vscode.DocumentSymbol[] = [];
 
+        // ── Class ranges, for nesting ─────────────────────────────────────────
+        // A Class's range spans its whole body, so its members must go in that
+        // symbol's `children`. Emitting them as siblings gave overlapping ranges
+        // (which the DocumentSymbol contract forbids) and left the breadcrumb bar
+        // unable to show `Cart > Add`.
+        const classSymbols: { line: number; endLine: number; symbol: vscode.DocumentSymbol }[] = [];
+
+        // Adds `sym` to the innermost Class whose body contains `line`, or to the
+        // top level when it is not inside one.
+        const place = (line: number, sym: vscode.DocumentSymbol): void => {
+            let owner: { line: number; endLine: number; symbol: vscode.DocumentSymbol } | null = null;
+            for (const c of classSymbols) {
+                if (c.endLine >= 0 && c.line < line && line <= c.endLine && (!owner || c.line > owner.line)) {
+                    owner = c;
+                }
+            }
+            (owner ? owner.symbol.children : result).push(sym);
+        };
+
+        // ── Classes ───────────────────────────────────────────────────────────
+        // Built first so members resolved below can be nested into them.
+        for (const cls of symbols.classes) {
+            const startLine = Math.max(0, Math.min(cls.line, document.lineCount - 1));
+            const endLine   = cls.endLine !== -1
+                ? Math.min(cls.endLine, document.lineCount - 1)
+                : startLine;
+
+            const range    = new vscode.Range(
+                new vscode.Position(startLine, 0),
+                document.lineAt(endLine).range.end,
+            );
+
+            const defLine  = document.lineAt(startLine).text;
+            const nameIdx  = indexOfWholeWord(defLine, cls.name);
+            const selStart = nameIdx >= 0 ? new vscode.Position(startLine, nameIdx) : range.start;
+            const selEnd   = nameIdx >= 0
+                ? new vscode.Position(startLine, nameIdx + cls.name.length)
+                : range.start;
+
+            const sym = new vscode.DocumentSymbol(
+                cls.name,
+                '',
+                vscode.SymbolKind.Class,
+                range,
+                new vscode.Range(selStart, selEnd),
+            );
+
+            classSymbols.push({ line: startLine, endLine, symbol: sym });
+            result.push(sym);
+        }
+
         // ── Functions and Subs ────────────────────────────────────────────────
         for (const fn of symbols.functions) {
             const startLine = Math.max(0, Math.min(fn.line, document.lineCount - 1));
@@ -62,35 +113,7 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
                 new vscode.Range(selStart, selEnd)
             );
 
-            result.push(sym);
-        }
-
-        // ── Classes ───────────────────────────────────────────────────────────
-        for (const cls of symbols.classes) {
-            const startLine = Math.max(0, Math.min(cls.line, document.lineCount - 1));
-            const endLine   = cls.endLine !== -1
-                ? Math.min(cls.endLine, document.lineCount - 1)
-                : startLine;
-
-            const range    = new vscode.Range(
-                new vscode.Position(startLine, 0),
-                document.lineAt(endLine).range.end,
-            );
-
-            const defLine  = document.lineAt(startLine).text;
-            const nameIdx  = indexOfWholeWord(defLine, cls.name);
-            const selStart = nameIdx >= 0 ? new vscode.Position(startLine, nameIdx) : range.start;
-            const selEnd   = nameIdx >= 0
-                ? new vscode.Position(startLine, nameIdx + cls.name.length)
-                : range.start;
-
-            result.push(new vscode.DocumentSymbol(
-                cls.name,
-                '',
-                vscode.SymbolKind.Class,
-                range,
-                new vscode.Range(selStart, selEnd),
-            ));
+            place(startLine, sym);
         }
 
         // ── Constants ─────────────────────────────────────────────────────────
@@ -106,7 +129,7 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
                 ? new vscode.Position(line, nameIdx + c.name.length)
                 : range.start;
 
-            result.push(new vscode.DocumentSymbol(
+            place(line, new vscode.DocumentSymbol(
                 c.name,
                 `= ${c.value}`,
                 vscode.SymbolKind.Constant,
@@ -128,7 +151,7 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
                 ? new vscode.Position(line, nameIdx + cv.name.length)
                 : range.start;
 
-            result.push(new vscode.DocumentSymbol(
+            place(line, new vscode.DocumentSymbol(
                 cv.name,
                 cv.progId,
                 vscode.SymbolKind.Variable,
@@ -137,8 +160,50 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
             ));
         }
 
-        // Sort all symbols by line number so the outline appears in source order
-        result.sort((a, b) => a.range.start.line - b.range.start.line);
+        // ── Variables (Dim) ───────────────────────────────────────────────────
+        // Only those declared outside every Function/Sub/Property body — an
+        // in-body local belongs to that routine, not the file outline, and without
+        // Option Explicit the implicit-assignment pass would otherwise fill the
+        // outline with every temporary the page assigns. A Class member is not a
+        // local, so `Private items` still shows, nested under its Class.
+        const bodies = symbols.functions.filter(f => f.endLine >= 0);
+        const isLocal = (line: number) => bodies.some(f => f.line <= line && line <= f.endLine);
+        const alreadyListed = new Set<string>([
+            ...symbols.comVariables.map(cv => cv.name.toLowerCase()),
+            ...symbols.constants.map(c => c.name.toLowerCase()),
+        ]);
+
+        for (const v of symbols.variables) {
+            const key = v.name.toLowerCase();
+            if (alreadyListed.has(key) || isLocal(v.line)) { continue; }
+            alreadyListed.add(key);
+
+            const line    = Math.max(0, Math.min(v.line, document.lineCount - 1));
+            const lineEnd = document.lineAt(line).range.end;
+            const range   = new vscode.Range(new vscode.Position(line, 0), lineEnd);
+
+            const defText = document.lineAt(line).text;
+            const nameIdx = indexOfWholeWord(defText, v.name);
+            const selStart = nameIdx >= 0 ? new vscode.Position(line, nameIdx) : range.start;
+            const selEnd   = nameIdx >= 0
+                ? new vscode.Position(line, nameIdx + v.name.length)
+                : range.start;
+
+            place(line, new vscode.DocumentSymbol(
+                v.name,
+                '',
+                vscode.SymbolKind.Variable,
+                range,
+                new vscode.Range(selStart, selEnd)
+            ));
+        }
+
+        // Sort every level by line number so the outline appears in source order
+        const sortByLine = (list: vscode.DocumentSymbol[]): void => {
+            list.sort((a, b) => a.range.start.line - b.range.start.line);
+            for (const s of list) { sortByLine(s.children); }
+        };
+        sortByLine(result);
 
         return result;
     }
