@@ -136,3 +136,40 @@ describe('extractSymbols — inline declarations (A10)', () => {
         assert.deepStrictEqual(names.sort(), ['a', 'b', 'c']);
     });
 });
+
+// `Dim x : x = 1` is an everyday Classic ASP one-liner. Every declaration matcher
+// is anchored at the start of a statement, so without splitting on `:` the whole
+// line matched nothing and the variable disappeared from completion, hover,
+// go-to-definition and rename.
+describe('extractSymbols — colon-separated statements', () => {
+    it('captures a Dim followed by an assignment on one line', () => {
+        const s = extractSymbols('<%\nDim orderId : orderId = 42\n%>', 'x.asp');
+        assert.deepStrictEqual(s.variables.map(v => v.name), ['orderId']);
+    });
+
+    it('captures names from two Dim statements on one line', () => {
+        const s = extractSymbols('<%\nDim a, b : Dim c\n%>', 'x.asp');
+        assert.deepStrictEqual(s.variables.map(v => v.name).sort(), ['a', 'b', 'c']);
+    });
+
+    it('captures a Dim followed by Set CreateObject', () => {
+        const s = extractSymbols('<%\nDim conn : Set conn = Server.CreateObject("ADODB.Connection")\n%>', 'x.asp');
+        assert.deepStrictEqual(s.variables.map(v => v.name), ['conn']);
+        assert.deepStrictEqual(s.comVariables.map(c => c.progId), ['adodb.connection']);
+    });
+
+    it('captures two Const declarations on one line', () => {
+        const s = extractSymbols('<%\nConst A = 1 : Const B = 2\n%>', 'x.asp');
+        assert.deepStrictEqual(s.constants.map(c => `${c.name}=${c.value}`), ['A=1', 'B=2']);
+    });
+
+    it('does not split on a colon inside a string value', () => {
+        const s = extractSymbols('<%\nConst URL = "http://example.com/a"\n%>', 'x.asp');
+        assert.deepStrictEqual(s.constants.map(c => c.value), ['"http://example.com/a"']);
+    });
+
+    it('finds a Function declared after another statement', () => {
+        const s = extractSymbols('<%\nx = 1 : Function Later(a)\nEnd Function\n%>', 'x.asp');
+        assert.deepStrictEqual(s.functions.map(f => f.name), ['Later']);
+    });
+});

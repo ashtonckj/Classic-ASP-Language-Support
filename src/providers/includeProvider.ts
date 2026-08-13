@@ -87,6 +87,33 @@ function notifyVirtualRootUnresolved(includePath: string): void {
 // (variables, constants, functions/subs, COM objects) tagged with their
 // source file path and line number.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Splits a line into its `:`-separated VBScript statements, ignoring a colon
+ * inside a string literal so `Const URL = "http://x"` stays one statement.
+ *
+ * Every declaration matcher is anchored at the start of a statement, so without
+ * this a one-liner like `Dim x : x = 1` — everyday ASP — matched nothing at all
+ * and the variable was dropped from completion, hover, go-to-definition and rename.
+ */
+function splitStatements(code: string): string[] {
+    const parts: string[] = [];
+    let start = 0;
+    let inStr = false;
+
+    for (let i = 0; i < code.length; i++) {
+        const ch = code[i];
+        if (ch === '"') {
+            if (inStr && code[i + 1] === '"') { i++; continue; } // "" escaped quote
+            inStr = !inStr;
+        } else if (!inStr && ch === ':') {
+            parts.push(code.slice(start, i));
+            start = i + 1;
+        }
+    }
+
+    parts.push(code.slice(start));
+    return parts;
+}
 
 export function extractSymbols(text: string, filePath: string): FileSymbols {
     const result: FileSymbols = {
@@ -143,6 +170,10 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
             (m) => m.startsWith("'") ? '' : (m[0] + m[0])
         );
 
+        // Every matcher below is anchored at the start of a statement, so run them
+        // per `:`-separated statement — `Dim x : x = 1` is two declarations, not one
+        // unparseable line.
+        for (const statement of splitStatements(lineNoComment)) {
         // Dim / ReDim / Public / Private
         // Guard: `Public`/`Private` also prefix Function/Sub/Property/Class/Const
         // declarations — those are handled below, not as variables. Without this,
@@ -151,18 +182,20 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         // bound like `arr(10)` doesn't abort the match and drop every name on the
         // line. Each declarator then has its `(…)` bounds and a leading `Preserve`
         // stripped, and only real identifiers are kept.
-        const dimMatch = lineNoComment.match(/^\s*(?:Dim|ReDim|Public|Private)\s+(.+?)\s*(?:'|$)/i);
+            const dimMatch = statement.match(/^\s*(?:Dim|ReDim|Public|Private)\s+(.+?)\s*(?:'|$)/i);
         if (dimMatch && !/^(?:Function|Sub|Property|Class|Const|Default|Static)\b/i.test(dimMatch[1].trim())) {
             dimMatch[1].split(',')
                 .map((s: string) => s.trim().replace(/^Preserve\s+/i, '').replace(/\(.*$/, '').trim())
-                .filter((name: string) => /^[A-Za-z_]\w*$/.test(name))
+                    // A lone `_` is a line-continuation marker, never an identifier —
+                    // it only survives here if the chain could not be joined.
+                    .filter((name: string) => name !== '_' && /^[A-Za-z_]\w*$/.test(name))
                 .forEach((name: string) => {
                     result.variables.push({ name, line: lineIndex, filePath });
                 });
         }
 
         // For Each loop variable  e.g.  For Each item In collection
-        const forEachMatch = lineNoComment.match(/^\s*For\s+Each\s+(\w+)\s+In\b/i);
+            const forEachMatch = statement.match(/^\s*For\s+Each\s+(\w+)\s+In\b/i);
         if (forEachMatch) {
             const name = forEachMatch[1];
             if (!result.variables.some(v => v.name.toLowerCase() === name.toLowerCase())) {
@@ -175,7 +208,7 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         // real variable must be Dim'd, so implicit assignments are either already
         // captured above or are typos/loop counters we don't want in suggestions.
         if (!hasOptionExplicit) {
-            const implicitMatch = lineNoComment.match(/^\s*([a-zA-Z_]\w*)\s*=/i);
+                const implicitMatch = statement.match(/^\s*([a-zA-Z_]\w*)\s*=/i);
             if (implicitMatch) {
                 const name = implicitMatch[1];
                 const nameLower = name.toLowerCase();
@@ -189,21 +222,8 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
             }
         }
 
-        // Const — run on the (inline-stripped) line so string values are preserved.
-        // Strip only a trailing comment (but not string contents).
-        const lineForConst = codeLine.replace(/'(?:[^"']|"[^"]*")*$/, '').trimEnd();
-        const constMatch = lineForConst.match(/^\s*(?:Public\s+|Private\s+)?Const\s+(\w+)\s*=\s*(.+?)\s*$/i);
-        if (constMatch) {
-            result.constants.push({
-                name:  constMatch[1],
-                value: constMatch[2].trim(),
-                line:  lineIndex,
-                filePath,
-            });
-        }
-
         // Function / Sub (parentheses optional in VBScript)
-        const funcMatch = lineNoComment.match(/^\s*(?:Public\s+|Private\s+)?(Function|Sub)\s+(\w+)\s*(?:\(([^)]*)\))?/i);
+            const funcMatch = statement.match(/^\s*(?:Public\s+|Private\s+)?(Function|Sub)\s+(\w+)\s*(?:\(([^)]*)\))?/i);
         if (funcMatch) {
             const rawParams  = funcMatch[3] ? funcMatch[3].trim() : '';
             const paramNames = rawParams.length > 0
@@ -224,7 +244,7 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
 
         // Property Get / Let / Set (a class member; treated like a callable so it
         // surfaces in the outline, completion, hover, and go-to-definition).
-        const propMatch = lineNoComment.match(
+            const propMatch = statement.match(
             /^\s*(?:Public\s+|Private\s+|Default\s+)*Property\s+(?:Get|Let|Set)\s+(\w+)\s*(?:\(([^)]*)\))?/i,
         );
         if (propMatch) {
@@ -246,7 +266,7 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         }
 
         // Class declaration
-        const classMatch = lineNoComment.match(/^\s*(?:Public\s+|Private\s+)?Class\s+(\w+)/i);
+            const classMatch = statement.match(/^\s*(?:Public\s+|Private\s+)?Class\s+(\w+)/i);
         if (classMatch) {
             result.classes.push({
                 name:    classMatch[1],
@@ -255,10 +275,33 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
                 filePath,
             });
         }
+        }
 
-        // Set x = [Server.]CreateObject("...") — must run on original line, not
-        // lineNoComment, because the progId is inside a string literal.
-        const setMatch = line.match(/\bSet\s+(\w+)\s*=\s*(?:Server\.)?CreateObject\s*\(\s*["']([^"']+)["']\s*\)/i);
+        // Const — run on the (inline-stripped) line so string values are preserved.
+        // Strip only a trailing comment (but not string contents). splitStatements
+        // keeps a colon inside the value intact, so `Const URL = "http://x"` is one
+        // statement and its value is not truncated.
+        const lineForConst = codeLine.replace(/'(?:[^"']|"[^"]*")*$/, '').trimEnd();
+        for (const statement of splitStatements(lineForConst)) {
+            const constMatch = statement.match(/^\s*(?:Public\s+|Private\s+)?Const\s+(\w+)\s*=\s*(.+?)\s*$/i);
+            if (constMatch) {
+                result.constants.push({
+                    name:  constMatch[1],
+                    value: constMatch[2].trim(),
+                    line:  lineIndex,
+                    filePath,
+                });
+            }
+        }
+
+        // Set x = [Server.]CreateObject("...") — must run on the raw code, not
+        // lineNoComment, because the progId is inside a string literal. Run it per
+        // VBScript span with the trailing comment removed, so a commented-out
+        // CreateObject no longer registers a phantom typed COM variable and an
+        // apostrophe in HTML sharing the line cannot truncate real code.
+        for (const span of vbCodeSpans(line)) {
+            const setMatch = stripVbTrailingComment(span)
+                .match(/\bSet\s+(\w+)\s*=\s*(?:Server\.)?CreateObject\s*\(\s*["']([^"']+)["']\s*\)/i);
         if (setMatch) {
             result.comVariables.push({
                 name:   setMatch[1],
@@ -266,6 +309,7 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
                 line:   lineIndex,
                 filePath,
             });
+            }
         }
     });
 
