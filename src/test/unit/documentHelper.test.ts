@@ -1,5 +1,10 @@
 import * as assert from 'assert';
-import { isInsideVbStringOrComment, indexOfWholeWord } from '../../utils/documentHelper';
+import {
+    isInsideVbStringOrComment,
+    indexOfWholeWord,
+    aspCodeStartOnLine,
+    isInsideVbString,
+} from '../../utils/documentHelper';
 
 describe('indexOfWholeWord', () => {
     it('finds the standalone word, not a substring in a longer identifier', () => {
@@ -47,5 +52,48 @@ describe('isInsideVbStringOrComment', () => {
     it('does not treat an apostrophe inside a string as a comment', () => {
         const line = 'msg = "it\'s here" ';
         assert.strictEqual(isInsideVbStringOrComment(line, line.length), false);
+    });
+});
+
+// A physical line can mix HTML and VBScript. Any line-local scan for strings or
+// `'` comments has to begin at the script, or an apostrophe in the HTML part
+// ("it's", class='box') reads as a comment marker and silently switches off
+// completion, go-to-definition, hover and rename for the rest of the line.
+describe('aspCodeStartOnLine', () => {
+    it('returns 0 for a line with no <% (inside a multi-line block)', () => {
+        assert.strictEqual(aspCodeStartOnLine('  total = total + 1', 19), 0);
+    });
+
+    it('starts after the <% of an inline block', () => {
+        const line = "<td>it's here</td><% total = 1 %>";
+        assert.strictEqual(aspCodeStartOnLine(line, line.indexOf('total')), line.indexOf('<%') + 2);
+    });
+
+    it('skips the marker of an output expression', () => {
+        const line = '<td><%= total %></td>';
+        assert.strictEqual(aspCodeStartOnLine(line, line.indexOf('total')), line.indexOf('<%=') + 3);
+    });
+
+    it('tracks the second block when a line has two', () => {
+        const line = '<% a = 1 %> plain <% b = 2 %>';
+        assert.strictEqual(aspCodeStartOnLine(line, line.indexOf('b =')), line.lastIndexOf('<%') + 2);
+    });
+
+    it('never returns past the column asked about', () => {
+        const line = '<% x = 1 %>';
+        assert.strictEqual(aspCodeStartOnLine(line, 1), 1);
+    });
+});
+
+describe('isInsideVbString', () => {
+    it('reports a string but not a comment', () => {
+        assert.strictEqual(isInsideVbString("x = ' note", 10), false);
+        assert.strictEqual(isInsideVbString('x = "abc', 8), true);
+    });
+
+    it('honours the start offset', () => {
+        const line = '<p>"</p><% x = 1';
+        // Scanning from 0 would see the stray quote in the HTML and report a string.
+        assert.strictEqual(isInsideVbString(line, line.length, line.indexOf('<%') + 2), false);
     });
 });
