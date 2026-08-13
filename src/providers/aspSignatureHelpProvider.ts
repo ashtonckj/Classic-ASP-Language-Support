@@ -11,19 +11,28 @@
 import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
 import { getZone } from '../utils/zoneUtils';
+import { aspCodeStartOnLine } from '../utils/documentHelper';
 
 /**
  * Given the text before the cursor, find the call the cursor is inside and which
  * argument (0-based) it is on. Scans forward so string literals are skipped —
- * a `(`, `)` or `,` inside "…" is data, not call syntax. Returns null when the
- * cursor is not inside an argument list.
+ * a `(`, `)` or `,` inside "…" is data, not call syntax. A `'` outside a string
+ * starts a comment that runs to end of line, so everything after it — including
+ * a commented-out call — is not call syntax either. Returns null when the cursor
+ * is not inside an argument list.
+ *
+ * `from` is where this line's VBScript begins; callers pass it so an apostrophe
+ * in HTML sharing the line is not read as a comment marker.
  */
-export function findActiveCall(textBefore: string): { openParenCol: number; activeParam: number } | null {
+export function findActiveCall(
+    textBefore: string,
+    from: number = 0,
+): { openParenCol: number; activeParam: number } | null {
     const parenStack: number[] = [];
     const commaCounts: number[] = [];
     let inStr = false;
 
-    for (let i = 0; i < textBefore.length; i++) {
+    for (let i = from; i < textBefore.length; i++) {
         const ch = textBefore[i];
         if (inStr) {
             if (ch === '"') {
@@ -33,6 +42,7 @@ export function findActiveCall(textBefore: string): { openParenCol: number; acti
             continue;
         }
         if (ch === '"')      { inStr = true; }
+        else if (ch === "'") { return null; } // rest of the line is a comment
         else if (ch === '(') { parenStack.push(i); commaCounts.push(0); }
         else if (ch === ')') { parenStack.pop(); commaCounts.pop(); }
         else if (ch === ',' && parenStack.length > 0) { commaCounts[commaCounts.length - 1]++; }
@@ -60,7 +70,7 @@ export class AspSignatureHelpProvider implements vscode.SignatureHelpProvider {
         const lineText   = document.lineAt(position.line).text;
         const textBefore = lineText.substring(0, position.character);
 
-        const call = findActiveCall(textBefore);
+        const call = findActiveCall(textBefore, aspCodeStartOnLine(lineText, position.character));
         if (!call) { return null; }
         const { openParenCol, activeParam } = call;
 
