@@ -3,6 +3,7 @@ import { collectAllSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../utils/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
 import { getZone } from '../utils/zoneUtils';
+import { aspCodeStartOnLine, isInsideVbString } from '../utils/documentHelper';
 import * as path from 'path';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -208,23 +209,19 @@ export class AspHoverProvider implements vscode.HoverProvider {
         const word    = document.getText(wordRange);
         const wordKey = word.toLowerCase();
 
+        // Where this line's VBScript starts. A line can mix HTML and script
+        // (`<div class='box'><% If x Then %>`), and both scans below would
+        // otherwise read the HTML — an apostrophe there looked like the start of
+        // a VBScript comment and suppressed every hover after it.
+        const codeStart = aspCodeStartOnLine(lineText, position.character);
+
         // ── Suppress hover when cursor is inside a string literal ────────────
         // VBScript strings are delimited by ".  Scan the line up to the cursor,
         // tracking open/close quotes ("" is an escaped quote inside a string).
         // If the cursor lands inside a string the word is a value, not an
         // identifier — so Case "Active", Response.Write "msg", etc. must never
         // show variable/function/keyword hovers.
-        {
-            let inStr = false;
-            const col = position.character;
-            for (let ci = 0; ci < col; ci++) {
-                if (lineText[ci] === '"') {
-                    if (inStr && lineText[ci + 1] === '"') { ci++; continue; } // escaped ""
-                    inStr = !inStr;
-                }
-            }
-            if (inStr) return null;
-        }
+        if (isInsideVbString(lineText, position.character, codeStart)) { return null; }
 
         const allSymbols = collectAllSymbols(document);
 
@@ -313,10 +310,13 @@ export class AspHoverProvider implements vscode.HoverProvider {
         }
 
         // Suppress hover inside comments. Strip string literals first so a quote
-        // inside a string isn't mistaken for a comment delimiter.
-        const strippedForComment = lineText.replace(/"[^"]*"/g, m => ' '.repeat(m.length));
+        // inside a string isn't mistaken for a comment delimiter, and search only
+        // from the start of this line's VBScript so an apostrophe in surrounding
+        // HTML text or a single-quoted attribute never counts as a comment marker.
+        const codePart           = lineText.slice(codeStart);
+        const strippedForComment = codePart.replace(/"[^"]*"/g, m => ' '.repeat(m.length));
         const commentIdx         = strippedForComment.indexOf("'");
-        if (commentIdx !== -1 && position.character > commentIdx) return null;
+        if (commentIdx !== -1 && position.character > codeStart + commentIdx) return null;
 
         // Extract words immediately before and after the hovered word so we can
         // assemble 2-word and 3-word compound keys and return the correct doc

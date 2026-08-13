@@ -101,13 +101,6 @@ export function getTextBeforeCursor(document: vscode.TextDocument, position: vsc
 }
 
 /**
- * Returns true when `col` on `lineText` sits inside a VBScript string literal
- * ("…", with "" as an escaped quote) or after the start of a `'` comment. Used to
- * suppress IntelliSense / go-to-definition where the token is data, not code
- * (e.g. `x = "rs."` or a `' Response.` comment). Scans only the current line,
- * which is sufficient: VBScript strings and `'` comments never span lines.
- */
-/**
  * Case-insensitive index of the first WHOLE-WORD occurrence of `name` in `line`,
  * or -1. Used to place the caret/selection on a symbol rather than on the first
  * substring match (e.g. `count` must not match inside `accountCount`).
@@ -118,9 +111,71 @@ export function indexOfWholeWord(line: string, name: string): number {
     return m ? m.index : -1;
 }
 
+/**
+ * Index on `lineText` where the VBScript containing `col` begins.
+ *
+ * A single physical line can mix HTML and script — `<td>it's here</td><% total = 1 %>`.
+ * Any line-local scan for VBScript strings or `'` comments must start at the code,
+ * not at column 0, or an apostrophe in the surrounding HTML ("it's", `class='box'`)
+ * reads as the start of a VBScript comment and everything after it is wrongly
+ * treated as commented out.
+ *
+ * The walk is purely lexical, matching the ASP engine: `<%` opens script and the
+ * first `%>` closes it, wherever they appear. Returns 0 when the line contains no
+ * `<%` — it is then entirely inside a multi-line block (or a VBScript `<script>`
+ * body), so the whole line is code.
+ */
+export function aspCodeStartOnLine(lineText: string, col: number): number {
+    let start = 0;
+    let i = 0;
+
+    while (i < col && i < lineText.length) {
+        if (lineText[i] === '<' && lineText[i + 1] === '%') {
+            i += 2;
+            // Skip the marker of an output expression (<%=) or directive (<%@)
+            if (lineText[i] === '=' || lineText[i] === '@') { i++; }
+            start = i;
+            continue;
+        }
+        if (lineText[i] === '%' && lineText[i + 1] === '>') {
+            i += 2;
+            start = i; // back in HTML — callers zone-check before relying on this
+            continue;
+        }
+        i++;
+    }
+
+    return Math.min(start, col);
+}
+
+/**
+ * Returns true when `col` sits inside a VBScript string literal ("…", with ""
+ * as an escaped quote). Scanning starts at `from`, which callers set to the
+ * beginning of the VBScript on the line (see aspCodeStartOnLine).
+ */
+export function isInsideVbString(lineText: string, col: number, from: number = 0): boolean {
+    let inStr = false;
+    for (let i = from; i < col && i < lineText.length; i++) {
+        if (lineText[i] === '"') {
+            if (inStr && lineText[i + 1] === '"') { i++; continue; } // "" escaped quote
+            inStr = !inStr;
+        }
+    }
+    return inStr;
+}
+
+/**
+ * Returns true when `col` on `lineText` sits inside a VBScript string literal
+ * ("…", with "" as an escaped quote) or after the start of a `'` comment. Used to
+ * suppress IntelliSense / go-to-definition where the token is data, not code
+ * (e.g. `x = "rs."` or a `' Response.` comment). Scans only the current line,
+ * which is sufficient: VBScript strings and `'` comments never span lines — and
+ * only from the start of that line's VBScript, so HTML text sharing the line
+ * cannot fake a comment.
+ */
 export function isInsideVbStringOrComment(lineText: string, col: number): boolean {
     let inStr = false;
-    for (let i = 0; i < col && i < lineText.length; i++) {
+    for (let i = aspCodeStartOnLine(lineText, col); i < col && i < lineText.length; i++) {
         const ch = lineText[i];
         if (ch === '"') {
             if (inStr && lineText[i + 1] === '"') { i++; continue; } // "" escaped quote
