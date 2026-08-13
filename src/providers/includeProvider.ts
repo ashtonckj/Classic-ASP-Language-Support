@@ -87,6 +87,52 @@ function notifyVirtualRootUnresolved(includePath: string): void {
 // (variables, constants, functions/subs, COM objects) tagged with their
 // source file path and line number.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Drops a trailing `'` comment, respecting string literals so an apostrophe
+ * inside "…" (or a doubled "" escape) is not mistaken for the comment marker.
+ */
+function stripVbTrailingComment(code: string): string {
+    let inStr = false;
+    for (let i = 0; i < code.length; i++) {
+        const ch = code[i];
+        if (ch === '"') {
+            if (inStr && code[i + 1] === '"') { i++; continue; } // "" escaped quote
+            inStr = !inStr;
+        } else if (!inStr && ch === "'") {
+            return code.slice(0, i);
+        }
+    }
+    return code;
+}
+
+/**
+ * The VBScript code spans of one physical line: the text inside each `<% … %>`,
+ * or the whole line when it has no `<%` (we are then inside a multi-line block).
+ *
+ * Used by passes that must run on the raw line — the CreateObject scan needs the
+ * ProgID string intact — so the HTML around the script cannot contribute matches
+ * and an apostrophe in HTML text cannot look like a VBScript comment.
+ */
+function vbCodeSpans(line: string): string[] {
+    if (line.indexOf('<%') === -1) { return [line]; }
+
+    const spans: string[] = [];
+    let i = 0;
+    while (i < line.length) {
+        const open = line.indexOf('<%', i);
+        if (open === -1) { break; }
+
+        let bodyStart = open + 2;
+        if (line[bodyStart] === '=' || line[bodyStart] === '@') { bodyStart++; }
+
+        const close = line.indexOf('%>', bodyStart);
+        spans.push(line.slice(bodyStart, close === -1 ? line.length : close));
+        i = close === -1 ? line.length : close + 2;
+    }
+    return spans;
+}
+
 /**
  * Splits a line into its `:`-separated VBScript statements, ignoring a colon
  * inside a string literal so `Const URL = "http://x"` stays one statement.
@@ -115,6 +161,46 @@ function splitStatements(code: string): string[] {
     return parts;
 }
 
+/**
+ * True when a physical line ends with a VBScript line continuation (`_` preceded
+ * by whitespace). Strings and a trailing comment are removed first so a `_` that
+ * is merely the last character of a literal does not count.
+ */
+function endsWithLineContinuation(line: string): boolean {
+    const bare = stripVbTrailingComment(line.replace(/"(?:[^"]|"")*"/g, ''));
+    return /(?:^|\s)_\s*$/.test(bare);
+}
+
+/**
+ * Joins physical lines that end with `_` into the logical line they form.
+ *
+ * The result has the SAME length as the input: the joined text replaces the
+ * chain's first line and every continued line becomes empty. That keeps every
+ * index equal to its physical line number, so declarations still report the line
+ * they start on and the byte offsets used for zone probing stay valid — while the
+ * declaration matchers, which are all anchored at the start of a statement, get
+ * to see the whole declaration instead of a fragment.
+ */
+function joinContinuedLines(lines: string[]): string[] {
+    const joined: string[] = new Array(lines.length).fill('');
+
+    let i = 0;
+    while (i < lines.length) {
+        const start = i;
+        let text = lines[i];
+
+        while (endsWithLineContinuation(text) && i + 1 < lines.length) {
+            text = text.replace(/\s*_\s*$/, ' ') + lines[i + 1].trim();
+            i++;
+        }
+
+        joined[start] = text;
+        i++;
+    }
+
+    return joined;
+}
+
 export function extractSymbols(text: string, filePath: string): FileSymbols {
     const result: FileSymbols = {
         variables:    [],
@@ -127,16 +213,22 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
     // Strip HTML comments so <!--METADATA ... --> blocks don't produce false symbols.
     // Non-newline characters are replaced with spaces to preserve line numbers.
     const strippedText = text.replace(/<!--[\s\S]*?-->/g, m => m.replace(/[^\n]/g, ' '));
-    const lines = strippedText.split('\n');
+    const physicalLines = strippedText.split('\n');
 
     // Byte offset of each line's start, so a declaration can be located precisely
     // enough to ask getZone which embedded language it sits in (see the zone guard
-    // in the loop below).
+    // in the loop below). Computed from the PHYSICAL lines so the offsets stay
+    // valid after continuation joining, which does not change line count.
     const lineOffsets: number[] = [];
     {
         let acc = 0;
-        for (const l of lines) { lineOffsets.push(acc); acc += l.length + 1; }
+        for (const l of physicalLines) { lineOffsets.push(acc); acc += l.length + 1; }
     }
+
+    // Parse logical lines: a declaration split over a trailing `_` must be seen
+    // whole, or its parameter list / trailing names are lost and the `_` itself
+    // is captured as a variable.
+    const lines = joinContinuedLines(physicalLines);
 
     // Detect Option Explicit anywhere in the file (outside of string literals).
     // When present, VBScript requires all variables to be declared with Dim/Const,
@@ -174,107 +266,107 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         // per `:`-separated statement — `Dim x : x = 1` is two declarations, not one
         // unparseable line.
         for (const statement of splitStatements(lineNoComment)) {
-        // Dim / ReDim / Public / Private
-        // Guard: `Public`/`Private` also prefix Function/Sub/Property/Class/Const
-        // declarations — those are handled below, not as variables. Without this,
-        // `Public Sub Foo` would be captured as a bogus variable named "Sub Foo".
-        // Capture the whole declarator list (`.+?`, not `[\w,\s]+?`) so an array
-        // bound like `arr(10)` doesn't abort the match and drop every name on the
-        // line. Each declarator then has its `(…)` bounds and a leading `Preserve`
-        // stripped, and only real identifiers are kept.
+            // Dim / ReDim / Public / Private
+            // Guard: `Public`/`Private` also prefix Function/Sub/Property/Class/Const
+            // declarations — those are handled below, not as variables. Without this,
+            // `Public Sub Foo` would be captured as a bogus variable named "Sub Foo".
+            // Capture the whole declarator list (`.+?`, not `[\w,\s]+?`) so an array
+            // bound like `arr(10)` doesn't abort the match and drop every name on the
+            // line. Each declarator then has its `(…)` bounds and a leading `Preserve`
+            // stripped, and only real identifiers are kept.
             const dimMatch = statement.match(/^\s*(?:Dim|ReDim|Public|Private)\s+(.+?)\s*(?:'|$)/i);
-        if (dimMatch && !/^(?:Function|Sub|Property|Class|Const|Default|Static)\b/i.test(dimMatch[1].trim())) {
-            dimMatch[1].split(',')
-                .map((s: string) => s.trim().replace(/^Preserve\s+/i, '').replace(/\(.*$/, '').trim())
+            if (dimMatch && !/^(?:Function|Sub|Property|Class|Const|Default|Static)\b/i.test(dimMatch[1].trim())) {
+                dimMatch[1].split(',')
+                    .map((s: string) => s.trim().replace(/^Preserve\s+/i, '').replace(/\(.*$/, '').trim())
                     // A lone `_` is a line-continuation marker, never an identifier —
                     // it only survives here if the chain could not be joined.
                     .filter((name: string) => name !== '_' && /^[A-Za-z_]\w*$/.test(name))
-                .forEach((name: string) => {
-                    result.variables.push({ name, line: lineIndex, filePath });
-                });
-        }
-
-        // For Each loop variable  e.g.  For Each item In collection
-            const forEachMatch = statement.match(/^\s*For\s+Each\s+(\w+)\s+In\b/i);
-        if (forEachMatch) {
-            const name = forEachMatch[1];
-            if (!result.variables.some(v => v.name.toLowerCase() === name.toLowerCase())) {
-                result.variables.push({ name, line: lineIndex, filePath });
+                    .forEach((name: string) => {
+                        result.variables.push({ name, line: lineIndex, filePath });
+                    });
             }
-        }
 
-        // Implicit assignment (undeclared variables, no Option Explicit)
-        // Skipped entirely when Option Explicit is present — in that mode every
-        // real variable must be Dim'd, so implicit assignments are either already
-        // captured above or are typos/loop counters we don't want in suggestions.
-        if (!hasOptionExplicit) {
-                const implicitMatch = statement.match(/^\s*([a-zA-Z_]\w*)\s*=/i);
-            if (implicitMatch) {
-                const name = implicitMatch[1];
-                const nameLower = name.toLowerCase();
-                const skipWords = new Set([
-                    'dim','redim','set','const','if','for','while','do',
-                    'function','sub','class','select','with','on','option',
-                ]);
-                if (!skipWords.has(nameLower) && !result.variables.some(v => v.name.toLowerCase() === nameLower)) {
+            // For Each loop variable  e.g.  For Each item In collection
+            const forEachMatch = statement.match(/^\s*For\s+Each\s+(\w+)\s+In\b/i);
+            if (forEachMatch) {
+                const name = forEachMatch[1];
+                if (!result.variables.some(v => v.name.toLowerCase() === name.toLowerCase())) {
                     result.variables.push({ name, line: lineIndex, filePath });
                 }
             }
-        }
 
-        // Function / Sub (parentheses optional in VBScript)
+            // Implicit assignment (undeclared variables, no Option Explicit)
+            // Skipped entirely when Option Explicit is present — in that mode every
+            // real variable must be Dim'd, so implicit assignments are either already
+            // captured above or are typos/loop counters we don't want in suggestions.
+            if (!hasOptionExplicit) {
+                const implicitMatch = statement.match(/^\s*([a-zA-Z_]\w*)\s*=/i);
+                if (implicitMatch) {
+                    const name = implicitMatch[1];
+                    const nameLower = name.toLowerCase();
+                    const skipWords = new Set([
+                        'dim','redim','set','const','if','for','while','do',
+                        'function','sub','class','select','with','on','option',
+                    ]);
+                    if (!skipWords.has(nameLower) && !result.variables.some(v => v.name.toLowerCase() === nameLower)) {
+                        result.variables.push({ name, line: lineIndex, filePath });
+                    }
+                }
+            }
+
+            // Function / Sub (parentheses optional in VBScript)
             const funcMatch = statement.match(/^\s*(?:Public\s+|Private\s+)?(Function|Sub)\s+(\w+)\s*(?:\(([^)]*)\))?/i);
-        if (funcMatch) {
-            const rawParams  = funcMatch[3] ? funcMatch[3].trim() : '';
-            const paramNames = rawParams.length > 0
-                ? rawParams.split(',').map((p: string) =>
-                    p.trim().replace(/^(?:ByVal|ByRef)\s+/i, '').replace(/\(\)$/, '').trim()
-                  ).filter(Boolean)
-                : [];
-            result.functions.push({
-                name:       funcMatch[2],
-                kind:       funcMatch[1] as 'Function' | 'Sub',
-                params:     rawParams,
-                paramNames,
-                line:       lineIndex,
-                endLine:    -1,
-                filePath,
-            });
-        }
+            if (funcMatch) {
+                const rawParams  = funcMatch[3] ? funcMatch[3].trim() : '';
+                const paramNames = rawParams.length > 0
+                    ? rawParams.split(',').map((p: string) =>
+                        p.trim().replace(/^(?:ByVal|ByRef)\s+/i, '').replace(/\(\)$/, '').trim()
+                      ).filter(Boolean)
+                    : [];
+                result.functions.push({
+                    name:       funcMatch[2],
+                    kind:       funcMatch[1] as 'Function' | 'Sub',
+                    params:     rawParams,
+                    paramNames,
+                    line:       lineIndex,
+                    endLine:    -1,
+                    filePath,
+                });
+            }
 
-        // Property Get / Let / Set (a class member; treated like a callable so it
-        // surfaces in the outline, completion, hover, and go-to-definition).
+            // Property Get / Let / Set (a class member; treated like a callable so it
+            // surfaces in the outline, completion, hover, and go-to-definition).
             const propMatch = statement.match(
-            /^\s*(?:Public\s+|Private\s+|Default\s+)*Property\s+(?:Get|Let|Set)\s+(\w+)\s*(?:\(([^)]*)\))?/i,
-        );
-        if (propMatch) {
-            const rawParams  = propMatch[2] ? propMatch[2].trim() : '';
-            const paramNames = rawParams.length > 0
-                ? rawParams.split(',').map((p: string) =>
-                    p.trim().replace(/^(?:ByVal|ByRef)\s+/i, '').replace(/\(\)$/, '').trim()
-                  ).filter(Boolean)
-                : [];
-            result.functions.push({
-                name:       propMatch[1],
-                kind:       'Property',
-                params:     rawParams,
-                paramNames,
-                line:       lineIndex,
-                endLine:    -1,
-                filePath,
-            });
-        }
+                /^\s*(?:Public\s+|Private\s+|Default\s+)*Property\s+(?:Get|Let|Set)\s+(\w+)\s*(?:\(([^)]*)\))?/i,
+            );
+            if (propMatch) {
+                const rawParams  = propMatch[2] ? propMatch[2].trim() : '';
+                const paramNames = rawParams.length > 0
+                    ? rawParams.split(',').map((p: string) =>
+                        p.trim().replace(/^(?:ByVal|ByRef)\s+/i, '').replace(/\(\)$/, '').trim()
+                      ).filter(Boolean)
+                    : [];
+                result.functions.push({
+                    name:       propMatch[1],
+                    kind:       'Property',
+                    params:     rawParams,
+                    paramNames,
+                    line:       lineIndex,
+                    endLine:    -1,
+                    filePath,
+                });
+            }
 
-        // Class declaration
+            // Class declaration
             const classMatch = statement.match(/^\s*(?:Public\s+|Private\s+)?Class\s+(\w+)/i);
-        if (classMatch) {
-            result.classes.push({
-                name:    classMatch[1],
-                line:    lineIndex,
-                endLine: -1,
-                filePath,
-            });
-        }
+            if (classMatch) {
+                result.classes.push({
+                    name:    classMatch[1],
+                    line:    lineIndex,
+                    endLine: -1,
+                    filePath,
+                });
+            }
         }
 
         // Const — run on the (inline-stripped) line so string values are preserved.
@@ -302,13 +394,13 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         for (const span of vbCodeSpans(line)) {
             const setMatch = stripVbTrailingComment(span)
                 .match(/\bSet\s+(\w+)\s*=\s*(?:Server\.)?CreateObject\s*\(\s*["']([^"']+)["']\s*\)/i);
-        if (setMatch) {
-            result.comVariables.push({
-                name:   setMatch[1],
-                progId: setMatch[2].toLowerCase(),
-                line:   lineIndex,
-                filePath,
-            });
+            if (setMatch) {
+                result.comVariables.push({
+                    name:   setMatch[1],
+                    progId: setMatch[2].toLowerCase(),
+                    line:   lineIndex,
+                    filePath,
+                });
             }
         }
     });

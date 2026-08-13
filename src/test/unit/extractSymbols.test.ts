@@ -173,3 +173,57 @@ describe('extractSymbols — colon-separated statements', () => {
         assert.deepStrictEqual(s.functions.map(f => f.name), ['Later']);
     });
 });
+
+// A declaration split over a trailing `_` must be parsed whole, or its parameter
+// list is lost and the continuation marker itself is captured as a variable.
+describe('extractSymbols — line continuations', () => {
+    it('keeps the parameter list of a continued Function header', () => {
+        const s = extractSymbols('<%\nFunction Add( _\n    a, _\n    b)\n  Add = a + b\nEnd Function\n%>', 'x.asp');
+        assert.deepStrictEqual(s.functions[0].paramNames, ['a', 'b']);
+    });
+
+    it('captures every name of a continued Dim', () => {
+        const s = extractSymbols('<%\nDim total, _\n    count\n%>', 'x.asp');
+        assert.deepStrictEqual(s.variables.map(v => v.name), ['total', 'count']);
+    });
+
+    it('never captures the continuation marker as a variable', () => {
+        const s = extractSymbols('<%\nDim total, _\n    count\n%>', 'x.asp');
+        assert.ok(!s.variables.some(v => v.name === '_'), 'a lone _ must never be a symbol');
+    });
+
+    it('reports the line the declaration starts on', () => {
+        const s = extractSymbols('<%\nFunction Add( _\n    a)\nEnd Function\n%>', 'x.asp');
+        assert.strictEqual(s.functions[0].line, 1);
+    });
+
+    it('still pairs a continued header with its End line', () => {
+        const s = extractSymbols('<%\nFunction Add( _\n    a)\n  Add = a\nEnd Function\n%>', 'x.asp');
+        assert.strictEqual(s.functions[0].endLine, 4);
+    });
+
+    it('does not treat a trailing _ inside a string as a continuation', () => {
+        const s = extractSymbols('<%\nx = "ends with _"\nDim after\n%>', 'x.asp');
+        assert.ok(s.variables.some(v => v.name === 'after'), 'the next line must still be parsed');
+    });
+});
+
+// The CreateObject scan has to run on raw code (the ProgID lives in a string
+// literal), so it needs its own comment stripping — otherwise a commented-out
+// line registers a fully typed COM variable that offers member completions.
+describe('extractSymbols — CreateObject in a comment', () => {
+    it('ignores a commented-out CreateObject', () => {
+        const s = extractSymbols('<%\nx = 1 \' Set oldConn = Server.CreateObject("ADODB.Connection")\n%>', 'x.asp');
+        assert.deepStrictEqual(s.comVariables.map(c => c.name), []);
+    });
+
+    it('still captures a real CreateObject on a line that also has a comment', () => {
+        const s = extractSymbols('<%\nSet rs = Server.CreateObject("ADODB.Recordset") \' the grid\n%>', 'x.asp');
+        assert.deepStrictEqual(s.comVariables.map(c => c.name), ['rs']);
+    });
+
+    it('ignores an apostrophe in HTML sharing the line', () => {
+        const s = extractSymbols('<td>it\'s</td><% Set rs = Server.CreateObject("ADODB.Recordset") %>', 'x.asp');
+        assert.deepStrictEqual(s.comVariables.map(c => c.name), ['rs']);
+    });
+});
