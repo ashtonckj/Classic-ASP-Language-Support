@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import { collectAllSymbols, resolveIncludePaths, extractSymbols, FileSymbols } from './includeProvider';
+import { collectAllSymbols, resolveIncludePaths, extractSymbols, readIncludeText, FileSymbols } from './includeProvider';
 import { getZone } from '../utils/zoneUtils';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import path from 'path';
@@ -182,13 +182,9 @@ export class AspRenameProvider implements vscode.RenameProvider {
                     if (!includedSet.has(fp.toLowerCase())) {
                         workspaceFiles.push({
                             fsPath: fp,
-                            getText: () => {
-                                try {
-                                    return fs.readFileSync(fp, 'utf8');
-                                } catch {
-                                    return '';
-                                }
-                            },
+                            // Prefer the open buffer (unsaved edits) over disk so edit
+                            // positions line up with what the user actually sees.
+                            getText: () => readIncludeText(fp) ?? '',
                         });
                     }
                 }
@@ -201,13 +197,7 @@ export class AspRenameProvider implements vscode.RenameProvider {
             { fsPath: docPath, getText: () => fullText },
             ...includedPaths.map((p) => ({
                 fsPath: p,
-                getText: () => {
-                    try {
-                        return fs.readFileSync(p, 'utf8');
-                    } catch {
-                        return '';
-                    }
-                },
+                getText: () => readIncludeText(p) ?? '',
             })),
             ...workspaceFiles,
         ];
