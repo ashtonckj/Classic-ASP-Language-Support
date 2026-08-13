@@ -52,7 +52,7 @@ interface TagEntry {
 
 // ── Main scanner ──────────────────────────────────────────────────────────────
 
-function scanHtmlStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
+export function scanHtmlStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
     const fullText  = document.getText();
     const lines = fullText.split('\n');
     const diagnostics: vscode.Diagnostic[] = [];
@@ -108,6 +108,13 @@ function scanHtmlStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
 
         // ── HTML tag ──────────────────────────────────────────────────────────
         if (fullText[i] !== '<') { i++; continue; }
+
+        // A `<` with no tag-name character after it is literal body text
+        // ("Total: 5 < 10"), not markup. Scanning it to the next `>` consumed the
+        // real closing tag that followed and produced a false "Missing closing
+        // tag" — which in turn blocks Format Document.
+        const afterAngle = fullText[i + 1];
+        if (afterAngle === undefined || !/[A-Za-z/!?]/.test(afterAngle)) { i++; continue; }
 
         // Collect the full tag (up to next >), skipping ASP blocks inside attrs
         let tagEnd = i + 1;
