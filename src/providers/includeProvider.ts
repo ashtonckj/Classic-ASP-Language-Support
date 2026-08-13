@@ -369,7 +369,7 @@ function openDocumentFor(fsPath: string): vscode.TextDocument | undefined {
  * *currently says*, even though the ASP engine reads the saved file at runtime).
  * Falls back to disk for includes that aren't open. Returns null if unreadable.
  */
-function readIncludeText(fsPath: string): string | null {
+export function readIncludeText(fsPath: string): string | null {
     const open = openDocumentFor(fsPath);
     if (open) { return open.getText(); }
     try { return fs.readFileSync(fsPath, 'utf8'); } catch { return null; }
