@@ -5,6 +5,40 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-08-22
+
+### 🛠️ Fixed
+**Formatter & Indentation**
+- Enter and Tab now share the same indentation logic, so both agree on block boundaries
+- Enter preserves text after the cursor and no longer duplicates or trims it; Tab no longer duplicates spaces on blank lines
+- Fixed multi-line VBScript continuations (`_`), colon-joined statements, and commented-out variables being mis-declared or mis-indented
+- `&H`/`&O` numeric literals and `#date#` literals no longer get incorrect spacing after formatting
+- Trailing comments are now preserved correctly when formatting, and keywords are no longer incorrectly re-cased
+- Formatter no longer corrupts JS/CSS embedded inside ASP blocks, or mis-nests HTML tables
+- Multi-cursor editing now falls back to native Enter/Tab instead of breaking
+
+**Diagnostics**
+- Structure diagnostics no longer false-positive on colon-joined VBScript lines, member access, or REM comments
+- Diagnostics are now debounced per-document instead of re-validating the whole file on every keystroke
+- CSS and inline `style=""` detection is more accurate when multiple styles share a line
+
+**Navigation & Symbols**
+- Go-to-definition, rename, and outline now target the whole identifier instead of a substring
+- Rename is now scope-aware, so renaming a local variable no longer corrupts the rest of the workspace
+- Class definitions and inline `Dim` arrays are now properly extracted for the outline and workspace symbol search
+- `#include` resolution and rename now read directly from the open editor buffer
+
+**Syntax & Highlighting**
+- Fixed false unclosed-tag detection for a bare `<` in body text and for optional-end-tag HTML elements
+- `<% %>` regions now pair correctly even with stray `%>`, and `REM` comments no longer swallow a closing `%>`
+- Hover, parameter hints, and syntax colouring are more robust around apostrophes, commented-out calls, and SQL-in-string false positives
+
+### 🔄 Refactored
+- Simplified ASP region and zone detection logic
+- Removed dead code paths, an unused TextMate grammar block, and unused Prettier parser plugins from the packaged extension
+
+---
+
 ## [0.5.5] - 2026-06-02
 
 ### 🛠️ Fixed
@@ -425,6 +459,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[0.6.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.0
 [0.5.5]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.5.5
 [0.5.4]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.5.4
 [0.5.3]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.5.3
