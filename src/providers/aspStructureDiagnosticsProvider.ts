@@ -155,8 +155,9 @@ function joinContinuationLines(lines: string[]): LogicalLine[] {
                     i++; // skip blank, stay in chain
                     continue;
                 } else {
-                    // Blank line with no open chain — emit as-is and advance
-                    result.push({ text: '', physicalLine: i });
+                    // Blank line with no open chain — advance and let the emit
+                    // below record it. Pushing here as well produced TWO empty
+                    // logical lines for every blank line in the file.
                     i++;
                     break;
                 }
