@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import { collectAllSymbols, resolveIncludePaths, extractSymbols, readIncludeText, FileSymbols } from './includeProvider';
+import { collectAllSymbols, resolveDirectIncludes, extractSymbols, readIncludeText, FileSymbols } from './includeProvider';
 import { getZone } from '../utils/zoneUtils';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import path from 'path';
@@ -50,6 +50,176 @@ export function computeLocalRenameScope(
     const isParam  = body.paramNames.some(p => p.toLowerCase() === nameLower);
     const isGlobal = moduleLevelNames(sym, fns).has(nameLower);
     return (isParam || !isGlobal) ? { line: body.line, endLine: body.endLine } : null;
+}
+
+/**
+ * The procedure bodies in one file where `nameLower` is a DIFFERENT variable from
+ * the module-level one, and so must be left alone when the module-level name is
+ * renamed. A body qualifies when it declares the name as:
+ *   • a parameter          — `Sub Add(total)`
+ *   • an explicit Dim      — `Sub Other() : Dim total`
+ *   • an explicit Const
+ *
+ * An implicitly-created name does NOT qualify. In VBScript a bare assignment or a
+ * For Each variable inside a procedure resolves to the module-level variable when
+ * one exists, rather than declaring a local — so `total = total + 1` inside a Sub
+ * really is the outer `total` and must be renamed with it. That is why
+ * extractSymbols flags those entries `implicit`.
+ *
+ * This is the counterpart of computeLocalRenameScope: that one keeps a rename ON a
+ * local inside its own body, this one keeps a rename on a GLOBAL out of bodies
+ * where the name is shadowed.
+ */
+export function shadowingBodies(
+    sym: FileSymbols,
+    nameLower: string,
+): { line: number; endLine: number }[] {
+    const bodies: { line: number; endLine: number }[] = [];
+
+    for (const fn of sym.functions) {
+        if (fn.endLine < 0) { continue; }
+
+        const inBody = (line: number) => fn.line <= line && line <= fn.endLine;
+        const shadows =
+            fn.paramNames.some(pName => pName.toLowerCase() === nameLower) ||
+            sym.variables.some(v => !v.implicit && v.name.toLowerCase() === nameLower && inBody(v.line)) ||
+            sym.constants.some(c => c.name.toLowerCase() === nameLower && inBody(c.line));
+
+        if (shadows) { bodies.push({ line: fn.line, endLine: fn.endLine }); }
+    }
+
+    return bodies;
+}
+
+/**
+ * The files that share a SCRIPT SCOPE with `seed`.
+ *
+ * Classic ASP has exactly two scopes: procedure scope (see computeLocalRenameScope)
+ * and script scope. `#include` is textual — IIS splices the file in before the page
+ * is compiled — so one page's script scope is the page plus every file it
+ * transitively includes. Two pages that share no includes are entirely separate
+ * scopes: a `total` in one has nothing to do with a `total` in the other.
+ *
+ * So the files that can legally reference a module-level declaration in `seed` are:
+ *   • every page whose script scope contains `seed`  — walk the include edges UP,
+ *     which is how a Sub declared in a .inc reaches the pages that include it;
+ *   • everything those pages include             — walk back DOWN, because a
+ *     sibling include of the same page shares the one script scope too
+ *     (header.inc declares it, footer.inc uses it, page.asp includes both).
+ *
+ * Both walks are breadth-first over a visited set, so circular includes terminate.
+ *
+ * `edges` maps a lower-cased path to the lower-cased paths it directly includes;
+ * every known file must be a key, even with no includes. Returns lower-cased paths.
+ */
+export function includeClosure(edges: Map<string, string[]>, seed: string): Set<string> {
+    // Reverse edges: which files include a given file.
+    const includedBy = new Map<string, string[]>();
+    for (const [file, includes] of edges) {
+        for (const inc of includes) {
+            const list = includedBy.get(inc);
+            if (list) { list.push(file); } else { includedBy.set(inc, [file]); }
+        }
+    }
+
+    // UP: every page whose script scope contains the seed.
+    const pages = new Set<string>([seed]);
+    const up = [seed];
+    while (up.length > 0) {
+        const current = up.pop()!;
+        for (const parent of includedBy.get(current) ?? []) {
+            if (!pages.has(parent)) { pages.add(parent); up.push(parent); }
+        }
+    }
+
+    // DOWN from all of them: each page's full script scope, siblings included.
+    const closure = new Set<string>(pages);
+    const down = [...pages];
+    while (down.length > 0) {
+        const current = down.pop()!;
+        for (const child of edges.get(current) ?? []) {
+            if (!closure.has(child)) { closure.add(child); down.push(child); }
+        }
+    }
+
+    return closure;
+}
+
+/**
+ * The file paths that DECLARE `nameLower`, out of the merged symbols of a document
+ * and its includes. Used to seed includeClosure: the declaration may live in an
+ * include, and its scope is that include's, not the current page's.
+ *
+ * Every declaring file is returned, not just the first. When a page and one of its
+ * includes both declare the name they are the same variable at runtime (one script
+ * scope), so the rename has to cover the union of their scopes or it leaves stale
+ * references behind.
+ */
+export function declaringFilesFor(sym: FileSymbols, nameLower: string): string[] {
+    const paths = new Set<string>();
+    const match = (name: string) => name.toLowerCase() === nameLower;
+
+    for (const f  of sym.functions)    { if (match(f.name))  { paths.add(f.filePath); } }
+    for (const c  of sym.classes)      { if (match(c.name))  { paths.add(c.filePath); } }
+    for (const v  of sym.variables)    { if (match(v.name))  { paths.add(v.filePath); } }
+    for (const c  of sym.constants)    { if (match(c.name))  { paths.add(c.filePath); } }
+    for (const cv of sym.comVariables) { if (match(cv.name)) { paths.add(cv.filePath); } }
+
+    return [...paths];
+}
+
+/**
+ * A workspace-wide include graph, plus a map back to case-preserved paths.
+ *
+ * `openPath`/`openText` inject the current (possibly unsaved) buffer so an include
+ * the user has just typed is already part of the graph.
+ */
+interface IncludeGraph {
+    edges:    Map<string, string[]>;
+    realPath: Map<string, string>;
+}
+
+function buildWorkspaceIncludeGraph(openPath: string, openText: string): IncludeGraph {
+    const edges    = new Map<string, string[]>();
+    const realPath = new Map<string, string>();
+    const openKey  = openPath.toLowerCase();
+
+    const add = (fsPath: string, text: string) => {
+        const key = fsPath.toLowerCase();
+        if (edges.has(key)) { return; }
+        realPath.set(key, fsPath);
+
+        const targets = resolveDirectIncludes(text, fsPath);
+        for (const target of targets) {
+            const targetKey = target.toLowerCase();
+            if (!realPath.has(targetKey)) { realPath.set(targetKey, target); }
+        }
+        edges.set(key, targets.map(p => p.toLowerCase()));
+    };
+
+    // The open buffer first, so its edges win over the copy on disk.
+    add(openPath, openText);
+
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+        try {
+            for (const fsPath of findAspFiles(folder.uri.fsPath)) {
+                if (fsPath.toLowerCase() === openKey) { continue; }
+                add(fsPath, readIncludeText(fsPath) ?? '');
+            }
+        } catch {
+            /* skip unreadable folders */
+        }
+    }
+
+    // An include that resolved outside the workspace folders is still part of the
+    // scope; give it a node so the walks can reach it.
+    for (const targets of [...edges.values()]) {
+        for (const target of targets) {
+            if (!edges.has(target)) { edges.set(target, []); }
+        }
+    }
+
+    return { edges, realPath };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -143,6 +313,7 @@ export class AspRenameProvider implements vscode.RenameProvider {
         // A local variable/parameter must NOT be renamed across other functions
         // or other files. If the caret is inside a Sub/Function/Property body and
         // the symbol is local to it, restrict the edits to that body in THIS file.
+        const symbols    = collectAllSymbols(document);
         const localScope = computeLocalRenameScope(
             extractSymbols(fullText, docPath),
             position.line,
@@ -163,53 +334,46 @@ export class AspRenameProvider implements vscode.RenameProvider {
             return edit;
         }
 
-        // Build the set of files to search: current document + all its includes
-        // + every other .asp / .inc file in the workspace that might reference
-        // this symbol transitively (e.g. a page that includes the file where the
-        // symbol is declared). resolveIncludePaths handles circular guards.
-        const includedPaths = resolveIncludePaths(fullText, docPath);
-        const includedSet = new Set<string>(
-            [docPath, ...includedPaths].map((p) => p.toLowerCase()),
-        );
+        // ── Script-scope-aware file set ───────────────────────────────────────
+        // Only the files that share a script scope with the DECLARATION may be
+        // rewritten. See includeClosure for why that is the include closure and
+        // not the workspace.
+        //
+        // This used to search the current document, its includes, AND every other
+        // .asp / .inc file found by walking the workspace folders. F2 on a common
+        // name — total, i, id, sql, conn, rs — silently rewrote that word in every
+        // unrelated page on the site, in one undo step the user could easily miss.
+        const declaringPaths = declaringFilesFor(symbols, oldName.toLowerCase());
+        const seeds = declaringPaths.length > 0 ? declaringPaths : [docPath];
 
-        // Collect all .asp and .inc files in the workspace
-        const workspaceFiles: { fsPath: string; getText: () => string }[] = [];
-        const folders = vscode.workspace.workspaceFolders ?? [];
-        for (const folder of folders) {
-            try {
-                const found = findAspFiles(folder.uri.fsPath);
-                for (const fp of found) {
-                    if (!includedSet.has(fp.toLowerCase())) {
-                        workspaceFiles.push({
-                            fsPath: fp,
-                            // Prefer the open buffer (unsaved edits) over disk so edit
-                            // positions line up with what the user actually sees.
-                            getText: () => readIncludeText(fp) ?? '',
-                        });
-                    }
-                }
-            } catch {
-                /* skip unreadable folders */
-            }
+        const { edges, realPath } = buildWorkspaceIncludeGraph(docPath, fullText);
+
+        const scope = new Set<string>();
+        for (const seed of seeds) {
+            for (const key of includeClosure(edges, seed.toLowerCase())) { scope.add(key); }
         }
 
-        const filesToSearch: { fsPath: string; getText: () => string }[] = [
-            { fsPath: docPath, getText: () => fullText },
-            ...includedPaths.map((p) => ({
-                fsPath: p,
-                getText: () => readIncludeText(p) ?? '',
-            })),
-            ...workspaceFiles,
-        ];
+        const docKey = docPath.toLowerCase();
+        scope.add(docKey); // the caret's own file, even for an untracked path
 
-        for (const file of filesToSearch) {
-            const text = file.getText();
-            if (!text) continue;
+        for (const key of scope) {
+            const fsPath = realPath.get(key) ?? key;
+            // Prefer the open buffer (unsaved edits) over disk so edit positions
+            // line up with what the user actually sees.
+            const text = key === docKey ? fullText : (readIncludeText(fsPath) ?? '');
+            if (!text) { continue; }
 
-            const fileUri = vscode.Uri.file(file.fsPath);
-            const ranges = findAllOccurrences(text, oldName);
+            const fileUri = vscode.Uri.file(fsPath);
 
-            for (const { line, character } of ranges) {
+            // A procedure that declares its own `oldName` — as a parameter or an
+            // explicit Dim/Const — holds a DIFFERENT variable, so its body must be
+            // left alone when renaming the module-level one.
+            const skip = shadowingBodies(extractSymbols(text, fsPath), oldName.toLowerCase());
+            const isShadowed = (line: number) =>
+                skip.some(body => body.line <= line && line <= body.endLine);
+
+            for (const { line, character } of findAllOccurrences(text, oldName)) {
+                if (isShadowed(line)) { continue; }
                 edit.replace(
                     fileUri,
                     new vscode.Range(

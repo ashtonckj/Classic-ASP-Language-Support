@@ -1,5 +1,10 @@
 import * as assert from 'assert';
-import { computeLocalRenameScope } from '../../providers/aspRenameProvider';
+import {
+    computeLocalRenameScope,
+    declaringFilesFor,
+    includeClosure,
+    shadowingBodies,
+} from '../../providers/aspRenameProvider';
 import { FileSymbols } from '../../providers/includeProvider';
 
 // F2 on a local variable/parameter must be limited to its own function
@@ -56,5 +61,155 @@ describe('computeLocalRenameScope', () => {
 
     it('returns null when the caret is not inside any function body', () => {
         assert.strictEqual(computeLocalRenameScope(SYM, 0, 'i'), null);
+    });
+});
+
+// ── Script scope ─────────────────────────────────────────────────────────────
+// Classic ASP has two scopes: procedure scope, and the script scope formed by a
+// page plus everything it textually #includes. Rename used to search every
+// .asp/.inc in the workspace, so F2 on a common name rewrote it in unrelated
+// pages that could never see the declaration.
+describe('includeClosure', () => {
+    //  page1.asp -> lib.inc
+    //  page2.asp -> lib.inc, util.inc
+    //  other.asp -> (nothing)
+    //  orphan.inc is included by nobody
+    const SITE = new Map<string, string[]>([
+        ['c:/site/page1.asp',  ['c:/site/lib.inc']],
+        ['c:/site/page2.asp',  ['c:/site/lib.inc', 'c:/site/util.inc']],
+        ['c:/site/other.asp',  []],
+        ['c:/site/lib.inc',    []],
+        ['c:/site/util.inc',   []],
+        ['c:/site/orphan.inc', []],
+    ]);
+
+    const closure = (seed: string) => [...includeClosure(SITE, seed)].sort();
+
+    it('reaches the pages that include a .inc', () => {
+        assert.deepStrictEqual(closure('c:/site/lib.inc'), [
+            'c:/site/lib.inc', 'c:/site/page1.asp', 'c:/site/page2.asp', 'c:/site/util.inc',
+        ]);
+    });
+
+    it('includes siblings that share a page with the declaration', () => {
+        // util.inc is only reachable via page2.asp, but page2 splices both files
+        // into one script scope, so a name declared in lib.inc is visible there.
+        assert.ok(closure('c:/site/lib.inc').includes('c:/site/util.inc'));
+    });
+
+    it('never reaches a page with no include relationship', () => {
+        assert.deepStrictEqual(closure('c:/site/other.asp'), ['c:/site/other.asp']);
+        assert.ok(!closure('c:/site/lib.inc').includes('c:/site/other.asp'));
+    });
+
+    it('is just the page and its own includes when seeded from a page', () => {
+        assert.deepStrictEqual(closure('c:/site/page1.asp'), ['c:/site/lib.inc', 'c:/site/page1.asp']);
+    });
+
+    it('is the file alone for an include nobody uses', () => {
+        assert.deepStrictEqual(closure('c:/site/orphan.inc'), ['c:/site/orphan.inc']);
+    });
+
+    it('terminates on circular includes', () => {
+        const cyclic = new Map<string, string[]>([['a', ['b']], ['b', ['c']], ['c', ['a']]]);
+        assert.deepStrictEqual([...includeClosure(cyclic, 'a')].sort(), ['a', 'b', 'c']);
+    });
+
+    it('returns the seed alone when it is not in the graph', () => {
+        assert.deepStrictEqual([...includeClosure(SITE, 'c:/elsewhere/new.asp')], ['c:/elsewhere/new.asp']);
+    });
+});
+
+describe('declaringFilesFor', () => {
+    const symbolsWith = (over: Partial<FileSymbols>): FileSymbols => ({
+        variables: [], constants: [], functions: [], comVariables: [], classes: [], ...over,
+    });
+
+    it('finds the include that declares a Sub, not the page using it', () => {
+        const sym = symbolsWith({ functions: [{ ...fn('RenderHeader', 5, 8), filePath: 'lib.inc' }] });
+        assert.deepStrictEqual(declaringFilesFor(sym, 'renderheader'), ['lib.inc']);
+    });
+
+    it('matches case-insensitively, as VBScript does', () => {
+        const sym = symbolsWith({ variables: [{ name: 'Total', line: 1, filePath: 'page.asp' }] });
+        assert.deepStrictEqual(declaringFilesFor(sym, 'total'), ['page.asp']);
+    });
+
+    it('returns every declaring file so the rename covers all their scopes', () => {
+        const sym = symbolsWith({
+            variables: [
+                { name: 'total', line: 1, filePath: 'page.asp' },
+                { name: 'total', line: 2, filePath: 'lib.inc' },
+            ],
+        });
+        assert.deepStrictEqual(declaringFilesFor(sym, 'total').sort(), ['lib.inc', 'page.asp']);
+    });
+
+    it('returns nothing for a name it does not know', () => {
+        assert.deepStrictEqual(declaringFilesFor(symbolsWith({}), 'nosuch'), []);
+    });
+});
+
+// Renaming a module-level name must not reach into a procedure where the same
+// name is a different variable.
+describe('shadowingBodies', () => {
+    const base = (over: Partial<FileSymbols>): FileSymbols => ({
+        variables: [], constants: [], functions: [], comVariables: [], classes: [], ...over,
+    });
+
+    it('skips a body whose PARAMETER shadows the name', () => {
+        const sym = base({ functions: [fn('Add', 4, 7, ['total'])] });
+        assert.deepStrictEqual(shadowingBodies(sym, 'total'), [{ line: 4, endLine: 7 }]);
+    });
+
+    it('skips a body with an explicit Dim of the name', () => {
+        const sym = base({
+            functions: [fn('Other', 9, 12)],
+            variables: [{ name: 'total', line: 10, filePath: 'x.asp' }],
+        });
+        assert.deepStrictEqual(shadowingBodies(sym, 'total'), [{ line: 9, endLine: 12 }]);
+    });
+
+    it('skips a body with a local Const of the name', () => {
+        const sym = base({
+            functions: [fn('Other', 9, 12)],
+            constants: [{ name: 'total', value: '1', line: 10, filePath: 'x.asp' }],
+        });
+        assert.deepStrictEqual(shadowingBodies(sym, 'total'), [{ line: 9, endLine: 12 }]);
+    });
+
+    // VBScript does not declare a local on assignment — inside a procedure a bare
+    // `total = 1` is the module-level variable, so that body MUST be renamed.
+    it('does not skip a body that only assigns the name implicitly', () => {
+        const sym = base({
+            functions: [fn('Uses', 14, 16)],
+            variables: [{ name: 'total', line: 15, filePath: 'x.asp', implicit: true }],
+        });
+        assert.deepStrictEqual(shadowingBodies(sym, 'total'), []);
+    });
+
+    it('does not skip a body that only uses the name as a For Each variable', () => {
+        const sym = base({
+            functions: [fn('Loop1', 20, 24)],
+            variables: [{ name: 'item', line: 21, filePath: 'x.asp', implicit: true }],
+        });
+        assert.deepStrictEqual(shadowingBodies(sym, 'item'), []);
+    });
+
+    it('returns nothing when no procedure shadows the name', () => {
+        assert.deepStrictEqual(shadowingBodies(SYM, 'total'), []);
+    });
+
+    it('ignores a declaration that sits outside every body', () => {
+        const sym = base({
+            functions: [fn('Add', 4, 7)],
+            variables: [{ name: 'total', line: 1, filePath: 'x.asp' }],
+        });
+        assert.deepStrictEqual(shadowingBodies(sym, 'total'), []);
+    });
+
+    it('ignores a procedure whose end line was never resolved', () => {
+        const sym = base({ functions: [fn('Broken', 3, -1, ['total'])] });
+        assert.deepStrictEqual(shadowingBodies(sym, 'total'), []);
     });
 });

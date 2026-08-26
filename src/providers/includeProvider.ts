@@ -9,7 +9,13 @@ import { getZone } from '../utils/zoneUtils';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface FileSymbols {
-    variables:    { name: string; line: number; filePath: string }[];
+    // `implicit` marks a name that was never explicitly declared - a bare
+    // assignment (no Option Explicit) or a For Each loop variable. VBScript
+    // does NOT create a new local for those: inside a procedure they resolve to
+    // the module-level variable of that name when one exists. Only an explicit
+    // Dim/Const shadows it, so anything reasoning about scope must tell them
+    // apart (see shadowingBodies in aspRenameProvider).
+    variables:    { name: string; line: number; filePath: string; implicit?: boolean }[];
     constants:    { name: string; value: string; line: number; filePath: string }[];
     functions:    {
         name: string;
@@ -291,7 +297,7 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
             if (forEachMatch) {
                 const name = forEachMatch[1];
                 if (!result.variables.some(v => v.name.toLowerCase() === name.toLowerCase())) {
-                    result.variables.push({ name, line: lineIndex, filePath });
+                    result.variables.push({ name, line: lineIndex, filePath, implicit: true });
                 }
             }
 
@@ -309,7 +315,7 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
                         'function','sub','class','select','with','on','option',
                     ]);
                     if (!skipWords.has(nameLower) && !result.variables.some(v => v.name.toLowerCase() === nameLower)) {
-                        result.variables.push({ name, line: lineIndex, filePath });
+                        result.variables.push({ name, line: lineIndex, filePath, implicit: true });
                     }
                 }
             }
@@ -465,7 +471,7 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Resolves all #include paths from a single file's text — one level only.
-function resolveDirectIncludes(documentText: string, documentPath: string): string[] {
+export function resolveDirectIncludes(documentText: string, documentPath: string): string[] {
     const resolved:    string[] = [];
     const docDir      = path.dirname(documentPath);
     const virtualRoot = getVirtualRoot(documentPath);
