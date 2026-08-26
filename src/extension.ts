@@ -29,40 +29,7 @@ import { AspDocumentSymbolProvider } from './providers/aspDocumentSymbolProvider
 import { JsDocumentSymbolProvider } from './providers/jsDocumentSymbolProvider';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache } from './providers/aspWorkspaceSymbolProvider';
 import { AspSignatureHelpProvider } from './providers/aspSignatureHelpProvider';
-
-// Returns line-level TextEdits instead of replacing the whole document.
-// Only changed line ranges are touched — Ctrl+Z still undoes everything in one step.
-function computeLineEdits(document: vscode.TextDocument, original: string, formatted: string): vscode.TextEdit[] {
-    const originalLines  = original.split('\n');
-    const formattedLines = formatted.split('\n');
-    const edits: vscode.TextEdit[] = [];
-
-    let i = 0;
-    while (i < Math.max(originalLines.length, formattedLines.length)) {
-        if (originalLines[i] === formattedLines[i]) { i++; continue; }
-
-        let j = i + 1;
-        while (
-            j < Math.max(originalLines.length, formattedLines.length) &&
-            originalLines[j] !== formattedLines[j]
-        ) { j++; }
-
-        const endLine  = Math.min(j, originalLines.length);
-        const newText  = formattedLines.slice(i, j).join('\n');
-        const startPos = new vscode.Position(i, 0);
-        const endPos   = endLine < originalLines.length
-            ? new vscode.Position(endLine, 0)
-            : document.positionAt(original.length);
-
-        edits.push(vscode.TextEdit.replace(
-            new vscode.Range(startPos, endPos),
-            newText + (endLine < originalLines.length ? '\n' : '')
-        ));
-        i = j;
-    }
-
-    return edits;
-}
+import { computeLineEdits, resolveEol, toLf } from './utils/editUtils';
 
 // Shared structure issue check used by both the formatter and the preview.
 function getStructureIssueCount(
@@ -134,10 +101,19 @@ export function activate(context: vscode.ExtensionContext) {
                 return [];
             }
 
-            const fullText  = document.getText();
-            const formatted = await formatCompleteAspFile(fullText);
+            // Format on LF-normalised text and diff against the same, so a
+            // CRLF-saved file is not reported as "every line changed"; the edits
+            // are then written back with the line ending resolveEol picks.
+            const fullText  = toLf(document.getText());
+            const formatted = toLf(await formatCompleteAspFile(fullText));
 
             const config = vscode.workspace.getConfiguration('aspLanguageSupport');
+            const eol    = resolveEol(
+                vscode.workspace.getConfiguration('aspLanguageSupport.prettier')
+                    .get<string>('endOfLine', 'auto'),
+                document,
+            );
+
             if (config.get<boolean>('formatPreview', false)) {
                 if (formatted === fullText) {
                     vscode.window.showInformationMessage('No formatting changes — file is already formatted.');
@@ -147,7 +123,7 @@ export function activate(context: vscode.ExtensionContext) {
                 return [];
             }
 
-            return computeLineEdits(document, fullText, formatted);
+            return computeLineEdits(document, fullText, formatted, eol);
         }
     });
 

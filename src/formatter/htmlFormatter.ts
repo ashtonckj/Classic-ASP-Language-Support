@@ -36,7 +36,7 @@ export function getPrettierSettings(): PrettierSettings {
         bracketSameLine:           config.get<boolean>('bracketSameLine',          false),
         arrowParens:               config.get<string>('arrowParens',               'always'),
         trailingComma:             config.get<string>('trailingComma',             'es5'),
-        endOfLine:                 config.get<string>('endOfLine',                 'lf'),
+        endOfLine:                 config.get<string>('endOfLine',                 'auto'),
         htmlWhitespaceSensitivity: config.get<string>('htmlWhitespaceSensitivity', 'css'),
     };
 }

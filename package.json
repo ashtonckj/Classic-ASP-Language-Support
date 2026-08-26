@@ -290,18 +290,18 @@
                     },
                     "aspLanguageSupport.prettier.endOfLine": {
                         "type": "string",
-                        "default": "lf",
+                        "default": "auto",
                         "enum": [
+                            "auto",
                             "lf",
                             "crlf",
-                            "cr",
-                            "auto"
+                            "cr"
                         ],
                         "enumDescriptions": [
+                            "Keep the line endings the file is already saved with (recommended)",
                             "\\n only (Linux / macOS)",
                             "\\r\\n (Windows)",
-                            "\\r only (rare)",
-                            "Preserve existing line endings"
+                            "\\r only (rare)"
                         ],
                         "description": "Line ending style — Prettier endOfLine"
                     },
