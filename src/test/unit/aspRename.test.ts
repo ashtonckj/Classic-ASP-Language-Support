@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import {
     computeLocalRenameScope,
     declaringFilesFor,
+    findAllOccurrences,
     includeClosure,
     shadowingBodies,
 } from '../../providers/aspRenameProvider';
@@ -61,6 +62,105 @@ describe('computeLocalRenameScope', () => {
 
     it('returns null when the caret is not inside any function body', () => {
         assert.strictEqual(computeLocalRenameScope(SYM, 0, 'i'), null);
+    });
+});
+
+// The occurrence scanner used to decide "is this token inside a VBScript comment?"
+// by reading the physical line from column 0. A single ASP line often mixes HTML
+// and script, so an apostrophe in ordinary HTML text ("it's", class='box') looked
+// like a comment marker and every occurrence after it on that line was skipped —
+// leaving a half-renamed file.
+describe('findAllOccurrences — HTML apostrophe on a mixed line', () => {
+    const at = (text: string, line: number) =>
+        findAllOccurrences(text, 'total').filter(o => o.line === line);
+
+    const mixed = [
+        '<%  Dim total  %>',
+        '<table>',
+        "  <td>it's here</td><% total = total + 1 %>",
+        '</table>',
+        '<% Response.Write total %>',
+        '',
+    ].join('\n');
+
+    it('finds both occurrences after an apostrophe in the HTML part', () => {
+        assert.strictEqual(at(mixed, 2).length, 2);
+    });
+
+    it('still finds the declaration and the later use', () => {
+        assert.strictEqual(at(mixed, 0).length, 1);
+        assert.strictEqual(at(mixed, 4).length, 1);
+    });
+
+    it('reports the right columns on the mixed line', () => {
+        const cols = at(mixed, 2).map(o => o.character);
+        assert.deepStrictEqual(cols, [mixed.split('\n')[2].indexOf('total'), mixed.split('\n')[2].lastIndexOf('total')]);
+    });
+
+    it('matches the "it is" control line, as it always did', () => {
+        const control = '<%  Dim total  %>\n<td>it is here</td><% total = total + 1 %>\n';
+        assert.strictEqual(findAllOccurrences(control, 'total').filter(o => o.line === 1).length, 2);
+    });
+
+    // The apostrophe fix must not stop real VBScript comments being skipped.
+    it('still skips a token inside a real VBScript comment', () => {
+        const commented = "<% Dim total\n' total = total + 1\nResponse.Write total %>\n";
+        assert.deepStrictEqual(
+            findAllOccurrences(commented, 'total').map(o => o.line),
+            [0, 2],
+        );
+    });
+
+    it('still skips a token inside a VBScript string', () => {
+        const inString = '<% Dim total\nResponse.Write "total is " & total %>\n';
+        const cols = findAllOccurrences(inString, 'total').filter(o => o.line === 1).map(o => o.character);
+        assert.deepStrictEqual(cols, [inString.split('\n')[1].lastIndexOf('total')]);
+    });
+});
+
+// prepareRename allows F2 inside a <script language="vbscript"> block (the zone
+// resolver correctly calls it VBScript), but the occurrence scanner only mapped
+// <% … %> blocks — so the rename found nothing and silently did nothing.
+describe('findAllOccurrences — VBScript <script> blocks', () => {
+    const clientSide = [
+        '<script language="vbscript">',
+        '  Dim total',
+        '  total = 1',
+        '  Response.Write total',
+        '</script>',
+        '',
+    ].join('\n');
+
+    it('finds occurrences inside a client-side VBScript block', () => {
+        assert.deepStrictEqual(
+            findAllOccurrences(clientSide, 'total').map(o => o.line),
+            [1, 2, 3],
+        );
+    });
+
+    it('finds occurrences inside a runat="server" VBScript block', () => {
+        const serverSide = '<script runat="server" language="vbscript">\n  Sub Greet(name)\n  End Sub\n</script>\n';
+        assert.deepStrictEqual(findAllOccurrences(serverSide, 'Greet').map(o => o.line), [1]);
+    });
+
+    it('matches type="text/vbscript" as well as language=', () => {
+        const typed = '<script type="text/vbscript">\n  Dim total\n</script>\n';
+        assert.strictEqual(findAllOccurrences(typed, 'total').length, 1);
+    });
+
+    it('leaves a plain JavaScript <script> block alone', () => {
+        const js = '<script>\n  var total = 1;\n  total = total + 1;\n</script>\n';
+        assert.deepStrictEqual(findAllOccurrences(js, 'total'), []);
+    });
+
+    it('does not reach past </script> into the surrounding HTML', () => {
+        const mixed = '<script language="vbscript">\n  Dim total\n</script>\n<p>total in prose</p>\n';
+        assert.deepStrictEqual(findAllOccurrences(mixed, 'total').map(o => o.line), [1]);
+    });
+
+    it('still finds occurrences in <% %> blocks on the same page', () => {
+        const both = '<script language="vbscript">\n  Dim total\n</script>\n<% Response.Write total %>\n';
+        assert.deepStrictEqual(findAllOccurrences(both, 'total').map(o => o.line), [1, 3]);
     });
 });
 

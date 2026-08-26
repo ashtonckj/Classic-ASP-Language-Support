@@ -408,6 +408,42 @@ function isVbScriptTag(attrs: string): boolean {
     return false;
 }
 
+/**
+ * Body ranges of every real `<script>` block that holds VBScript — either
+ * `language="vbscript"` or `type="…vbscript"`, client-side or `runat="server"`.
+ * The range spans the text between the opening tag's `>` and the `</script>`
+ * (exclusive), or end-of-file for an unclosed block.
+ *
+ * getZone already reports these as the `asp` zone; this exposes the same ranges
+ * to callers that need to map VBScript spans rather than probe a single offset
+ * (rename's occurrence scanner, for one).
+ */
+export function getVbScriptBlockRanges(text: string): Array<{ start: number; end: number }> {
+    const ranges: Array<{ start: number; end: number }> = [];
+    let searchFrom = 0;
+
+    while (true) {
+        const scriptOpen = findNextRealTag(text, '<script', searchFrom);
+        if (scriptOpen === -1) { break; }
+
+        const scriptTagEnd = findTagEnd(text, scriptOpen);
+        if (scriptTagEnd === -1) { break; }
+
+        const attrs = text.slice(scriptOpen + '<script'.length, scriptTagEnd);
+        const { index: scriptClose, length: closeLen } = findClosingTag(text, 'script', scriptTagEnd + 1);
+        const bodyEnd = scriptClose === -1 ? text.length : scriptClose;
+
+        if (isVbScriptTag(attrs)) {
+            ranges.push({ start: scriptTagEnd + 1, end: bodyEnd });
+        }
+
+        if (scriptClose === -1) { break; }
+        searchFrom = scriptClose + closeLen;
+    }
+
+    return ranges;
+}
+
 export function getZone(fullText: string, offset: number): Zone {
     // 1. ASP zone — <% ... %> blocks
     if (isInsideAspBlock(fullText, offset)) { return 'asp'; }

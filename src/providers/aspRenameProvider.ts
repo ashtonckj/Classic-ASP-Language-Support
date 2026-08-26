@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { collectAllSymbols, resolveDirectIncludes, extractSymbols, readIncludeText, FileSymbols } from './includeProvider';
-import { getZone } from '../utils/zoneUtils';
+import { getZone, getVbScriptBlockRanges } from '../utils/zoneUtils';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
+import { isInsideVbStringOrComment } from '../utils/documentHelper';
 import path from 'path';
 
 // ── Scope analysis for rename ────────────────────────────────────────────────
@@ -427,9 +428,11 @@ function findAspFiles(dir: string): string[] {
 //
 // VBScript is case-insensitive, so matching is case-insensitive.
 // Returns line + character positions (0-based) of every match start.
+//
+// Exported for unit testing.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function findAllOccurrences(
+export function findAllOccurrences(
     text: string,
     name: string
 ): { line: number; character: number }[] {
@@ -438,25 +441,31 @@ function findAllOccurrences(
     // \b word boundary + case-insensitive flag so "myFunc" matches "MyFunc"
     const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'gi');
 
-    // Build a per-character map of which offsets are inside an ASP block.
-    // We replicate the lightweight bitmap approach from aspSemanticProvider
-    // rather than calling isInsideAspBlock() in a loop (which would be O(n²)).
-    const aspMap = buildAspMap(text);
+    // Build a per-character map of which offsets hold VBScript. We replicate the
+    // lightweight bitmap approach from aspSemanticProvider rather than calling
+    // isInsideAspBlock() in a loop (which would be O(n²)).
+    const vbsMap = buildVbScriptMap(text);
 
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(text)) !== null) {
         const offset = match.index;
 
-        // Must be inside an ASP block
-        if (!aspMap[offset]) continue;
+        // Must be VBScript — a <% %> block or a VBScript <script> body
+        if (!vbsMap[offset]) continue;
 
         // Must not be inside a string literal or comment on the same line.
-        // We check the slice of the line up to this token's column.
+        // The check runs over the WHOLE physical line via isInsideVbStringOrComment,
+        // which starts scanning at the line's VBScript rather than at column 0. A
+        // single line often mixes HTML and script — `<td>it's here</td><% total = 1 %>`
+        // — and reading from column 0 made the apostrophe in ordinary HTML text look
+        // like the start of a VBScript comment, so every occurrence after it on that
+        // line was silently skipped and the rename came out half-applied.
         const lineStart = text.lastIndexOf('\n', offset - 1) + 1; // 0 when on line 0
         const colInLine = offset - lineStart;
-        const lineSlice = text.slice(lineStart, offset);
+        const lineEnd   = text.indexOf('\n', offset);
+        const lineText  = text.slice(lineStart, lineEnd === -1 ? text.length : lineEnd);
 
-        if (isInStringOrComment(lineSlice)) continue;
+        if (isInsideVbStringOrComment(lineText, colInLine)) continue;
 
         // Compute line number from offset for constructing vscode.Position
         const lineNumber = countNewlines(text, offset);
@@ -474,16 +483,23 @@ function escapeRegex(s: string): string {
 }
 
 /**
- * Builds a Uint8Array where aspMap[i] === 1 means offset i is inside a <% %>
- * block.
+ * Builds a Uint8Array where the map[i] === 1 means offset i holds VBScript.
  *
- * The scan is purely lexical: the first `%>` closes a block, even one that sits
- * inside a VBScript string or comment. This matches the ASP engine (and getZone's
- * isInsideAspBlock), so rename never rewrites text the engine would treat as HTML
- * output rather than script. String/comment exclusion for the identifier itself
- * is handled separately by isInStringOrComment().
+ * Two kinds of region qualify, matching what getZone calls the `asp` zone:
+ *
+ *   • `<% … %>` blocks. The scan is purely lexical: the first `%>` closes a
+ *     block, even one that sits inside a VBScript string or comment. This matches
+ *     the ASP engine, so rename never rewrites text the engine would treat as
+ *     HTML output rather than script.
+ *   • `<script language="vbscript">` bodies, client-side or `runat="server"`.
+ *     Mapping only `<% %>` meant prepareRename offered a rename inside these (the
+ *     zone resolver correctly calls them VBScript) but the scanner then found no
+ *     occurrences, so F2 silently did nothing at all.
+ *
+ * String/comment exclusion for the identifier itself is handled separately by
+ * isInsideVbStringOrComment().
  */
-function buildAspMap(text: string): Uint8Array {
+function buildVbScriptMap(text: string): Uint8Array {
     const map = new Uint8Array(text.length);
     let i = 0;
 
@@ -501,51 +517,13 @@ function buildAspMap(text: string): Uint8Array {
         i = closeIdx === -1 ? text.length : closeIdx + 2;
     }
 
-    return map;
-}
-
-/**
- * Returns true when `lineSlice` (the text from line start up to but not
- * including the token) indicates the token is inside a string literal or
- * after a VBScript comment marker.
- *
- * Logic:
- *   - Walk through the slice character by character.
- *   - Track whether we're inside a double-quoted string ("...").
- *     VBScript uses "" to escape a literal quote inside a string.
- *   - If we see a ' outside a string, the rest of the line is a comment.
- */
-function isInStringOrComment(lineSlice: string): boolean {
-    let inString = false;
-
-    for (let i = 0; i < lineSlice.length; i++) {
-        const ch = lineSlice[i];
-
-        if (inString) {
-            if (ch === '"') {
-                // "" inside a string is an escaped quote — stay in string
-                if (lineSlice[i + 1] === '"') {
-                    i++;
-                } else {
-                    inString = false;
-                }
-            }
-            continue;
+    for (const { start, end } of getVbScriptBlockRanges(text)) {
+        for (let j = start; j < end; j++) {
+            map[j] = 1;
         }
-
-        if (ch === '"') {
-            inString = true;
-            continue;
-        }
-
-        // A lone ' outside a string opens a VBScript comment to end-of-line,
-        // meaning the token (which comes after this slice) is inside a comment.
-        if (ch === "'") return true;
     }
 
-    // If inString is still true here the quote was never closed on this line,
-    // which means the token sits inside the string literal.
-    return inString;
+    return map;
 }
 
 /**
