@@ -1,12 +1,62 @@
 import * as vscode from 'vscode';
+import { findClosingTag, findTagEnd } from './zoneUtils';
 
 /**
- * Replaces every <%...%> block in a string with an equal-length run of spaces.
- * This preserves character offsets so that lastIndexOf / indexOf results remain
- * valid, while preventing <% and %> from being mistaken for HTML brackets.
+ * The opening tag whose attribute list encloses `offset`, or null when the offset
+ * is not inside one.
+ *
+ * The walk is a small state machine rather than a `lastIndexOf('<')` vs
+ * `lastIndexOf('>')` comparison. That comparison counted a `>` inside a quoted
+ * attribute value (`title="a > b"`, `onclick="if(a>b)go()"`) as the end of the
+ * tag, so attribute IntelliSense went dead for the rest of that tag. It skips:
+ *   - HTML comments      <!-- ... -->
+ *   - ASP blocks         <% ... %>  (findTagEnd handles those inside a tag)
+ *   - <script>/<style> bodies, whose JS/CSS `<` and `>` operators are not markup
+ *   - a literal `<` in body text ("qty < 5"), which is not a tag opener
+ * and finds each tag's real terminator with findTagEnd, which is quote- and
+ * ASP-aware.
  */
-function stripAspBlocks(text: string): string {
-    return text.replace(/<%[\s\S]*?%>/g, match => ' '.repeat(match.length));
+function enclosingTag(fullText: string, offset: number): { start: number; name: string | null } | null {
+    let i = 0;
+
+    while (i < offset) {
+        if (fullText.startsWith('<!--', i)) {
+            const end = fullText.indexOf('-->', i + 4);
+            i = end === -1 ? offset : end + 3;
+            continue;
+        }
+        if (fullText[i] === '<' && fullText[i + 1] === '%') {
+            const end = fullText.indexOf('%>', i + 2);
+            i = end === -1 ? offset : end + 2;
+            continue;
+        }
+        if (fullText[i] !== '<') { i++; continue; }
+
+        // A `<` with no tag-name character after it is literal body text, not markup.
+        const next = fullText[i + 1];
+        if (next === undefined || !/[A-Za-z/!?]/.test(next)) { i++; continue; }
+
+        const nameMatch = /^<(\/?)([A-Za-z][\w:-]*)/.exec(fullText.slice(i, i + 64));
+        const tagEnd    = findTagEnd(fullText, i);
+
+        // No terminator before the cursor -> the cursor is inside this tag.
+        if (tagEnd === -1 || tagEnd >= offset) {
+            return { start: i, name: nameMatch ? nameMatch[2] : null };
+        }
+
+        // Raw-text elements: their bodies are JS/CSS, where `<` and `>` are
+        // operators. Jump straight to the matching close tag.
+        const tagName = nameMatch && !nameMatch[1] ? nameMatch[2].toLowerCase() : '';
+        if (tagName === 'script' || tagName === 'style') {
+            const { index, length } = findClosingTag(fullText, tagName, tagEnd + 1);
+            i = index === -1 ? offset : index + length;
+            continue;
+        }
+
+        i = tagEnd + 1;
+    }
+
+    return null;
 }
 
 /**
@@ -50,47 +100,22 @@ export function isInsideAttrValue(textBefore: string): boolean {
 
 /**
  * Returns the name of the HTML tag the cursor is currently inside (between `<`
- * and `>`), or null if the cursor is not inside an opening tag.
- *
- * ASP blocks are stripped before scanning so `<%` / `%>` are never mistaken
- * for HTML angle brackets.
+ * and `>`), or null if the cursor is not inside a tag.
  */
 export function getCurrentTagName(document: vscode.TextDocument, position: vscode.Position): string | null {
     const fullText = document.getText();
-    const offset = document.offsetAt(position);
-    // Strip ASP blocks so that <% and %> are never mistaken for HTML brackets
-    const beforeCursor = stripAspBlocks(fullText.substring(0, offset));
-
-    const lastOpenBracket = beforeCursor.lastIndexOf('<');
-    if (lastOpenBracket === -1) { return null; }
-
-    // If there is a `>` between the last `<` and the cursor, we're not inside a tag
-    const textAfterBracket = beforeCursor.substring(lastOpenBracket);
-    if (textAfterBracket.includes('>')) { return null; }
-
-    // Extract tag name from the original (un-stripped) text at the same position
-    const originalAfterBracket = fullText.substring(0, offset).substring(lastOpenBracket);
-    const tagMatch = originalAfterBracket.match(/^<\/?(\w+)/);
-    return tagMatch ? tagMatch[1] : null;
+    const offset   = document.offsetAt(position);
+    return enclosingTag(fullText, offset)?.name ?? null;
 }
 
 /**
- * Returns true when the cursor is positioned inside an HTML opening tag (i.e.
- * between `<tagname` and the closing `>`), meaning attribute completions are
- * appropriate.
- *
- * ASP blocks are stripped so `<%...%>` angle brackets don't confuse the scan.
+ * Returns true when the cursor is positioned inside an HTML tag (i.e. between
+ * `<tagname` and the closing `>`), meaning attribute completions are appropriate.
  */
 export function isInsideTagForAttributes(document: vscode.TextDocument, position: vscode.Position): boolean {
     const fullText = document.getText();
-    const offset = document.offsetAt(position);
-    const beforeCursor = stripAspBlocks(fullText.substring(0, offset));
-
-    const lastOpenBracket = beforeCursor.lastIndexOf('<');
-    const lastCloseBracket = beforeCursor.lastIndexOf('>');
-
-    // Inside a tag when the last `<` comes after the last `>`
-    return lastOpenBracket > lastCloseBracket;
+    const offset   = document.offsetAt(position);
+    return enclosingTag(fullText, offset) !== null;
 }
 
 /**
