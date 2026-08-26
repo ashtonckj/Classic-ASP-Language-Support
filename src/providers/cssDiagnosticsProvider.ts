@@ -141,11 +141,13 @@ function validateDocument(
 
             const offset = lineOffset + valueStart;
 
-            // Skip if inside an ASP block, a <style> block, or an HTML comment.
-            // getZone returns 'html' for comment interiors so isInsideHtmlComment
-            // must be checked explicitly.
-            const zone = getZone(fullText, offset);
-            if (zone === 'css' || zone === 'asp') { searchCol = valueEnd + 1; continue; }
+            // Only a real HTML attribute is validated. Excluding just 'css' and
+            // 'asp' left zone 'js' through, so a style attribute written inside a
+            // JavaScript string — `var tpl = '<div style="colour: red">x</div>'` —
+            // was pulled out and validated as CSS, warning about a string literal.
+            // getZone returns 'html' for comment interiors, so the comment check
+            // below is still needed.
+            if (getZone(fullText, offset) !== 'html') { searchCol = valueEnd + 1; continue; }
             if (isInsideHtmlComment(fullText, offset)) { searchCol = valueEnd + 1; continue; }
 
             const inlineCtx = getInlineStyleContext(fullText, offset);
