@@ -77,11 +77,14 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
             configurationDidChange = false;
         }
 
-        if (!highlightAspRegions) return;
+        // Switching the feature off must actively clear what is already painted.
+        if (!highlightAspRegions) {
+            activeEditor.setDecorations(bracketDecorationType, []);
+            activeEditor.setDecorations(codeBlockDecorationType, []);
+            return;
+        }
 
         const regions = getAspRegions(activeEditor.document);
-
-        if (!regions || regions.length === 0) return;
 
         const blocks: vscode.Range[] = [];
         const brackets: vscode.Range[] = [];
@@ -92,6 +95,10 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
             brackets.push(region.closingBracket);
         }
 
+        // Always call setDecorations, even with empty arrays. Returning early on
+        // an empty region list left the PREVIOUS run's tint painted over whatever
+        // text had shifted into those lines — delete the last <% %> block and the
+        // highlight stayed behind until the editor was switched away and back.
         activeEditor.setDecorations(bracketDecorationType, brackets);
         activeEditor.setDecorations(codeBlockDecorationType, blocks);
     }
