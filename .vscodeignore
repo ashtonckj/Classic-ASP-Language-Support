@@ -1,6 +1,8 @@
 .vscode/**
 .vscode-test/**
 src/**
+# Compiled unit/integration tests and their vscode stub — dev-only.
+out/test/**
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md

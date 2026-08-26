@@ -361,7 +361,8 @@
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
-        "compile": "tsc -p ./",
+        "clean": "node -e \"require('fs').rmSync('out', { recursive: true, force: true })\"",
+        "compile": "npm run clean && tsc -p ./",
         "watch": "tsc -watch -p ./",
         "pretest": "npm run compile && npm run lint",
         "lint": "eslint src",
