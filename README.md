@@ -32,11 +32,16 @@
 | Insert snippet | Type prefix → `Tab` |
 | Go to definition | `F12` or `Ctrl + Click` |
 | Rename symbol | `F2` |
+| Parameter hints | `Ctrl + Shift + Space` (or type `(` after a Sub/Function name) |
+| Go to symbol in file | `Ctrl + Shift + O` |
+| Go to symbol in workspace | `Ctrl + T` |
 | Follow include link | `Ctrl + Click` on the file path |
 
 ---
 
 ## ✨ Features
+
+> Applies to `.asp` and `.inc` files.
 
 ### 🎨 Smart Formatting
 - **Multi-language** — VBScript, HTML, CSS, JavaScript, and SQL in a single keystroke
@@ -50,10 +55,14 @@
 - **Cross-file IntelliSense** — variables and functions from `#include`'d files appear in suggestions automatically
 - **File paths** — live browsing inside `#include` and `href`/`src`/`action` attributes
 
-### 🔍 Hover, Definition & Links
+### 🔍 Hover, Definition & Navigation
 - **Hover docs** — inline documentation for keywords, functions, COM members, and CSS properties
 - **Go to definition** — `F12` across the current file and all included files
-- **Document links** — `Ctrl + Click` navigation on `#include` paths and local file attributes
+- **Rename symbol** — `F2` on a VBScript variable, constant, Sub or Function; locals stay inside their own body, globals are renamed across the include graph
+- **Parameter hints** — signature help for your own Subs and Functions, and for JavaScript in `<script>` blocks
+- **Outline & breadcrumbs** — Subs, Functions, Classes and Consts (plus JavaScript functions) in the Outline view and `Ctrl + Shift + O`
+- **Workspace symbol search** — `Ctrl + T` finds VBScript symbols across every `.asp` / `.inc` in the workspace
+- **Document links** — `Ctrl + Click` navigation on `#include` paths and local file attributes, including root-relative (`/images/logo.gif`) ones
 
 ### 🌈 Syntax Highlighting
 - **ASP regions** — toggleable background colouring for `<% %>` blocks, light and dark themes
@@ -62,8 +71,9 @@
 
 ### 🔴 Diagnostics
 - **HTML** — mismatched structural tags flagged with orange squiggles
-- **VBScript** — unmatched control blocks (`If/End If`, `Sub/End Sub`, `For/Next`, etc.)
-- **CSS** — errors and warnings inside `<style>` blocks as you type
+- **VBScript** — unmatched control blocks (`If/End If`, `Sub/End Sub`, `For/Next`, etc.) and unbalanced `<% %>` tags
+- **CSS** — errors and warnings inside `<style>` blocks and `style=""` attributes as you type
+- **JavaScript** — real errors inside `<script>` blocks via the TypeScript language service (noise from missing project context is suppressed)
 - **Void elements** — invalid closing tags caught with a *one-click quick fix*
 
 ### ⌨️ Smart Key Handling
@@ -157,6 +167,8 @@
 | `aspLanguageSupport.keywordCase` | `PascalCase` | `lowercase` · `UPPERCASE` · `PascalCase` |
 | `aspLanguageSupport.aspTagsOnSameLine` | `false` | Keep `<% %>` on the same line as code |
 | `aspLanguageSupport.htmlIndentMode` | `flat` | `flat` — VBScript always at column 0; `continuation` — follows HTML nesting |
+| `aspLanguageSupport.virtualRoot` | *(empty)* | Absolute path to your IIS application root, used to resolve `#include virtual="..."` and root-relative `href`/`src`. Empty = the workspace folder root |
+| `aspLanguageSupport.formatPreview` | `false` | Debug: `Alt + Shift + F` opens a diff preview instead of applying the format |
 
 ### Prettier (HTML/CSS/JS)
 
@@ -170,7 +182,7 @@
 | `aspLanguageSupport.prettier.singleQuote` | `false` | Use single quotes in JavaScript |
 | `aspLanguageSupport.prettier.arrowParens` | `always` | Arrow function parentheses |
 | `aspLanguageSupport.prettier.trailingComma` | `es5` | Trailing comma style |
-| `aspLanguageSupport.prettier.endOfLine` | `lf` | Line ending style |
+| `aspLanguageSupport.prettier.endOfLine` | `auto` | Line ending style — `auto` keeps the endings the file is already saved with |
 | `aspLanguageSupport.prettier.htmlWhitespaceSensitivity` | `css` | HTML whitespace handling |
 
 ### Syntax Highlighting
@@ -190,8 +202,11 @@
 ## 📋 Known Limitations
 
 - ASP blocks must be properly closed (`<% ... %>`) for formatting and diagnostics to work correctly
+- **Format Document is refused while a file has structure diagnostics.** Fix the orange squiggles first — formatting a file with unbalanced tags or blocks would rearrange the wrong things
 - Complex mixed HTML/ASP structures may occasionally require manual adjustment after formatting
-- `#include virtual="..."` paths are resolved from the first workspace folder root
+- `#include virtual="..."` and root-relative `href`/`src` paths resolve from `aspLanguageSupport.virtualRoot`, or the first workspace folder root when that is empty
+- **Syntax highlighting breaks for a `<%= %>` that emits an HTML tag inside a JavaScript event-handler attribute** — e.g. `onclick="alert('<%= Replace(x, vbCrLf, "<br>") %>')"`. VS Code's built-in HTML and JavaScript grammars own attribute-value parsing, so an extension cannot re-scope it. The code still runs correctly; only the colours are wrong. (For the same reason the closing `"` of a `style=""` value is coloured as CSS — that affects plain HTML files too.)
+- Smart Enter/Tab indent follows the editor's `editor.tabSize`, while Format Document follows `aspLanguageSupport.prettier.tabWidth`. Set them to the same value if you want typing and formatting to agree
 
 ---
 
@@ -200,7 +215,7 @@
 <details>
 <summary><b>Building from Source</b></summary>
 
-**Prerequisites:** Node.js 16+ · VS Code 1.80+
+**Prerequisites:** Node.js 20+ · VS Code 1.80+
 
 ```bash
 git clone https://github.com/ashtonckj/Classic-ASP-Language-Support.git
@@ -208,6 +223,14 @@ cd Classic-ASP-Language-Support
 npm install
 npm run compile
 # Press F5 in VS Code to launch the Extension Development Host
+```
+
+**Tests**
+
+```bash
+npm run test:unit         # fast, vscode stubbed
+npm run test:integration  # real Extension Host (Enter/Tab, commands)
+npm run lint
 ```
 </details>
 
