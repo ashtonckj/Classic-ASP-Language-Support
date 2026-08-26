@@ -254,26 +254,6 @@ function skipJsBlockComment(text: string, start: number): number {
 }
 
 /**
- * Starting at `start` (the opening quote: `"`, `'`, or `` ` ``), skip past a
- * JS string or template literal.  Handles backslash escaping.  For template
- * literals, nested `${...}` expressions are NOT recursed into — they are
- * treated as opaque content, which is sufficient for our purpose of not
- * misidentifying `</script>` inside a string.
- * Returns the index after the closing quote.
- */
-function skipJsString(text: string, start: number): number {
-    const quote = text[start];
-    let i = start + 1;
-    while (i < text.length) {
-        const ch = text[i];
-        if (ch === '\\') { i += 2; continue; }   // escape sequence — skip next char
-        if (ch === quote) { return i + 1; }
-        i++;
-    }
-    return text.length;
-}
-
-/**
  * Scan `text` from `from` for the next real `</script>` closing tag, skipping
  * over content that cannot legally contain a tag boundary:
  *   • JS line comments     // ...

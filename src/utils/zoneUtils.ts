@@ -27,16 +27,6 @@ function skipVbsString(text: string, start: number): number {
     return text.length;
 }
 
-/**
- * Starting at `start` (the opening `<`), skip past an HTML comment
- * `<!-- ... -->`.  Returns the index after `-->`, or end-of-string.
- */
-function skipHtmlComment(text: string, start: number): number {
-    // caller has already verified text[start..start+4] === '<!--'
-    const end = text.indexOf('-->', start + 4);
-    return end === -1 ? text.length : end + 3;
-}
-
 // ---------------------------------------------------------------------------
 // ASP block scanner
 // ---------------------------------------------------------------------------
