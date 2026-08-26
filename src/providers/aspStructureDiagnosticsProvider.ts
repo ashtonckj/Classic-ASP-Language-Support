@@ -354,7 +354,7 @@ function classifyStatement(segment: string, raw: string, actions: LineAction[]):
 
 // ── Main scanner ──────────────────────────────────────────────────────────────
 
-function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
+export function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
     const fullText = document.getText();
     const lineCount = document.lineCount;
     const diagnostics: vscode.Diagnostic[] = [];
@@ -489,7 +489,7 @@ function closerFor(kind: BlockKind): string {
 // Flagged cases:
 //   Stray %>   — no matching <% above it  →  Warning on the %>  (2 chars)
 //   Unclosed <% — no matching %> in file  →  Warning on the <%  (2 chars)
-function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] {
+export function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] {
     const fullText = document.getText();
     const diagnostics: vscode.Diagnostic[] = [];
 

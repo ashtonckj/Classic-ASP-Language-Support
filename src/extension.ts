@@ -6,8 +6,8 @@ import { AspCompletionProvider } from './providers/aspCompletionProvider';
 import { CssCompletionProvider } from './providers/cssCompletionProvider';
 import { CssHoverProvider } from './providers/cssHoverProvider';
 import { registerCssDiagnostics } from './providers/cssDiagnosticsProvider';
-import { registerHtmlStructureDiagnostics, VoidElementQuickFixProvider } from './providers/htmlStructureDiagnosticsProvider';
-import { registerAspStructureDiagnostics } from './providers/aspStructureDiagnosticsProvider';
+import { registerHtmlStructureDiagnostics, scanHtmlStructure, VoidElementQuickFixProvider } from './providers/htmlStructureDiagnosticsProvider';
+import { registerAspStructureDiagnostics, scanAspStructure, scanAspTags } from './providers/aspStructureDiagnosticsProvider';
 import { JsCompletionProvider } from './providers/jsCompletionProvider';
 import { JsHoverProvider } from './providers/jsHoverProvider';
 import { JsSignatureHelpProvider } from './providers/jsSignatureHelpProvider';
@@ -32,13 +32,26 @@ import { AspSignatureHelpProvider } from './providers/aspSignatureHelpProvider';
 import { computeLineEdits, resolveEol, toLf } from './utils/editUtils';
 
 // Shared structure issue check used by both the formatter and the preview.
+//
+// The scans are re-run here rather than read back from the diagnostic
+// collections. Those are filled by a 1500 ms debounced pass, so reading them
+// answered from whatever the last tick happened to hold: a file opened and
+// formatted inside the debounce window was formatted even though it was broken,
+// and a file whose last problem had just been fixed was still refused, quoting
+// an issue that no longer existed. Both collections are refreshed with the
+// result so the squiggles agree with the answer given here.
 function getStructureIssueCount(
     document: vscode.TextDocument,
     htmlCollection: vscode.DiagnosticCollection,
     aspCollection:  vscode.DiagnosticCollection
 ): number {
-    return (htmlCollection.get(document.uri) ?? []).length +
-           (aspCollection.get(document.uri)  ?? []).length;
+    const htmlIssues = scanHtmlStructure(document);
+    const aspIssues  = [...scanAspTags(document), ...scanAspStructure(document)];
+
+    htmlCollection.set(document.uri, htmlIssues);
+    aspCollection.set(document.uri,  aspIssues);
+
+    return htmlIssues.length + aspIssues.length;
 }
 
 // Opens VS Code's built-in diff editor showing current vs formatted.
