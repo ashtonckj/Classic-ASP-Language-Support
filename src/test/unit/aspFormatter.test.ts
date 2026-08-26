@@ -146,3 +146,41 @@ describe('formatSingleAspBlock — no over-indent after colon-joined loop', () =
         );
     });
 });
+
+// A <%@ ... %> processing directive is only recognised by IIS in that exact
+// one-line form. Splitting it — or letting keyword casing / operator spacing
+// rewrite it — compiles the page as ordinary VBScript and breaks it.
+describe('formatSingleAspBlock — <%@ %> processing directive', () => {
+    it('keeps the directive on one line with the @ glued to the <%', () => {
+        const out = formatSingleAspBlock('<%@ Language="VBScript" %>', DEFAULT_SETTINGS).formatted;
+        assert.strictEqual(out, '<%@ Language="VBScript" %>');
+    });
+
+    it('preserves the directive verbatim, without operator spacing', () => {
+        const out = formatSingleAspBlock('<%@ Language="VBScript" CodePage=65001 %>', DEFAULT_SETTINGS).formatted;
+        assert.strictEqual(out, '<%@ Language="VBScript" CodePage=65001 %>');
+    });
+
+    it('normalises spacing around the delimiters only', () => {
+        const out = formatSingleAspBlock('<%@Language="VBScript"%>', DEFAULT_SETTINGS).formatted;
+        assert.strictEqual(out, '<%@ Language="VBScript" %>');
+    });
+
+    it('collapses a directive that was split over several lines back onto one', () => {
+        const out = formatSingleAspBlock('<%@\n  Language="VBScript"\n%>', DEFAULT_SETTINGS).formatted;
+        assert.strictEqual(out, '<%@ Language="VBScript" %>');
+    });
+
+    it('does not case directive text even when keywordCase is UPPERCASE', () => {
+        const out = formatSingleAspBlock(
+            '<%@ Language="VBScript" %>',
+            { ...DEFAULT_SETTINGS, keywordCase: 'UPPERCASE' },
+        ).formatted;
+        assert.strictEqual(out, '<%@ Language="VBScript" %>');
+    });
+
+    it('still splits an ordinary single-line block onto its own line', () => {
+        const out = formatSingleAspBlock('<% Option Explicit %>', DEFAULT_SETTINGS).formatted;
+        assert.strictEqual(out, '<%\nOption Explicit\n%>');
+    });
+});

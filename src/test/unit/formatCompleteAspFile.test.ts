@@ -111,3 +111,18 @@ describe('formatCompleteAspFile — ASP inside <script> keeps JS order', () => {
             `assignment must not merge with alert(x); got ${JSON.stringify(out)}`);
     });
 });
+
+// The directive on line 1 of nearly every Classic ASP page must survive a full
+// Format Document pass intact — a split `<%@` is a compile error in IIS.
+describe('formatCompleteAspFile — processing directive', () => {
+    it('leaves the leading <%@ ... %> directive on its own single line', async () => {
+        const input = '<%@ Language="VBScript" %>\n<html>\n<body>\n<p>hi</p>\n</body>\n</html>\n';
+        const out   = await formatCompleteAspFile(input);
+
+        assert.strictEqual(
+            out.split('\n')[0],
+            '<%@ Language="VBScript" %>',
+            `directive must stay intact; got:\n${out}`,
+        );
+    });
+});

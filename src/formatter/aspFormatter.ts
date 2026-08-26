@@ -49,6 +49,19 @@ export function formatSingleAspBlock(
 
     const trimmedBlock = block.trim();
 
+    // ── <%@ ... %> — processing directive ───────────────────────────────────
+    // The @ must stay glued to the <% on a single line. IIS only recognises the
+    // directive in the exact form `<%@ … %>`; once a newline separates them the
+    // page is compiled as ordinary VBScript and `@ Language = "VBScript"` is a
+    // syntax error. Directive names are not VBScript keywords either, so the
+    // content is emitted verbatim — no keyword casing, no operator spacing.
+    if (trimmedBlock.startsWith('<%@')) {
+        return {
+            formatted: '<%@ ' + trimmedBlock.slice(3, -2).trim() + ' %>',
+            endLevel:  startLevel,
+        };
+    }
+
     // ── <%= expression %> — output expression, no indent tracking ──────────
     if (trimmedBlock.startsWith('<%=') || trimmedBlock.startsWith('<% =')) {
         const content = trimmedBlock.startsWith('<%=')
