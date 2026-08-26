@@ -210,6 +210,12 @@ export function registerCssDiagnostics(context: vscode.ExtensionContext): void {
     const DEBOUNCE_MS = 400;
 
     function scheduleValidation(document: vscode.TextDocument): void {
+        // onDidChangeTextDocument fires for every document in the window, so
+        // without this an edit to settings.json, a git commit message, or the
+        // output panel armed a 400 ms timer whose only job was to call
+        // validateDocument and have it bail on the languageId check.
+        if (document.languageId !== 'asp') { return; }
+
         const key = document.uri.toString();
         const existing = debounceTimers.get(key);
         if (existing) { clearTimeout(existing); }
