@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import { collectAllSymbols } from './includeProvider';
+import { collectAllSymbols, readIncludeText } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../utils/htmlLinkUtils';
 import { getZone } from '../utils/zoneUtils';
 import { isInsideVbStringOrComment, indexOfWholeWord } from '../utils/documentHelper';
@@ -66,8 +65,7 @@ export class AspDefinitionProvider implements vscode.DefinitionProvider {
     }
 
     // Builds a Location pointing at the identifier itself (not column 0) so the
-    // editor highlights the name on navigation. Reads the target line from the
-    // open document when possible, otherwise from disk (for #include'd files).
+    // editor highlights the name on navigation.
     private locationFor(
         document: vscode.TextDocument,
         filePath: string,
@@ -83,14 +81,15 @@ export class AspDefinitionProvider implements vscode.DefinitionProvider {
             : new vscode.Location(uri, new vscode.Position(line, 0));
     }
 
+    // readIncludeText prefers the OPEN editor buffer over the file on disk, which
+    // is what symbol collection reads too. Reading the target line straight from
+    // disk made the two disagree: an unsaved edit to a .inc moved the declaration
+    // (or changed its indent), so navigation landed on the right line but at the
+    // column the SAVED copy happened to have — or fell back to column 0.
     private readLine(document: vscode.TextDocument, filePath: string, line: number): string | null {
         if (document.uri.fsPath.toLowerCase() === filePath.toLowerCase()) {
             return line >= 0 && line < document.lineCount ? document.lineAt(line).text : null;
         }
-        try {
-            return fs.readFileSync(filePath, 'utf8').split(/\r?\n/)[line] ?? null;
-        } catch {
-            return null;
-        }
+        return readIncludeText(filePath)?.split(/\r?\n/)[line] ?? null;
     }
 }
