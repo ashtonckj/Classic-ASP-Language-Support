@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { getZone, findTagEnd } from '../../utils/zoneUtils';
+import { getZone, findTagEnd, findNextRealTag } from '../../utils/zoneUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ASP block-scanning is LEXICAL (verified against a live IIS/ASP engine):
@@ -228,5 +228,41 @@ describe('getZone — boundaries and multiple blocks', () => {
     it('reports html when the cursor is inside the opening <style ...> tag', () => {
         const text = '<style type="text/css">.a{}</style>';
         assert.strictEqual(getZone(text, text.indexOf('type')), 'html');
+    });
+});
+
+// A literal `<` in HTML body text ("Show rows where qty < 5") is not a tag
+// opener. Treating it as one started an attribute-list walk that ran to the next
+// `>` — which could be the `>` of the following <script>/<style> tag, so that
+// whole embedded block was never recognised as a JS/CSS zone.
+describe('findNextRealTag / getZone — literal < in body text', () => {
+    it('finds a <script> after a literal < with no > in between', () => {
+        const text = 'Show rows where qty < 5\n<script>\n  var y = 1;\n</script>\n';
+        assert.strictEqual(getZone(text, text.indexOf('var y')), 'js');
+    });
+
+    it('finds a <style> after a literal < with no > in between', () => {
+        const text = '<p>qty < 5\n<style>\n  .a { color: red }\n</style>\n';
+        assert.strictEqual(getZone(text, text.indexOf('.a')), 'css');
+    });
+
+    it('locates the <script> tag itself past a literal <', () => {
+        const text = 'qty < 5\n<script>x</script>';
+        assert.strictEqual(findNextRealTag(text, '<script', 0), text.indexOf('<script'));
+    });
+
+    it('still treats a real tag as a tag', () => {
+        const text = '<div title="a > b">\n<script>\n  var z = 1;\n</script>\n';
+        assert.strictEqual(getZone(text, text.indexOf('var z')), 'js');
+    });
+
+    it('still ignores a <script> that is only text inside another tag attribute', () => {
+        const text = '<div title="<script>">\nplain\n';
+        assert.strictEqual(findNextRealTag(text, '<script', 0), -1);
+    });
+
+    it('leaves body text after the literal < as html', () => {
+        const text = 'qty < 5 items\n';
+        assert.strictEqual(getZone(text, text.indexOf('items')), 'html');
     });
 });

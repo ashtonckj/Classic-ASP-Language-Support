@@ -213,6 +213,17 @@ export function findNextRealTag(
                 }
             }
 
+            // A `<` with no tag-name character after it is literal body text
+            // ("Show rows where qty < 5"), not markup. Treating it as a tag opener
+            // started an attribute-list walk that ran to the next `>` — which could
+            // be the `>` of the following <script>/<style> tag, so that whole
+            // embedded block was never recognised as a JS/CSS zone.
+            const afterAngle = text[i + 1];
+            if (afterAngle === undefined || !/[A-Za-z/!?]/.test(afterAngle)) {
+                i++;
+                continue;
+            }
+
             // Some other HTML tag — track its attribute list so we don't
             // accidentally match our target inside an attribute value.
             inHtmlTag = true;
