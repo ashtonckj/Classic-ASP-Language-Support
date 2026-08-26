@@ -14,6 +14,8 @@ export const workspace = {
     getConfiguration: () => ({
         get: (_key: string, defaultValue?: unknown) => defaultValue,
     }),
+    // Mutable so a test can stand in a workspace root (getVirtualRoot reads it).
+    workspaceFolders: undefined as { uri: { fsPath: string } }[] | undefined,
 };
 
 export const window = {
@@ -78,4 +80,15 @@ export class DocumentSymbol {
         public readonly range: Range,
         public readonly selectionRange: Range,
     ) {}
+}
+
+// ── Editing types ────────────────────────────────────────────────────────────
+// computeLineEdits builds TextEdits and reads document.eol, so both need to
+// exist for the plain-mocha harness.
+
+export const EndOfLine = { LF: 1, CRLF: 2 };
+
+export class TextEdit {
+    constructor(public readonly range: Range, public readonly newText: string) {}
+    static replace(range: Range, newText: string): TextEdit { return new TextEdit(range, newText); }
 }
