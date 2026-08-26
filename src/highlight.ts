@@ -65,7 +65,11 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
             setDecorationTypes(config);
         }
 
-        if (configurationDidChange || !highlightAspRegions) {
+        // Only a settings change needs new decoration types (the colours are baked
+        // into them). This used to fire on `!highlightAspRegions` too, so with the
+        // feature switched OFF both types were disposed and recreated on every
+        // update tick — once per keystroke, for a feature that is not running.
+        if (configurationDidChange) {
             if (bracketDecorationType) {
                 bracketDecorationType.dispose();
             }
