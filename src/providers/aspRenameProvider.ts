@@ -386,6 +386,8 @@ export class AspRenameProvider implements vscode.RenameProvider {
             }
         }
 
+        reportCrossFileRename(edit, oldName);
+
         return edit;
     }
 }
@@ -415,6 +417,26 @@ function findAspFiles(dir: string): string[] {
         }
     }
     return results;
+}
+
+/**
+ * Tells the user when a rename reached beyond the current file.
+ *
+ * VS Code applies a rename's WorkspaceEdit in one shot with no confirmation, and
+ * nothing in the UI advertises the built-in preview (Ctrl+Shift+Enter instead of
+ * Enter in the rename box). Editing several files with no feedback at all is easy
+ * to miss until it turns up in a diff, so say what was touched. It is one undo
+ * step, which is worth saying too.
+ */
+function reportCrossFileRename(edit: vscode.WorkspaceEdit, oldName: string): void {
+    const entries = edit.entries();
+    if (entries.length <= 1) { return; }
+
+    const occurrences = entries.reduce((total, [, edits]) => total + edits.length, 0);
+    vscode.window.showInformationMessage(
+        `Renamed ${occurrences} occurrence${occurrences === 1 ? '' : 's'} of ` +
+        `"${oldName}" across ${entries.length} files. Ctrl+Z undoes all of them.`
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
