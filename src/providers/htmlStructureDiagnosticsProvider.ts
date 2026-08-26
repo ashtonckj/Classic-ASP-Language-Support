@@ -42,6 +42,21 @@ const VOID_ELEMENTS = new Set([
 
 export const VOID_ELEMENT_DIAGNOSTIC_CODE = 'voidElementClosingTag';
 
+// Sticky (/y) close-tag matchers for the raw-text elements. Anchoring at
+// lastIndex tests in place; the previous `fullText.slice(i)` built a copy of the
+// whole remaining document for EVERY character inside a <script> or <style>
+// body, making the scan quadratic in file size. lastIndex is set before each
+// use, so sharing one regex across calls is safe.
+const SCRIPT_CLOSE_RE = /<\/script\s*>/iy;
+const STYLE_CLOSE_RE  = /<\/style\s*>/iy;
+
+/** True when a raw-text close tag starts exactly at `i`. */
+function closesAt(re: RegExp, text: string, i: number): boolean {
+    if (text[i] !== '<') { return false; }
+    re.lastIndex = i;
+    return re.test(text);
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface TagEntry {
@@ -54,7 +69,6 @@ interface TagEntry {
 
 export function scanHtmlStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
     const fullText  = document.getText();
-    const lines = fullText.split('\n');
     const diagnostics: vscode.Diagnostic[] = [];
 
     // Stack of open structural tags waiting for their closer
@@ -96,12 +110,12 @@ export function scanHtmlStructure(document: vscode.TextDocument): vscode.Diagnos
 
         // ── Skip script / style block content ────────────────────────────────
         if (inScript) {
-            if (/^<\/script\s*>/i.test(fullText.slice(i))) { inScript = false; }
+            if (closesAt(SCRIPT_CLOSE_RE, fullText, i)) { inScript = false; }
             i++;
             continue;
         }
         if (inStyle) {
-            if (/^<\/style\s*>/i.test(fullText.slice(i))) { inStyle = false; }
+            if (closesAt(STYLE_CLOSE_RE, fullText, i)) { inStyle = false; }
             i++;
             continue;
         }
