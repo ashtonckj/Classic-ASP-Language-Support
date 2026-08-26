@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
-import { getZone } from '../utils/zoneUtils';
+import { getZone, getVbScriptBlockRanges } from '../utils/zoneUtils';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import {
     T_FUNCTION, T_NAMESPACE, T_VARIABLE, T_PARAMETER, T_CONSTANT,
@@ -52,18 +52,21 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
                     aspMap[i] = 1;
                 }
             }
-            // Also mark content inside <script language="vbscript"> blocks as ASP zone
-            // so semantic tokens are emitted for VBScript code in those blocks.
-            // Recognise server/client VBScript written as language="vbscript"
-            // (quoted or not) OR type="text/vbscript" — mirroring isVbScriptTag /
-            // getZone, which already treat both as the ASP zone. Previously only the
-            // quoted `language="vbscript"` form was coloured.
-            const vbsRe = /<script\b(?=[^>]*(?:\blanguage\s*=\s*["']?vbscript\b|\btype\s*=\s*["'][^"']*vbscript))[^>]*>([\s\S]*?)<\/script\s*>/gi;
-            let vm: RegExpExecArray | null;
-            while ((vm = vbsRe.exec(fullText)) !== null) {
-                const contentStart = vm.index + vm[0].indexOf(vm[1]);
-                const contentEnd   = contentStart + vm[1].length;
-                for (let i = contentStart; i < contentEnd; i++) { aspMap[i] = 1; }
+            // Also mark the body of every VBScript <script> block as ASP zone, so
+            // semantic tokens are emitted for the VBScript in it.
+            //
+            // getVbScriptBlockRanges is the same scanner getZone uses, so the two
+            // agree on where a block starts and ends. A blind regex over the whole
+            // document used to do this, and it had two failure modes:
+            //   • it matched a `<script language="vbscript">` that was only TEXT —
+            //     written in an HTML comment, or inside a VBScript string — and
+            //     coloured everything up to the next `</script>` as VBScript;
+            //   • it located the body with indexOf of the body text within the whole
+            //     match, so a body that also appeared in an attribute value
+            //     (`<script language="vbscript" title="x=1">x=1</script>`) marked the
+            //     attribute instead of the body.
+            for (const { start, end } of getVbScriptBlockRanges(fullText)) {
+                for (let i = start; i < end; i++) { aspMap[i] = 1; }
             }
         }
         const inAsp = (offset: number): boolean => aspMap[offset] === 1;

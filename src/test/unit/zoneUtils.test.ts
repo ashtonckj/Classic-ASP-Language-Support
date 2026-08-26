@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { getZone, findTagEnd, findNextRealTag } from '../../utils/zoneUtils';
+import { getZone, findTagEnd, findNextRealTag, getVbScriptBlockRanges } from '../../utils/zoneUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ASP block-scanning is LEXICAL (verified against a live IIS/ASP engine):
@@ -264,5 +264,86 @@ describe('findNextRealTag / getZone — literal < in body text', () => {
     it('leaves body text after the literal < as html', () => {
         const text = 'qty < 5 items\n';
         assert.strictEqual(getZone(text, text.indexOf('items')), 'html');
+    });
+});
+
+// The semantic colourer marks these ranges as the ASP zone. A blind regex used
+// to do it, and coloured a `<script language="vbscript">` that was only TEXT —
+// written in an HTML comment or inside a VBScript string — plus everything up to
+// the next `</script>`.
+describe('getVbScriptBlockRanges', () => {
+    const bodies = (text: string) =>
+        getVbScriptBlockRanges(text).map(r => text.slice(r.start, r.end));
+
+    it('returns the body of a client-side VBScript block', () => {
+        const text = '<script language="vbscript">\nx = 1\n</script>\n';
+        assert.deepStrictEqual(bodies(text), ['\nx = 1\n']);
+    });
+
+    it('returns the body of a runat="server" block', () => {
+        const text = '<script runat="server" language="vbscript">\nDim a\n</script>\n';
+        assert.deepStrictEqual(bodies(text), ['\nDim a\n']);
+    });
+
+    it('accepts type="text/vbscript" as well as language=', () => {
+        const text = '<script type="text/vbscript">\nDim a\n</script>\n';
+        assert.deepStrictEqual(bodies(text), ['\nDim a\n']);
+    });
+
+    it('ignores a plain JavaScript <script> block', () => {
+        assert.deepStrictEqual(bodies('<script>\nvar a = 1;\n</script>\n'), []);
+    });
+
+    // The prose of an HTML comment is not markup.
+    it('ignores a VBScript <script> tag written inside an HTML comment', () => {
+        const text = [
+            '<!--',
+            '  <script language="vbscript"> body offset can land in an attribute',
+            '  Correct: only the body between > and </script> is treated as VBScript.',
+            '-->',
+            '<p>plain</p>',
+            '',
+        ].join('\n');
+        assert.deepStrictEqual(bodies(text), []);
+    });
+
+    it('still finds the real block that follows a comment mentioning one', () => {
+        const text = [
+            '<!-- see <script language="vbscript"> ... </script> above -->',
+            '<script language="vbscript">',
+            'x = 1',
+            '</script>',
+            '',
+        ].join('\n');
+        assert.deepStrictEqual(bodies(text), ['\nx = 1\n']);
+    });
+
+    it('ignores a VBScript <script> tag inside a VBScript string', () => {
+        const text = '<% Response.Write "<script language=""vbscript"">x=1</script>" %>\n';
+        assert.deepStrictEqual(bodies(text), []);
+    });
+
+    // The body used to be located with indexOf of the body text within the whole
+    // match, so a body that also appeared in an attribute marked the attribute.
+    it('starts the body after the opening tag, not at a matching attribute value', () => {
+        const text = '<script language="vbscript" title="x=1">x=1</script>\n';
+        const [range] = getVbScriptBlockRanges(text);
+        assert.strictEqual(range.start, text.indexOf('>') + 1);
+        assert.strictEqual(text.slice(range.start, range.end), 'x=1');
+    });
+
+    it('is not confused by a > inside an attribute value', () => {
+        const text = '<script language="vbscript" title="a > b">\nx = 1\n</script>\n';
+        assert.deepStrictEqual(bodies(text), ['\nx = 1\n']);
+    });
+
+    it('runs to end-of-file for an unclosed block', () => {
+        const text = '<script language="vbscript">\nx = 1\n';
+        assert.deepStrictEqual(bodies(text), ['\nx = 1\n']);
+    });
+
+    it('returns each block when there are several', () => {
+        const text = '<script language="vbscript">a</script>\n<p>x</p>\n<script type="text/vbscript">b</script>\n';
+        assert.deepStrictEqual(bodies(text), ['a', 'b']);
     });
 });
