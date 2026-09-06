@@ -72,7 +72,6 @@
  */
 
 import * as path from 'path';
-import * as fs from 'fs';
 import * as ts from 'typescript';
 import * as vscode from 'vscode';
 import { getZone, findNextRealTag } from './zoneUtils';
@@ -641,13 +640,11 @@ export class JsLanguageService implements vscode.Disposable {
     private          _version:         number = 0;
     private readonly _aspDomTypes:     string;
 
-    constructor(extensionPath?: string) {
+    constructor() {
         this._compilerOptions = makeBrowserCompilerOptions();
         const libDir = path.dirname(ts.getDefaultLibFilePath(this._compilerOptions));
 
-        this._aspDomTypes = extensionPath
-            ? this.loadAspDomTypes(extensionPath)
-            : this.getInlineAspDomTypes();
+        this._aspDomTypes = this.aspDomTypes();
 
         const self = this;
 
@@ -684,19 +681,18 @@ export class JsLanguageService implements vscode.Disposable {
         this._service = ts.createLanguageService(host, ts.createDocumentRegistry());
     }
 
-    private loadAspDomTypes(extensionPath: string): string {
-        try {
-            const typesPath = path.join(extensionPath, 'utils', 'asp-dom.d.ts');
-            if (fs.existsSync(typesPath)) {
-                return fs.readFileSync(typesPath, 'utf8');
-            }
-        } catch (err) {
-            console.warn('[ASP] Failed to load asp-dom.d.ts, using inline definitions:', err);
-        }
-        return this.getInlineAspDomTypes();
-    }
-
-    private getInlineAspDomTypes(): string {
+    /**
+     * Ambient DOM/ASP declarations fed to the language service as a second
+     * virtual file.
+     *
+     * These are kept inline rather than in a `.d.ts` on disk on purpose. The old
+     * code read `<extensionPath>/utils/asp-dom.d.ts` at startup and fell back to
+     * this when it was missing — which it always was: tsc does not copy a `.d.ts`
+     * input into outDir, and `.vscodeignore` excludes `src/**` from the package,
+     * so the file shipped nowhere and the fallback ran every time. Editing that
+     * file changed nothing, which is a trap worth not leaving lying around.
+     */
+    private aspDomTypes(): string {
         return `
     // Augment the standard HTMLElement interface directly so that Classic ASP
     // inline scripts can call element-specific members (.submit(), .value,
@@ -894,15 +890,10 @@ export class JsLanguageService implements vscode.Disposable {
 // Singleton
 // ─────────────────────────────────────────────────────────────────────────────
 let _service: JsLanguageService | undefined;
-let _extensionPath: string | undefined;
-
-export function initializeJsLanguageService(extensionPath: string): void {
-    _extensionPath = extensionPath;
-}
 
 export function getJsLanguageService(): JsLanguageService {
     if (!_service) {
-        try { _service = new JsLanguageService(_extensionPath); }
+        try { _service = new JsLanguageService(); }
         catch (err) {
             console.error('[ASP] Failed to create JsLanguageService:', err);
             throw err;

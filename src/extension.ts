@@ -17,7 +17,7 @@ import { JsSignatureHelpProvider } from './providers/jsSignatureHelpProvider';
 // so both providers use identical type-index mappings.
 import { JsSemanticTokensProvider, COMBINED_SEMANTIC_LEGEND } from './providers/jsSemanticProvider';
 import { registerJsDiagnostics } from './providers/jsDiagnosticsProvider';
-import { disposeJsLanguageService, initializeJsLanguageService } from './utils/jsUtils';
+import { disposeJsLanguageService } from './utils/jsUtils';
 import { IncludePathCompletionProvider, AspDefinitionProvider } from './providers/includeProvider';
 import { IncludeDocumentLinkProvider, HtmlAttributeLinkProvider, HtmlAttributePathCompletionProvider } from './providers/linkProvider';
 // ASP semantic provider must now use COMBINED_SEMANTIC_LEGEND — see note above.
@@ -92,9 +92,6 @@ let _attrPathTimeout: ReturnType<typeof setTimeout> | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('Classic ASP Language Support is now active!');
-
-    // Initialize JS language service with extension path for custom type definitions
-    initializeJsLanguageService(context.extensionPath);
 
     addRegionHighlights(context);
     registerCssDiagnostics(context);
