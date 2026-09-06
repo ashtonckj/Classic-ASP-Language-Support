@@ -16,6 +16,8 @@ export const workspace = {
     }),
     // Mutable so a test can stand in a workspace root (getVirtualRoot reads it).
     workspaceFolders: undefined as { uri: { fsPath: string } }[] | undefined,
+    // collectAllSymbols evicts its cache by walking the open documents.
+    textDocuments: [] as unknown[],
 };
 
 export const window = {
@@ -92,3 +94,41 @@ export class TextEdit {
     constructor(public readonly range: Range, public readonly newText: string) {}
     static replace(range: Range, newText: string): TextEdit { return new TextEdit(range, newText); }
 }
+
+// ── Semantic tokens ──────────────────────────────────────────────────────────
+// Enough of the semantic-token surface to run AspSemanticTokensProvider headlessly.
+// build() returns the pushed tokens as-is rather than the real delta encoding —
+// tests assert on positions and types, which is what the encoding carries anyway.
+
+export class SemanticTokensLegend {
+    constructor(
+        public readonly tokenTypes: string[],
+        public readonly tokenModifiers: string[],
+    ) {}
+}
+
+export interface StubSemanticToken {
+    line: number; char: number; len: number; type: number; mod: number;
+}
+
+export class SemanticTokensBuilder {
+    public readonly tokens: StubSemanticToken[] = [];
+    constructor(public readonly legend?: SemanticTokensLegend) {}
+    push(line: number, char: number, len: number, type: number, mod: number): void {
+        this.tokens.push({ line, char, len, type, mod });
+    }
+    build(): { tokens: StubSemanticToken[]; data: Uint32Array } {
+        return { tokens: this.tokens, data: new Uint32Array() };
+    }
+}
+
+export const languages = {
+    createDiagnosticCollection: () => ({
+        set() { /* no-op */ }, delete() { /* no-op */ },
+        get: () => [], dispose() { /* no-op */ },
+    }),
+};
+
+export const Uri = {
+    file: (p: string) => ({ fsPath: p, scheme: 'file', toString: () => `file://${p}` }),
+};

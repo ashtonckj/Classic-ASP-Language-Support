@@ -71,6 +71,31 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         }
         const inAsp = (offset: number): boolean => aspMap[offset] === 1;
 
+        // The VBScript on a physical line, with everything else blanked to spaces.
+        //
+        // The SQL variable-tracking passes below match statements with patterns
+        // anchored at the start of the line (/^\s*(\w+)\s*=/). A one-line block —
+        // `<% sql = sql & " WHERE x = 1" %>`, the commonest way to write ASP — starts
+        // with `<%`, so those patterns never matched and the variable was never
+        // recognised as holding SQL: the appended fragment went uncoloured. The
+        // passes also probed the zone at the line's MIDPOINT, so a long HTML prefix
+        // on a mixed line pushed the probe out of the block and skipped the line
+        // outright.
+        //
+        // Masking from the same aspMap the rest of the provider uses fixes both, and
+        // keeps every column intact so token positions stay correct. The `<%` opener
+        // is blanked too — aspMap marks it as part of the block, but it is a
+        // delimiter, not code.
+        const vbScriptOnLine = (li: number): string => {
+            const text = lineTextCache[li];
+            const base = lineOffsetCache[li];
+            let out = '';
+            for (let c = 0; c < text.length; c++) {
+                out += inAsp(base + c) ? text[c] : ' ';
+            }
+            return out.replace(/<%[=@]?/g, m => ' '.repeat(m.length));
+        };
+
         // Build fast lookup sets/maps from collected symbols.
         //
         // extractSymbols() has no zone awareness — it collects every symbol it
@@ -165,10 +190,8 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         for (let li = 0; li < lineCount; li++) {
             if (processedAssignLines.has(li)) { continue; }
 
-            const lineText   = lineTextCache[li];
-            const lineOffset = lineOffsetCache[li];
-            const midOffset  = lineOffset + Math.floor(lineText.length / 2);
-            if (!inAsp(midOffset)) { continue; }
+            const lineText = vbScriptOnLine(li);
+            if (!lineText.trim()) { continue; }
 
             const trimmedForComment733 = lineText.trimStart();
             if (trimmedForComment733.startsWith("'") || /^rem\s/i.test(trimmedForComment733)) { continue; }
@@ -323,9 +346,8 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
                 // follow the full continuation group and check ALL gap text for candidates.
                 let li = 0;
                 while (li < lineCount) {
-                    const lineText   = lineTextCache[li];
-                    const lineOffset = lineOffsetCache[li];
-                    if (!inAsp(lineOffset + Math.floor(lineText.length / 2))) { li++; continue; }
+                    const lineText = vbScriptOnLine(li);
+                    if (!lineText.trim()) { li++; continue; }
 
                     const stripped = lineText.replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
                     const cpIdx    = stripped.indexOf("'");
@@ -494,10 +516,8 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
                 if (a.isSelfAppend || isSqlOrFragment(a.stitchedValue) || isSqlClauseFragment(a.stitchedValue) || isSqlExpression(a.stitchedValue)) { continue; }
 
                 for (let li = 0; li < lineCount; li++) {
-                    const lineText   = lineTextCache[li];
-                    const lineOffset = lineOffsetCache[li];
-                    const midOffset  = lineOffset + Math.floor(lineText.length / 2);
-                    if (!inAsp(midOffset)) { continue; }
+                    const lineText = vbScriptOnLine(li);
+                    if (!lineText.trim()) { continue; }
 
                     const trimmedForComment918 = lineText.trimStart();
                     if (trimmedForComment918.startsWith("'") || /^rem\s/i.test(trimmedForComment918)) { continue; }
@@ -567,10 +587,8 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         const sqlVarsLower = new Set([...sqlVars].map(v => v.toLowerCase()));
 
         for (let li = 0; li < lineCount; li++) {
-            const lineText   = lineTextCache[li];
-            const lineOffset = lineOffsetCache[li];
-            const midOffset  = lineOffset + Math.floor(lineText.length / 2);
-            if (!inAsp(midOffset)) { continue; }
+            const lineText = vbScriptOnLine(li);
+            if (!lineText.trim()) { continue; }
 
             const trimmedForComment988 = lineText.trimStart();
             if (trimmedForComment988.startsWith("'") || /^rem\s/i.test(trimmedForComment988)) { continue; }
@@ -783,14 +801,19 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
 
             let lineIsSqlAppend = false;
             if (sqlVarPattern !== null) {
-                let stripped2 = lineText.replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
+                // sqlVarPattern is anchored at the start of the statement, so it is
+                // matched against the VBScript on the line rather than the raw line —
+                // otherwise the `<%` of a one-line block sits in front of the variable
+                // name and an append like `<% sql = sql & " ORDER BY x" %>` is never
+                // recognised, leaving the appended fragment uncoloured.
+                let stripped2 = vbScriptOnLine(li).replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
                 const cp2 = stripped2.indexOf("'");
                 if (cp2 !== -1) { stripped2 = stripped2.substring(0, cp2); }
                 lineIsSqlAppend = sqlVarPattern.test(stripped2);
                 if (!lineIsSqlAppend) {
                     let checkLi = li - 1;
                     while (checkLi >= 0) {
-                        const prevText = lineTextCache[checkLi];
+                        const prevText = vbScriptOnLine(checkLi);
                         const trimmed = prevText.trimEnd();
                         if (!trimmed.endsWith('_')) { break; }
                         const beforeUnderscore = trimmed.slice(0, -1).trimEnd();
