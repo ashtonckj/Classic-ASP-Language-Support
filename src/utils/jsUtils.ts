@@ -820,6 +820,106 @@ export class JsLanguageService implements vscode.Disposable {
         formTarget?:     string;
         formNoValidate?: boolean;
     }
+
+    // ── Internet Explorer era APIs ────────────────────────────────────────────
+    // Classic ASP pages were written for IE, but TypeScript's DOM library only
+    // describes modern standards-compliant browsers. Anything IE-only is simply
+    // absent from it, so every use is reported as "property does not exist".
+    // These are all NEW members, so nothing that already type-checks changes;
+    // they only add names the checker was missing.
+
+    interface Window {
+        attachEvent(type: string, handler: (e?: Event) => void): boolean;
+        detachEvent(type: string, handler: (e?: Event) => void): void;
+        execScript?(code: string, language?: string): void;
+        showModalDialog?(url?: string, arg?: any, features?: string): any;
+        showModelessDialog?(url?: string, arg?: any, features?: string): any;
+        createPopup?(): any;
+        clipboardData?: any;
+
+        // jQuery is loaded by a <script src> tag on the page (and very often on
+        // the PARENT page, reached as parent.$ from inside a modal), so the
+        // checker never sees its declaration.
+        $?: any;
+        jQuery?: any;
+
+        // The projection replaces every <%= expr %> with a generated _asp_<name>
+        // stand-in. When the ASP expression is a FUNCTION NAME — the common
+        // top.<%= callback %>(…) pattern — the stand-in is read as a property of
+        // the window, so it has to exist here too.
+        //
+        // A PATTERN index signature is used rather than [name: string]: any so
+        // that only the generated prefix is accepted: window.somethingMisspelt
+        // is still reported.
+        [aspGenerated: \`_asp_\${string}\`]: any;
+    }
+
+    interface Document {
+        selection?: any;
+        expando?: boolean;
+        fileSize?: string;
+        parentWindow?: Window;
+        createStyleSheet?(url?: string, index?: number): any;
+        recalc?(force?: boolean): void;
+    }
+
+    // ── Named access on collections ───────────────────────────────────────────
+    // document.forms.myForm and document.all.myButton are real DOM behaviour —
+    // the "named property getter" every browser implements. TypeScript's typings
+    // just don't express it, so this is a correction rather than a loosening.
+    interface HTMLCollectionBase { [name: string]: any; }
+    interface HTMLAllCollection  { [name: string]: any; }
+    interface HTMLFormElement    { [name: string]: any; }
+
+    // ── The IE event model ────────────────────────────────────────────────────
+    // Legacy handlers read their target from event.srcElement, which is typed
+    // EventTarget — an interface with almost nothing on it, so srcElement.tagName
+    // and friends all fail.
+    //
+    // The specific members are named rather than using [name: string]: any,
+    // because Document, Element and HTMLElement all inherit from EventTarget: an
+    // index signature here would switch off property checking for the whole DOM
+    // (measured: it drops typo detection from 19/19 to 11/19). Naming them keeps
+    // document.body.styl an error while making event.srcElement.tagName fine.
+    interface EventTarget {
+        tagName?:          string;
+        id?:               string;
+        className?:        string;
+        style?:            any;
+        parentElement?:    any;
+        parentNode?:       any;
+        children?:         any;
+        childNodes?:       any;
+        firstChild?:       any;
+        lastChild?:        any;
+        nextSibling?:      any;
+        previousSibling?:  any;
+        innerHTML?:        string;
+        innerText?:        string;
+        outerHTML?:        string;
+        value?:            any;
+        checked?:          boolean;
+        disabled?:         boolean;
+        name?:             string;
+        type?:             string;
+        title?:            string;
+        href?:             string;
+        src?:              string;
+        form?:             any;
+        rows?:             any;
+        cells?:            any;
+        options?:          any;
+        selectedIndex?:    number;
+        offsetWidth?:      number;
+        offsetHeight?:     number;
+        offsetTop?:        number;
+        offsetLeft?:       number;
+        getAttribute?(name: string): string | null;
+        setAttribute?(name: string, value: string): void;
+        click?():          void;
+        focus?():          void;
+        blur?():           void;
+    }
     `;
     }
 
