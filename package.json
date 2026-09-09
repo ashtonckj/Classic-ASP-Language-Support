@@ -362,8 +362,10 @@
     "scripts": {
         "vscode:prepublish": "npm run compile",
         "clean": "node -e \"require('fs').rmSync('out', { recursive: true, force: true })\"",
-        "compile": "npm run clean && tsc -p ./",
-        "watch": "tsc -watch -p ./",
+        "gen-types": "node scripts/generate-dom-types.js",
+        "compile": "npm run clean && npm run gen-types && tsc -p ./",
+        "watch": "node scripts/watch.js",
+        "watch-types": "node scripts/generate-dom-types.js --watch",
         "pretest": "npm run compile && npm run lint",
         "lint": "eslint src",
         "test": "mocha",
