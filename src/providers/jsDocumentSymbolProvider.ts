@@ -51,6 +51,16 @@ function formatParams(node: ts.FunctionLike): string {
  * Creates a DocumentSymbol whose range and selectionRange are expressed in
  * document-space offsets (NOT virtual-file-space offsets).
  *
+ * Returns undefined when there is no name to show, which the callers must skip.
+ * vscode.DocumentSymbol rejects an empty name outright ("name must not be
+ * falsy"), and TypeScript hands us one routinely: its error recovery inserts a
+ * MISSING identifier while a declaration is still being typed, so `function(`
+ * parses as a FunctionDeclaration whose `name` node EXISTS but whose text is
+ * empty. A `node.name` truthiness check passes, and the constructor then threw
+ * on every keystroke until the name was finished — taking the whole Outline with
+ * it. Returning undefined puts that invariant in the type system rather than
+ * leaving it to each guard.
+ *
  * @param preambleLength  Must be subtracted from every raw TS AST offset.
  */
 function makeSymbol(
@@ -62,7 +72,9 @@ function makeSymbol(
     endOffset:      number,
     nameOffset:     number,
     preambleLength: number,
-): vscode.DocumentSymbol {
+): vscode.DocumentSymbol | undefined {
+    if (!name) { return undefined; }
+
     // FIX: subtract preambleLength to convert from virtual-file space to document space.
     const docStart    = startOffset - preambleLength;
     const docEnd      = endOffset   - preambleLength;
@@ -71,6 +83,14 @@ function makeSymbol(
     const range    = new vscode.Range(document.positionAt(docStart), document.positionAt(docEnd));
     const selRange = new vscode.Range(document.positionAt(docNameStart), document.positionAt(docNameStart + name.length));
     return new vscode.DocumentSymbol(name, detail, kind, range, selRange);
+}
+
+/** Appends a symbol only when makeSymbol produced one. */
+function pushIfNamed(
+    into:   vscode.DocumentSymbol[],
+    symbol: vscode.DocumentSymbol | undefined,
+): void {
+    if (symbol) { into.push(symbol); }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -144,6 +164,7 @@ function walkNode(
             node.name.getStart(sourceFile),
             preambleLength,
         );
+        if (!sym) { return result; }
         if (node.body) {
             for (const stmt of node.body.statements) {
                 sym.children.push(...walkNode(stmt, document, sourceFile, rangeStart, rangeEnd, depth + 1, preambleLength));
@@ -162,6 +183,8 @@ function walkNode(
             node.name.getStart(sourceFile),
             preambleLength,
         );
+        if (!sym) { return result; }
+
         for (const member of node.members) {
             if (ts.isMethodDeclaration(member) && member.name) {
                 const mSym = makeSymbol(
@@ -172,6 +195,7 @@ function walkNode(
                     member.name.getStart(sourceFile),
                     preambleLength,
                 );
+                if (!mSym) { continue; }
                 if (member.body) {
                     for (const stmt of member.body.statements) {
                         mSym.children.push(...walkNode(stmt, document, sourceFile, rangeStart, rangeEnd, depth + 1, preambleLength));
@@ -179,22 +203,24 @@ function walkNode(
                 }
                 sym.children.push(mSym);
             } else if (ts.isConstructorDeclaration(member)) {
-                sym.children.push(makeSymbol(
+                const cSym = makeSymbol(
                     document, 'constructor',
                     `(${formatParams(member)})`,
                     vscode.SymbolKind.Constructor,
                     member.getStart(sourceFile), member.getEnd(),
                     member.getStart(sourceFile),
                     preambleLength,
-                ));
+                );
+                if (cSym) { sym.children.push(cSym); }
             } else if (ts.isPropertyDeclaration(member) && member.name) {
-                sym.children.push(makeSymbol(
+                const pSym = makeSymbol(
                     document, (member.name as ts.Identifier).text, '',
                     vscode.SymbolKind.Property,
                     member.getStart(sourceFile), member.getEnd(),
                     member.name.getStart(sourceFile),
                     preambleLength,
-                ));
+                );
+                if (pSym) { sym.children.push(pSym); }
             }
         }
         result.push(sym);
@@ -219,6 +245,8 @@ function walkNode(
                     decl.name.getStart(sourceFile),
                     preambleLength,
                 );
+                if (!sym) { continue; }
+
                 const body = ts.isArrowFunction(init)
                     ? (ts.isBlock(init.body) ? init.body : undefined)
                     : init.body;
@@ -242,7 +270,7 @@ function walkNode(
             if (isScalar && node.parent.kind === ts.SyntaxKind.SourceFile) {
                 const isConst  = !!(node.declarationList.flags & ts.NodeFlags.Const);
                 const initText = init ? init.getText(sourceFile) : '';
-                result.push(makeSymbol(
+                pushIfNamed(result, makeSymbol(
                     document, name,
                     initText.length > 40 ? initText.slice(0, 40) + '…' : initText,
                     isConst ? vscode.SymbolKind.Constant : vscode.SymbolKind.Variable,
@@ -316,6 +344,8 @@ function walkCallChain(
             preambleLength,
         );
 
+        if (!sym) { return; }
+
         const body = ts.isArrowFunction(arg)
             ? (ts.isBlock(arg.body) ? arg.body : undefined)
             : arg.body;
@@ -382,17 +412,28 @@ export class JsDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
         // We shift the JS range boundaries into virtual-file space too so that
         // the range guard (nodeStart < rangeStart) works correctly, then pass
         // preambleLength down into makeSymbol for the final document.positionAt call.
+        //
+        // The walk runs over a half-typed document on every keystroke, against an
+        // AST full of TypeScript's error-recovery nodes. Anything unexpected in
+        // there should cost the Outline for one keystroke, not throw out of the
+        // provider — an exception here is reported by VS Code as an extension
+        // error, and under a debug session it stops the Extension Host dead.
         const result: vscode.DocumentSymbol[] = [];
-        for (const range of jsRanges) {
-            if (token.isCancellationRequested) { break; }
-            // FIX: shift range boundaries into virtual-file space for AST comparison.
-            const virtualRangeStart = range.start + preambleLength;
-            const virtualRangeEnd   = range.end   + preambleLength;
-            result.push(...collectSymbols(
-                document, sourceFile, sourceFile.statements,
-                virtualRangeStart, virtualRangeEnd,
-                preambleLength,
-            ));
+        try {
+            for (const range of jsRanges) {
+                if (token.isCancellationRequested) { break; }
+                // FIX: shift range boundaries into virtual-file space for AST comparison.
+                const virtualRangeStart = range.start + preambleLength;
+                const virtualRangeEnd   = range.end   + preambleLength;
+                result.push(...collectSymbols(
+                    document, sourceFile, sourceFile.statements,
+                    virtualRangeStart, virtualRangeEnd,
+                    preambleLength,
+                ));
+            }
+        } catch (err) {
+            console.error('[ASP] JS document symbols failed:', err);
+            return [];
         }
 
         result.sort((a, b) => a.range.start.line - b.range.start.line);

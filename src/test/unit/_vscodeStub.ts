@@ -81,7 +81,12 @@ export class DocumentSymbol {
         public readonly kind: number,
         public readonly range: Range,
         public readonly selectionRange: Range,
-    ) {}
+    ) {
+        // The real class validates this and throws, which is how an unnamed
+        // symbol took down the whole Outline. Reproduce it so a unit test can
+        // catch that rather than waiting for the Extension Host.
+        if (!name) { throw new Error('name must not be falsy'); }
+    }
 }
 
 // ── Editing types ────────────────────────────────────────────────────────────
