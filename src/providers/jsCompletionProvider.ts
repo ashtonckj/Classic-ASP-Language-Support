@@ -6,11 +6,17 @@
  * Resolution data is stored on item.data so it survives VS Code's internal
  * serialize/deserialize cycle between provideCompletionItems and resolveCompletionItem.
  *
- * Trigger characters registered in extension.ts: '.', '(', '[', ' '
+ * Trigger characters registered in extension.ts: '.', '('
+ *
+ * That set is OURS, not TypeScript's: '(' is registered so the suggestion list
+ * reopens on a call, but TypeScript's completion API rejects any trigger outside
+ * its own small set. jsUtils' isTsTriggerCharacter is what keeps the two apart —
+ * a character it does not recognise is dropped before the language service sees
+ * it, which still yields the plain position-based list wanted after '('.
  *
  * isIncomplete strategy:
- *   • After a trigger character ('.', '(', '[') the list is complete — VS Code's
- *     prefix filter handles narrowing, so we return isIncomplete:false.
+ *   • After '.' the list is complete — VS Code's prefix filter handles narrowing,
+ *     so we return isIncomplete:false.
  *   • Mid-word (no trigger char, or after a space) we return isIncomplete:true so
  *     VS Code re-requests on every keystroke until the prefix is >= 2 chars.
  *
@@ -98,9 +104,9 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         });
 
         // ── isIncomplete decision ────────────────────────────────────────────
-        const afterDotOrBracket = triggerChar === '.' || triggerChar === '[';
-        const inFreshContext    = FRESH_CONTEXT_CHARS.has(prevChar) || prevChar === '';
-        const incomplete        = !afterDotOrBracket && inFreshContext;
+        const afterDot       = triggerChar === '.';
+        const inFreshContext = FRESH_CONTEXT_CHARS.has(prevChar) || prevChar === '';
+        const incomplete     = !afterDot && inFreshContext;
 
         return new vscode.CompletionList(items, incomplete);
     }

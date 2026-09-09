@@ -725,6 +725,38 @@ function makeBrowserCompilerOptions(): ts.CompilerOptions {
 // ─────────────────────────────────────────────────────────────────────────────
 // JsLanguageService
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * The trigger characters TypeScript's completion API actually accepts.
+ *
+ * Typed as the union so tsc checks every entry against TypeScript's own type:
+ * if a future version drops one, this stops compiling rather than silently
+ * passing a character that throws. Declared as a ReadonlySet<string> so it can
+ * be asked about an arbitrary string.
+ */
+const TS_TRIGGER_CHARACTERS: ReadonlySet<string> = new Set<ts.CompletionsTriggerCharacter>([
+    '.', '"', "'", '`', '/', '@', '<', '#', ' ',
+]);
+
+/**
+ * True when TypeScript's completion API understands `ch` as a trigger.
+ *
+ * VS Code hands a provider whichever of ITS OWN registered trigger characters
+ * the user typed, and that set is deliberately wider: '(' is registered so the
+ * suggestion list reopens on a call. TypeScript's isValidTrigger has no case
+ * for '(' and ends at `Debug.assertNever`, whose fail() runs a `debugger;`
+ * statement and then throws — so one '(' typed in a <script> block halts a
+ * debug session outright and, outside one, loses the completion list to a catch.
+ *
+ * Dropping an unknown character to undefined is also the behaviour we want:
+ * that asks for a plain position-based list, which is what should appear after
+ * '(' anyway.
+ */
+export function isTsTriggerCharacter(
+    ch: string | undefined,
+): ch is ts.CompletionsTriggerCharacter {
+    return ch !== undefined && TS_TRIGGER_CHARACTERS.has(ch);
+}
+
 export class JsLanguageService implements vscode.Disposable {
     private readonly _service:         ts.LanguageService;
     private readonly _compilerOptions: ts.CompilerOptions;
@@ -800,7 +832,7 @@ export class JsLanguageService implements vscode.Disposable {
     getCompletions(offset: number, trigger?: string): ts.CompletionInfo | undefined {
         try {
             return this._service.getCompletionsAtPosition(VIRTUAL_FILENAME, offset, {
-                triggerCharacter:                         trigger as ts.CompletionsTriggerCharacter | undefined,
+                triggerCharacter:                         isTsTriggerCharacter(trigger) ? trigger : undefined,
                 includeCompletionsWithInsertText:         true,
                 includeCompletionsForModuleExports:       false,
                 includeAutomaticOptionalChainCompletions: true,
