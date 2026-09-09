@@ -11,11 +11,9 @@
 
    WHAT TO LOOK FOR
      Open this file and wait about a second (JS diagnostics are debounced 750 ms).
-     There are three <script> blocks:
-       1. legacy APIs — must be completely CLEAN
-       2. a known gap — one call through the parent frame still squiggles, and
-          the comment there explains why
-       3. deliberate mistakes — must ALL still squiggle, which is the half that
+     There are two <script> blocks:
+       1. legacy APIs and cross-frame calls — must be completely CLEAN
+       2. deliberate mistakes — must ALL still squiggle, which is the half that
           matters: widening the types must not stop real typos being reported
   ============================================================================
 -->
@@ -73,24 +71,20 @@
     <%end if%>
   }
 
+  // A function that lives on the PARENT page, called by name. Its name is
+  // specific to this page, so the extension reads it out of the document and
+  // declares it. See 23-js-cross-frame.asp for the dedicated test.
+  function pushToParent(vals) {
+    if (window.parent && window.parent.RefreshParentGrid) {
+      window.parent.RefreshParentGrid(vals);
+    }
+  }
+
   // Other IE-era globals.
   function legacyExtras() {
     window.execScript("var x = 1;");
     document.selection.createRange();
     document.createStyleSheet("extra.css");
-  }
-</script>
-
-<!-- ── KNOWN GAP: still flagged, needs the per-document declarations step ──-->
-<script type="text/javascript">
-  // A function that lives on the PARENT page, called by name. Its name is
-  // specific to this page, so no fixed set of declarations can cover it — the
-  // extension has to read the name out of THIS document and declare it. That is
-  // the next step; until then these two lines still show a squiggle.
-  function pushToParent(vals) {
-    if (window.parent && window.parent.RefreshParentGrid) {
-      window.parent.RefreshParentGrid(vals);
-    }
   }
 </script>
 

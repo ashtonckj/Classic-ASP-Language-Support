@@ -467,6 +467,82 @@ function collectExprSentinels(
     return exprSentinels;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Cross-frame property names
+//
+// Classic ASP pages are full of calls into another document — a modal reaching
+// back into the page that opened it:
+//
+//     window.parent.RefreshParentGrid(vals);
+//     if (typeof(top.myCallback) == "function") { top.myCallback(retVal); }
+//
+// The receiver is typed Window, which of course has no RefreshParentGrid, so
+// every one of these was reported as "property does not exist". There is no way
+// to verify them either: the function lives in a DIFFERENT document that this
+// file cannot see, so the checker has no information to work with in either
+// direction. Declaring the name is therefore not hiding a bug — there is no bug
+// to hide, and no check being given up.
+//
+// What is deliberately NOT harvested is same-frame `window.X`. A global on THIS
+// page is knowable, so `window.somethingMisspelt` stays an error.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Members Window genuinely has. Declaring one of these as `any` would clash with
+ * the real declaration (TS2717) and throw away type information on an API that
+ * works perfectly well, so they are skipped — a cross-frame call to one of them
+ * simply keeps whatever behaviour it has today.
+ */
+const WINDOW_OWN_MEMBERS = new Set([
+    'window', 'self', 'top', 'parent', 'opener', 'frames', 'frameElement',
+    'length', 'closed', 'name', 'document', 'location', 'history', 'navigator',
+    'screen', 'localStorage', 'sessionStorage', 'postMessage',
+    'addEventListener', 'removeEventListener', 'dispatchEvent',
+    'alert', 'confirm', 'prompt', 'open', 'close', 'print', 'focus', 'blur', 'stop',
+    'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+    'requestAnimationFrame', 'cancelAnimationFrame',
+    'scroll', 'scrollTo', 'scrollBy', 'scrollX', 'scrollY',
+    'pageXOffset', 'pageYOffset', 'innerWidth', 'innerHeight',
+    'outerWidth', 'outerHeight', 'screenX', 'screenY', 'screenLeft', 'screenTop',
+    'devicePixelRatio', 'resizeTo', 'resizeBy', 'moveTo', 'moveBy',
+    'getComputedStyle', 'getSelection', 'matchMedia', 'atob', 'btoa', 'fetch',
+    'console', 'crypto', 'performance', 'event',
+    // Already declared in asp-dom.d.ts.
+    'attachEvent', 'detachEvent', 'execScript', 'showModalDialog',
+    'showModelessDialog', 'createPopup', 'clipboardData', '$', 'jQuery',
+]);
+
+/**
+ * Property names read off another frame inside the document's JS ranges.
+ *
+ * Matches `parent.X`, `top.X`, `opener.X` and any `window.`-prefixed or chained
+ * form (`window.parent.X`, `parent.parent.X`). Exported for unit testing.
+ */
+export function collectCrossFrameNames(
+    content: string,
+    jsRanges: Array<{ start: number; end: number }>,
+): Set<string> {
+    const names = new Set<string>();
+    const frameChain =
+        /\b(?:window\s*\.\s*)?(?:parent|top|opener)\s*(?:\.\s*(?:parent|top|opener)\s*)*\.\s*([A-Za-z_$][\w$]*)/g;
+
+    for (const range of jsRanges) {
+        const section = content.slice(range.start, range.end);
+        frameChain.lastIndex = 0;
+        let m: RegExpExecArray | null;
+        while ((m = frameChain.exec(section)) !== null) {
+            const name = m[1];
+            // `_asp_*` stand-ins are already covered by a pattern index
+            // signature in asp-dom.d.ts, so they need no per-document entry.
+            if (name.startsWith('_asp_')) { continue; }
+            if (WINDOW_OWN_MEMBERS.has(name)) { continue; }
+            names.add(name);
+        }
+    }
+
+    return names;
+}
+
 /**
  * Builds the preamble and the expression-sentinel map for the virtual file.
  * @param content   Raw ASP source text.
@@ -502,6 +578,21 @@ function buildPreamble(
         if (!alreadyTyped) {
             lines.push(`var ${sentinel}: any;`);
         }
+    }
+
+    // Names read off another frame. These go in as an interface augmentation
+    // rather than a `var`, because they are read as PROPERTIES of a Window.
+    // TypeScript reports a grammar error for TS syntax in this .js projection
+    // -- the same one `var _asp: any` above already produces -- and the binder
+    // merges the interface anyway. Preamble diagnostics sit before every JS
+    // range, so the diagnostics filter drops them.
+    const crossFrameNames = collectCrossFrameNames(content, jsRanges);
+    if (crossFrameNames.size > 0) {
+        lines.push('interface Window {');
+        for (const frameName of crossFrameNames) {
+            lines.push(`    ${frameName}?: any;`);
+        }
+        lines.push('}');
     }
 
     lines.push('');
