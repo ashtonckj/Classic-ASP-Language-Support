@@ -5,6 +5,7 @@ import { registerAutoClosingTag, registerEnterKeyHandler, registerTabKeyHandler,
 import { AspCompletionProvider } from './providers/aspCompletionProvider';
 import { CssCompletionProvider } from './providers/cssCompletionProvider';
 import { CssHoverProvider } from './providers/cssHoverProvider';
+import { CssColorProvider } from './providers/cssColorProvider';
 import { registerCssDiagnostics } from './providers/cssDiagnosticsProvider';
 import { registerHtmlStructureDiagnostics, scanHtmlStructure, VoidElementQuickFixProvider } from './providers/htmlStructureDiagnosticsProvider';
 import { registerAspStructureDiagnostics, scanAspStructure, scanAspTags } from './providers/aspStructureDiagnosticsProvider';
@@ -198,6 +199,13 @@ export function activate(context: vscode.ExtensionContext) {
         'A','B','C','D','E','F','G','H','I','J','K','L','M',
         'N','O','P','Q','R','S','T','U','V','W','X','Y','Z',
         '0','1','2','3','4','5','6','7','8','9','_','-'
+    );
+
+    // ── Colour swatches and picker ────────────────────────────────────────────
+    // A .css or .html file shows a square beside every colour and opens a picker
+    // on click; an ASP page showed nothing, in <style> blocks or style="" alike.
+    const cssColorProvider = vscode.languages.registerColorProvider(
+        'asp', new CssColorProvider()
     );
 
     // ── Go To Definition ──────────────────────────────────────────────────────
@@ -407,6 +415,7 @@ export function activate(context: vscode.ExtensionContext) {
         aspCompletionProvider,
         cssCompletionProvider,
         cssHoverProvider,
+        cssColorProvider,
         jsCompletionProvider,
         jsHoverProvider,
         jsSignatureHelpProvider,

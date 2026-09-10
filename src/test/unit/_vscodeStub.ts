@@ -100,6 +100,28 @@ export class TextEdit {
     static replace(range: Range, newText: string): TextEdit { return new TextEdit(range, newText); }
 }
 
+// ── Colours ──────────────────────────────────────────────────────────────────
+// Channels are 0..1 floats, as the real API defines them.
+
+export class Color {
+    constructor(
+        public readonly red: number,
+        public readonly green: number,
+        public readonly blue: number,
+        public readonly alpha: number,
+    ) {}
+}
+
+export class ColorInformation {
+    constructor(public readonly range: Range, public readonly color: Color) {}
+}
+
+export class ColorPresentation {
+    public textEdit?: TextEdit;
+    public additionalTextEdits?: TextEdit[];
+    constructor(public readonly label: string) {}
+}
+
 // ── Navigation ───────────────────────────────────────────────────────────────
 // Location, highlights and WorkspaceEdit, enough to run the JS definition /
 // reference / rename providers headlessly. WorkspaceEdit keeps its edits keyed
