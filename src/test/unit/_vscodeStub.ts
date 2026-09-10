@@ -100,6 +100,43 @@ export class TextEdit {
     static replace(range: Range, newText: string): TextEdit { return new TextEdit(range, newText); }
 }
 
+// ── Navigation ───────────────────────────────────────────────────────────────
+// Location, highlights and WorkspaceEdit, enough to run the JS definition /
+// reference / rename providers headlessly. WorkspaceEdit keeps its edits keyed
+// by uri.toString() so `size` and `get()` behave like the real class.
+
+export class Location {
+    constructor(public readonly uri: unknown, public readonly range: Range) {}
+}
+
+export const DocumentHighlightKind = { Text: 0, Read: 1, Write: 2 };
+
+export class DocumentHighlight {
+    constructor(public readonly range: Range, public readonly kind: number = DocumentHighlightKind.Text) {}
+}
+
+export class WorkspaceEdit {
+    private readonly _byFile = new Map<string, { uri: unknown; edits: TextEdit[] }>();
+
+    private _key(uri: unknown): string { return String((uri as { toString(): string }).toString()); }
+
+    replace(uri: unknown, range: Range, newText: string): void {
+        const key = this._key(uri);
+        const entry = this._byFile.get(key) ?? { uri, edits: [] };
+        entry.edits.push(new TextEdit(range, newText));
+        this._byFile.set(key, entry);
+    }
+
+    get(uri: unknown): TextEdit[] { return this._byFile.get(this._key(uri))?.edits ?? []; }
+
+    /** Number of FILES touched, as the real class reports it. */
+    get size(): number { return this._byFile.size; }
+
+    entries(): Array<[unknown, TextEdit[]]> {
+        return [...this._byFile.values()].map(e => [e.uri, e.edits] as [unknown, TextEdit[]]);
+    }
+}
+
 // ── Semantic tokens ──────────────────────────────────────────────────────────
 // Enough of the semantic-token surface to run AspSemanticTokensProvider headlessly.
 // build() returns the pushed tokens as-is rather than the real delta encoding —

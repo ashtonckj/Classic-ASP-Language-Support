@@ -27,6 +27,9 @@ import { AspRenameProvider } from './providers/aspRenameProvider';
 import { addRegionHighlights } from './highlight';
 import { AspDocumentSymbolProvider } from './providers/aspDocumentSymbolProvider';
 import { JsDocumentSymbolProvider } from './providers/jsDocumentSymbolProvider';
+import { JsDefinitionProvider } from './providers/jsDefinitionProvider';
+import { JsReferenceProvider, JsDocumentHighlightProvider } from './providers/jsReferenceProvider';
+import { JsRenameProvider } from './providers/jsRenameProvider';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache } from './providers/aspWorkspaceSymbolProvider';
 import { AspSignatureHelpProvider } from './providers/aspSignatureHelpProvider';
 import { computeLineEdits, resolveEol, toLf } from './utils/editUtils';
@@ -198,13 +201,34 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // ── Go To Definition ──────────────────────────────────────────────────────
+    // Two providers, each declining the other's zone: the ASP one resolves
+    // VBScript names and #include paths, the JS one symbols in <script> blocks.
     const definitionProvider = vscode.languages.registerDefinitionProvider(
         'asp', new AspDefinitionProvider()
+    );
+
+    const jsDefinitionProvider = vscode.languages.registerDefinitionProvider(
+        'asp', new JsDefinitionProvider()
+    );
+
+    // ── References and occurrence highlighting ────────────────────────────────
+    // Without these VS Code matches the word as plain TEXT, so a `total` inside
+    // a string or a comment highlights as though it were the variable.
+    const jsReferenceProvider = vscode.languages.registerReferenceProvider(
+        'asp', new JsReferenceProvider()
+    );
+
+    const jsDocumentHighlightProvider = vscode.languages.registerDocumentHighlightProvider(
+        'asp', new JsDocumentHighlightProvider()
     );
 
     // ── Rename ────────────────────────────────────────────────────────────────
     const renameProvider = vscode.languages.registerRenameProvider(
         'asp', new AspRenameProvider()
+    );
+
+    const jsRenameProvider = vscode.languages.registerRenameProvider(
+        'asp', new JsRenameProvider()
     );
 
     // ── Document symbols ─────────────────────────────────────────────────────
@@ -392,7 +416,11 @@ export function activate(context: vscode.ExtensionContext) {
         htmlAttributeLinkProvider,
         htmlAttributePathProvider,
         definitionProvider,
+        jsDefinitionProvider,
+        jsReferenceProvider,
+        jsDocumentHighlightProvider,
         renameProvider,
+        jsRenameProvider,
         documentSymbolProvider,
         jsDocumentSymbolProvider,
         workspaceSymbolProvider,

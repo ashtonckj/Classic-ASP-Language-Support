@@ -757,6 +757,30 @@ export function isTsTriggerCharacter(
     return ch !== undefined && TS_TRIGGER_CHARACTERS.has(ch);
 }
 
+/** A range of the real document, in offsets. */
+export interface DocumentSpan { start: number; end: number; }
+
+/**
+ * Maps a span reported by the language service back into the document.
+ *
+ * Returns undefined when the span is not part of the document at all, which is
+ * the common case and not an error: the virtual file begins with a generated
+ * preamble (the ambient `_asp` values, the cross-frame names, the VBScript
+ * constants), and the service also answers with positions in lib.dom.d.ts and
+ * in the ambient declarations. None of those are places a reader can be sent or
+ * an edit can be applied, so every caller has to drop them.
+ */
+export function toDocumentSpan(
+    fileName:       string,
+    textSpan:       ts.TextSpan,
+    preambleLength: number,
+): DocumentSpan | undefined {
+    if (fileName !== VIRTUAL_FILENAME) { return undefined; }
+    const start = textSpan.start - preambleLength;
+    if (start < 0) { return undefined; }
+    return { start, end: start + textSpan.length };
+}
+
 export class JsLanguageService implements vscode.Disposable {
     private readonly _service:         ts.LanguageService;
     private readonly _compilerOptions: ts.CompilerOptions;
@@ -851,6 +875,40 @@ export class JsLanguageService implements vscode.Disposable {
     getQuickInfo(offset: number): ts.QuickInfo | undefined {
         try { return this._service.getQuickInfoAtPosition(VIRTUAL_FILENAME, offset) ?? undefined; }
         catch { return undefined; }
+    }
+
+    getDefinitions(offset: number): readonly ts.DefinitionInfo[] {
+        try { return this._service.getDefinitionAtPosition(VIRTUAL_FILENAME, offset) ?? []; }
+        catch { return []; }
+    }
+
+    getReferences(offset: number): readonly ts.ReferenceEntry[] {
+        try { return this._service.getReferencesAtPosition(VIRTUAL_FILENAME, offset) ?? []; }
+        catch { return []; }
+    }
+
+    getDocumentHighlights(offset: number): readonly ts.DocumentHighlights[] {
+        try {
+            return this._service.getDocumentHighlights(
+                VIRTUAL_FILENAME, offset, [VIRTUAL_FILENAME],
+            ) ?? [];
+        } catch { return []; }
+    }
+
+    getRenameInfo(offset: number): ts.RenameInfo | undefined {
+        try {
+            return this._service.getRenameInfo(VIRTUAL_FILENAME, offset, {
+                providePrefixAndSuffixTextForRename: false,
+            });
+        } catch { return undefined; }
+    }
+
+    findRenameLocations(offset: number): readonly ts.RenameLocation[] {
+        try {
+            return this._service.findRenameLocations(
+                VIRTUAL_FILENAME, offset, false, false, { providePrefixAndSuffixTextForRename: false },
+            ) ?? [];
+        } catch { return []; }
     }
 
     getSignatureHelp(offset: number): ts.SignatureHelpItems | undefined {
