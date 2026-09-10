@@ -64,10 +64,10 @@
                 "scopeName": "text.html.asp",
                 "path": "./syntaxes/asp.tmLanguage.json",
                 "embeddedLanguages": {
-                    "text.html.basic": "html",
+                    "text.html.asp": "html",
+                    "source.asp": "asp",
                     "source.css": "css",
-                    "source.js": "javascript",
-                    "source.vbscript.embedded.asp": "vb"
+                    "source.js": "javascript"
                 }
             }
         ],
@@ -356,6 +356,9 @@
         "configurationDefaults": {
             "[asp]": {
                 "editor.wordBasedSuggestions": "off"
+            },
+            "emmet.includeLanguages": {
+                "asp": "html"
             }
         }
     },
