@@ -28,6 +28,7 @@ import { AspRenameProvider } from './providers/aspRenameProvider';
 import { addRegionHighlights } from './highlight';
 import { AspDocumentSymbolProvider } from './providers/aspDocumentSymbolProvider';
 import { JsDocumentSymbolProvider } from './providers/jsDocumentSymbolProvider';
+import { JsCodeActionProvider } from './providers/jsCodeActionProvider';
 import { JsDefinitionProvider } from './providers/jsDefinitionProvider';
 import { JsReferenceProvider, JsDocumentHighlightProvider } from './providers/jsReferenceProvider';
 import { JsRenameProvider } from './providers/jsRenameProvider';
@@ -341,6 +342,13 @@ export function activate(context: vscode.ExtensionContext) {
         { providedCodeActionKinds: VoidElementQuickFixProvider.providedCodeActionKinds }
     );
 
+    // Turns the JS squiggles into something actionable — a misspelt DOM member
+    // reports "Did you mean 'getElementById'?", and TypeScript supplies the edit.
+    const jsQuickFix = vscode.languages.registerCodeActionsProvider(
+        'asp', new JsCodeActionProvider(),
+        { providedCodeActionKinds: JsCodeActionProvider.providedCodeActionKinds }
+    );
+
     // ── Hover providers ───────────────────────────────────────────────────────
     const aspHoverProvider = vscode.languages.registerHoverProvider(
         'asp', new AspHoverProvider()
@@ -437,6 +445,7 @@ export function activate(context: vscode.ExtensionContext) {
         aspSignatureHelpProvider,
         aspHoverProvider,
         voidElementQuickFix,
+        jsQuickFix,
         inlineStyleTrigger,
         htmlAttrPathTrigger,
     );

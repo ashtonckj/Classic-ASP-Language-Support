@@ -895,6 +895,26 @@ export class JsLanguageService implements vscode.Disposable {
         } catch { return []; }
     }
 
+    /**
+     * Quick fixes TypeScript offers for `errorCodes` over the given span.
+     *
+     * The empty formatting options and preferences are deliberate: every fix
+     * that matters for a Classic ASP page rewrites an identifier in place
+     * ("did you mean getElementById?"), so there is no inserted block whose
+     * indentation would need to match the file.
+     */
+    getCodeFixes(
+        start:      number,
+        end:        number,
+        errorCodes: number[],
+    ): readonly ts.CodeFixAction[] {
+        try {
+            return this._service.getCodeFixesAtPosition(
+                VIRTUAL_FILENAME, start, end, errorCodes, {}, {},
+            ) ?? [];
+        } catch { return []; }
+    }
+
     getRenameInfo(offset: number): ts.RenameInfo | undefined {
         try {
             return this._service.getRenameInfo(VIRTUAL_FILENAME, offset, {

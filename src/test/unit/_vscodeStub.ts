@@ -100,6 +100,15 @@ export class TextEdit {
     static replace(range: Range, newText: string): TextEdit { return new TextEdit(range, newText); }
 }
 
+// ── Code actions ─────────────────────────────────────────────────────────────
+
+export class CodeAction {
+    public edit?: WorkspaceEdit;
+    public diagnostics?: Diagnostic[];
+    public isPreferred?: boolean;
+    constructor(public readonly title: string, public readonly kind?: { value: string }) {}
+}
+
 // ── Colours ──────────────────────────────────────────────────────────────────
 // Channels are 0..1 floats, as the real API defines them.
 
