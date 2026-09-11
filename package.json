@@ -64,10 +64,10 @@
                 "scopeName": "text.html.asp",
                 "path": "./syntaxes/asp.tmLanguage.json",
                 "embeddedLanguages": {
-                    "text.html.basic": "html",
+                    "text.html.asp": "html",
+                    "source.asp": "asp",
                     "source.css": "css",
-                    "source.js": "javascript",
-                    "source.vbscript.embedded.asp": "vb"
+                    "source.js": "javascript"
                 }
             }
         ],
@@ -356,14 +356,19 @@
         "configurationDefaults": {
             "[asp]": {
                 "editor.wordBasedSuggestions": "off"
+            },
+            "emmet.includeLanguages": {
+                "asp": "html"
             }
         }
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
         "clean": "node -e \"require('fs').rmSync('out', { recursive: true, force: true })\"",
-        "compile": "npm run clean && tsc -p ./",
-        "watch": "tsc -watch -p ./",
+        "gen-types": "node scripts/generate-dom-types.js",
+        "compile": "npm run clean && npm run gen-types && tsc -p ./",
+        "watch": "node scripts/watch.js",
+        "watch-types": "node scripts/generate-dom-types.js --watch",
         "pretest": "npm run compile && npm run lint",
         "lint": "eslint src",
         "test": "mocha",

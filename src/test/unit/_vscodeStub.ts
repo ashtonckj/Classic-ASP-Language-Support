@@ -81,7 +81,12 @@ export class DocumentSymbol {
         public readonly kind: number,
         public readonly range: Range,
         public readonly selectionRange: Range,
-    ) {}
+    ) {
+        // The real class validates this and throws, which is how an unnamed
+        // symbol took down the whole Outline. Reproduce it so a unit test can
+        // catch that rather than waiting for the Extension Host.
+        if (!name) { throw new Error('name must not be falsy'); }
+    }
 }
 
 // ── Editing types ────────────────────────────────────────────────────────────
@@ -93,6 +98,74 @@ export const EndOfLine = { LF: 1, CRLF: 2 };
 export class TextEdit {
     constructor(public readonly range: Range, public readonly newText: string) {}
     static replace(range: Range, newText: string): TextEdit { return new TextEdit(range, newText); }
+}
+
+// ── Code actions ─────────────────────────────────────────────────────────────
+
+export class CodeAction {
+    public edit?: WorkspaceEdit;
+    public diagnostics?: Diagnostic[];
+    public isPreferred?: boolean;
+    constructor(public readonly title: string, public readonly kind?: { value: string }) {}
+}
+
+// ── Colours ──────────────────────────────────────────────────────────────────
+// Channels are 0..1 floats, as the real API defines them.
+
+export class Color {
+    constructor(
+        public readonly red: number,
+        public readonly green: number,
+        public readonly blue: number,
+        public readonly alpha: number,
+    ) {}
+}
+
+export class ColorInformation {
+    constructor(public readonly range: Range, public readonly color: Color) {}
+}
+
+export class ColorPresentation {
+    public textEdit?: TextEdit;
+    public additionalTextEdits?: TextEdit[];
+    constructor(public readonly label: string) {}
+}
+
+// ── Navigation ───────────────────────────────────────────────────────────────
+// Location, highlights and WorkspaceEdit, enough to run the JS definition /
+// reference / rename providers headlessly. WorkspaceEdit keeps its edits keyed
+// by uri.toString() so `size` and `get()` behave like the real class.
+
+export class Location {
+    constructor(public readonly uri: unknown, public readonly range: Range) {}
+}
+
+export const DocumentHighlightKind = { Text: 0, Read: 1, Write: 2 };
+
+export class DocumentHighlight {
+    constructor(public readonly range: Range, public readonly kind: number = DocumentHighlightKind.Text) {}
+}
+
+export class WorkspaceEdit {
+    private readonly _byFile = new Map<string, { uri: unknown; edits: TextEdit[] }>();
+
+    private _key(uri: unknown): string { return String((uri as { toString(): string }).toString()); }
+
+    replace(uri: unknown, range: Range, newText: string): void {
+        const key = this._key(uri);
+        const entry = this._byFile.get(key) ?? { uri, edits: [] };
+        entry.edits.push(new TextEdit(range, newText));
+        this._byFile.set(key, entry);
+    }
+
+    get(uri: unknown): TextEdit[] { return this._byFile.get(this._key(uri))?.edits ?? []; }
+
+    /** Number of FILES touched, as the real class reports it. */
+    get size(): number { return this._byFile.size; }
+
+    entries(): Array<[unknown, TextEdit[]]> {
+        return [...this._byFile.values()].map(e => [e.uri, e.edits] as [unknown, TextEdit[]]);
+    }
 }
 
 // ── Semantic tokens ──────────────────────────────────────────────────────────

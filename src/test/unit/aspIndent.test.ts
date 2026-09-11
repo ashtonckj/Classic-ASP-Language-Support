@@ -1,5 +1,7 @@
 import * as assert from 'assert';
-import { isBlockOpener, stripTrailingComment, tagToAutoClose } from '../../providers/aspIndentProvider';
+import {
+    isBlockOpener, stripTrailingComment, tagToAutoClose, continuesOpenJsDocComment,
+} from '../../providers/aspIndentProvider';
 import { Zone } from '../../utils/zoneUtils';
 
 // The shared opener test used by both Enter and Tab. A single-line `If … Then <stmt>` opens nothing; Property and access-modified declarations DO open a block.
@@ -94,5 +96,35 @@ describe('tagToAutoClose', () => {
         let asked = 0;
         tagToAutoClose('x = a ', () => { asked++; return 'html'; });
         assert.strictEqual(asked, 0, 'the document scan must be skipped for ordinary keystrokes');
+    });
+});
+
+// Enter after a JSDoc opener or an existing `* ` line should continue the star
+// column, the same way a plain .js file's own onEnterRules do. This is the
+// line-local half of that decision — whether the PREVIOUS line still counts
+// as part of an open comment block.
+describe('continuesOpenJsDocComment', () => {
+    it('is true right after the block opener', () => {
+        assert.strictEqual(continuesOpenJsDocComment('  /**'), true);
+    });
+
+    it('is true after an earlier star-prefixed line', () => {
+        assert.strictEqual(continuesOpenJsDocComment('   * some text'), true);
+        assert.strictEqual(continuesOpenJsDocComment('   *'), true);
+    });
+
+    it('is false once that line has also closed the comment', () => {
+        assert.strictEqual(continuesOpenJsDocComment('   */'), false);
+        assert.strictEqual(continuesOpenJsDocComment('   * last line */'), false);
+    });
+
+    it('is false for a line that is not part of a comment at all', () => {
+        assert.strictEqual(continuesOpenJsDocComment('  var x = 1;'), false);
+        assert.strictEqual(continuesOpenJsDocComment(''), false);
+    });
+
+    it('is true regardless of indentation depth', () => {
+        assert.strictEqual(continuesOpenJsDocComment('/**'), true);
+        assert.strictEqual(continuesOpenJsDocComment('        /**'), true);
     });
 });

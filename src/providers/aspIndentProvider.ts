@@ -823,6 +823,26 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
 
 // ── Enter key handler ──────────────────────────────────────────────────────
 
+// A continuation line inside a JSDoc block: optional indent, then a star,
+// then anything.
+const JSDOC_CONTINUATION_LINE = /^\s*\*(\s.*)?$/;
+
+// True when `previousLineText` is the kind of line a JSDoc continuation can
+// follow — the block's opener, or an earlier star-prefixed line — and that
+// line has not also closed the comment already.
+//
+// Deliberately line-local rather than a real scan for the matching opener:
+// this is the same shape VS Code's own built-in onEnterRules use for every
+// other language's block comments (checking only the current and previous
+// line, not tokenizing the whole file), which keeps a rare misfire — some
+// line that merely starts with a star, coincidentally, right below an
+// unrelated comment — a cosmetic one-off rather than a reason to lex the
+// surrounding code.
+export function continuesOpenJsDocComment(previousLineText: string): boolean {
+    if (/\*\/\s*$/.test(previousLineText)) { return false; } // already closed on that line
+    return /^\s*(\/\*\*|\*)/.test(previousLineText);
+}
+
 export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
     const disposable = vscode.commands.registerCommand('asp.insertLineBreak', () => {
         const editor = vscode.window.activeTextEditor;
@@ -864,6 +884,46 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         }
 
         const zone = getZone(fullText, document.offsetAt(position));
+
+        // ── JSDoc continuation ───────────────────────────────────────────
+        // A plain .js file gets this from the TypeScript extension's own
+        // onEnterRules; a <script> block in an ASP page has no such rules of
+        // its own, so `/**` + Enter just left a bare newline at the same
+        // indent, and pressing Enter on a `* ...` line did not continue the
+        // star column either.
+        if (zone === 'js') {
+            // Starting a brand-new block: the line up to the cursor is exactly
+            // `/**`, with nothing else before it.
+            if (textBefore.trim() === '/**') {
+                const rest = textAfter.trim();
+                if (rest === '' || rest === '*/') {
+                    // `/**|` or `/**|*/` — either way, expand to the standard
+                    // three-line skeleton and drop the caret on the middle line.
+                    editor.edit(eb => {
+                        eb.replace(
+                            new vscode.Range(position, new vscode.Position(position.line, line.text.length)),
+                            `\n${indent} * \n${indent} */`,
+                        );
+                    }).then(() => {
+                        const p = new vscode.Position(position.line + 1, indent.length + 3);
+                        editor.selection = new vscode.Selection(p, p);
+                    });
+                    return;
+                }
+            }
+
+            // Continuing an existing block: the line up to the cursor is just
+            // `*` (optionally followed by more text), and the line above is
+            // part of the same, still-open comment.
+            if (JSDOC_CONTINUATION_LINE.test(textBefore) && position.line > 0
+                && continuesOpenJsDocComment(document.lineAt(position.line - 1).text)) {
+                editor.edit(eb => eb.insert(position, `\n${indent}* `)).then(() => {
+                    const p = new vscode.Position(position.line + 1, indent.length + 2);
+                    editor.selection = new vscode.Selection(p, p);
+                });
+                return;
+            }
+        }
 
         // ── JS / CSS brace handling ─────────────────────────────────────
         // Pressing Enter right after `{` should open an indented block, matching a
@@ -1181,6 +1241,166 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
 
 // ── Tab key handler ────────────────────────────────────────────────────────
 
+/**
+ * Emmet's Tab expansion, falling back to a plain Tab when nothing expanded.
+ *
+ * Tab is bound to `asp.insertTab` for this language, so everything the Tab key
+ * would otherwise do has to happen here — and one of those things is Emmet
+ * turning `ul>li*3` into a real list, which is how HTML gets written by hand.
+ * Going straight to the native `tab` command swallowed it, because that command
+ * knows nothing about abbreviations.
+ *
+ * Only the HTML and CSS zones are offered to Emmet. Inside `<% %>` an
+ * abbreviation like `ul>li*3` is a comparison between two undeclared variables,
+ * and inside `<script>` it is JavaScript; expanding either would replace working
+ * code with markup.
+ *
+ * `emmet.triggerExpansionOnTab` is off by default in VS Code — for .html just as
+ * much as for .asp — so this changes nothing until the user turns it on, which
+ * is the behaviour to match rather than diverge from.
+ */
+/**
+ * Tokens that are unmistakably an Emmet abbreviation rather than prose.
+ *
+ * `>` `+` `^` `*` are Emmet's structural operators (child, sibling, climb,
+ * multiply) and do not otherwise appear inside a word; the second form is the
+ * class/id shorthand, anchored so the WHOLE token has to look like one.
+ *
+ * This is what makes expanding on Tab safe without the global setting. VS Code
+ * turns `emmet.triggerExpansionOnTab` off by default because with it on, any
+ * word plus Tab expands — typing `Total` in body text and reaching for Tab gives
+ * `<Total></Total>`, and an ASP page is mostly body text. Requiring one of these
+ * markers keeps `ul>li*3` and `div.row` working while leaving a plain word alone.
+ */
+const ABBREVIATION_OPERATORS = /[>+^*]/;
+const ABBREVIATION_SHORTHAND = /^(?:[A-Za-z][\w-]*)?(?:[.#][\w-]+)+$/;
+
+/** The run of non-whitespace immediately before the caret. */
+function tokenBefore(lineText: string, character: number): string {
+    const upToCaret = lineText.slice(0, character);
+    return upToCaret.slice(upToCaret.search(/\S*$/));
+}
+
+/**
+ * True when the text before the caret is worth handing to Emmet even though the
+ * user has not turned on expansion for every word.
+ */
+function looksLikeAbbreviation(token: string): boolean {
+    if (!token || token.includes('<')) { return false; }
+    return ABBREVIATION_OPERATORS.test(token) || ABBREVIATION_SHORTHAND.test(token);
+}
+
+/**
+ * Emmet's Tab expansion, falling back to a plain Tab when nothing expanded.
+ *
+ * Tab is bound to `asp.insertTab` for this language, so everything the Tab key
+ * would otherwise do has to happen here — and one of those things is Emmet
+ * turning `ul>li*3` into a real list, which is how HTML gets written by hand.
+ * Going straight to the native `tab` command swallowed it, because that command
+ * knows nothing about abbreviations.
+ *
+ * Emmet is offered the caret in two cases:
+ *
+ *   * the user turned on `emmet.triggerExpansionOnTab`, in which case they have
+ *     asked for VS Code's own behaviour and every word is a candidate;
+ *   * otherwise, only when the text before the caret carries an unmistakable
+ *     abbreviation marker — see ABBREVIATION_OPERATORS. That is a deliberate
+ *     divergence from a .html file, where the same keystroke does nothing: an
+ *     abbreviation is the whole reason to reach for Tab there, and requiring a
+ *     hidden setting to get it is worse than the small surprise of `a>b`
+ *     expanding.
+ *
+ * Only the HTML and CSS zones are offered at all. Inside `<% %>` an abbreviation
+ * like `ul>li*3` is a comparison between two undeclared variables, and inside
+ * `<script>` it is JavaScript; expanding either would replace working code with
+ * markup.
+ */
+async function expandAbbreviationOrTab(
+    editor:   vscode.TextEditor,
+    position: vscode.Position,
+): Promise<void> {
+    const triggerOnTab = vscode.workspace
+        .getConfiguration('emmet', editor.document.uri)
+        .get<boolean>('triggerExpansionOnTab', false);
+
+    const lineText = editor.document.lineAt(position.line).text;
+    const worthTrying = triggerOnTab
+        || looksLikeAbbreviation(tokenBefore(lineText, position.character));
+
+    if (worthTrying) {
+        const zone = getZone(editor.document.getText(), editor.document.offsetAt(position));
+        if (zone === 'html' || zone === 'css') {
+            if (await tryEmmetExpansion(editor)) { return; }
+        }
+    }
+
+    await vscode.commands.executeCommand('tab');
+}
+
+/**
+ * Emmet's own commands, in the order worth trying.
+ *
+ * `editor.emmet.action.expandAbbreviation` is the editor action, and the one
+ * that behaves correctly in every zone — it is what VS Code's own Tab binding
+ * uses. `emmet.expandAbbreviation` is the command the Emmet extension registers
+ * (and the one its `onCommand` activation event names); it is kept as a fallback
+ * for a build that offers only that one, but it is NOT tried first, because it
+ * does not expand a bare CSS abbreviation the way the editor action does.
+ */
+const EMMET_EXPAND_COMMANDS = [
+    'editor.emmet.action.expandAbbreviation',
+    'emmet.expandAbbreviation',
+];
+
+/**
+ * Asks Emmet to expand whatever is under the caret. Returns true if it did.
+ *
+ * Emmet is a built-in extension, which means it can be disabled — and when it
+ * is, invoking the command rejects with "command 'emmet.expandAbbreviation' not
+ * found". Letting that propagate out of the Tab handler did two bad things at
+ * once: it put an error notification in front of the user, and it swallowed the
+ * keystroke, so Tab stopped inserting anything at all. A failure here has to
+ * degrade to an ordinary Tab silently.
+ *
+ * Whether the document changed is the only signal that Emmet acted, because it
+ * reports nothing when the text under the caret is not an abbreviation.
+ */
+async function tryEmmetExpansion(editor: vscode.TextEditor): Promise<boolean> {
+    for (const command of EMMET_EXPAND_COMMANDS) {
+        const before = editor.document.version;
+        try {
+            await vscode.commands.executeCommand(command);
+        } catch {
+            continue;   // not registered in this build, or Emmet is disabled
+        }
+        return editor.document.version !== before;
+    }
+
+    warnEmmetUnavailableOnce();
+    return false;
+}
+
+let warnedAboutEmmet = false;
+
+/**
+ * Says once why an abbreviation did nothing.
+ *
+ * Swallowing the failure is right — a dialog every time someone presses Tab
+ * would be far worse than a Tab that just indents — but it leaves no trace at
+ * all, and "Emmet is turned off" is not something anyone would guess from a
+ * silent no-op. The log is where that belongs: no interruption, and still
+ * findable from Help > Toggle Developer Tools when someone goes looking.
+ */
+function warnEmmetUnavailableOnce(): void {
+    if (warnedAboutEmmet) { return; }
+    warnedAboutEmmet = true;
+    console.warn(
+        '[ASP] Emmet did not respond, so Tab inserted an indent instead of '
+        + 'expanding an abbreviation. Emmet is a built-in extension and may be '
+        + 'disabled — check the Extensions view with the filter "@builtin emmet".',
+    );
+}
+
 export function registerTabKeyHandler(context: vscode.ExtensionContext) {
     const disposable = vscode.commands.registerCommand('asp.insertTab', () => {
         const editor = vscode.window.activeTextEditor;
@@ -1197,9 +1417,10 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
         const position  = editor.selection.active;
         const lineText  = editor.document.lineAt(position.line).text;
 
-        // Only apply smart indent on a completely blank line
+        // Only apply smart indent on a completely blank line. Anything else is a
+        // plain Tab — or an Emmet abbreviation waiting to be expanded.
         if (lineText.trim() !== '') {
-            return vscode.commands.executeCommand('tab');
+            return expandAbbreviationOrTab(editor, position);
         }
 
         // ...and only when the cursor is at the END of that blank line. If there is

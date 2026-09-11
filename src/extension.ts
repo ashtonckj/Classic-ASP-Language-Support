@@ -5,6 +5,7 @@ import { registerAutoClosingTag, registerEnterKeyHandler, registerTabKeyHandler,
 import { AspCompletionProvider } from './providers/aspCompletionProvider';
 import { CssCompletionProvider } from './providers/cssCompletionProvider';
 import { CssHoverProvider } from './providers/cssHoverProvider';
+import { CssColorProvider } from './providers/cssColorProvider';
 import { registerCssDiagnostics } from './providers/cssDiagnosticsProvider';
 import { registerHtmlStructureDiagnostics, scanHtmlStructure, VoidElementQuickFixProvider } from './providers/htmlStructureDiagnosticsProvider';
 import { registerAspStructureDiagnostics, scanAspStructure, scanAspTags } from './providers/aspStructureDiagnosticsProvider';
@@ -27,6 +28,10 @@ import { AspRenameProvider } from './providers/aspRenameProvider';
 import { addRegionHighlights } from './highlight';
 import { AspDocumentSymbolProvider } from './providers/aspDocumentSymbolProvider';
 import { JsDocumentSymbolProvider } from './providers/jsDocumentSymbolProvider';
+import { JsCodeActionProvider } from './providers/jsCodeActionProvider';
+import { JsDefinitionProvider } from './providers/jsDefinitionProvider';
+import { JsReferenceProvider, JsDocumentHighlightProvider } from './providers/jsReferenceProvider';
+import { JsRenameProvider } from './providers/jsRenameProvider';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache } from './providers/aspWorkspaceSymbolProvider';
 import { AspSignatureHelpProvider } from './providers/aspSignatureHelpProvider';
 import { computeLineEdits, resolveEol, toLf } from './utils/editUtils';
@@ -197,14 +202,42 @@ export function activate(context: vscode.ExtensionContext) {
         '0','1','2','3','4','5','6','7','8','9','_','-'
     );
 
+    // ── Colour swatches and picker ────────────────────────────────────────────
+    // A .css or .html file shows a square beside every colour and opens a picker
+    // on click; an ASP page showed nothing, in <style> blocks or style="" alike.
+    const cssColorProvider = vscode.languages.registerColorProvider(
+        'asp', new CssColorProvider()
+    );
+
     // ── Go To Definition ──────────────────────────────────────────────────────
+    // Two providers, each declining the other's zone: the ASP one resolves
+    // VBScript names and #include paths, the JS one symbols in <script> blocks.
     const definitionProvider = vscode.languages.registerDefinitionProvider(
         'asp', new AspDefinitionProvider()
+    );
+
+    const jsDefinitionProvider = vscode.languages.registerDefinitionProvider(
+        'asp', new JsDefinitionProvider()
+    );
+
+    // ── References and occurrence highlighting ────────────────────────────────
+    // Without these VS Code matches the word as plain TEXT, so a `total` inside
+    // a string or a comment highlights as though it were the variable.
+    const jsReferenceProvider = vscode.languages.registerReferenceProvider(
+        'asp', new JsReferenceProvider()
+    );
+
+    const jsDocumentHighlightProvider = vscode.languages.registerDocumentHighlightProvider(
+        'asp', new JsDocumentHighlightProvider()
     );
 
     // ── Rename ────────────────────────────────────────────────────────────────
     const renameProvider = vscode.languages.registerRenameProvider(
         'asp', new AspRenameProvider()
+    );
+
+    const jsRenameProvider = vscode.languages.registerRenameProvider(
+        'asp', new JsRenameProvider()
     );
 
     // ── Document symbols ─────────────────────────────────────────────────────
@@ -309,6 +342,13 @@ export function activate(context: vscode.ExtensionContext) {
         { providedCodeActionKinds: VoidElementQuickFixProvider.providedCodeActionKinds }
     );
 
+    // Turns the JS squiggles into something actionable — a misspelt DOM member
+    // reports "Did you mean 'getElementById'?", and TypeScript supplies the edit.
+    const jsQuickFix = vscode.languages.registerCodeActionsProvider(
+        'asp', new JsCodeActionProvider(),
+        { providedCodeActionKinds: JsCodeActionProvider.providedCodeActionKinds }
+    );
+
     // ── Hover providers ───────────────────────────────────────────────────────
     const aspHoverProvider = vscode.languages.registerHoverProvider(
         'asp', new AspHoverProvider()
@@ -383,6 +423,7 @@ export function activate(context: vscode.ExtensionContext) {
         aspCompletionProvider,
         cssCompletionProvider,
         cssHoverProvider,
+        cssColorProvider,
         jsCompletionProvider,
         jsHoverProvider,
         jsSignatureHelpProvider,
@@ -392,7 +433,11 @@ export function activate(context: vscode.ExtensionContext) {
         htmlAttributeLinkProvider,
         htmlAttributePathProvider,
         definitionProvider,
+        jsDefinitionProvider,
+        jsReferenceProvider,
+        jsDocumentHighlightProvider,
         renameProvider,
+        jsRenameProvider,
         documentSymbolProvider,
         jsDocumentSymbolProvider,
         workspaceSymbolProvider,
@@ -400,6 +445,7 @@ export function activate(context: vscode.ExtensionContext) {
         aspSignatureHelpProvider,
         aspHoverProvider,
         voidElementQuickFix,
+        jsQuickFix,
         inlineStyleTrigger,
         htmlAttrPathTrigger,
     );

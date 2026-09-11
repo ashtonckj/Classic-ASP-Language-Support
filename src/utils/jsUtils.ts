@@ -75,6 +75,7 @@ import * as path from 'path';
 import * as ts from 'typescript';
 import * as vscode from 'vscode';
 import { getZone, findNextRealTag } from './zoneUtils';
+import { ASP_DOM_TYPES } from './aspDomTypes.generated';
 
 export const VIRTUAL_FILENAME    = 'asp-embedded.js';
 export const ASP_DOM_TYPES_FILENAME = 'asp-dom.d.ts';
@@ -466,6 +467,82 @@ function collectExprSentinels(
     return exprSentinels;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Cross-frame property names
+//
+// Classic ASP pages are full of calls into another document — a modal reaching
+// back into the page that opened it:
+//
+//     window.parent.RefreshParentGrid(vals);
+//     if (typeof(top.myCallback) == "function") { top.myCallback(retVal); }
+//
+// The receiver is typed Window, which of course has no RefreshParentGrid, so
+// every one of these was reported as "property does not exist". There is no way
+// to verify them either: the function lives in a DIFFERENT document that this
+// file cannot see, so the checker has no information to work with in either
+// direction. Declaring the name is therefore not hiding a bug — there is no bug
+// to hide, and no check being given up.
+//
+// What is deliberately NOT harvested is same-frame `window.X`. A global on THIS
+// page is knowable, so `window.somethingMisspelt` stays an error.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Members Window genuinely has. Declaring one of these as `any` would clash with
+ * the real declaration (TS2717) and throw away type information on an API that
+ * works perfectly well, so they are skipped — a cross-frame call to one of them
+ * simply keeps whatever behaviour it has today.
+ */
+const WINDOW_OWN_MEMBERS = new Set([
+    'window', 'self', 'top', 'parent', 'opener', 'frames', 'frameElement',
+    'length', 'closed', 'name', 'document', 'location', 'history', 'navigator',
+    'screen', 'localStorage', 'sessionStorage', 'postMessage',
+    'addEventListener', 'removeEventListener', 'dispatchEvent',
+    'alert', 'confirm', 'prompt', 'open', 'close', 'print', 'focus', 'blur', 'stop',
+    'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+    'requestAnimationFrame', 'cancelAnimationFrame',
+    'scroll', 'scrollTo', 'scrollBy', 'scrollX', 'scrollY',
+    'pageXOffset', 'pageYOffset', 'innerWidth', 'innerHeight',
+    'outerWidth', 'outerHeight', 'screenX', 'screenY', 'screenLeft', 'screenTop',
+    'devicePixelRatio', 'resizeTo', 'resizeBy', 'moveTo', 'moveBy',
+    'getComputedStyle', 'getSelection', 'matchMedia', 'atob', 'btoa', 'fetch',
+    'console', 'crypto', 'performance', 'event',
+    // Already declared in asp-dom.d.ts.
+    'attachEvent', 'detachEvent', 'execScript', 'showModalDialog',
+    'showModelessDialog', 'createPopup', 'clipboardData', '$', 'jQuery',
+]);
+
+/**
+ * Property names read off another frame inside the document's JS ranges.
+ *
+ * Matches `parent.X`, `top.X`, `opener.X` and any `window.`-prefixed or chained
+ * form (`window.parent.X`, `parent.parent.X`). Exported for unit testing.
+ */
+export function collectCrossFrameNames(
+    content: string,
+    jsRanges: Array<{ start: number; end: number }>,
+): Set<string> {
+    const names = new Set<string>();
+    const frameChain =
+        /\b(?:window\s*\.\s*)?(?:parent|top|opener)\s*(?:\.\s*(?:parent|top|opener)\s*)*\.\s*([A-Za-z_$][\w$]*)/g;
+
+    for (const range of jsRanges) {
+        const section = content.slice(range.start, range.end);
+        frameChain.lastIndex = 0;
+        let m: RegExpExecArray | null;
+        while ((m = frameChain.exec(section)) !== null) {
+            const name = m[1];
+            // `_asp_*` stand-ins are already covered by a pattern index
+            // signature in asp-dom.d.ts, so they need no per-document entry.
+            if (name.startsWith('_asp_')) { continue; }
+            if (WINDOW_OWN_MEMBERS.has(name)) { continue; }
+            names.add(name);
+        }
+    }
+
+    return names;
+}
+
 /**
  * Builds the preamble and the expression-sentinel map for the virtual file.
  * @param content   Raw ASP source text.
@@ -501,6 +578,21 @@ function buildPreamble(
         if (!alreadyTyped) {
             lines.push(`var ${sentinel}: any;`);
         }
+    }
+
+    // Names read off another frame. These go in as an interface augmentation
+    // rather than a `var`, because they are read as PROPERTIES of a Window.
+    // TypeScript reports a grammar error for TS syntax in this .js projection
+    // -- the same one `var _asp: any` above already produces -- and the binder
+    // merges the interface anyway. Preamble diagnostics sit before every JS
+    // range, so the diagnostics filter drops them.
+    const crossFrameNames = collectCrossFrameNames(content, jsRanges);
+    if (crossFrameNames.size > 0) {
+        lines.push('interface Window {');
+        for (const frameName of crossFrameNames) {
+            lines.push(`    ${frameName}?: any;`);
+        }
+        lines.push('}');
     }
 
     lines.push('');
@@ -633,6 +725,62 @@ function makeBrowserCompilerOptions(): ts.CompilerOptions {
 // ─────────────────────────────────────────────────────────────────────────────
 // JsLanguageService
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * The trigger characters TypeScript's completion API actually accepts.
+ *
+ * Typed as the union so tsc checks every entry against TypeScript's own type:
+ * if a future version drops one, this stops compiling rather than silently
+ * passing a character that throws. Declared as a ReadonlySet<string> so it can
+ * be asked about an arbitrary string.
+ */
+const TS_TRIGGER_CHARACTERS: ReadonlySet<string> = new Set<ts.CompletionsTriggerCharacter>([
+    '.', '"', "'", '`', '/', '@', '<', '#', ' ',
+]);
+
+/**
+ * True when TypeScript's completion API understands `ch` as a trigger.
+ *
+ * VS Code hands a provider whichever of ITS OWN registered trigger characters
+ * the user typed, and that set is deliberately wider: '(' is registered so the
+ * suggestion list reopens on a call. TypeScript's isValidTrigger has no case
+ * for '(' and ends at `Debug.assertNever`, whose fail() runs a `debugger;`
+ * statement and then throws — so one '(' typed in a <script> block halts a
+ * debug session outright and, outside one, loses the completion list to a catch.
+ *
+ * Dropping an unknown character to undefined is also the behaviour we want:
+ * that asks for a plain position-based list, which is what should appear after
+ * '(' anyway.
+ */
+export function isTsTriggerCharacter(
+    ch: string | undefined,
+): ch is ts.CompletionsTriggerCharacter {
+    return ch !== undefined && TS_TRIGGER_CHARACTERS.has(ch);
+}
+
+/** A range of the real document, in offsets. */
+export interface DocumentSpan { start: number; end: number; }
+
+/**
+ * Maps a span reported by the language service back into the document.
+ *
+ * Returns undefined when the span is not part of the document at all, which is
+ * the common case and not an error: the virtual file begins with a generated
+ * preamble (the ambient `_asp` values, the cross-frame names, the VBScript
+ * constants), and the service also answers with positions in lib.dom.d.ts and
+ * in the ambient declarations. None of those are places a reader can be sent or
+ * an edit can be applied, so every caller has to drop them.
+ */
+export function toDocumentSpan(
+    fileName:       string,
+    textSpan:       ts.TextSpan,
+    preambleLength: number,
+): DocumentSpan | undefined {
+    if (fileName !== VIRTUAL_FILENAME) { return undefined; }
+    const start = textSpan.start - preambleLength;
+    if (start < 0) { return undefined; }
+    return { start, end: start + textSpan.length };
+}
+
 export class JsLanguageService implements vscode.Disposable {
     private readonly _service:         ts.LanguageService;
     private readonly _compilerOptions: ts.CompilerOptions;
@@ -682,145 +830,17 @@ export class JsLanguageService implements vscode.Disposable {
     }
 
     /**
-     * Ambient DOM/ASP declarations fed to the language service as a second
+     * Ambient browser declarations served to the language service as a second
      * virtual file.
      *
-     * These are kept inline rather than in a `.d.ts` on disk on purpose. The old
-     * code read `<extensionPath>/utils/asp-dom.d.ts` at startup and fell back to
-     * this when it was missing — which it always was: tsc does not copy a `.d.ts`
-     * input into outDir, and `.vscodeignore` excludes `src/**` from the package,
-     * so the file shipped nowhere and the fallback ran every time. Editing that
-     * file changed nothing, which is a trap worth not leaving lying around.
+     * The single source of truth is src/utils/asp-dom.d.ts — a real declaration
+     * file, so tsc type-checks it as part of the build and a clash with
+     * lib.dom.d.ts fails the compile instead of silently doing nothing here.
+     * `npm run compile` bakes it into aspDomTypes.generated.ts, so there is no
+     * runtime file read and nothing can go missing from the package.
      */
     private aspDomTypes(): string {
-        return `
-    // Augment the standard HTMLElement interface directly so that Classic ASP
-    // inline scripts can call element-specific members (.submit(), .value,
-    // .selectedIndex, etc.) without type errors — exactly like plain .html files,
-    // where the HTML language service never enforces specific element subtypes.
-    // All members are optional so existing HTMLElement usage is unaffected.
-    // The Document interface is intentionally left untouched; getElementById /
-    // querySelector already return HTMLElement | null in lib.dom.d.ts.
-    interface HTMLElement {
-
-        // ── HTMLFormElement ───────────────────────────────────────────────────
-        submit?():          void;
-        reset?():           void;
-        checkValidity?():   boolean;
-        reportValidity?():  boolean;
-        elements?:          HTMLFormControlsCollection;
-        action?:            string;
-        method?:            string;
-        enctype?:           string;
-        encoding?:          string;
-        noValidate?:        boolean;
-
-        // ── HTMLInputElement / HTMLTextAreaElement ────────────────────────────
-        // value is string|number to stay compatible with HTMLLIElement /
-        // HTMLMeterElement / HTMLProgressElement which declare value as number.
-        value?:             string | number;
-        defaultValue?:      string;
-        checked?:           boolean;
-        defaultChecked?:    boolean;
-        indeterminate?:     boolean;
-        placeholder?:       string;
-        readOnly?:          boolean;
-        required?:          boolean;
-        maxLength?:         number;
-        minLength?:         number;
-        // max / min are string|number: string on input[type=date/number], number on HTMLMeterElement.
-        max?:               string | number;
-        min?:               string | number;
-        step?:              string;
-        pattern?:           string;
-        multiple?:          boolean;
-        accept?:            string;
-        files?:             FileList | null;
-        selectionStart?:    number | null;
-        selectionEnd?:      number | null;
-        // readonly: HTMLTextAreaElement and others declare both readonly.
-        readonly validity?:          ValidityState;
-        readonly validationMessage?: string;
-        select?():            void;
-        setSelectionRange?(start: number | null, end: number | null, direction?: string): void;
-        setCustomValidity?(error: string): void;
-
-        // ── HTMLSelectElement ─────────────────────────────────────────────────
-        selectedIndex?:   number;
-        // readonly HTMLCollectionOf<HTMLOptionElement>: matches HTMLDataListElement exactly.
-        // HTMLSelectElement.options (HTMLOptionsCollection) extends HTMLCollectionOf so it's compatible.
-        readonly options?:         HTMLCollectionOf<HTMLOptionElement>;
-        selectedOptions?: HTMLCollectionOf<HTMLOptionElement>;
-        // size is string|number: number on HTMLSelectElement, string on HTMLFontElement/HTMLHRElement.
-        size?:            string | number;
-
-        // ── HTMLOptionElement ─────────────────────────────────────────────────
-        selected?:  boolean;
-        label?:     string;
-        text?:      string;
-        index?:     number;
-
-        // ── HTMLImageElement ──────────────────────────────────────────────────
-        naturalWidth?:  number;
-        naturalHeight?: number;
-        complete?:      boolean;
-        currentSrc?:    string;
-
-        // ── HTMLTableElement ──────────────────────────────────────────────────
-        insertRow?(index?: number):  HTMLTableRowElement;
-        deleteRow?(index: number):   void;
-        createTHead?():              HTMLTableSectionElement;
-        createTFoot?():              HTMLTableSectionElement;
-        createTBody?():              HTMLTableSectionElement;
-        deleteTHead?():              void;
-        deleteTFoot?():              void;
-        // string | number | HTMLCollectionOf<...>:
-        //   HTMLFrameSetElement → string, HTMLTextAreaElement → number, HTMLTableElement → HTMLCollectionOf
-        rows?:                       string | number | HTMLCollectionOf<HTMLTableRowElement>;
-        tHead?:                      HTMLTableSectionElement | null;
-        tFoot?:                      HTMLTableSectionElement | null;
-        tBodies?:                    HTMLCollectionOf<HTMLTableSectionElement>;
-        caption?:                    HTMLTableCaptionElement | null;
-
-        // ── HTMLTableRowElement ───────────────────────────────────────────────
-        insertCell?(index?: number): HTMLTableCellElement;
-        deleteCell?(index: number):  void;
-        cells?:                      HTMLCollectionOf<HTMLTableCellElement>;
-        rowIndex?:                   number;
-        sectionRowIndex?:            number;
-
-        // ── HTMLTableCellElement ──────────────────────────────────────────────
-        colSpan?:   number;
-        rowSpan?:   number;
-        cellIndex?: number;
-        abbr?:      string;
-        scope?:     string;
-
-        // ── HTMLMediaElement (video / audio) ──────────────────────────────────
-        play?():    Promise<void>;
-        pause?():   void;
-        canPlayType?(type: string): CanPlayTypeResult;
-        paused?:    boolean;
-        ended?:     boolean;
-        volume?:    number;
-        currentTime?: number;
-        duration?:  number;
-
-        // ── HTMLCanvasElement ─────────────────────────────────────────────────
-        toDataURL?(type?: string, quality?: any): string;
-        toBlob?(callback: BlobCallback, type?: string, quality?: any): void;
-
-        // ── HTMLIFrameElement ─────────────────────────────────────────────────
-        contentDocument?: Document | null;
-        contentWindow?:   WindowProxy | null;
-
-        // ── HTMLButtonElement ─────────────────────────────────────────────────
-        formAction?:     string;
-        formMethod?:     string;
-        formTarget?:     string;
-        formNoValidate?: boolean;
-    }
-    `;
+        return ASP_DOM_TYPES;
     }
 
     updateContent(content: string): void {
@@ -836,7 +856,7 @@ export class JsLanguageService implements vscode.Disposable {
     getCompletions(offset: number, trigger?: string): ts.CompletionInfo | undefined {
         try {
             return this._service.getCompletionsAtPosition(VIRTUAL_FILENAME, offset, {
-                triggerCharacter:                         trigger as ts.CompletionsTriggerCharacter | undefined,
+                triggerCharacter:                         isTsTriggerCharacter(trigger) ? trigger : undefined,
                 includeCompletionsWithInsertText:         true,
                 includeCompletionsForModuleExports:       false,
                 includeAutomaticOptionalChainCompletions: true,
@@ -855,6 +875,60 @@ export class JsLanguageService implements vscode.Disposable {
     getQuickInfo(offset: number): ts.QuickInfo | undefined {
         try { return this._service.getQuickInfoAtPosition(VIRTUAL_FILENAME, offset) ?? undefined; }
         catch { return undefined; }
+    }
+
+    getDefinitions(offset: number): readonly ts.DefinitionInfo[] {
+        try { return this._service.getDefinitionAtPosition(VIRTUAL_FILENAME, offset) ?? []; }
+        catch { return []; }
+    }
+
+    getReferences(offset: number): readonly ts.ReferenceEntry[] {
+        try { return this._service.getReferencesAtPosition(VIRTUAL_FILENAME, offset) ?? []; }
+        catch { return []; }
+    }
+
+    getDocumentHighlights(offset: number): readonly ts.DocumentHighlights[] {
+        try {
+            return this._service.getDocumentHighlights(
+                VIRTUAL_FILENAME, offset, [VIRTUAL_FILENAME],
+            ) ?? [];
+        } catch { return []; }
+    }
+
+    /**
+     * Quick fixes TypeScript offers for `errorCodes` over the given span.
+     *
+     * The empty formatting options and preferences are deliberate: every fix
+     * that matters for a Classic ASP page rewrites an identifier in place
+     * ("did you mean getElementById?"), so there is no inserted block whose
+     * indentation would need to match the file.
+     */
+    getCodeFixes(
+        start:      number,
+        end:        number,
+        errorCodes: number[],
+    ): readonly ts.CodeFixAction[] {
+        try {
+            return this._service.getCodeFixesAtPosition(
+                VIRTUAL_FILENAME, start, end, errorCodes, {}, {},
+            ) ?? [];
+        } catch { return []; }
+    }
+
+    getRenameInfo(offset: number): ts.RenameInfo | undefined {
+        try {
+            return this._service.getRenameInfo(VIRTUAL_FILENAME, offset, {
+                providePrefixAndSuffixTextForRename: false,
+            });
+        } catch { return undefined; }
+    }
+
+    findRenameLocations(offset: number): readonly ts.RenameLocation[] {
+        try {
+            return this._service.findRenameLocations(
+                VIRTUAL_FILENAME, offset, false, false, { providePrefixAndSuffixTextForRename: false },
+            ) ?? [];
+        } catch { return []; }
     }
 
     getSignatureHelp(offset: number): ts.SignatureHelpItems | undefined {

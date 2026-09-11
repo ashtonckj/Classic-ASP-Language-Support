@@ -445,6 +445,36 @@ export function getVbScriptBlockRanges(text: string): Array<{ start: number; end
     return ranges;
 }
 
+/**
+ * Body ranges of every real `<style>` block. The range spans the text between
+ * the opening tag's `>` and the `</style>` (exclusive), or end-of-file for an
+ * unclosed block.
+ *
+ * isInsideCssBlock walks the same scan to answer about a single offset; this
+ * exposes the ranges themselves, for callers that have to visit every block
+ * rather than probe one position — the colour decorators, for one.
+ */
+export function getCssBlockRanges(text: string): Array<{ start: number; end: number }> {
+    const ranges: Array<{ start: number; end: number }> = [];
+    let searchFrom = 0;
+
+    while (true) {
+        const styleOpen = findNextRealTag(text, '<style', searchFrom);
+        if (styleOpen === -1) { break; }
+
+        const styleTagEnd = findTagEnd(text, styleOpen);
+        if (styleTagEnd === -1) { break; }
+
+        const { index: styleClose, length: closeLen } = findClosingTag(text, 'style', styleTagEnd + 1);
+        ranges.push({ start: styleTagEnd + 1, end: styleClose === -1 ? text.length : styleClose });
+
+        if (styleClose === -1) { break; }
+        searchFrom = styleClose + closeLen;
+    }
+
+    return ranges;
+}
+
 export function getZone(fullText: string, offset: number): Zone {
     // 1. ASP zone — <% ... %> blocks
     if (isInsideAspBlock(fullText, offset)) { return 'asp'; }

@@ -100,4 +100,77 @@ suite('Enter / Tab handlers (integration)', () => {
         assert.strictEqual(lines[1], 'If x = 1 Then');
         assert.strictEqual(lines[2], '    ');   // body indented one level
     });
+
+    // A plain .js file gets JSDoc continuation from the TypeScript extension's
+    // own onEnterRules; a <script> block in an ASP page had no such rules of
+    // its own until now.
+    test('Enter right after /** in a <script> block opens the JSDoc skeleton', async () => {
+        const editor = await openAsp('<script>\n    /**\n</script>');
+        const eol = editor.document.lineAt(1).text.length; // end of "    /**"
+        setCursor(editor, 1, eol);
+
+        await runAndWait(editor, 'asp.insertLineBreak');
+
+        const lines = editor.document.getText().split(/\r?\n/);
+        assert.strictEqual(lines[1], '    /**');
+        assert.strictEqual(lines[2], '     * ');   // caret line, star aligned under /**
+        assert.strictEqual(lines[3], '     */');
+        assert.strictEqual(editor.selection.active.line, 2);
+        assert.strictEqual(editor.selection.active.character, 7);
+    });
+
+    test('Enter right after /** when a */ already follows splits onto three lines', async () => {
+        // The shape produced by auto-closing `/*` to `/**/` and then typing a
+        // second `*` right after it: opener "/**" immediately followed by "*/",
+        // caret sitting exactly between the two.
+        const opener = '    /**';
+        const closer = '*/';
+        const editor = await openAsp(`<script>\n${opener}${closer}\n</script>`);
+        setCursor(editor, 1, opener.length);
+
+        await runAndWait(editor, 'asp.insertLineBreak');
+
+        const lines = editor.document.getText().split(/\r?\n/);
+        assert.strictEqual(lines[1], '    /**');
+        assert.strictEqual(lines[2], '     * ');
+        assert.strictEqual(lines[3], '     */');
+    });
+
+    test('Enter on an existing JSDoc line continues the star column', async () => {
+        const editor = await openAsp('<script>\n    /**\n     * First line\n     */\n</script>');
+        const eol = editor.document.lineAt(2).text.length; // end of "     * First line"
+        setCursor(editor, 2, eol);
+
+        await runAndWait(editor, 'asp.insertLineBreak');
+
+        const lines = editor.document.getText().split(/\r?\n/);
+        assert.strictEqual(lines[3], '     * ');   // continues at the same star column
+        assert.strictEqual(lines[4], '     */');   // the original closer, untouched
+        assert.strictEqual(editor.selection.active.line, 3);
+        assert.strictEqual(editor.selection.active.character, 7);
+    });
+
+    test('Enter on a bare * continuation line (no trailing text) still continues', async () => {
+        const editor = await openAsp('<script>\n    /**\n     *\n     */\n</script>');
+        setCursor(editor, 2, editor.document.lineAt(2).text.length);
+
+        await runAndWait(editor, 'asp.insertLineBreak');
+
+        const lines = editor.document.getText().split(/\r?\n/);
+        assert.strictEqual(lines[3], '     * ');
+    });
+
+    // JSDoc continuation is JS-specific; a plain block comment in VBScript
+    // doesn't exist (VBScript has no /* */ at all — '/**' there is just two
+    // operators, division and multiplication), so it must never fire outside
+    // a <script> block.
+    test('/** in a VBScript block is left to the ordinary ASP indent rules', async () => {
+        const editor = await openAsp('<%\n    x = 1 /**\n%>');
+        setCursor(editor, 1, editor.document.lineAt(1).text.length);
+
+        await runAndWait(editor, 'asp.insertLineBreak');
+
+        const lines = editor.document.getText().split(/\r?\n/);
+        assert.ok(!lines[2].includes('*'), `must not add JSDoc stars in VBScript; got ${JSON.stringify(lines[2])}`);
+    });
 });
