@@ -1,6 +1,23 @@
 import * as vscode from "vscode";
 import { getAspRegions } from "./utils/region";
 
+/**
+ * True when at least one selection in the editor covers real text.
+ *
+ * A TextEditorDecorationType's backgroundColor is painted on the same layer as
+ * the text itself, above VS Code's own selection highlight — so a codeBlock
+ * colour with enough opacity (a user's own, more visible choice, not this
+ * extension's subtle default) makes a selection inside it disappear. There is
+ * no way to ask the renderer to draw decorations behind the selection instead,
+ * so the fix is to stop painting the decoration wherever a selection exists.
+ *
+ * Typed against a minimal shape rather than vscode.Selection so it can be unit
+ * tested without any of the editor machinery around it.
+ */
+export function hasNonEmptySelection(selections: readonly { isEmpty: boolean }[]): boolean {
+    return selections.some(selection => !selection.isEmpty);
+}
+
 export function addRegionHighlights(context: vscode.ExtensionContext) {
     // Declare all variables at the top of the function
     let timeout: NodeJS.Timeout | null = null;
@@ -8,12 +25,26 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
     let codeBlockDecorationType: vscode.TextEditorDecorationType;
     let configurationDidChange = false;
 
+    // The last regions a real document scan produced. Selection changes fire
+    // far more often than the document does — continuously while dragging —
+    // so toggling visibility replays these cached ranges rather than rescanning.
+    let lastBrackets: vscode.Range[] = [];
+    let lastBlocks: vscode.Range[] = [];
+
     let activeEditor = vscode.window.activeTextEditor;
     if (activeEditor) triggerUpdateDecorations();
 
     vscode.window.onDidChangeActiveTextEditor((editor) => {
         activeEditor = editor;
         if (editor) triggerUpdateDecorations();
+    }, null, context.subscriptions);
+
+    // Hides the decorations while a selection would be painted over, and
+    // restores them the moment every selection collapses back to a caret.
+    vscode.window.onDidChangeTextEditorSelection((event) => {
+        if (activeEditor && event.textEditor === activeEditor) {
+            applyDecorations();
+        }
     }, null, context.subscriptions);
 
     vscode.workspace.onDidChangeConfiguration(() => {
@@ -41,6 +72,19 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
     function triggerUpdateDecorations() {
         if (timeout) clearTimeout(timeout);
         timeout = setTimeout(updateDecorations, 200);
+    }
+
+    /**
+     * Paints the last computed regions, unless a selection would be painted
+     * over — in which case it paints nothing instead. Cheap enough to run on
+     * every selection-change event, since it never rescans the document.
+     */
+    function applyDecorations() {
+        if (!activeEditor || !bracketDecorationType || !codeBlockDecorationType) { return; }
+
+        const hide = hasNonEmptySelection(activeEditor.selections);
+        activeEditor.setDecorations(bracketDecorationType, hide ? [] : lastBrackets);
+        activeEditor.setDecorations(codeBlockDecorationType, hide ? [] : lastBlocks);
     }
 
     function setDecorationTypes(config: vscode.WorkspaceConfiguration) {
@@ -83,6 +127,8 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
 
         // Switching the feature off must actively clear what is already painted.
         if (!highlightAspRegions) {
+            lastBrackets = [];
+            lastBlocks   = [];
             activeEditor.setDecorations(bracketDecorationType, []);
             activeEditor.setDecorations(codeBlockDecorationType, []);
             return;
@@ -99,11 +145,14 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
             brackets.push(region.closingBracket);
         }
 
-        // Always call setDecorations, even with empty arrays. Returning early on
-        // an empty region list left the PREVIOUS run's tint painted over whatever
-        // text had shifted into those lines — delete the last <% %> block and the
-        // highlight stayed behind until the editor was switched away and back.
-        activeEditor.setDecorations(bracketDecorationType, brackets);
-        activeEditor.setDecorations(codeBlockDecorationType, blocks);
+        // Cached so a later selection change can toggle visibility without
+        // rescanning the document. Always assigned, even when empty — returning
+        // early on an empty region list left the PREVIOUS run's tint painted over
+        // whatever text had shifted into those lines — delete the last <% %>
+        // block and the highlight stayed behind until the editor was switched
+        // away and back.
+        lastBrackets = brackets;
+        lastBlocks   = blocks;
+        applyDecorations();
     }
 }
