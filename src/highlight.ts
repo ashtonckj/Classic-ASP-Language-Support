@@ -14,60 +14,46 @@ function maxPos(a: Pos, b: Pos): Pos { return comparePos(a, b) >= 0 ? a : b; }
 function minPos(a: Pos, b: Pos): Pos { return comparePos(a, b) <= 0 ? a : b; }
 
 /**
- * Splits `range` into the parts no current selection touches, and the parts
- * that overlap a selection.
+ * The parts of `range` that a current selection covers.
  *
  * A TextEditorDecorationType's backgroundColor is painted on the same layer as
  * the text itself, above VS Code's own selection highlight — so a codeBlock
  * colour with enough opacity (a user's own, more visible choice, not this
  * extension's subtle default) made a selection inside it disappear, because
- * the ASP tint painted right over it. There is no way to ask the renderer to
- * draw a decoration behind the selection instead.
+ * the ASP tint painted right over it, and the native selection sits beneath
+ * every decoration with no way to change that.
  *
- * Rather than hiding the whole region — or worse, every region in the file —
- * the moment ANY selection exists anywhere, this carves out just the part that
- * actually overlaps a selection. That part is later given its own decoration
- * using the theme's real selection colour (see SELECTION_OVERLAY below), so it
- * still reads as a normal selection; everything else keeps its ASP tint,
- * including every other <% %> block in the file that the selection never
- * touches.
+ * Rather than removing the ASP tint wherever a selection overlaps it — which
+ * loses the "this is ASP code" cue for exactly the text someone is looking at,
+ * and is a bad trade for anyone who spends most of their time selecting text
+ * inside <% %> blocks — the overlap is given its OWN decoration, using the
+ * theme's real selection colour (see the selectionOverlay type below),
+ * layered on top of the tint rather than in place of it. Two translucent
+ * layers on the same characters blend, so the result carries both signals:
+ * still tinted as ASP code, and visibly selected. The tint itself is always
+ * painted in full, everywhere, regardless of any selection.
  *
  * Written against a minimal structural shape rather than vscode.Range/Position
  * so it can be unit tested without any editor machinery, and works unchanged
  * whether it is handed real vscode objects or plain {line, character} data.
  */
-export function splitByOverlap(
+export function overlapWithSelections(
     range: SimpleRange,
     selections: readonly SimpleRange[],
-): { unselected: SimpleRange[]; selected: SimpleRange[] } {
-    let remaining: SimpleRange[] = [{ start: range.start, end: range.end }];
-    const selected: SimpleRange[] = [];
+): SimpleRange[] {
+    const overlaps: SimpleRange[] = [];
 
     for (const selection of selections) {
         if (comparePos(selection.start, selection.end) === 0) { continue; } // an empty selection covers nothing
 
-        const next: SimpleRange[] = [];
-        for (const piece of remaining) {
-            const overlapStart = maxPos(piece.start, selection.start);
-            const overlapEnd   = minPos(piece.end, selection.end);
-
-            if (comparePos(overlapStart, overlapEnd) >= 0) {
-                next.push(piece); // no overlap with this selection
-                continue;
-            }
-
-            selected.push({ start: overlapStart, end: overlapEnd });
-            if (comparePos(piece.start, overlapStart) < 0) {
-                next.push({ start: piece.start, end: overlapStart }); // the part before the overlap
-            }
-            if (comparePos(overlapEnd, piece.end) < 0) {
-                next.push({ start: overlapEnd, end: piece.end }); // the part after the overlap
-            }
+        const start = maxPos(range.start, selection.start);
+        const end   = minPos(range.end, selection.end);
+        if (comparePos(start, end) < 0) {
+            overlaps.push({ start, end });
         }
-        remaining = next;
     }
 
-    return { unselected: remaining, selected };
+    return overlaps;
 }
 
 /** True when at least one selection in the editor covers real text. */
@@ -80,9 +66,10 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
     let timeout: NodeJS.Timeout | null = null;
     let bracketDecorationType: vscode.TextEditorDecorationType;
     let codeBlockDecorationType: vscode.TextEditorDecorationType;
-    // Stands in for the part of a region a selection covers, using the theme's
-    // own selection colour rather than this extension's ASP tint — see
-    // splitByOverlap for why the tint cannot simply be layered under it.
+    // Painted on top of the ASP tint, over exactly the part of a region a
+    // selection covers, using the theme's own selection colour — see
+    // overlapWithSelections for why this layers over the tint rather than
+    // replacing it.
     let selectionOverlayDecorationType: vscode.TextEditorDecorationType;
     let configurationDidChange = false;
 
@@ -100,9 +87,8 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
         if (editor) triggerUpdateDecorations();
     }, null, context.subscriptions);
 
-    // Re-splits the cached regions against the new selection state, and
-    // restores plain ASP tinting the moment every selection collapses back to
-    // a caret.
+    // Re-checks the cached regions against the new selection state, and clears
+    // the overlay the moment every selection collapses back to a caret.
     vscode.window.onDidChangeTextEditorSelection((event) => {
         if (activeEditor && event.textEditor === activeEditor) {
             applyDecorations();
@@ -145,42 +131,30 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
     }
 
     /**
-     * Paints the last computed regions, splitting each one against the current
-     * selections so only the part a selection actually covers switches to the
-     * selection-coloured overlay — every other part, and every region the
-     * selection never touches, keeps its normal ASP tint. Cheap enough to run
-     * on every selection-change event, since it never rescans the document.
+     * Paints the last computed regions in full — the ASP tint is never removed
+     * by a selection — then adds the selection-coloured overlay on top of
+     * whatever part of those regions a selection actually covers. Cheap enough
+     * to run on every selection-change event, since it never rescans the
+     * document and the overlap check only visits the (typically small) list of
+     * cached regions, not the whole file.
      */
     function applyDecorations() {
         if (!activeEditor || !bracketDecorationType || !codeBlockDecorationType
             || !selectionOverlayDecorationType) { return; }
 
-        const selections = activeEditor.selections.filter(s => !s.isEmpty);
+        activeEditor.setDecorations(bracketDecorationType, lastBrackets);
+        activeEditor.setDecorations(codeBlockDecorationType, lastBlocks);
 
+        const selections = activeEditor.selections.filter(s => !s.isEmpty);
         if (selections.length === 0) {
-            activeEditor.setDecorations(bracketDecorationType, lastBrackets);
-            activeEditor.setDecorations(codeBlockDecorationType, lastBlocks);
             activeEditor.setDecorations(selectionOverlayDecorationType, []);
             return;
         }
 
-        const brackets: vscode.Range[] = [];
-        const blocks:   vscode.Range[] = [];
-        const overlay:  vscode.Range[] = [];
-
-        for (const range of lastBrackets) {
-            const split = splitByOverlap(range, selections);
-            brackets.push(...toVsRanges(split.unselected));
-            overlay.push(...toVsRanges(split.selected));
+        const overlay: vscode.Range[] = [];
+        for (const range of [...lastBrackets, ...lastBlocks]) {
+            overlay.push(...toVsRanges(overlapWithSelections(range, selections)));
         }
-        for (const range of lastBlocks) {
-            const split = splitByOverlap(range, selections);
-            blocks.push(...toVsRanges(split.unselected));
-            overlay.push(...toVsRanges(split.selected));
-        }
-
-        activeEditor.setDecorations(bracketDecorationType, brackets);
-        activeEditor.setDecorations(codeBlockDecorationType, blocks);
         activeEditor.setDecorations(selectionOverlayDecorationType, overlay);
     }
 
@@ -246,11 +220,12 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
             brackets.push(region.closingBracket);
         }
 
-        // Cached so a later selection change can re-split without rescanning the
-        // document. Always assigned, even when empty — returning early on an
-        // empty region list left the PREVIOUS run's tint painted over whatever
-        // text had shifted into those lines — delete the last <% %> block and
-        // the highlight stayed behind until the editor was switched away and back.
+        // Cached so a later selection change can recheck the overlay without
+        // rescanning the document. Always assigned, even when empty — returning
+        // early on an empty region list left the PREVIOUS run's tint painted
+        // over whatever text had shifted into those lines — delete the last
+        // <% %> block and the highlight stayed behind until the editor was
+        // switched away and back.
         lastBrackets = brackets;
         lastBlocks   = blocks;
         applyDecorations();

@@ -5,11 +5,12 @@ import * as vscode from 'vscode';
 // backgroundColor is painted on the same layer as the text, above VS Code's own
 // selection highlight. With a visible-enough ASP-region colour, selecting text
 // inside a <% %> block made the selection disappear — the decoration painted
-// right over it. The fix (highlight.ts, splitByOverlap) carves each region into
-// the part a selection covers — which gets the theme's real selection colour
-// instead, so it still reads as a normal selection — and the part it doesn't,
-// which keeps its ASP tint. A selection elsewhere in the file never touches
-// regions it doesn't overlap.
+// right over it. The ASP tint is now always painted in full, everywhere, and a
+// second decoration (highlight.ts, overlapWithSelections) using the theme's own
+// selection colour is layered ON TOP of it over just the part a selection
+// covers — the two translucent layers blend, so the result still reads as
+// tinted ASP code AND as a normal selection, rather than either signal
+// replacing the other. A selection never affects a region it doesn't overlap.
 //
 // What this suite can and cannot prove. `TextEditor.setDecorations` is a frozen
 // own property on the real editor object — `writable: false, configurable:
@@ -21,7 +22,7 @@ import * as vscode from 'vscode';
 // event doesn't destabilise the editor — the real risk of that design, since
 // dragging a selection fires the event continuously.
 //
-// The splitting logic itself is covered directly and exhaustively — every
+// The overlap logic itself is covered directly and exhaustively — every
 // overlap shape, multi-cursor, and bracket-sized ranges — in
 // src/test/unit/highlight.test.ts.
 

@@ -16,31 +16,33 @@
      "aspLanguageSupport.codeBlockDarkColor":  "rgba(255, 0, 0, 0.5)",
 
    HOW THE FIX WORKS (so you know what "correct" looks like)
-     Only the exact characters you select switch away from the ASP tint — they
-     get the theme's own selection colour instead, so that stretch looks like a
-     completely normal selection. Everything else keeps its tint: the rest of
-     the SAME <% %> block before/after your selection, and every OTHER <% %>
-     block in the file, whether or not you are currently selecting something
-     elsewhere. The tint is never hidden document-wide just because a selection
-     exists somewhere.
+     The ASP tint is now ALWAYS painted in full, everywhere — a selection never
+     removes it. The characters you actually select ALSO get the theme's own
+     selection colour, layered on top of the tint. Two translucent colours on
+     the same text blend, so the selected stretch should look like BOTH at
+     once: still tinted red, but visibly selected too — not a plain, flat
+     selection with no red in it, and not red with no visible selection either.
+     How strongly each one shows through depends on your theme's own selection
+     colour (some themes use a fairly opaque one, some a light one), but both
+     should be perceptible together.
 
    WHAT TO LOOK FOR
      1. With the colour above set, click inside the FIRST <% %> block and drag
-        to select part of the VBScript. The dragged-over text must look like a
-        normal selection the whole time — not swallowed by the red tint.
+        to select part of the VBScript. The dragged-over text should look
+        selected AND still carry a hint of the red tint — not a plain selection
+        with the red gone, and not just red with the selection invisible.
      2. Look at the rest of that SAME block, outside your selection: it must
-        still be tinted red, undisturbed.
-     3. Click once to collapse back to a caret: the tint should reappear over
-        the exact characters you had selected, immediately.
+        still be tinted red, exactly as strongly as before you started
+        selecting.
+     3. Click once to collapse back to a caret: the selection overlay should
+        disappear immediately, leaving the plain red tint behind, unchanged.
      4. Now select something inside the SECOND <% %> block instead. The FIRST
-        block must still be fully tinted, completely unaffected — this is the
-        part that was wrong before: selecting anywhere used to blank out every
-        <% %> block in the whole file, not just the one you were touching.
+        block must still be fully tinted, completely unaffected.
      5. Multi-cursor: Alt-click a second cursor into the block, then
         shift-click to extend just ONE of the two cursors into a selection.
-        Only the actually-selected stretch should lose its tint; the rest of
-        the block, including text right next to your OTHER cursor, stays
-        tinted.
+        Only the actually-selected stretch should show the selection overlay;
+        the rest of the block, including text right next to your OTHER cursor,
+        stays plain red.
      6. Selecting text OUTSIDE any <% %> block (the <div> below) is unaffected,
         since there was never a tint there to conflict with.
 
