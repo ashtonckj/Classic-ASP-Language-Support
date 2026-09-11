@@ -823,6 +823,26 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
 
 // ── Enter key handler ──────────────────────────────────────────────────────
 
+// A continuation line inside a JSDoc block: optional indent, then a star,
+// then anything.
+const JSDOC_CONTINUATION_LINE = /^\s*\*(\s.*)?$/;
+
+// True when `previousLineText` is the kind of line a JSDoc continuation can
+// follow — the block's opener, or an earlier star-prefixed line — and that
+// line has not also closed the comment already.
+//
+// Deliberately line-local rather than a real scan for the matching opener:
+// this is the same shape VS Code's own built-in onEnterRules use for every
+// other language's block comments (checking only the current and previous
+// line, not tokenizing the whole file), which keeps a rare misfire — some
+// line that merely starts with a star, coincidentally, right below an
+// unrelated comment — a cosmetic one-off rather than a reason to lex the
+// surrounding code.
+export function continuesOpenJsDocComment(previousLineText: string): boolean {
+    if (/\*\/\s*$/.test(previousLineText)) { return false; } // already closed on that line
+    return /^\s*(\/\*\*|\*)/.test(previousLineText);
+}
+
 export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
     const disposable = vscode.commands.registerCommand('asp.insertLineBreak', () => {
         const editor = vscode.window.activeTextEditor;
@@ -864,6 +884,46 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         }
 
         const zone = getZone(fullText, document.offsetAt(position));
+
+        // ── JSDoc continuation ───────────────────────────────────────────
+        // A plain .js file gets this from the TypeScript extension's own
+        // onEnterRules; a <script> block in an ASP page has no such rules of
+        // its own, so `/**` + Enter just left a bare newline at the same
+        // indent, and pressing Enter on a `* ...` line did not continue the
+        // star column either.
+        if (zone === 'js') {
+            // Starting a brand-new block: the line up to the cursor is exactly
+            // `/**`, with nothing else before it.
+            if (textBefore.trim() === '/**') {
+                const rest = textAfter.trim();
+                if (rest === '' || rest === '*/') {
+                    // `/**|` or `/**|*/` — either way, expand to the standard
+                    // three-line skeleton and drop the caret on the middle line.
+                    editor.edit(eb => {
+                        eb.replace(
+                            new vscode.Range(position, new vscode.Position(position.line, line.text.length)),
+                            `\n${indent} * \n${indent} */`,
+                        );
+                    }).then(() => {
+                        const p = new vscode.Position(position.line + 1, indent.length + 3);
+                        editor.selection = new vscode.Selection(p, p);
+                    });
+                    return;
+                }
+            }
+
+            // Continuing an existing block: the line up to the cursor is just
+            // `*` (optionally followed by more text), and the line above is
+            // part of the same, still-open comment.
+            if (JSDOC_CONTINUATION_LINE.test(textBefore) && position.line > 0
+                && continuesOpenJsDocComment(document.lineAt(position.line - 1).text)) {
+                editor.edit(eb => eb.insert(position, `\n${indent}* `)).then(() => {
+                    const p = new vscode.Position(position.line + 1, indent.length + 2);
+                    editor.selection = new vscode.Selection(p, p);
+                });
+                return;
+            }
+        }
 
         // ── JS / CSS brace handling ─────────────────────────────────────
         // Pressing Enter right after `{` should open an indented block, matching a
