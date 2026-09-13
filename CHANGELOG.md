@@ -5,6 +5,56 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-09-13
+
+### ✨ Added
+- Go to Definition, Find All References, and Rename now work for JavaScript symbols inside `<script>` blocks, including across multiple blocks on the same page
+- Quick Fixes (Ctrl+.) for common JavaScript typos — a misspelt DOM, string, array, `Math`, or `JSON` member now offers the correct spelling
+- Colour swatches and the colour picker for CSS, both in `<style>` blocks and in `style=""` attributes
+- Emmet abbreviations (`ul>li*3`, `div.row`, …) are now available in Classic ASP pages — offered in the suggestion list while typing, and expandable directly with Tab, matching a plain `.html` file with no settings required
+- JSDoc comments (`/**`) now continue automatically on Enter inside a `<script>` block, matching a plain `.js` file
+
+### 🛠️ Fixed
+**JavaScript checking**
+- No longer flags common legacy IE-era DOM APIs (`attachEvent`, `document.all`, `event.srcElement`, and others) that Classic ASP pages routinely use
+- A function called across frames (declared on a parent page) is now recognised instead of reported as undefined
+- SQL string colouring now follows a variable correctly across one-line `<% %>` blocks
+- Typing `function(`, or leaving a class/method unfinished, no longer freezes the Outline or the whole Extension Development Host
+- Each embedded zone of a page (HTML, VBScript, CSS, JS) now gets its own comment-toggling rules instead of all inheriting VBScript's, and Toggle Block Comment inside `<% %>` no longer inserts invalid `<%-- --%>` (ASP.NET) syntax
+
+**Rename & navigation**
+- Rename is now limited to exactly the files and procedures that can actually see the symbol being renamed
+- A rename that reaches files beyond the current one is now reported to the user instead of happening silently
+- Fixed VBScript rename occurrences that were being silently skipped
+- Go to Definition now reads the target line from the live editor buffer instead of a stale copy
+
+**Formatter**
+- The `<%@ %>` directive is kept on one line when formatting, as IIS requires
+- A document's line endings (LF/CRLF) are now preserved when formatting
+- Structure scans used by the formatter are recomputed at format time instead of reusing a stale, debounced copy
+
+**HTML & CSS**
+- HTML attribute IntelliSense no longer stops working after a `>` appears inside an attribute value
+- A `style=""` attribute inside a JavaScript string is no longer validated as real CSS
+- A literal `<` in body text no longer swallows the next real `<script>`/`<style>` tag
+- The semantic colourer no longer treats a `<script>` tag written inside a comment as VBScript
+- Auto-closing a tag now closes it at every cursor, not just one
+- ASP region highlights are cleared correctly when the last `<% %>` block is deleted
+
+**Selection & highlighting**
+- **Fixed #74** - Selecting text inside a `<% %>` block no longer makes the selection invisible under the ASP region tint; the tint and the selection colour now layer together instead of one hiding the other, and a selection no longer affects the tint of regions elsewhere in the file
+( thanks to @ladis2000 - Bug report for #74 )
+
+### ⚡ Performance
+- Removed a quadratic scan from HTML structure diagnostics
+- Region decoration types are no longer recreated on every update
+- CSS validation is now skipped entirely for non-ASP documents
+
+### 🔄 Refactored
+- `asp-dom.d.ts` is now the single source of truth for the extension's DOM type declarations, type-checked as part of the build instead of living outside it
+
+---
+
 ## [0.6.0] - 2026-08-22
 
 ### 🛠️ Fixed
@@ -459,6 +509,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[0.6.1]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.1
 [0.6.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.0
 [0.5.5]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.5.5
 [0.5.4]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.5.4

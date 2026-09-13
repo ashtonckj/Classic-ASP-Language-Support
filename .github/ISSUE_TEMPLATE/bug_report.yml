@@ -6,80 +6,33 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to report a bug! Please fill in as much detail as you can.
-        Only **Description** is required — everything else is optional but helps a lot.
-
-  - type: input
-    id: extension-version
-    attributes:
-      label: Extension Version
-      description: Found in the Extensions panel in VS Code.
-      placeholder: e.g. v0.3.1
-    validations:
-      required: false
+        Thanks for reporting a bug! Just the description below is enough to get started —
+        everything else is optional, so add it only if it's easy to include.
 
   - type: textarea
     id: description
     attributes:
-      label: Description
-      description: A clear and concise summary of what the bug is.
-      placeholder: e.g. Auto-indentation incorrectly indents the closing tag when inner closing tags are missing.
+      label: What happened?
+      description: What did you do, what happened, and what did you expect instead? A code snippet or screenshot helps a lot if you have one.
+      placeholder: |
+        e.g. Typed `<%` inside a <script> block and pressed Enter — expected it to indent
+        the body, but instead it left the closing `}` unindented.
     validations:
       required: true
 
-  - type: textarea
-    id: current-behaviour
+  - type: input
+    id: extension-version
     attributes:
-      label: Current Behaviour
-      description: What is actually happening? Include a code snippet if relevant. (Optional)
-      placeholder: |
-        e.g. `End If` is indented to the inner `If` statement even though it is outside the `While` loop.
-
-        ```vbscript
-        If condition Then
-            While
-                If condition Then
-
-        Wend
-                End If
-        ```
-    validations:
-      required: false
-
-  - type: textarea
-    id: expected-behaviour
-    attributes:
-      label: Expected Behaviour
-      description: What should happen instead? Include a code snippet if relevant. (Optional)
-      placeholder: |
-        ```vbscript
-        If condition Then
-            While
-                If condition Then
-
-            Wend
-        End If
-        ```
-    validations:
-      required: false
-
-  - type: textarea
-    id: steps
-    attributes:
-      label: Steps to Reproduce
-      description: Step-by-step instructions to reliably reproduce the bug. (Optional)
-      placeholder: |
-        1. Open a `.asp` file
-        2. Type ...
-        3. Press Enter / trigger formatting
-        4. Observe the result
+      label: Extension Version (optional)
+      description: Found in the Extensions panel in VS Code.
+      placeholder: e.g. v0.6.0
     validations:
       required: false
 
   - type: textarea
     id: additional-context
     attributes:
-      label: Additional Context
-      description: Anything else that might be relevant — screenshots, related issues, workarounds, etc. (Optional)
+      label: Anything else? (optional)
+      description: Steps to reproduce, related issues, workarounds — whatever seems useful.
     validations:
       required: false
