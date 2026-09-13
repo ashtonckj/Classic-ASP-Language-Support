@@ -52,7 +52,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🔄 Refactored
 - `asp-dom.d.ts` is now the single source of truth for the extension's DOM type declarations, type-checked as part of the build instead of living outside it
-- Removed a type-definitions file that never actually loaded, unused helper functions, and stale/test-only compiled output from the packaged extension
 
 ---
 
