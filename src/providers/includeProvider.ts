@@ -542,6 +542,53 @@ export function resolveIncludePaths(documentText: string, documentPath: string, 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Default (implicit) includes
+// aspLanguageSupport.defaultIncludes lists files that many real apps only pull
+// in through a shared bootstrap/layout page — never through the module being
+// edited itself — so its symbols would otherwise be invisible to IntelliSense,
+// hover, Go to Definition, and Peek Definition. Resolved the same way as
+// #include virtual="..." (relative to virtualRoot, or the workspace root).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function getDefaultIncludePaths(documentPath: string): string[] {
+    const config    = vscode.workspace.getConfiguration('aspLanguageSupport');
+    const configured = config.get<string[]>('defaultIncludes', []);
+    if (configured.length === 0) return [];
+
+    const root = getVirtualRoot(documentPath);
+    const resolved: string[] = [];
+
+    for (const entry of configured) {
+        const fullPath = path.isAbsolute(entry)
+            ? entry
+            : path.join(root, entry.replace(/^[/\\]/, ''));
+        if (fs.existsSync(fullPath)) { resolved.push(fullPath); }
+    }
+
+    return resolved;
+}
+
+// Everything resolveIncludePaths finds via the document's own #include chain,
+// PLUS every configured default include (and, recursively, whatever those
+// files themselves #include) that the chain didn't already reach.
+export function resolveEffectiveIncludePaths(documentText: string, documentPath: string): string[] {
+    const visited  = new Set<string>();
+    const resolved = resolveIncludePaths(documentText, documentPath, visited);
+
+    for (const defaultPath of getDefaultIncludePaths(documentPath)) {
+        if (visited.has(defaultPath.toLowerCase())) continue;
+        resolved.push(defaultPath);
+
+        const text = readIncludeText(defaultPath);
+        if (text !== null) {
+            resolved.push(...resolveIncludePaths(text, defaultPath, visited));
+        }
+    }
+
+    return resolved;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Symbol collection
 // Merges symbols from the current document and all included files (all depths).
 // Results are cached by (filePath + documentVersion) and invalidated whenever
@@ -552,9 +599,10 @@ export function resolveIncludePaths(documentText: string, documentPath: string, 
 interface IncludeStamp { path: string; token: string; }
 
 interface SymbolCache {
-    version:       number;
-    symbols:       FileSymbols;
-    includeStamps: IncludeStamp[];
+    version:          number;
+    symbols:          FileSymbols;
+    includeStamps:    IncludeStamp[];
+    defaultIncludesKey: string;
 }
 
 const _symbolCache = new Map<string, SymbolCache>();
@@ -581,13 +629,22 @@ function includeStampsUnchanged(stamps: IncludeStamp[]): boolean {
 export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
     const docPath    = document.uri.fsPath;
     const docVersion = document.version;
+    const defaultIncludesKey = JSON.stringify(
+        vscode.workspace.getConfiguration('aspLanguageSupport').get<string[]>('defaultIncludes', []),
+    );
 
-    // A cache hit requires BOTH the document version AND every included file's
-    // token (open-buffer version, or disk mtime when not open) to be unchanged —
-    // otherwise editing a .inc (even unsaved) would leave the including document's
-    // merged symbols stale.
+    // A cache hit requires the document version, every included file's token
+    // (open-buffer version, or disk mtime when not open), AND the
+    // defaultIncludes setting to all be unchanged — otherwise editing a .inc
+    // (even unsaved), or editing the setting itself, would leave the including
+    // document's merged symbols stale.
     const cached = _symbolCache.get(docPath);
-    if (cached && cached.version === docVersion && includeStampsUnchanged(cached.includeStamps)) {
+    if (
+        cached
+        && cached.version === docVersion
+        && cached.defaultIncludesKey === defaultIncludesKey
+        && includeStampsUnchanged(cached.includeStamps)
+    ) {
         return cached.symbols;
     }
 
@@ -595,7 +652,7 @@ export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
     const combined = extractSymbols(fullText, docPath);
     const includeStamps: IncludeStamp[] = [];
 
-    for (const incPath of resolveIncludePaths(fullText, docPath)) {
+    for (const incPath of resolveEffectiveIncludePaths(fullText, docPath)) {
         // Stamp first so a currently-unreadable include still invalidates once it
         // appears or changes.
         includeStamps.push({ path: incPath, token: includeToken(incPath) });
@@ -610,7 +667,7 @@ export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
         combined.classes      .push(...incSymbols.classes);
     }
 
-    _symbolCache.set(docPath, { version: docVersion, symbols: combined, includeStamps });
+    _symbolCache.set(docPath, { version: docVersion, symbols: combined, includeStamps, defaultIncludesKey });
 
     // Evict stale entries for files no longer open to avoid unbounded growth
     const openPaths = new Set(vscode.workspace.textDocuments.map(d => d.uri.fsPath));

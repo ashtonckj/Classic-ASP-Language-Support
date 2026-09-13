@@ -1,0 +1,32 @@
+<!--
+    global.asa is NOT the same mechanism as the layout/#include pattern above,
+    and it would NOT fix this feature request even though it's also
+    "something every page implicitly gets."
+
+    IIS looks for exactly one file named global.asa, in the site root, and
+    runs specific subs in it in response to four lifecycle EVENTS — it is
+    never #included or pasted into anything:
+
+      Session_OnStart   - fires once per new user session
+      Session_OnEnd     - fires once that session expires
+      Application_OnStart - fires once when the app pool starts
+      Application_OnEnd  - fires once when it shuts down
+
+    Anything declared here (Session/Application variables, or objects
+    stashed in them) IS visible from every page, but only as values sitting
+    in the Session/Application collections at runtime — there is no source
+    text from global.asa merged into view-order.asp the way _lib.DateTime.asp
+    is. A "Go To Definition" on something set up in here would need to
+    resolve a runtime dictionary lookup, not a text-inclusion chain, which is
+    a different (and much harder) problem than what this feature request is
+    actually asking for.
+-->
+<script language="VBScript" runat="server">
+Sub Application_OnStart
+    Application("SiteName") = "Acme Ordering"
+End Sub
+
+Sub Session_OnStart
+    Session("CartCount") = 0
+End Sub
+</script>

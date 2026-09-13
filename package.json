@@ -215,6 +215,14 @@
                         "default": "",
                         "description": "Absolute path to your IIS web application root, used to resolve #include virtual=\"...\" directives. Leave empty to use the workspace folder root (the default, which works for most projects)."
                     },
+                    "aspLanguageSupport.defaultIncludes": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": [],
+                        "description": "Files that are always added to IntelliSense, hover, Go to Definition, and Peek Definition for every document — even if that document has no #include for them. Use this when common libraries are only pulled in through a shared bootstrap/layout page at runtime rather than directly by each module. Paths are resolved the same way as #include virtual=\"...\" (relative to aspLanguageSupport.virtualRoot, or the workspace folder root)."
+                    },
                     "aspLanguageSupport.formatPreview": {
                         "type": "boolean",
                         "default": false,
