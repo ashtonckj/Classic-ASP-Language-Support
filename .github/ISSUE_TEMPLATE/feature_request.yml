@@ -7,40 +7,22 @@ body:
     attributes:
       value: |
         Got an idea to improve the extension? We'd love to hear it!
-        Please describe your suggestion in as much detail as you can.
 
   - type: textarea
-    id: problem
+    id: idea
     attributes:
-      label: Problem
-      description: What problem or limitation does this feature address? What are you trying to do that currently isn't possible or is frustrating?
-      placeholder: e.g. There is no way to navigate to the definition of a VBScript function across multiple `.asp` files.
-    validations:
-      required: true
-
-  - type: textarea
-    id: solution
-    attributes:
-      label: Proposed Solution
-      description: Describe the feature or change you'd like to see. Include code examples or screenshots if helpful.
+      label: What would you like to see?
+      description: What are you trying to do, and what's missing or frustrating right now? Include an example if you have one.
       placeholder: |
-        e.g. Add go-to-definition support so that pressing F12 on a function call navigates to where it is defined,
-        even if it is in a separate `.asp` file.
+        e.g. Pressing F12 on a function call doesn't jump to its definition when the
+        function lives in a different `.asp` file that's `#include`d.
     validations:
       required: true
-
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: Alternatives Considered
-      description: Have you tried any workarounds or alternative approaches? Why do they fall short? (Optional)
-    validations:
-      required: false
 
   - type: textarea
     id: additional-context
     attributes:
-      label: Additional Context
-      description: Anything else relevant — links to similar extensions, related issues, mockups, etc. (Optional)
+      label: Anything else? (optional)
+      description: Alternatives you've tried, links to similar extensions, mockups — whatever helps explain it.
     validations:
       required: false
