@@ -20,7 +20,12 @@ import { JsSignatureHelpProvider } from './providers/jsSignatureHelpProvider';
 import { JsSemanticTokensProvider, COMBINED_SEMANTIC_LEGEND } from './providers/jsSemanticProvider';
 import { registerJsDiagnostics } from './providers/jsDiagnosticsProvider';
 import { disposeJsLanguageService } from './utils/jsUtils';
-import { IncludePathCompletionProvider, AspDefinitionProvider } from './providers/includeProvider';
+import {
+    AspDefinitionProvider,
+    clearIncludeSymbolCache,
+    IncludePathCompletionProvider,
+    preloadIncludeSymbols,
+} from './providers/includeProvider';
 import { IncludeDocumentLinkProvider, HtmlAttributeLinkProvider, HtmlAttributePathCompletionProvider } from './providers/linkProvider';
 // ASP semantic provider must now use COMBINED_SEMANTIC_LEGEND — see note above.
 import { AspSemanticTokensProvider } from './providers/aspSemanticProvider';
@@ -96,8 +101,20 @@ async function openFormattingPreview(
 let _styleTimeout:   ReturnType<typeof setTimeout> | undefined;
 let _attrPathTimeout: ReturnType<typeof setTimeout> | undefined;
 
+function preloadIncludes(document: vscode.TextDocument | undefined): void {
+    if (document?.languageId === 'asp') {
+        void preloadIncludeSymbols(document);
+    }
+}
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('Classic ASP Language Support is now active!');
+
+    preloadIncludes(vscode.window.activeTextEditor?.document);
+    context.subscriptions.push(
+        vscode.workspace.onDidOpenTextDocument(preloadIncludes),
+        vscode.window.onDidChangeActiveTextEditor(editor => preloadIncludes(editor?.document)),
+    );
 
     addRegionHighlights(context);
     registerCssDiagnostics(context);
@@ -271,6 +288,7 @@ export function activate(context: vscode.ExtensionContext) {
     const wsCacheInvalidator = vscode.workspace.onDidSaveTextDocument(doc => {
         if (/\.(asp|inc)$/i.test(doc.uri.fsPath)) {
             clearWorkspaceSymbolCache(doc.uri.fsPath);
+            clearIncludeSymbolCache();
         }
     });
 
