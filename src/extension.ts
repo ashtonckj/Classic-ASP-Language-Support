@@ -9,6 +9,7 @@ import { CssColorProvider } from './providers/cssColorProvider';
 import { registerCssDiagnostics } from './providers/cssDiagnosticsProvider';
 import { registerHtmlStructureDiagnostics, scanHtmlStructure, VoidElementQuickFixProvider } from './providers/htmlStructureDiagnosticsProvider';
 import { registerAspStructureDiagnostics, scanAspStructure, scanAspTags } from './providers/aspStructureDiagnosticsProvider';
+import { registerAspBlockMatch } from './providers/aspBlockMatchProvider';
 import { JsCompletionProvider } from './providers/jsCompletionProvider';
 import { JsHoverProvider } from './providers/jsHoverProvider';
 import { JsSignatureHelpProvider } from './providers/jsSignatureHelpProvider';
@@ -368,6 +369,7 @@ export function activate(context: vscode.ExtensionContext) {
     registerTabKeyHandler(context);
     registerSmartQuoteHandler(context);
     registerLineContinuationGuard(context);
+    registerAspBlockMatch(context);
 
     // ── Auto-trigger CSS suggestions inside empty style="" ────────────────────
     const inlineStyleTrigger = vscode.window.onDidChangeTextEditorSelection(e => {

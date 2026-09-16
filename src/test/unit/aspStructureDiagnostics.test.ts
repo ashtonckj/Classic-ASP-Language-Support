@@ -1,5 +1,6 @@
 import * as assert from 'assert';
-import { classifyLine, extractAspStatementCode } from '../../providers/aspStructureDiagnosticsProvider';
+import * as vscode from 'vscode';
+import { classifyLine, extractAspStatementCode, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
 
 function kinds(actions: Array<{ type: string; kind: string }>): string[] {
     return actions.map(a => `${a.type}:${a.kind}`);
@@ -60,7 +61,7 @@ describe('classifyLine — REM comments are not classified', () => {
     });
 });
 
-// D1 — a `:`-joined one-liner must be seen as BOTH an opener and a closer, so it
+// A `:`-joined one-liner must be seen as BOTH an opener and a closer, so it
 // balances and no false "Missing …" diagnostic is raised.
 describe('classifyLine — colon-joined statements', () => {
     it('sees opener AND closer in `For i = 1 To 10 : Next`', () => {
@@ -72,7 +73,7 @@ describe('classifyLine — colon-joined statements', () => {
     });
 });
 
-// D2 — member access (obj.Do, rs.With) must not be read as a block keyword.
+// Member access (obj.Do, rs.With) must not be read as a block keyword.
 describe('classifyLine — member access is not a block keyword', () => {
     it('does not open a Do block for obj.Do', () => {
         assert.deepStrictEqual(classifyLine('obj.Do'), []);
@@ -84,6 +85,74 @@ describe('classifyLine — member access is not a block keyword', () => {
 
     it('does not treat Set x = obj.Do() as a block', () => {
         assert.deepStrictEqual(classifyLine('Set x = obj.Do()'), []);
+    });
+});
+
+// getMatchedBlockPairs powers the matching-keyword highlight — it must find
+// exactly the pairs scanAspStructure agrees are correctly closed, sharing the
+// same scan so the two can never disagree.
+describe('getMatchedBlockPairs', () => {
+    function doc(text: string): vscode.TextDocument {
+        const lines = text.split('\n');
+        const lineOffsets: number[] = [];
+        let acc = 0;
+        for (const l of lines) { lineOffsets.push(acc); acc += l.length + 1; }
+        return {
+            getText:   () => text,
+            lineCount: lines.length,
+            lineAt:    (i: number) => ({ text: lines[i] }),
+            offsetAt:  (pos: vscode.Position) => lineOffsets[pos.line] + pos.character,
+        } as unknown as vscode.TextDocument;
+    }
+
+    it('matches a simple If ... End If', () => {
+        const pairs = getMatchedBlockPairs(doc('<%\nIf x Then\n  y = 1\nEnd If\n%>'));
+        assert.strictEqual(pairs.length, 1);
+        assert.strictEqual(pairs[0].opener.text, 'If');
+        assert.strictEqual(pairs[0].opener.range.start.line, 1);
+        assert.strictEqual(pairs[0].closer.text, 'End If');
+        assert.strictEqual(pairs[0].closer.range.start.line, 3);
+    });
+
+    it('matches nested blocks as two separate, correctly nested pairs', () => {
+        const text = [
+            '<%',              // 0
+            'Sub Foo',         // 1
+            '  If x Then',     // 2
+            '    y = 1',       // 3
+            '  End If',        // 4
+            'End Sub',         // 5
+            '%>',              // 6
+        ].join('\n');
+        const pairs = getMatchedBlockPairs(doc(text));
+        assert.strictEqual(pairs.length, 2);
+
+        const ifPair  = pairs.find(p => p.opener.text === 'If')!;
+        const subPair = pairs.find(p => p.opener.text === 'Sub')!;
+        assert.ok(ifPair && subPair, `expected both an If and a Sub pair; got ${JSON.stringify(pairs.map(p => p.opener.text))}`);
+        assert.strictEqual(ifPair.opener.range.start.line, 2);
+        assert.strictEqual(ifPair.closer.range.start.line, 4);
+        assert.strictEqual(subPair.opener.range.start.line, 1);
+        assert.strictEqual(subPair.closer.range.start.line, 5);
+    });
+
+    it('does not report a pair for an unclosed block', () => {
+        const pairs = getMatchedBlockPairs(doc('<%\nIf x Then\n  y = 1\n%>'));
+        assert.deepStrictEqual(pairs, []);
+        // scanAspStructure must still flag it — the two must agree.
+        assert.strictEqual(scanAspStructure(doc('<%\nIf x Then\n  y = 1\n%>')).length, 1);
+    });
+
+    it('does not report a pair for a stray closer with no opener', () => {
+        const pairs = getMatchedBlockPairs(doc('<%\nEnd If\n%>'));
+        assert.deepStrictEqual(pairs, []);
+    });
+
+    it('a one-liner opener+closer joined by a colon still matches', () => {
+        const pairs = getMatchedBlockPairs(doc('<%\nFor i = 1 To 10 : Next\n%>'));
+        assert.strictEqual(pairs.length, 1);
+        assert.strictEqual(pairs[0].opener.text, 'For');
+        assert.strictEqual(pairs[0].closer.text, 'Next');
     });
 });
 

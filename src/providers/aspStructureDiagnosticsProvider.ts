@@ -353,12 +353,27 @@ function classifyStatement(segment: string, raw: string, actions: LineAction[]):
     return;
 }
 
-// ── Main scanner ──────────────────────────────────────────────────────────────
+// ── Matched block pairs ────────────────────────────────────────────────────────
+// A successfully matched opener/closer (the "good" case the diagnostics above
+// never report). Used to highlight the keyword matching the one under the
+// caret, which needs exactly the pairing scanAspStructure already computes
+// internally, just without throwing the matches away.
 
-export function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
+export interface BlockPair {
+    opener: { range: vscode.Range; text: string };
+    closer: { range: vscode.Range; text: string };
+}
+
+// ── Main scanner ──────────────────────────────────────────────────────────────
+// Shared by scanAspStructure (diagnostics for what's WRONG) and
+// getMatchedBlockPairs (ranges for what's RIGHT) so the two can never disagree
+// about how a file's blocks nest.
+
+function scanBlocks(document: vscode.TextDocument): { diagnostics: vscode.Diagnostic[]; pairs: BlockPair[] } {
     const fullText = document.getText();
     const lineCount = document.lineCount;
     const diagnostics: vscode.Diagnostic[] = [];
+    const pairs: BlockPair[] = [];
     const stack: BlockEntry[] = [];
 
     // Collect raw physical line strings
@@ -445,6 +460,29 @@ export function scanAspStructure(document: vscode.TextDocument): vscode.Diagnost
                             { source: 'Classic ASP (VBScript)' }
                         ));
                     }
+
+                    // The entry at `matched` genuinely closed — record the pair.
+                    // Same column-finding approach as the stray-closer case above:
+                    // search the closer's own physical line for its keyword text.
+                    const entry     = stack[matched];
+                    const closerCol = Math.max(0, physicalLines[li].toLowerCase().indexOf(action.closer.toLowerCase()));
+                    pairs.push({
+                        opener: {
+                            range: new vscode.Range(
+                                new vscode.Position(entry.line, entry.col),
+                                new vscode.Position(entry.line, entry.col + entry.opener.length),
+                            ),
+                            text: entry.opener,
+                        },
+                        closer: {
+                            range: new vscode.Range(
+                                new vscode.Position(li, closerCol),
+                                new vscode.Position(li, closerCol + action.closer.length),
+                            ),
+                            text: action.closer,
+                        },
+                    });
+
                     stack.splice(matched); // remove match + everything above
                 }
             }
@@ -465,7 +503,16 @@ export function scanAspStructure(document: vscode.TextDocument): vscode.Diagnost
         ));
     }
 
-    return diagnostics;
+    return { diagnostics, pairs };
+}
+
+export function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
+    return scanBlocks(document).diagnostics;
+}
+
+/** Every successfully matched opener/closer pair in the document, in the order their closers were found. */
+export function getMatchedBlockPairs(document: vscode.TextDocument): BlockPair[] {
+    return scanBlocks(document).pairs;
 }
 
 function closerFor(kind: BlockKind): string {
