@@ -4,14 +4,15 @@ import { getMatchedBlockPairs, BlockPair } from './aspStructureDiagnosticsProvid
 // ─────────────────────────────────────────────────────────────────────────────
 // aspBlockMatchProvider.ts
 //
-// VBScript has no braces, so its block keywords never get the highlight VS Code
-// paints over a matching `{ }` pair. This gives them the same treatment: put
-// the caret on `If` (or `Do`, `Sub`, `Select Case`, ...) and its `End If` lights
-// up the way a `{` lights up its `}`.
+// VBScript has no braces, so it never gets VS Code's built-in bracket-match
+// highlight or "Go to Bracket" (Ctrl+Shift+\). This gives the same two
+// behaviours to its block keywords instead: put the caret on `If` (or `Do`,
+// `Sub`, `Select Case`, ...) and its `End If` lights up the same way a `{`
+// lights up its `}`, and the same keybinding jumps between them.
 //
-// The pairing itself comes from aspStructureDiagnosticsProvider, which already
-// computes it to report MISmatches — reusing that scan means the highlight and
-// the diagnostics can never disagree about how a file's blocks nest.
+// Both features read from the exact pairing aspStructureDiagnosticsProvider
+// already computes to report mismatches — reusing it means the two can never
+// disagree about how a file's blocks nest.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Cached by document version. A rescan walks every line of the file, so it
@@ -26,7 +27,7 @@ import { getMatchedBlockPairs, BlockPair } from './aspStructureDiagnosticsProvid
 interface PairCache { version: number; pairs: BlockPair[]; }
 const _pairCache = new Map<string, PairCache>();
 
-/** Always correct: rescans if the cache is stale. Only for LOW-frequency call sites (a tab switch, the debounced rescan) — never for a per-keystroke event. */
+/** Always correct: rescans if the cache is stale. Only for LOW-frequency call sites (a tab switch, the on-demand command) — never for a per-keystroke event. */
 function getPairsFresh(document: vscode.TextDocument): BlockPair[] {
     const key = document.uri.toString();
     const cached = _pairCache.get(key);
@@ -109,4 +110,22 @@ export function registerAspBlockMatch(context: vscode.ExtensionContext): void {
         getPairsFresh(vscode.window.activeTextEditor.document);
         applyFromCache(vscode.window.activeTextEditor);
     }
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('asp.goToMatchingBlockKeyword', () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || editor.document.languageId !== 'asp') { return; }
+
+            // A deliberate, infrequent user action — always resolve against a
+            // fresh scan rather than whatever the debounce happens to have cached.
+            const match = findPairAt(getPairsFresh(editor.document), editor.selection.active);
+            if (!match) { return; }
+
+            const onOpener = match.opener.range.contains(editor.selection.active);
+            const target   = onOpener ? match.closer.range : match.opener.range;
+
+            editor.selection = new vscode.Selection(target.start, target.end);
+            editor.revealRange(target, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+        }),
+    );
 }

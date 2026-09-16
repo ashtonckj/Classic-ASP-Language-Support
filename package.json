@@ -161,6 +161,12 @@
                 "path": "./snippets/javascript.json"
             }
         ],
+        "commands": [
+            {
+                "command": "asp.goToMatchingBlockKeyword",
+                "title": "Classic ASP: Go to Matching Block Keyword"
+            }
+        ],
         "keybindings": [
             {
                 "command": "asp.insertLineBreak",
@@ -171,6 +177,12 @@
                 "command": "asp.insertTab",
                 "key": "tab",
                 "when": "editorTextFocus && !editorReadonly && editorLangId == asp && !suggestWidgetVisible && !editorHasSelection && !inlineSuggestionVisible && !inlineEditIsVisible && !tabShouldAcceptInlineEdit && !tabShouldJumpToInlineEdit"
+            },
+            {
+                "command": "asp.goToMatchingBlockKeyword",
+                "key": "ctrl+shift+\\",
+                "mac": "cmd+shift+\\",
+                "when": "editorTextFocus && editorLangId == asp"
             }
         ],
         "configuration": [

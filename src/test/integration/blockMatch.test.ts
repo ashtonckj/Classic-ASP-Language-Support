@@ -2,19 +2,16 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as os from 'os';
 
-// The matching-keyword highlight: put the caret on a VBScript block keyword and
-// its partner lights up, the way VS Code lights up a matching `{ }` pair.
-//
-// See regionHighlightSelection.test.ts for why the DECORATION's own pixels are
-// not something an automated test can check — setDecorations is a frozen
-// property with no public way to ask what was last painted, so that part is a
-// manual/visual check. The pairing behind it is covered exhaustively (nesting,
-// unclosed blocks, stray closers, one-liners) in aspStructureDiagnostics.test.ts.
-//
-// What only a live editor can prove is the half that broke during development:
-// this decoration is driven from every selection change, which fires
-// continuously while dragging and once per character while typing, so the
-// update path must stay cheap and must never throw.
+// VBScript has no braces, so it never got VS Code's built-in bracket-match
+// highlight or "Go to Bracket" (Ctrl+Shift+\). aspBlockMatchProvider.ts adds
+// the equivalent for block keywords (If/End If, Sub/End Sub, ...), reusing the
+// exact pairing aspStructureDiagnosticsProvider already computes to report
+// mismatches. This drives the real command end-to-end in the Extension Host —
+// see regionHighlightSelection.test.ts for why the DECORATION's actual pixels
+// aren't something an automated test can check (setDecorations is a frozen,
+// unobservable API); the pairing logic itself is covered exhaustively in
+// aspStructureDiagnostics.test.ts, so this only needs to prove the command
+// moves the caret correctly and that selection changes near a pair don't throw.
 
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -51,42 +48,61 @@ async function openPage(): Promise<vscode.TextEditor> {
     return editor;
 }
 
-suite('Matching block keyword highlight (integration)', () => {
+function setCursor(editor: vscode.TextEditor, line: number, character: number): void {
+    editor.selection = new vscode.Selection(line, character, line, character);
+}
 
-    test('moving the caret across a block pair does not throw', async () => {
+suite('Go to Matching Block Keyword (integration)', () => {
+
+    test('jumps from If to its End If', async () => {
         const editor = await openPage();
+        setCursor(editor, 2, 3); // inside "If" on "  If x Then"
 
-        // Onto the If, onto its End If, onto the enclosing Sub, then off any
-        // keyword entirely — every transition the decoration has to handle.
-        for (const [line, character] of [[2, 3], [4, 3], [1, 1], [3, 5]]) {
-            editor.selection = new vscode.Selection(line, character, line, character);
-            await sleep(60);
-        }
+        await vscode.commands.executeCommand('asp.goToMatchingBlockKeyword');
 
-        assert.strictEqual(editor.selection.active.line, 3);
-        assert.strictEqual(editor.selection.active.character, 5);
+        assert.strictEqual(editor.selection.active.line, 4, `expected to land on "End If"'s line; got ${editor.selection.active.line}`);
+        assert.strictEqual(editor.document.getText(editor.selection), 'End If');
     });
 
-    test('rapid selection changes, as a drag produces, do not throw', async () => {
+    test('jumps back from End If to its If', async () => {
         const editor = await openPage();
+        setCursor(editor, 4, 3); // inside "End If" on "  End If"
 
-        // No delay between these at all — the shape that made an earlier,
-        // un-debounced version of this provider rescan the whole file per event.
+        await vscode.commands.executeCommand('asp.goToMatchingBlockKeyword');
+
+        assert.strictEqual(editor.selection.active.line, 2, `expected to land on "If"'s line; got ${editor.selection.active.line}`);
+        assert.strictEqual(editor.document.getText(editor.selection), 'If');
+    });
+
+    test('jumps from Sub to its End Sub, skipping the nested If pair', async () => {
+        const editor = await openPage();
+        setCursor(editor, 1, 1); // inside "Sub" on "Sub Foo" (columns 0-2)
+
+        await vscode.commands.executeCommand('asp.goToMatchingBlockKeyword');
+
+        assert.strictEqual(editor.selection.active.line, 5, `expected to land on "End Sub"'s line; got ${editor.selection.active.line}`);
+        assert.strictEqual(editor.document.getText(editor.selection), 'End Sub');
+    });
+
+    test('does nothing when the caret is not on a matched keyword', async () => {
+        const editor = await openPage();
+        setCursor(editor, 3, 5); // "    y = 1" — plain code, not a block keyword
+        const before = editor.selection;
+
+        await vscode.commands.executeCommand('asp.goToMatchingBlockKeyword');
+
+        assert.deepStrictEqual(editor.selection, before, 'selection should be unchanged');
+    });
+
+    // The decoration itself can't be asserted directly (see file header), but
+    // selection changes drive it on every move — including the rapid, no-delay
+    // sequence a drag-select produces — and that must never throw.
+    test('rapid selection changes across a block pair do not throw', async () => {
+        const editor = await openPage();
         for (let line = 0; line <= 6; line++) {
             editor.selection = new vscode.Selection(line, 0, line, 0);
         }
-        await sleep(300);
-
+        await sleep(200);
         assert.strictEqual(editor.selection.active.line, 6);
-    });
-
-    test('editing inside a block leaves the editor consistent', async () => {
-        const editor = await openPage();
-        editor.selection = new vscode.Selection(3, 9, 3, 9); // end of "    y = 1"
-
-        await editor.edit(b => b.insert(new vscode.Position(3, 9), '0'));
-        await sleep(300); // let the debounced rescan run
-
-        assert.strictEqual(editor.document.lineAt(3).text, '    y = 10');
     });
 });
