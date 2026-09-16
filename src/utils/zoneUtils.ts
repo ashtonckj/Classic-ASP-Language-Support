@@ -475,6 +475,124 @@ export function getCssBlockRanges(text: string): Array<{ start: number; end: num
     return ranges;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Precomputed zone lookup
+//
+// getZone answers for ONE offset by rescanning from the start of the document
+// every time. Anything that has to classify every line of a file therefore does
+// quadratic work — an 8,000-line embedded <script> block took ~11 seconds to
+// parse, almost all of it rescanning text already scanned. These build each
+// zone's ranges in one linear pass instead, then answer by binary search.
+//
+// The block lists are produced by forward scans, so each is already sorted and
+// non-overlapping, which is what makes the binary search valid.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Every `<% … %>` block, as offsets. An unclosed `<%` runs to end of document,
+ * matching isInsideAspBlock. Bounds are EXCLUSIVE at both ends, because that
+ * function reports inside as `open < offset < close + 2`.
+ */
+export function getAspBlockRanges(text: string): Array<{ start: number; end: number }> {
+    const ranges: Array<{ start: number; end: number }> = [];
+    let pos = 0;
+
+    while (pos < text.length) {
+        const open = text.indexOf('<%', pos);
+        if (open === -1) { break; }
+
+        const close = text.indexOf('%>', open + 2);
+        ranges.push({ start: open, end: close === -1 ? Number.MAX_SAFE_INTEGER : close + 2 });
+        if (close === -1) { break; }
+        pos = close + 2;
+    }
+
+    return ranges;
+}
+
+/**
+ * Every `<script>` body that is actually JavaScript. VBScript blocks and known
+ * non-JS types (e.g. text/template) are excluded, because getZone reports those
+ * as 'asp' and 'html' — not 'js'. Bounds are INCLUSIVE, as in getCssBlockRanges.
+ */
+export function getJsBlockRanges(text: string): Array<{ start: number; end: number }> {
+    const ranges: Array<{ start: number; end: number }> = [];
+    let searchFrom = 0;
+
+    while (true) {
+        const scriptOpen = findNextRealTag(text, '<script', searchFrom);
+        if (scriptOpen === -1) { break; }
+
+        const scriptTagEnd = findTagEnd(text, scriptOpen);
+        if (scriptTagEnd === -1) { break; }
+
+        const attrs = text.slice(scriptOpen + 7, scriptTagEnd);
+        const { index: scriptClose, length: closeLen } = findClosingTag(text, 'script', scriptTagEnd + 1);
+
+        const typeMatch = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
+        const isNonJs   = typeMatch && !/javascript|module/i.test(typeMatch[1]);
+        if (!isVbScriptTag(attrs) && !isNonJs) {
+            ranges.push({ start: scriptTagEnd + 1, end: scriptClose === -1 ? text.length : scriptClose });
+        }
+
+        if (scriptClose === -1) { break; }
+        searchFrom = scriptClose + closeLen;
+    }
+
+    return ranges;
+}
+
+/** Binary search over sorted, non-overlapping ranges. */
+function inRanges(
+    ranges: Array<{ start: number; end: number }>,
+    offset: number,
+    exclusive: boolean,
+): boolean {
+    let lo = 0;
+    let hi = ranges.length - 1;
+
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        const r   = ranges[mid];
+        if (exclusive ? offset <= r.start : offset < r.start) { hi = mid - 1; }
+        else if (exclusive ? offset >= r.end : offset > r.end) { lo = mid + 1; }
+        else { return true; }
+    }
+
+    return false;
+}
+
+export interface ZoneResolver {
+    zoneAt(offset: number): Zone;
+}
+
+/**
+ * Scans `text` once, then answers zone queries without touching it again.
+ *
+ * Equivalent to calling getZone(text, offset) for the same text — the order of
+ * the checks below mirrors getZone's own precedence, and zoneResolver.test.ts
+ * asserts the two agree at EVERY offset of several awkward documents.
+ */
+export function createZoneResolver(text: string): ZoneResolver {
+    const aspBlocks  = getAspBlockRanges(text);
+    const cssBlocks  = getCssBlockRanges(text);
+    const vbsScripts = getVbScriptBlockRanges(text);
+    const jsBlocks   = getJsBlockRanges(text);
+
+    return {
+        zoneAt(offset: number): Zone {
+            if (inRanges(aspBlocks, offset, true))   { return 'asp'; }
+            if (inRanges(cssBlocks, offset, false))  { return 'css'; }
+            // A server-side <script language="vbscript"> body is an ASP zone;
+            // getZone reaches that conclusion inside its own JS check, so this
+            // has to be tested before the JavaScript blocks, not after.
+            if (inRanges(vbsScripts, offset, false)) { return 'asp'; }
+            if (inRanges(jsBlocks, offset, false))   { return 'js'; }
+            return 'html';
+        },
+    };
+}
+
 export function getZone(fullText: string, offset: number): Zone {
     // 1. ASP zone — <% ... %> blocks
     if (isInsideAspBlock(fullText, offset)) { return 'asp'; }
