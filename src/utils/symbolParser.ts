@@ -16,7 +16,7 @@
  */
 
 import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
-import { getZone } from '../utils/zoneUtils';
+import { createZoneResolver } from '../utils/zoneUtils';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -200,6 +200,12 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
     // vars, and typos would all surface as false symbol suggestions.
     const hasOptionExplicit = /^\s*Option\s+Explicit\b/im.test(strippedText);
 
+    // One linear scan up front, then every per-line zone question below is a
+    // binary search. Asking getZone per line instead re-scanned the document
+    // from offset 0 each time, which made parsing a large embedded <script>
+    // block quadratic — seconds of the extension host, per keystroke.
+    const zones = createZoneResolver(strippedText);
+
     lines.forEach((line, lineIndex) => {
         // Skip full-line VBScript comments
         if (/^\s*'/.test(line)) return;
@@ -210,7 +216,7 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         // pure-code include files that have no <% %> wrappers at all.
         const aspOpen  = line.indexOf('<%');
         const probeCol = aspOpen !== -1 ? aspOpen + 2 : (line.length - line.trimStart().length);
-        const zone     = getZone(strippedText, lineOffsets[lineIndex] + probeCol);
+        const zone     = zones.zoneAt(lineOffsets[lineIndex] + probeCol);
         if (zone === 'js' || zone === 'css') { return; }
 
         // Inline ASP blocks: strip a leading <% / <%= and a trailing %> so a
