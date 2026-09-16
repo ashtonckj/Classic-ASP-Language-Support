@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
-import { getZone, getVbScriptBlockRanges } from '../utils/zoneUtils';
+import { createZoneResolver, getVbScriptBlockRanges } from '../utils/zoneUtils';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import {
     T_FUNCTION, T_NAMESPACE, T_VARIABLE, T_PARAMETER, T_CONSTANT,
@@ -86,7 +86,21 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         // keeps every column intact so token positions stay correct. The `<%` opener
         // is blanked too — aspMap marks it as part of the block, but it is a
         // delimiter, not code.
+        // Repeated blank masks are the common case; memoise by length.
+        const _spaceCache = new Map<number, string>();
+        const SPACES = (n: number): string => {
+            let s = _spaceCache.get(n);
+            if (s === undefined) { s = ' '.repeat(n); _spaceCache.set(n, s); }
+            return s;
+        };
+
         const vbScriptOnLine = (li: number): string => {
+            // A line with no ASP characters at all masks to nothing but spaces,
+            // and every caller then discards it on a .trim() check. Building that
+            // character by character was the single biggest cost in this provider:
+            // a page whose bulk is one large <script> block pays it per line, per
+            // pass. Same value, produced in one step.
+            if (lineHasAsp[li] === 0) { return SPACES(lineTextCache[li].length); }
             const text = lineTextCache[li];
             const base = lineOffsetCache[li];
             let out = '';
@@ -108,10 +122,16 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         // they are never zone-filtered — only same-document symbols need the check.
         const docPath = document.uri.fsPath;
 
+        // One scan for the whole run. isJsZoneSymbol is asked once per collected
+        // symbol — ~184 times on a large page — and getZone answers each call by
+        // rescanning the document from offset 0, which was ~275ms of every
+        // semantic-tokens pass on its own.
+        const zones = createZoneResolver(fullText);
+
         // Returns true when a same-document symbol sits inside a JS <script> block.
         function isJsZoneSymbol(filePath: string, line: number): boolean {
             if (filePath !== docPath) { return false; }
-            return getZone(fullText, document.offsetAt(new vscode.Position(line, 0))) === 'js';
+            return zones.zoneAt(document.offsetAt(new vscode.Position(line, 0))) === 'js';
         }
 
         const funcMap = new Map<string, 'function' | 'Sub'>();
@@ -161,6 +181,16 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
         for (let li = 0; li < lineCount; li++) {
             lineTextCache[li]   = document.lineAt(li).text;
             lineOffsetCache[li] = document.offsetAt(new vscode.Position(li, 0));
+        }
+
+        // Which lines contain any ASP-zone character, from the bitmap already built.
+        const lineHasAsp = new Uint8Array(lineCount);
+        for (let li = 0; li < lineCount; li++) {
+            const base = lineOffsetCache[li];
+            const end  = base + lineTextCache[li].length;
+            for (let c = base; c < end; c++) {
+                if (aspMap[c] === 1) { lineHasAsp[li] = 1; break; }
+            }
         }
 
         // ── Pass A: SQL variable discovery ───────────────────────────────────
