@@ -29,7 +29,7 @@
  */
 
 import * as vscode from 'vscode';
-import { getZone } from '../utils/zoneUtils';
+import { createZoneResolver } from '../utils/zoneUtils';
 
 // ── Block descriptor ──────────────────────────────────────────────────────────
 
@@ -371,6 +371,12 @@ export interface BlockPair {
 
 function scanBlocks(document: vscode.TextDocument): { diagnostics: vscode.Diagnostic[]; pairs: BlockPair[] } {
     const fullText = document.getText();
+
+    // One linear scan, then binary-search lookups. Asking getZone per line
+    // rescanned the whole document each time: on a 12,000-line page this
+    // function alone took ~36s, and it runs behind both the block diagnostics
+    // and the matching-keyword highlight.
+    const zones    = createZoneResolver(fullText);
     const lineCount = document.lineCount;
     const diagnostics: vscode.Diagnostic[] = [];
     const pairs: BlockPair[] = [];
@@ -398,7 +404,7 @@ function scanBlocks(document: vscode.TextDocument): { diagnostics: vscode.Diagno
         const probeCol   = aspOpenIdx !== -1 ? aspOpenIdx + 2 : Math.floor(rawLine.length / 2);
         const midOffset  = lineOffset + probeCol;
         // Accept lines that are either inside a <% %> block OR inside a VBScript <script> block.
-        if (getZone(fullText, midOffset) !== 'asp') { continue; }
+        if (zones.zoneAt(midOffset) !== 'asp') { continue; }
 
         const trimmed = lineText.trimStart();
 
@@ -539,13 +545,14 @@ function closerFor(kind: BlockKind): string {
 //   Unclosed <% — no matching %> in file  →  Warning on the <%  (2 chars)
 export function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] {
     const fullText = document.getText();
+    const zones    = createZoneResolver(fullText);
     const diagnostics: vscode.Diagnostic[] = [];
 
     // Find every %> — if getZone at its position is not 'asp', it's a stray closer.
     const closeRegex = /%>/g;
     let m: RegExpExecArray | null;
     while ((m = closeRegex.exec(fullText)) !== null) {
-        if (getZone(fullText, m.index) !== 'asp') {
+        if (zones.zoneAt(m.index) !== 'asp') {
             const pos = document.positionAt(m.index);
             diagnostics.push(Object.assign(
                 new vscode.Diagnostic(
@@ -562,7 +569,7 @@ export function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] 
     // the block was never properly closed.
     const openRegex = /<%/g;
     while ((m = openRegex.exec(fullText)) !== null) {
-        if (getZone(fullText, m.index + 2) !== 'asp') {
+        if (zones.zoneAt(m.index + 2) !== 'asp') {
             const pos = document.positionAt(m.index);
             diagnostics.push(Object.assign(
                 new vscode.Diagnostic(
