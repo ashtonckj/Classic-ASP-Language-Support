@@ -5,6 +5,32 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-09-17
+
+### ✨ Added
+- **Added `aspLanguageSupport.defaultIncludes`** - Files that are always visible to IntelliSense, hover, and Go to Definition, even when the open document has no `#include` for them. For libraries a bootstrap or layout page pulls in at runtime
+- **Workspace symbol search now honours `files.associations`** - A `.html` or `.aspx` file mapped to the `asp` language is indexed the same as a `.asp` file (**resolves #80**)
+( thanks to @Karl2868 - Suggestion for #80 )
+- **Matching-keyword highlighting** - Put the caret on `If`, `For`, `Do`, `Sub`, `Function`, or `Class` and its partner keyword lights up, using your theme's own bracket-match colours
+
+### 🛠️ Fixed
+- **Unsaved includes** - Editing an unsaved `.inc` now updates IntelliSense in the pages that include it, instead of showing the last saved copy
+- **Include cache invalidation** - Saving an include mapped through `files.associations` now refreshes the pages that use it, not just `.asp` and `.inc` files
+
+### ⚡ Performance
+- **Large files no longer freeze the editor** - On a 12,350-line page, the scanners that run while you edit went from **143 seconds** to **204 ms**
+- **Include symbols load in the background** - Opening a page with a deep include tree no longer blocks IntelliSense
+( thanks to @ladis2000 - Report and fix for #83 )
+- **JavaScript analysis moved off the main thread** - Type-aware colouring and error squiggles cost around 1.4 seconds per keystroke on a large `<script>`; that is now about 70 ms
+- **Symbols are collected once per edit** - Instead of being recomputed by each of the seven features that asks for them
+
+### 🔄 Refactored
+- Extracted the VBScript symbol parser and removed the editor API from the TypeScript helpers, so both can run on a worker thread
+- Gave `#include` directives one definition instead of four
+- Dropped dependency files the extension never loads and resized the icon to the size it is actually displayed at - installed size down from 22.7 MB to 16.7 MB
+
+---
+
 ## [0.6.1] - 2026-09-13
 
 ### ✨ Added
