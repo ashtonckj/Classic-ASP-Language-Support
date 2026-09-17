@@ -199,6 +199,9 @@ export function resolveEffectiveIncludePaths(documentText: string, documentPath:
 interface IncludeSymbolCacheEntry {
     symbols: FileSymbols;
     children: string[];
+    // Set when this entry was parsed from an unsaved editor buffer rather than
+    // from disk, so a later edit to that buffer can be detected as stale.
+    bufferVersion?: number;
 }
 
 interface IncludeWorkerEntry {
@@ -216,6 +219,26 @@ const _includeSymbolCache = new Map<string, IncludeSymbolCacheEntry>();
 const _includeLoadPromises = new Map<string, PendingIncludeLoad>();
 let _includeCacheGeneration = 0;
 const _includeWorkerPath = path.join(__dirname, 'includeSymbolWorker.js');
+
+/**
+ * The unsaved text of every open ASP document, keyed by lowercased path.
+ *
+ * A worker thread cannot call vscode APIs, so left to itself it can only read
+ * the file as last saved — which is why an unsaved edit to an include used to
+ * be invisible to the page including it. It does not need API access though:
+ * the extension host reads the buffers (already in memory, no disk, no parsing)
+ * and sends the text along with the paths. Only DIRTY documents are sent —
+ * for a saved one the worker would read identical bytes anyway.
+ */
+function dirtyBufferTexts(): Record<string, string> {
+    const texts: Record<string, string> = {};
+    for (const doc of vscode.workspace.textDocuments) {
+        if (doc.languageId === 'asp' && doc.isDirty && doc.uri.scheme === 'file') {
+            texts[doc.uri.fsPath.toLowerCase()] = doc.getText();
+        }
+    }
+    return texts;
+}
 
 function mergeSymbols(target: FileSymbols, source: FileSymbols): void {
     target.variables.push(...source.variables);
@@ -279,7 +302,14 @@ function cachedTreeReady(fsPath: string, visited: Set<string>): boolean {
     visited.add(key);
 
     const cached = _includeSymbolCache.get(key);
-    return !!cached && cached.children.every(child => cachedTreeReady(child, visited));
+    if (!cached) { return false; }
+
+    // An entry parsed before the newest keystroke in a dirty include is stale.
+    // A clean document is left alone: its buffer and the file on disk agree.
+    const open = openDocumentFor(fsPath);
+    if (open?.isDirty && cached.bufferVersion !== open.version) { return false; }
+
+    return cached.children.every(child => cachedTreeReady(child, visited));
 }
 
 export function areIncludeSymbolsReady(document: vscode.TextDocument): boolean {
@@ -312,6 +342,14 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
         return pending.promise;
     }
 
+    const openFiles = dirtyBufferTexts();
+    const openVersions = new Map<string, number>();
+    for (const doc of vscode.workspace.textDocuments) {
+        if (doc.languageId === 'asp' && doc.isDirty && doc.uri.scheme === 'file') {
+            openVersions.set(doc.uri.fsPath.toLowerCase(), doc.version);
+        }
+    }
+
     const promise = new Promise<void>(resolve => {
         const worker = new Worker(_includeWorkerPath);
         let settled = false;
@@ -326,9 +364,11 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
         worker.once('message', (entries: IncludeWorkerEntry[]) => {
             if (generation === _includeCacheGeneration) {
                 for (const entry of entries) {
-                    _includeSymbolCache.set(entry.filePath.toLowerCase(), {
+                    const key = entry.filePath.toLowerCase();
+                    _includeSymbolCache.set(key, {
                         symbols: entry.symbols,
                         children: entry.children,
+                        bufferVersion: openVersions.get(key),
                     });
                 }
             }
@@ -339,7 +379,7 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
         // reject a provider request or produce an unhandled promise rejection.
         worker.once('error', finish);
         worker.once('exit', finish);
-        worker.postMessage({ roots, virtualRoot });
+        worker.postMessage({ roots, virtualRoot, openFiles });
     });
 
     _includeLoadPromises.set(requestKey, { generation, promise });
