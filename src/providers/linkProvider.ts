@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { isExternalPath, FILE_LINK_ATTRIBUTES } from './includeProvider';
 import { getVirtualRoot } from './includeProvider';
+import { parseIncludeDirectives, resolveIncludeDirective } from '../utils/includeDirectives';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IncludeDocumentLinkProvider
@@ -18,29 +19,19 @@ export class IncludeDocumentLinkProvider implements vscode.DocumentLinkProvider 
     ): vscode.ProviderResult<vscode.DocumentLink[]> {
 
         const links:       vscode.DocumentLink[] = [];
-        const docDir      = path.dirname(document.uri.fsPath);
         const virtualRoot = getVirtualRoot(document.uri.fsPath);
-
-        // Match both file="..." and virtual="..." includes
-        const pattern = /<!--\s*#include\s+(file|virtual)\s*=\s*["']([^"']+)["']\s*-->/gi;
 
         for (let i = 0; i < document.lineCount; i++) {
             const lineText = document.lineAt(i).text;
-            pattern.lastIndex = 0;
 
-            let match: RegExpExecArray | null;
-            while ((match = pattern.exec(lineText)) !== null) {
-                const includeType = match[1].toLowerCase();
-                const includePath = match[2];
-
-                const fullPath = includeType === 'virtual'
-                    ? path.join(virtualRoot, includePath.replace(/^\//, ''))
-                    : path.resolve(docDir, includePath);
+            for (const directive of parseIncludeDirectives(lineText)) {
+                const includePath = directive.raw;
+                const fullPath    = resolveIncludeDirective(directive, document.uri.fsPath, virtualRoot);
 
                 if (!fs.existsSync(fullPath)) continue;
 
                 // Underline only the path string, not the whole directive
-                const pathStart = lineText.indexOf(includePath, match.index);
+                const pathStart = lineText.indexOf(includePath, directive.index);
                 const link      = new vscode.DocumentLink(
                     new vscode.Range(
                         new vscode.Position(i, pathStart),

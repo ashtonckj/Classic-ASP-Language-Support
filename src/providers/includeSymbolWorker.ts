@@ -2,6 +2,7 @@ import { parentPort } from 'node:worker_threads';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { extractSymbols, type FileSymbols } from '../utils/symbolParser';
+import { resolveIncludePathsIn } from '../utils/includeDirectives';
 
 interface IncludeWorkerRequest {
     roots: string[];
@@ -19,20 +20,7 @@ export interface IncludeWorkerEntry {
 }
 
 function directIncludes(text: string, documentPath: string, virtualRoot: string): string[] {
-    const includes: string[] = [];
-    const pattern = /<!--\s*#include\s+(file|virtual)\s*=\s*["']([^"']+)["']\s*-->/gi;
-    let match: RegExpExecArray | null;
-
-    while ((match = pattern.exec(text)) !== null) {
-        const includeType = match[1].toLowerCase();
-        const includePath = match[2];
-
-        includes.push(includeType === 'virtual'
-            ? path.join(virtualRoot, includePath.replace(/^\//, ''))
-            : path.resolve(path.dirname(documentPath), includePath));
-    }
-
-    return includes;
+    return resolveIncludePathsIn(text, documentPath, virtualRoot);
 }
 
 async function loadTree(

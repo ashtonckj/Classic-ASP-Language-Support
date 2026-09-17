@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Worker } from 'node:worker_threads';
 import { extractSymbols, FileSymbols } from '../utils/symbolParser';
+import { parseIncludeDirectives, resolveIncludeDirective, resolveIncludePathsIn } from '../utils/includeDirectives';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -71,24 +72,16 @@ function notifyVirtualRootUnresolved(includePath: string): void {
 
 // Resolves all #include paths from a single file's text — one level only.
 export function resolveDirectIncludes(documentText: string, documentPath: string): string[] {
-    const resolved:    string[] = [];
-    const docDir      = path.dirname(documentPath);
     const virtualRoot = getVirtualRoot(documentPath);
-    const pattern     = /<!--\s*#include\s+(file|virtual)\s*=\s*["']([^"']+)["']\s*-->/gi;
-    let match: RegExpExecArray | null;
+    const resolved: string[] = [];
 
-    while ((match = pattern.exec(documentText)) !== null) {
-        const includeType = match[1].toLowerCase();
-        const includePath = match[2];
-
-        const fullPath = includeType === 'virtual'
-            ? path.join(virtualRoot, includePath.replace(/^\//, ''))
-            : path.resolve(docDir, includePath);
+    for (const directive of parseIncludeDirectives(documentText)) {
+        const fullPath = resolveIncludeDirective(directive, documentPath, virtualRoot);
 
         if (fs.existsSync(fullPath)) {
             resolved.push(fullPath);
-        } else if (includeType === 'virtual') {
-            notifyVirtualRootUnresolved(includePath);
+        } else if (directive.type === 'virtual') {
+            notifyVirtualRootUnresolved(directive.raw);
         }
     }
 
@@ -183,19 +176,7 @@ function mergeSymbols(target: FileSymbols, source: FileSymbols): void {
  * completion hot path never performs existsSync/statSync against include files.
  */
 function directIncludePaths(documentText: string, documentPath: string, virtualRoot: string): string[] {
-    const resolved: string[] = [];
-    const docDir = path.dirname(documentPath);
-    const pattern = /<!--\s*#include\s+(file|virtual)\s*=\s*["']([^"']+)["']\s*-->/gi;
-    let match: RegExpExecArray | null;
-
-    while ((match = pattern.exec(documentText)) !== null) {
-        const includePath = match[2];
-        resolved.push(match[1].toLowerCase() === 'virtual'
-            ? path.join(virtualRoot, includePath.replace(/^\//, ''))
-            : path.resolve(docDir, includePath));
-    }
-
-    return resolved;
+    return resolveIncludePathsIn(documentText, documentPath, virtualRoot);
 }
 
 /**
