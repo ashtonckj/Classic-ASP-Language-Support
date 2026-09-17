@@ -61,3 +61,92 @@ node_modules/prettier/plugins/graphql.*
 node_modules/prettier/plugins/angular.*
 node_modules/prettier/plugins/glimmer.*
 node_modules/prettier/plugins/meriyah.*
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Repository files that are not part of the extension
+# ─────────────────────────────────────────────────────────────────────────────
+# .claude/ held a local settings file — editor configuration for this machine,
+# with no business being downloaded by anyone who installs the extension.
+.claude/**
+.github/**
+.mocharc.json
+scripts/**
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dependencies: builds that are never the one require() resolves to
+# ─────────────────────────────────────────────────────────────────────────────
+# Every vscode-* package declares its umd build as "main" and its esm build
+# only under the "import"/"browser" export conditions. The extension host loads
+# CommonJS, so it always takes umd and never reads lib/esm — which in
+# vscode-css-languageservice alone is a second 1.5 MB copy of webCustomData.
+node_modules/vscode-css-languageservice/lib/esm/**
+node_modules/vscode-languageserver-types/lib/esm/**
+node_modules/vscode-languageserver-textdocument/lib/esm/**
+node_modules/vscode-uri/lib/esm/**
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dependencies: prettier
+# ─────────────────────────────────────────────────────────────────────────────
+# require('prettier') resolves to index.cjs, which dynamically imports
+# index.mjs, which in turn imports ./doc.mjs and ./plugins/<name>.mjs. Note the
+# extension: it is the ESM plugin copies that are live and the CommonJS ones
+# that are dead, which is the opposite of what the entry point suggests.
+# 'standalone' is the browser entry and is not on that path, and bin/ and
+# internal/ exist for the command-line tool, which an extension never runs.
+#
+# Both copies of doc stay. index.cjs require()s ./doc.js synchronously on load,
+# and index.mjs statically imports ./doc.mjs — the two entry points each need
+# their own, so neither is the redundant one.
+node_modules/prettier/bin/**
+node_modules/prettier/internal/**
+node_modules/prettier/standalone.*
+node_modules/prettier/plugins/*.js
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dependencies: typescript
+# ─────────────────────────────────────────────────────────────────────────────
+node_modules/typescript/bin/**
+node_modules/typescript/lib/tsc.js
+node_modules/typescript/lib/typesMap.json
+node_modules/typescript/lib/tsserverlibrary.d.ts
+
+# The lib.*.d.ts files ARE read from disk at runtime, so unlike every other
+# dependency's declarations these mostly have to ship. Which ones are needed is
+# decided by makeBrowserCompilerOptions in src/utils/jsUtils.ts:
+#
+#     lib: ['lib.es2020.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts']
+#
+# That pulls in es5 through es2020 plus the two dom files — 47 files in all.
+# The ones below are outside that closure. RAISE THE TARGET OR ADD A LIB THERE
+# AND THIS LIST HAS TO BE REVISITED, or the language service will fail to
+# resolve a lib file that is no longer in the package.
+node_modules/typescript/lib/lib.webworker*.d.ts
+node_modules/typescript/lib/lib.es2021*.d.ts
+node_modules/typescript/lib/lib.es2022*.d.ts
+node_modules/typescript/lib/lib.es2023*.d.ts
+node_modules/typescript/lib/lib.es2024*.d.ts
+node_modules/typescript/lib/lib.es2025*.d.ts
+node_modules/typescript/lib/lib.esnext*.d.ts
+node_modules/typescript/lib/lib.scripthost.d.ts
+node_modules/typescript/lib/lib.es6.d.ts
+node_modules/typescript/lib/lib.dom.asynciterable.d.ts
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dependencies: type declarations and docs
+# ─────────────────────────────────────────────────────────────────────────────
+# Declarations are read by the compiler when building this extension, never at
+# runtime. typescript/lib is deliberately absent from this list — see above.
+node_modules/prettier/**/*.d.ts
+node_modules/vscode-css-languageservice/**/*.d.ts
+node_modules/vscode-languageserver-types/**/*.d.ts
+node_modules/vscode-languageserver-textdocument/**/*.d.ts
+node_modules/vscode-uri/**/*.d.ts
+node_modules/@vscode/l10n/**/*.d.ts
+
+# Licence files are kept; these are project documentation for someone reading
+# the dependency's own repository.
+node_modules/**/README.md
+node_modules/**/CHANGELOG.md
+node_modules/**/SECURITY.md
+node_modules/vscode-css-languageservice/docs/**
+node_modules/@vscode/l10n/dist/tsdoc-metadata.json
