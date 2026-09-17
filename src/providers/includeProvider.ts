@@ -116,77 +116,6 @@ export function readIncludeText(fsPath: string): string | null {
     try { return fs.readFileSync(fsPath, 'utf8'); } catch { return null; }
 }
 
-// Recursively resolves all #include paths starting from a document.
-// `visited` prevents infinite loops when files include each other circularly.
-export function resolveIncludePaths(documentText: string, documentPath: string, visited: Set<string> = new Set()): string[] {
-    const resolved: string[] = [];
-    const normalised = documentPath.toLowerCase();
-
-    if (visited.has(normalised)) return resolved;
-    visited.add(normalised);
-
-    for (const incPath of resolveDirectIncludes(documentText, documentPath)) {
-        if (visited.has(incPath.toLowerCase())) continue;
-        resolved.push(incPath);
-
-        // Read from the open buffer when available so a nested #include added to an
-        // as-yet-unsaved .inc is still discovered.
-        const incText = readIncludeText(incPath);
-        if (incText !== null) {
-            resolved.push(...resolveIncludePaths(incText, incPath, visited));
-        }
-    }
-
-    return resolved;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Default (implicit) includes
-// aspLanguageSupport.defaultIncludes lists files that many real apps only pull
-// in through a shared bootstrap/layout page — never through the module being
-// edited itself — so its symbols would otherwise be invisible to IntelliSense,
-// hover, Go to Definition, and Peek Definition. Resolved the same way as
-// #include virtual="..." (relative to virtualRoot, or the workspace root).
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function getDefaultIncludePaths(documentPath: string): string[] {
-    const config    = vscode.workspace.getConfiguration('aspLanguageSupport');
-    const configured = config.get<string[]>('defaultIncludes', []);
-    if (configured.length === 0) return [];
-
-    const root = getVirtualRoot(documentPath);
-    const resolved: string[] = [];
-
-    for (const entry of configured) {
-        const fullPath = path.isAbsolute(entry)
-            ? entry
-            : path.join(root, entry.replace(/^[/\\]/, ''));
-        if (fs.existsSync(fullPath)) { resolved.push(fullPath); }
-    }
-
-    return resolved;
-}
-
-// Everything resolveIncludePaths finds via the document's own #include chain,
-// PLUS every configured default include (and, recursively, whatever those
-// files themselves #include) that the chain didn't already reach.
-export function resolveEffectiveIncludePaths(documentText: string, documentPath: string): string[] {
-    const visited  = new Set<string>();
-    const resolved = resolveIncludePaths(documentText, documentPath, visited);
-
-    for (const defaultPath of getDefaultIncludePaths(documentPath)) {
-        if (visited.has(defaultPath.toLowerCase())) continue;
-        resolved.push(defaultPath);
-
-        const text = readIncludeText(defaultPath);
-        if (text !== null) {
-            resolved.push(...resolveIncludePaths(text, defaultPath, visited));
-        }
-    }
-
-    return resolved;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Symbol collection
 //
@@ -269,7 +198,16 @@ function directIncludePaths(documentText: string, documentPath: string, virtualR
     return resolved;
 }
 
-/** Resolves configured default includes without synchronously checking the disk. */
+/**
+ * aspLanguageSupport.defaultIncludes lists files that many real apps only pull
+ * in through a shared bootstrap/layout page — never through the module being
+ * edited itself — so their symbols would otherwise be invisible to IntelliSense,
+ * hover, Go to Definition, and Peek Definition. Resolved the same way as
+ * #include virtual="..." (relative to virtualRoot, or the workspace root).
+ *
+ * Existence is not checked here: the worker finds out when it tries to read,
+ * which keeps the completion hot path free of synchronous disk access.
+ */
 function defaultIncludeCandidates(virtualRoot: string): string[] {
     const configured = vscode.workspace
         .getConfiguration('aspLanguageSupport')
@@ -446,7 +384,7 @@ export class IncludePathCompletionProvider implements vscode.CompletionItemProvi
         const typedSoFar  = includeMatch[2];
         const docDir      = path.dirname(document.uri.fsPath);
 
-        // Use the same resolution logic as resolveIncludePaths so completions
+        // Use the same resolution logic as resolveDirectIncludes so completions
         // browse from the correct root for both file="..." and virtual="..."
         const baseDir = includeType === 'virtual'
             ? getVirtualRoot(document.uri.fsPath)
