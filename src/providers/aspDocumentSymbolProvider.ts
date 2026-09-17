@@ -10,7 +10,7 @@
  */
 
 import * as vscode from 'vscode';
-import { extractSymbols } from './includeProvider';
+import { extractSymbols } from '../utils/symbolParser';
 import { indexOfWholeWord } from '../utils/documentHelper';
 
 export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider {

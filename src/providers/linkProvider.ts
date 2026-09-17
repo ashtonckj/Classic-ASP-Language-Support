@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { isExternalPath, FILE_LINK_ATTRIBUTES } from './includeProvider';
+import { isExternalPath, FILE_LINK_ATTRIBUTES } from '../utils/htmlLinkUtils';
 import { getVirtualRoot } from './includeProvider';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../utils/includeDirectives';
 

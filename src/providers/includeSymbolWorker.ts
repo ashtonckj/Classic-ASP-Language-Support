@@ -19,10 +19,6 @@ export interface IncludeWorkerEntry {
     children: string[];
 }
 
-function directIncludes(text: string, documentPath: string, virtualRoot: string): string[] {
-    return resolveIncludePathsIn(text, documentPath, virtualRoot);
-}
-
 async function loadTree(
     filePath: string,
     virtualRoot: string,
@@ -49,7 +45,7 @@ async function loadTree(
         return;
     }
 
-    const children = directIncludes(text, filePath, virtualRoot);
+    const children = resolveIncludePathsIn(text, filePath, virtualRoot);
     results.push({
         filePath,
         symbols: extractSymbols(text, filePath),

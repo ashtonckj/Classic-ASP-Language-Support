@@ -21,11 +21,11 @@ import { JsSemanticTokensProvider, COMBINED_SEMANTIC_LEGEND } from './providers/
 import { registerJsDiagnostics } from './providers/jsDiagnosticsProvider';
 import { disposeJsLanguageService } from './utils/jsUtils';
 import {
-    AspDefinitionProvider,
     clearIncludeSymbolCache,
     IncludePathCompletionProvider,
     preloadIncludeSymbols,
 } from './providers/includeProvider';
+import { AspDefinitionProvider } from './providers/aspDefinitionProvider';
 import { IncludeDocumentLinkProvider, HtmlAttributeLinkProvider, HtmlAttributePathCompletionProvider } from './providers/linkProvider';
 // ASP semantic provider must now use COMBINED_SEMANTIC_LEGEND — see note above.
 import { AspSemanticTokensProvider } from './providers/aspSemanticProvider';

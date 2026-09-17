@@ -4,6 +4,10 @@ import * as path from 'path';
 import { Worker } from 'node:worker_threads';
 import { extractSymbols, FileSymbols } from '../utils/symbolParser';
 import { parseIncludeDirectives, resolveIncludeDirective, resolveIncludePathsIn } from '../utils/includeDirectives';
+// Type only: the worker's own declaration of what it posts back, so the two
+// sides cannot drift. `import type` is erased at compile time, so requiring
+// this module here never loads the worker script into the extension host.
+import type { IncludeWorkerEntry } from './includeSymbolWorker';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -126,12 +130,6 @@ interface IncludeSymbolCacheEntry {
     bufferVersion?: number;
 }
 
-interface IncludeWorkerEntry {
-    filePath: string;
-    symbols: FileSymbols;
-    children: string[];
-}
-
 interface PendingIncludeLoad {
     generation: number;
     promise: Promise<void>;
@@ -152,14 +150,19 @@ const _includeWorkerPath = path.join(__dirname, 'includeSymbolWorker.js');
  * and sends the text along with the paths. Only DIRTY documents are sent —
  * for a saved one the worker would read identical bytes anyway.
  */
-function dirtyBufferTexts(): Record<string, string> {
+function dirtyBuffers(): { texts: Record<string, string>; versions: Map<string, number> } {
     const texts: Record<string, string> = {};
+const versions = new Map<string, number>();
+
     for (const doc of vscode.workspace.textDocuments) {
         if (doc.languageId === 'asp' && doc.isDirty && doc.uri.scheme === 'file') {
-            texts[doc.uri.fsPath.toLowerCase()] = doc.getText();
+            const key = doc.uri.fsPath.toLowerCase();
+            texts[key] = doc.getText();
+versions.set(key, doc.version);
         }
     }
-    return texts;
+
+    return { texts, versions };
 }
 
 function mergeSymbols(target: FileSymbols, source: FileSymbols): void {
@@ -168,15 +171,6 @@ function mergeSymbols(target: FileSymbols, source: FileSymbols): void {
     target.functions.push(...source.functions);
     target.comVariables.push(...source.comVariables);
     target.classes.push(...source.classes);
-}
-
-/**
- * Resolves direct include directives without touching the filesystem. The worker
- * will decide whether each path is readable. Keeping this path-only means the
- * completion hot path never performs existsSync/statSync against include files.
- */
-function directIncludePaths(documentText: string, documentPath: string, virtualRoot: string): string[] {
-    return resolveIncludePathsIn(documentText, documentPath, virtualRoot);
 }
 
 /**
@@ -201,8 +195,10 @@ function defaultIncludeCandidates(virtualRoot: string): string[] {
 
 function includeRoots(document: vscode.TextDocument): string[] {
     const virtualRoot = getVirtualRoot(document.uri.fsPath);
+    // Path-only on purpose: the worker finds out which of these are readable,
+    // so the completion hot path never does existsSync/statSync on an include.
     const roots = [
-        ...directIncludePaths(document.getText(), document.uri.fsPath, virtualRoot),
+        ...resolveIncludePathsIn(document.getText(), document.uri.fsPath, virtualRoot),
         ...defaultIncludeCandidates(virtualRoot),
     ];
 
@@ -261,13 +257,7 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
         return pending.promise;
     }
 
-    const openFiles = dirtyBufferTexts();
-    const openVersions = new Map<string, number>();
-    for (const doc of vscode.workspace.textDocuments) {
-        if (doc.languageId === 'asp' && doc.isDirty && doc.uri.scheme === 'file') {
-            openVersions.set(doc.uri.fsPath.toLowerCase(), doc.version);
-        }
-    }
+    const { texts: openFiles, versions: openVersions } = dirtyBuffers();
 
     const promise = new Promise<void>(resolve => {
         const worker = new Worker(_includeWorkerPath);
@@ -416,18 +406,3 @@ export class IncludePathCompletionProvider implements vscode.CompletionItemProvi
         return new vscode.CompletionList(items, true);
     }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared helpers (also used by linkProvider.ts and aspHoverProvider.ts)
-// These are now defined in ../utils/htmlLinkUtils.ts and re-exported here so
-// that any existing import of these names from includeProvider continues to work.
-// ─────────────────────────────────────────────────────────────────────────────
-export { FILE_LINK_ATTRIBUTES, isExternalPath, isCursorInHtmlFileLinkAttribute } from '../utils/htmlLinkUtils';
-// Re-export AspDefinitionProvider from its new dedicated file.
-// Any existing import of AspDefinitionProvider from includeProvider continues to work.
-export { AspDefinitionProvider } from './aspDefinitionProvider';
-
-// The symbol parser now lives in ../utils/symbolParser (no vscode import, so a
-// worker thread can use it too). Re-exported here so existing imports of
-// extractSymbols / FileSymbols from this module keep working.
-export { extractSymbols, type FileSymbols } from '../utils/symbolParser';

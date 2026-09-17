@@ -15,7 +15,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { extractSymbols } from './includeProvider';
+import { extractSymbols } from '../utils/symbolParser';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // File discovery

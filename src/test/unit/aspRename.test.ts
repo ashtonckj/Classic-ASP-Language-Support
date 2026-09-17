@@ -6,7 +6,7 @@ import {
     includeClosure,
     shadowingBodies,
 } from '../../providers/aspRenameProvider';
-import { FileSymbols } from '../../providers/includeProvider';
+import { FileSymbols } from '../../utils/symbolParser';
 
 // F2 on a local variable/parameter must be limited to its own function
 // body, not rewritten across every function and every file. computeLocalRenameScope

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import { collectAllSymbols, resolveDirectIncludes, extractSymbols, readIncludeText, FileSymbols } from './includeProvider';
+import { collectAllSymbols, resolveDirectIncludes, readIncludeText } from './includeProvider';
+import { extractSymbols, FileSymbols } from '../utils/symbolParser';
 import { getZone, getVbScriptBlockRanges } from '../utils/zoneUtils';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import { isInsideVbStringOrComment } from '../utils/documentHelper';
