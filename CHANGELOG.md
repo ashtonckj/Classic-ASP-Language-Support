@@ -535,6 +535,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[0.6.2]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.2
 [0.6.1]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.1
 [0.6.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.0
 [0.5.5]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.5.5
