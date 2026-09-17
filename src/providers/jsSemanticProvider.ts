@@ -20,14 +20,16 @@
  * JS-range membership test and before calling document.positionAt. Previously,
  * all semantic tokens were painted at positions shifted forward by the preamble
  * size, miscolouring completely wrong regions of the editor.
+ *
+ * The classification runs on a worker thread (jsAnalysisWorker.ts); this file
+ * only decodes what comes back. VS Code re-requests these tokens after every
+ * edit, and on a large <script> the classification takes about a second, which
+ * is not something the extension host can be doing while the user types.
  */
 
 import * as vscode from 'vscode';
-import {
-    buildVirtualJsContent,
-    getJsLanguageService,
-    getJsRanges,
-} from '../utils/jsUtils';
+import { analyseEmbeddedJs } from '../utils/jsAnalysisClient';
+import { inRanges } from '../utils/zoneUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Combined legend — shared with aspSemanticProvider.ts
@@ -146,30 +148,38 @@ function decode(encoded: number): { typeIdx: number; modBits: number } {
 // ─────────────────────────────────────────────────────────────────────────────
 export class JsSemanticTokensProvider implements vscode.DocumentSemanticTokensProvider {
 
-    provideDocumentSemanticTokens(
+    async provideDocumentSemanticTokens(
         document: vscode.TextDocument,
         token:    vscode.CancellationToken
-    ): vscode.ProviderResult<vscode.SemanticTokens> {
+    ): Promise<vscode.SemanticTokens | undefined> {
 
         if (token.isCancellationRequested) { return undefined; }
 
         const fullText = document.getText();
-        const jsRanges = getJsRanges(fullText);
+
+        // Cheap enough to be worth doing before waking the worker: a page with
+        // no <script> at all is the common case and needs no analysis.
+        if (!/<script/i.test(fullText)) { return undefined; }
+
+        // The classification runs on a worker thread. Everything TypeScript
+        // does here is whole-file and lands on every edit, and the extension
+        // host is also where auto-close, indenting and suggestions run — so it
+        // cannot be the thread that spends a second type-checking.
+        const requestedVersion = document.version;
+        const analysis = await analyseEmbeddedJs(fullText);
+
+        if (!analysis || token.isCancellationRequested) { return undefined; }
+
+        // The document may have moved on while the worker was busy. Every
+        // offset below would then be measured against text that no longer
+        // exists, so the tokens would be painted in the wrong places. VS Code
+        // asks again after a change, so dropping this answer loses nothing.
+        if (document.version !== requestedVersion) { return undefined; }
+
+        const { spans, jsRanges, preambleLength } = analysis;
         if (jsRanges.length === 0) { return undefined; }
 
-        const { virtualContent, preambleLength } = buildVirtualJsContent(fullText, 0);
-
-        if (token.isCancellationRequested) { return undefined; }
-
-        const svc = getJsLanguageService();
-        svc.updateContent(virtualContent);
-
-        const result = svc.getEncodedSemanticClassifications(0, virtualContent.length);
-
-        if (token.isCancellationRequested) { return undefined; }
-
         const builder = new vscode.SemanticTokensBuilder(COMBINED_SEMANTIC_LEGEND);
-        const spans   = result.spans;
 
         for (let i = 0; i + 2 < spans.length; i += 3) {
             if (token.isCancellationRequested) { break; }
@@ -184,8 +194,11 @@ export class JsSemanticTokensProvider implements vscode.DocumentSemanticTokensPr
             const docOffset = virtualOffset - preambleLength;
             if (docOffset < 0) { continue; }
 
-            // Use <= r.end so a token that abuts the closing </script> tag is not dropped.
-            if (!jsRanges.some(r => docOffset >= r.start && docOffset <= r.end)) { continue; }
+            // Inclusive at both ends so a token that abuts the closing </script>
+            // tag is not dropped. Binary search rather than a scan: this runs
+            // once per token, and a page can hold both many tokens and many
+            // script blocks.
+            if (!inRanges(jsRanges, docOffset, false)) { continue; }
 
             const { typeIdx, modBits } = decode(encoded);
             if (typeIdx === -1) { continue; }

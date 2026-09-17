@@ -543,7 +543,7 @@ export function getJsBlockRanges(text: string): Array<{ start: number; end: numb
 }
 
 /** Binary search over sorted, non-overlapping ranges. */
-function inRanges(
+export function inRanges(
     ranges: Array<{ start: number; end: number }>,
     offset: number,
     exclusive: boolean,

@@ -38,6 +38,7 @@ import { JsCodeActionProvider } from './providers/jsCodeActionProvider';
 import { JsDefinitionProvider } from './providers/jsDefinitionProvider';
 import { JsReferenceProvider, JsDocumentHighlightProvider } from './providers/jsReferenceProvider';
 import { JsRenameProvider } from './providers/jsRenameProvider';
+import { disposeJsAnalysisWorker } from './utils/jsAnalysisClient';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache } from './providers/aspWorkspaceSymbolProvider';
 import { AspSignatureHelpProvider } from './providers/aspSignatureHelpProvider';
 import { computeLineEdits, resolveEol, toLf } from './utils/editUtils';
@@ -478,4 +479,5 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate(): void {
     disposeJsLanguageService();
+    disposeJsAnalysisWorker();
 }

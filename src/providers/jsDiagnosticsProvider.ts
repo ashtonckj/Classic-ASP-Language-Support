@@ -4,6 +4,11 @@
  * Error/warning squiggles for JavaScript inside <script> blocks, powered by
  * the TypeScript Language Service. Debounced at 750 ms.
  *
+ * The analysis itself runs on a worker thread (jsAnalysisWorker.ts) and what
+ * comes back is plain data, because a ts.Diagnostic holds a reference to the
+ * whole SourceFile AST and could not cross a thread boundary intact. This file
+ * turns that data into vscode.Diagnostics and nothing more.
+ *
  * Suppressed diagnostic codes are listed in SUPPRESSED_CODES — these are too
  * noisy for small inline scripts that don't import modules. Only structural
  * errors like wrong argument counts and genuine syntax errors are surfaced.
@@ -14,13 +19,9 @@
  */
 
 import * as vscode from 'vscode';
-import * as ts from 'typescript';
-import {
-    buildVirtualJsContent,
-    getJsLanguageService,
-    getJsRanges,
-    tsSeverityToVs,
-} from '../utils/jsUtils';
+import { analyseEmbeddedJs } from '../utils/jsAnalysisClient';
+import { tsSeverityToVs } from '../utils/jsTsKinds';
+import { inRanges } from '../utils/zoneUtils';
 
 // Codes suppressed because embedded ASP <script> lacks whole-project context
 // (cross-file globals, jQuery, DOM null-returns, implicit any). ASP-injected
@@ -40,27 +41,23 @@ export const SUPPRESSED_CODES = new Set([
     2349,   // This expression is not callable (e.g. window[name]() dynamic dispatch)
 ]);
 
-function getDiagnosticsForDocument(document: vscode.TextDocument): vscode.Diagnostic[] {
+async function getDiagnosticsForDocument(document: vscode.TextDocument): Promise<vscode.Diagnostic[]> {
     const fullText = document.getText();
-    const jsRanges = getJsRanges(fullText);
-    if (jsRanges.length === 0) { return []; }
 
-    const { virtualContent, preambleLength } = buildVirtualJsContent(fullText, 0);
-    const svc = getJsLanguageService();
-    svc.updateContent(virtualContent);
+    // Worth checking before waking the worker: most pages have no <script>.
+    if (!/<script/i.test(fullText)) { return []; }
 
-    const allDiags: ts.Diagnostic[] = [
-        ...svc.getSyntacticDiagnostics(),
-        ...svc.getSemanticDiagnostics(),
-    ];
+    // Type-checking the whole script block is the most expensive thing this
+    // extension does, so it happens on a worker thread rather than on the
+    // extension host — see jsAnalysisWorker.ts.
+    const analysis = await analyseEmbeddedJs(fullText);
+    if (!analysis || analysis.jsRanges.length === 0) { return []; }
 
+    const { jsRanges, preambleLength } = analysis;
     const diagnostics: vscode.Diagnostic[] = [];
 
-    for (const d of allDiags) {
-        if (d.start === undefined || d.length === undefined) { continue; }
-
-        const code = typeof d.code === 'number' ? d.code : 0;
-        if (SUPPRESSED_CODES.has(code)) { continue; }
+    for (const d of analysis.diagnostics) {
+        if (SUPPRESSED_CODES.has(d.code)) { continue; }
 
         // Convert virtual-file position back to document space by subtracting
         // the preamble length. Skip anything that lands inside the preamble itself.
@@ -70,23 +67,20 @@ function getDiagnosticsForDocument(document: vscode.TextDocument): vscode.Diagno
         if (docStart < 0) { continue; }
 
         // `end` in getJsRanges is the offset of `<` in `</script>`, which is a
-        // valid position for a token that abuts the closing tag (use <=).
-        if (!jsRanges.some(r => docStart >= r.start && docStart <= r.end)) { continue; }
-
-        const message = typeof d.messageText === 'string'
-            ? d.messageText
-            : ts.flattenDiagnosticMessageText(d.messageText, '\n');
+        // valid position for a token that abuts the closing tag, so the test is
+        // inclusive at both ends.
+        if (!inRanges(jsRanges, docStart, false)) { continue; }
 
         const diag = new vscode.Diagnostic(
             new vscode.Range(
                 document.positionAt(docStart),
                 document.positionAt(docStart + d.length)
             ),
-            message,
+            d.message,
             tsSeverityToVs(d.category)
         );
         diag.source = 'Classic ASP (JS)';
-        diag.code   = code;
+        diag.code   = d.code;
         diagnostics.push(diag);
     }
 
@@ -108,13 +102,21 @@ export function registerJsDiagnostics(context: vscode.ExtensionContext): void {
         if (existing) { clearTimeout(existing); }
         debounceTimers.set(key, setTimeout(() => {
             debounceTimers.delete(key);
-            collection.set(document.uri, getDiagnosticsForDocument(document));
+            // The document may change again while the worker is busy; publishing
+            // ranges measured against text that has moved on would put squiggles
+            // in the wrong places. A newer edit arms its own timer.
+            const requestedVersion = document.version;
+            void getDiagnosticsForDocument(document).then(diagnostics => {
+                if (document.version === requestedVersion) {
+                    collection.set(document.uri, diagnostics);
+                }
+            });
         }, 750));
     }
 
     for (const doc of vscode.workspace.textDocuments) {
         if (doc.languageId === 'asp') {
-            collection.set(doc.uri, getDiagnosticsForDocument(doc));
+            void getDiagnosticsForDocument(doc).then(d => collection.set(doc.uri, d));
         }
     }
 

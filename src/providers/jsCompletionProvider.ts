@@ -26,7 +26,8 @@
  */
 
 import * as vscode from 'vscode';
-import { buildVirtualJsContent, getJsLanguageService, tsKindToVsKind, } from '../utils/jsUtils';
+import { buildVirtualJsContent, getJsLanguageService } from '../utils/jsUtils';
+import { tsKindToVsKind } from '../utils/jsTsKinds';
 import { getZone } from '../utils/zoneUtils';
 
 interface ItemData {
