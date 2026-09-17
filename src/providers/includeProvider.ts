@@ -136,6 +136,11 @@ interface PendingIncludeLoad {
 }
 
 const _includeSymbolCache = new Map<string, IncludeSymbolCacheEntry>();
+// Bumped on every write to _includeSymbolCache. collectAllSymbols memoises its
+// result per document version, and a document's version does NOT change when a
+// worker finishes loading its includes — so the memo keys on this as well, or
+// the first result computed before the includes arrived would stick.
+let _includeSymbolEpoch = 0;
 const _includeLoadPromises = new Map<string, PendingIncludeLoad>();
 let _includeCacheGeneration = 0;
 const _includeWorkerPath = path.join(__dirname, 'includeSymbolWorker.js');
@@ -152,13 +157,13 @@ const _includeWorkerPath = path.join(__dirname, 'includeSymbolWorker.js');
  */
 function dirtyBuffers(): { texts: Record<string, string>; versions: Map<string, number> } {
     const texts: Record<string, string> = {};
-const versions = new Map<string, number>();
+    const versions = new Map<string, number>();
 
     for (const doc of vscode.workspace.textDocuments) {
         if (doc.languageId === 'asp' && doc.isDirty && doc.uri.scheme === 'file') {
             const key = doc.uri.fsPath.toLowerCase();
             texts[key] = doc.getText();
-versions.set(key, doc.version);
+            versions.set(key, doc.version);
         }
     }
 
@@ -280,6 +285,7 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
                         bufferVersion: openVersions.get(key),
                     });
                 }
+                _includeSymbolEpoch++;
             }
             finish();
         });
@@ -313,9 +319,29 @@ function appendCachedIncludeSymbols(target: FileSymbols, fsPath: string, visited
     }
 }
 
+/**
+ * Every symbol visible to a document: its own, plus its includes'.
+ *
+ * Memoised per document version. Seven providers call this — semantic tokens on
+ * every edit, completion on every keystroke with the suggest widget open, hover
+ * on every mouse rest, rename twice in one operation — and each call re-parsed
+ * the whole document from scratch, which is ~20 ms on a 12k-line file. Between
+ * two keystrokes nothing it reads has changed, so the second parse onwards was
+ * pure waste.
+ *
+ * Callers treat the result as read-only; nothing mutates the returned arrays.
+ */
+const _combinedSymbolMemo = new Map<string, { version: number; epoch: number; symbols: FileSymbols }>();
+
 export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
     if (!areIncludeSymbolsReady(document)) {
         void preloadIncludeSymbols(document);
+    }
+
+    const memoKey = document.uri.toString();
+    const memo = _combinedSymbolMemo.get(memoKey);
+    if (memo && memo.version === document.version && memo.epoch === _includeSymbolEpoch) {
+        return memo.symbols;
     }
 
     const combined = extractSymbols(document.getText(), document.uri.fsPath);
@@ -325,12 +351,34 @@ export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
         appendCachedIncludeSymbols(combined, includePath, visited);
     }
 
+    _combinedSymbolMemo.set(memoKey, {
+        version: document.version,
+        epoch:   _includeSymbolEpoch,
+        symbols: combined,
+    });
+    evictClosedDocuments();
     return combined;
+}
+
+/**
+ * Drops memo entries for documents that are no longer open, so a long session
+ * that visits hundreds of files does not hold every one of their symbol sets.
+ * Only runs when there are more entries than open documents, which is only
+ * just after something was closed.
+ */
+function evictClosedDocuments(): void {
+    if (_combinedSymbolMemo.size <= vscode.workspace.textDocuments.length) { return; }
+
+    const open = new Set(vscode.workspace.textDocuments.map(doc => doc.uri.toString()));
+    for (const key of _combinedSymbolMemo.keys()) {
+        if (!open.has(key)) { _combinedSymbolMemo.delete(key); }
+    }
 }
 
 /** Invalidates all worker-backed include symbols. In-flight stale results are ignored. */
 export function clearIncludeSymbolCache(): void {
     _includeCacheGeneration++;
+    _includeSymbolEpoch++;
     _includeSymbolCache.clear();
 }
 
