@@ -285,8 +285,13 @@ export function activate(context: vscode.ExtensionContext) {
         new AspWorkspaceSymbolProvider()
     );
 
+    // languageId, not the file extension: the document is open, so VS Code has
+    // already classified it — including through the user's own files.associations.
+    // Matching /\.(asp|inc)$/ meant a Classic ASP library kept in a .html file
+    // never invalidated either cache on save, so edits to it stayed invisible
+    // until the window was reloaded.
     const wsCacheInvalidator = vscode.workspace.onDidSaveTextDocument(doc => {
-        if (/\.(asp|inc)$/i.test(doc.uri.fsPath)) {
+        if (doc.languageId === 'asp') {
             clearWorkspaceSymbolCache(doc.uri.fsPath);
             clearIncludeSymbolCache();
         }
