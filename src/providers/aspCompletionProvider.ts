@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ASP_OBJECTS, VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
 import { getTextBeforeCursor, isInsideVbStringOrComment } from '../utils/documentHelper';
-import { collectAllSymbols } from './includeProvider';
+import { areIncludeSymbolsReady, collectAllSymbols, preloadIncludeSymbols } from './includeProvider';
 import { COM_TYPE_MAP } from '../constants/comObjects';
 import { getZone } from '../utils/zoneUtils';
 import * as path from 'path';
@@ -69,7 +69,20 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
             return [];
         }
 
-        // Collect all symbols from this document + any included files
+        // Include files are loaded off the extension-host thread. Do not await the
+        // worker here: return current-document + already-cached symbols immediately,
+        // then refresh suggestions once the background include load completes.
+        const refreshSuggestions = !areIncludeSymbolsReady(document);
+        if (refreshSuggestions) {
+            void preloadIncludeSymbols(document).then(() => {
+                const editor = vscode.window.activeTextEditor;
+                if (editor?.document === document && areIncludeSymbolsReady(document)) {
+                    void vscode.commands.executeCommand('editor.action.triggerSuggest');
+                }
+            });
+        }
+
+        // Collect all symbols from this document + whatever include symbols are cached.
         const allSymbols = collectAllSymbols(document);
         const comVarMap  = buildComVarMap(allSymbols.comVariables);
 

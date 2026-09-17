@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Worker } from 'node:worker_threads';
 import { extractSymbols, FileSymbols } from '../utils/symbolParser';
 
 
@@ -188,92 +189,200 @@ export function resolveEffectiveIncludePaths(documentText: string, documentPath:
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Symbol collection
-// Merges symbols from the current document and all included files (all depths).
-// Results are cached by (filePath + documentVersion) and invalidated whenever
-// the document changes, avoiding repeated synchronous fs.readFileSync calls
-// on every keystroke across all providers.
+//
+// The active document is always parsed synchronously from its current editor
+// buffer. Include files are loaded and parsed by a worker thread and cached
+// independently, so editing the active document never forces a synchronous walk
+// of the include tree on the extension-host thread.
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface IncludeStamp { path: string; token: string; }
-
-interface SymbolCache {
-    version:          number;
-    symbols:          FileSymbols;
-    includeStamps:    IncludeStamp[];
-    defaultIncludesKey: string;
+interface IncludeSymbolCacheEntry {
+    symbols: FileSymbols;
+    children: string[];
 }
 
-const _symbolCache = new Map<string, SymbolCache>();
+interface IncludeWorkerEntry {
+    filePath: string;
+    symbols: FileSymbols;
+    children: string[];
+}
+
+interface PendingIncludeLoad {
+    generation: number;
+    promise: Promise<void>;
+}
+
+const _includeSymbolCache = new Map<string, IncludeSymbolCacheEntry>();
+const _includeLoadPromises = new Map<string, PendingIncludeLoad>();
+let _includeCacheGeneration = 0;
+const _includeWorkerPath = path.join(__dirname, 'includeSymbolWorker.js');
+
+function mergeSymbols(target: FileSymbols, source: FileSymbols): void {
+    target.variables.push(...source.variables);
+    target.constants.push(...source.constants);
+    target.functions.push(...source.functions);
+    target.comVariables.push(...source.comVariables);
+    target.classes.push(...source.classes);
+}
 
 /**
- * A cache-invalidation token for an include. If the file is OPEN in an editor we
- * use its in-memory buffer version, so unsaved edits refresh the including
- * document's symbols immediately; otherwise we use its on-disk mtime.
+ * Resolves direct include directives without touching the filesystem. The worker
+ * will decide whether each path is readable. Keeping this path-only means the
+ * completion hot path never performs existsSync/statSync against include files.
  */
-function includeToken(fsPath: string): string {
-    const open = openDocumentFor(fsPath);
-    if (open) { return `v${open.version}`; }
-    try { return `m${fs.statSync(fsPath).mtimeMs}`; } catch { return 'missing'; }
+function directIncludePaths(documentText: string, documentPath: string, virtualRoot: string): string[] {
+    const resolved: string[] = [];
+    const docDir = path.dirname(documentPath);
+    const pattern = /<!--\s*#include\s+(file|virtual)\s*=\s*["']([^"']+)["']\s*-->/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = pattern.exec(documentText)) !== null) {
+        const includePath = match[2];
+        resolved.push(match[1].toLowerCase() === 'virtual'
+            ? path.join(virtualRoot, includePath.replace(/^\//, ''))
+            : path.resolve(docDir, includePath));
+    }
+
+    return resolved;
 }
 
-/** True only if every recorded include still has the same change token. */
-function includeStampsUnchanged(stamps: IncludeStamp[]): boolean {
-    for (const s of stamps) {
-        if (includeToken(s.path) !== s.token) { return false; }
+/** Resolves configured default includes without synchronously checking the disk. */
+function defaultIncludeCandidates(virtualRoot: string): string[] {
+    const configured = vscode.workspace
+        .getConfiguration('aspLanguageSupport')
+        .get<string[]>('defaultIncludes', []);
+
+    return configured.map(entry => path.isAbsolute(entry)
+        ? entry
+        : path.join(virtualRoot, entry.replace(/^[/\\]/, '')));
+}
+
+function includeRoots(document: vscode.TextDocument): string[] {
+    const virtualRoot = getVirtualRoot(document.uri.fsPath);
+    const roots = [
+        ...directIncludePaths(document.getText(), document.uri.fsPath, virtualRoot),
+        ...defaultIncludeCandidates(virtualRoot),
+    ];
+
+    const seen = new Set<string>();
+    return roots.filter(root => {
+        const key = root.toLowerCase();
+        if (seen.has(key)) { return false; }
+        seen.add(key);
+        return true;
+    });
+}
+
+function cachedTreeReady(fsPath: string, visited: Set<string>): boolean {
+    const key = fsPath.toLowerCase();
+    if (visited.has(key)) { return true; }
+    visited.add(key);
+
+    const cached = _includeSymbolCache.get(key);
+    return !!cached && cached.children.every(child => cachedTreeReady(child, visited));
+}
+
+export function areIncludeSymbolsReady(document: vscode.TextDocument): boolean {
+    if (document.languageId !== 'asp') { return true; }
+    const visited = new Set<string>();
+    return includeRoots(document).every(root => cachedTreeReady(root, visited));
+}
+
+/**
+ * Starts a worker for the document's include tree. Repeated callers share the
+ * same in-flight request, and stale results are ignored after cache invalidation.
+ */
+export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<void> {
+    if (document.languageId !== 'asp') { return Promise.resolve(); }
+
+    const roots = includeRoots(document);
+    if (roots.length === 0 || areIncludeSymbolsReady(document)) {
+        return Promise.resolve();
     }
-    return true;
+
+    const virtualRoot = getVirtualRoot(document.uri.fsPath);
+    const generation = _includeCacheGeneration;
+    const requestKey = [
+        virtualRoot.toLowerCase(),
+        ...roots.map(root => root.toLowerCase()).sort(),
+    ].join('|');
+
+    const pending = _includeLoadPromises.get(requestKey);
+    if (pending?.generation === generation) {
+        return pending.promise;
+    }
+
+    const promise = new Promise<void>(resolve => {
+        const worker = new Worker(_includeWorkerPath);
+        let settled = false;
+
+        const finish = (): void => {
+            if (settled) { return; }
+            settled = true;
+            resolve();
+            void worker.terminate();
+        };
+
+        worker.once('message', (entries: IncludeWorkerEntry[]) => {
+            if (generation === _includeCacheGeneration) {
+                for (const entry of entries) {
+                    _includeSymbolCache.set(entry.filePath.toLowerCase(), {
+                        symbols: entry.symbols,
+                        children: entry.children,
+                    });
+                }
+            }
+            finish();
+        });
+
+        // Include loading is best-effort. A missing/unreadable file must never
+        // reject a provider request or produce an unhandled promise rejection.
+        worker.once('error', finish);
+        worker.once('exit', finish);
+        worker.postMessage({ roots, virtualRoot });
+    });
+
+    _includeLoadPromises.set(requestKey, { generation, promise });
+    return promise.finally(() => {
+        if (_includeLoadPromises.get(requestKey)?.promise === promise) {
+            _includeLoadPromises.delete(requestKey);
+        }
+    });
+}
+
+function appendCachedIncludeSymbols(target: FileSymbols, fsPath: string, visited: Set<string>): void {
+    const key = fsPath.toLowerCase();
+    if (visited.has(key)) { return; }
+    visited.add(key);
+
+    const cached = _includeSymbolCache.get(key);
+    if (!cached) { return; }
+
+    mergeSymbols(target, cached.symbols);
+    for (const childPath of cached.children) {
+        appendCachedIncludeSymbols(target, childPath, visited);
+    }
 }
 
 export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
-    const docPath    = document.uri.fsPath;
-    const docVersion = document.version;
-    const defaultIncludesKey = JSON.stringify(
-        vscode.workspace.getConfiguration('aspLanguageSupport').get<string[]>('defaultIncludes', []),
-    );
-
-    // A cache hit requires the document version, every included file's token
-    // (open-buffer version, or disk mtime when not open), AND the
-    // defaultIncludes setting to all be unchanged — otherwise editing a .inc
-    // (even unsaved), or editing the setting itself, would leave the including
-    // document's merged symbols stale.
-    const cached = _symbolCache.get(docPath);
-    if (
-        cached
-        && cached.version === docVersion
-        && cached.defaultIncludesKey === defaultIncludesKey
-        && includeStampsUnchanged(cached.includeStamps)
-    ) {
-        return cached.symbols;
+    if (!areIncludeSymbolsReady(document)) {
+        void preloadIncludeSymbols(document);
     }
 
-    const fullText = document.getText();
-    const combined = extractSymbols(fullText, docPath);
-    const includeStamps: IncludeStamp[] = [];
+    const combined = extractSymbols(document.getText(), document.uri.fsPath);
+    const visited = new Set<string>();
 
-    for (const incPath of resolveEffectiveIncludePaths(fullText, docPath)) {
-        // Stamp first so a currently-unreadable include still invalidates once it
-        // appears or changes.
-        includeStamps.push({ path: incPath, token: includeToken(incPath) });
-        const incText = readIncludeText(incPath);
-        if (incText === null) { continue; }
-
-        const incSymbols = extractSymbols(incText, incPath);
-        combined.variables    .push(...incSymbols.variables);
-        combined.constants    .push(...incSymbols.constants);
-        combined.functions    .push(...incSymbols.functions);
-        combined.comVariables .push(...incSymbols.comVariables);
-        combined.classes      .push(...incSymbols.classes);
-    }
-
-    _symbolCache.set(docPath, { version: docVersion, symbols: combined, includeStamps, defaultIncludesKey });
-
-    // Evict stale entries for files no longer open to avoid unbounded growth
-    const openPaths = new Set(vscode.workspace.textDocuments.map(d => d.uri.fsPath));
-    for (const key of _symbolCache.keys()) {
-        if (!openPaths.has(key)) { _symbolCache.delete(key); }
+    for (const includePath of includeRoots(document)) {
+        appendCachedIncludeSymbols(combined, includePath, visited);
     }
 
     return combined;
+}
+
+/** Invalidates all worker-backed include symbols. In-flight stale results are ignored. */
+export function clearIncludeSymbolCache(): void {
+    _includeCacheGeneration++;
+    _includeSymbolCache.clear();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
