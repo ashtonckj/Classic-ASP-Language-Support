@@ -85,6 +85,40 @@ export function buildCssDoc(
 }
 
 /**
+ * A virtual CSS document holding ONE <style> body and nothing else.
+ *
+ * buildCssDoc above pads its block with a whitespace prefix as long as
+ * everything before it on the page, so an offset in the result is already a page
+ * offset. That is convenient, but the two whole-page consumers — validation and
+ * the colour provider — call it once per block, and each call rebuilds the whole
+ * prefix. Same file, same CSS, only the block count varying, that measured 1 ms
+ * at one block and 198 ms at 160: the page re-blanked once per block.
+ *
+ * This builds only the block, so a page costs the size of its CSS rather than
+ * the size of the page times the number of blocks. Positions come back relative
+ * to the block, and the caller shifts them: see cssPageStylesheet.ts.
+ *
+ * Parsing each block on its own is also what keeps the diagnostics right. One
+ * document covering every block at once was tried first, and an unterminated
+ * rule in one block then swallowed the next — the "} expected" moved from the
+ * end of the block that was missing its brace to the end of the following one.
+ * Mid-edit that is the normal state of a file, not an edge case.
+ */
+export function buildCssBodyDoc(
+    uri: string,
+    content: string,
+    version: number,
+    range: { start: number; end: number },
+): LsTextDocument {
+    return LsTextDocument.create(
+        uri + '.' + range.start + '.css',
+        'css',
+        version,
+        stripAspExpressions(content.slice(range.start, range.end)),
+    );
+}
+
+/**
  * Detects if the cursor is inside a style="" attribute value and returns the info needed
  * to build a virtual CSS document for inline styles.
  * Returns null if the cursor is not inside a style="" attribute.

@@ -6,8 +6,9 @@
 
 import * as vscode from 'vscode';
 import { getCSSLanguageService, DiagnosticSeverity as LsSeverity } from 'vscode-css-languageservice';
-import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc } from '../utils/cssUtils';
-import { getZone, findNextRealTag, findTagEnd, findClosingTag } from '../utils/zoneUtils';
+import { getInlineStyleContext, buildInlineCssDoc } from '../utils/cssUtils';
+import { getParsedCssBlocks, pagePosition } from '../utils/cssPageStylesheet';
+import { createZoneResolver, findNextRealTag, findTagEnd, findClosingTag } from '../utils/zoneUtils';
 
 const cssService = getCSSLanguageService();
 
@@ -51,6 +52,17 @@ function validateDocument(
     const fullText = document.getText();
     const diagnostics: vscode.Diagnostic[] = [];
 
+    // getZone answers about one offset by rescanning the document from the top.
+    // It used to be called once per <style> block and once per style="" attribute,
+    // so a page with many of either rescanned itself once for each. This builds
+    // the zone map once and answers from it; zoneResolver.test.ts asserts the two
+    // agree at every offset of a document.
+    const zones = createZoneResolver(fullText);
+
+    // Every <style> body worth validating, collected first so the whole page can
+    // be built and parsed once instead of once per block.
+    const blockRanges: Array<{ start: number; end: number }> = [];
+
     // Scan through all <style> blocks in the document. findNextRealTag skips a
     // <style that appears inside an HTML comment, an ASP block, or another tag's
     // attribute value, and matches case-insensitively.
@@ -74,50 +86,52 @@ function validateDocument(
         // inside a <script> block could still match; the zone guard rejects it.
         // (getZone returns 'html' for comment interiors, so keep the explicit
         // comment check too.)
-        if (isInsideHtmlComment(fullText, styleOpen) || getZone(fullText, styleOpen) !== 'html') {
+        if (isInsideHtmlComment(fullText, styleOpen) || zones.zoneAt(styleOpen) !== 'html') {
             searchFrom = advance;
             continue;
         }
 
-        const lsDoc = buildCssDoc(
-            document.uri.toString(),
-            fullText,
-            document.version,
-            styleTagEnd + 2  // just inside the CSS body
-        );
-
-        if (lsDoc) {
-            const stylesheet = cssService.parseStylesheet(lsDoc);
-            const lsDiagnostics = cssService.doValidation(lsDoc, stylesheet);
-
-            for (const d of lsDiagnostics) {
-                const start = new vscode.Position(d.range.start.line, d.range.start.character);
-                const end = new vscode.Position(d.range.end.line, d.range.end.character);
-
-                const diagnostic = new vscode.Diagnostic(
-                    new vscode.Range(start, end),
-                    d.message,
-                    mapSeverity(d.severity)
-                );
-
-                diagnostic.source = 'Classic ASP (CSS)';
-
-                // Safely handle d.code which can be string, number, or { value, target }
-                if (d.code !== undefined && d.code !== null) {
-                    if (typeof d.code === 'object') {
-                        const codeObj = d.code as { value: string | number };
-                        diagnostic.code = String(codeObj.value);
-                    } else {
-                        diagnostic.code = String(d.code);
-                    }
-                }
-
-                diagnostics.push(diagnostic);
-            }
-        }
+        blockRanges.push({
+            start: styleTagEnd + 1,
+            end: styleClose === -1 ? fullText.length : styleClose,
+        });
 
         if (styleClose === -1) break;
         searchFrom = advance;
+    }
+
+    // Each block's document holds only that block, so the language service
+    // reports positions relative to it; pagePosition shifts them back.
+    for (const block of getParsedCssBlocks(document.uri.toString(), fullText, document.version, blockRanges)) {
+        const blockStart = document.positionAt(block.range.start);
+
+        for (const d of cssService.doValidation(block.cssDoc, block.stylesheet)) {
+            const s = pagePosition(blockStart, d.range.start);
+            const e = pagePosition(blockStart, d.range.end);
+
+            const diagnostic = new vscode.Diagnostic(
+                new vscode.Range(
+                    new vscode.Position(s.line, s.character),
+                    new vscode.Position(e.line, e.character),
+                ),
+                d.message,
+                mapSeverity(d.severity)
+            );
+
+            diagnostic.source = 'Classic ASP (CSS)';
+
+            // Safely handle d.code which can be string, number, or { value, target }
+            if (d.code !== undefined && d.code !== null) {
+                if (typeof d.code === 'object') {
+                    const codeObj = d.code as { value: string | number };
+                    diagnostic.code = String(codeObj.value);
+                } else {
+                    diagnostic.code = String(d.code);
+                }
+            }
+
+            diagnostics.push(diagnostic);
+        }
     }
 
     // ── Inline style="" attribute validation ─────────────────────────────────
@@ -147,7 +161,7 @@ function validateDocument(
             // was pulled out and validated as CSS, warning about a string literal.
             // getZone returns 'html' for comment interiors, so the comment check
             // below is still needed.
-            if (getZone(fullText, offset) !== 'html') { searchCol = valueEnd + 1; continue; }
+            if (zones.zoneAt(offset) !== 'html') { searchCol = valueEnd + 1; continue; }
             if (isInsideHtmlComment(fullText, offset)) { searchCol = valueEnd + 1; continue; }
 
             const inlineCtx = getInlineStyleContext(fullText, offset);

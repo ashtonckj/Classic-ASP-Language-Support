@@ -26,9 +26,10 @@
  */
 
 import * as vscode from 'vscode';
-import { getCSSLanguageService } from 'vscode-css-languageservice';
+import { getCSSLanguageService, Stylesheet } from 'vscode-css-languageservice';
 import type { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
 import { buildCssDoc, buildInlineCssDoc, getInlineStyleContext } from '../utils/cssUtils';
+import { getParsedCssBlocks, pageOffset } from '../utils/cssPageStylesheet';
 import { getCssBlockRanges } from '../utils/zoneUtils';
 
 const cssService = getCSSLanguageService();
@@ -68,14 +69,19 @@ function colorsIn(
     document:     vscode.TextDocument,
     cssDoc:       LsTextDocument,
     toPageOffset: (virtualOffset: number) => number,
+    stylesheet?:  Stylesheet,
 ): vscode.ColorInformation[] {
-    const stylesheet = cssService.parseStylesheet(cssDoc);
+    const parsed = stylesheet ?? cssService.parseStylesheet(cssDoc);
     const found: vscode.ColorInformation[] = [];
 
-    for (const info of cssService.findDocumentColors(cssDoc, stylesheet)) {
+    // Hoisted: this was inside the loop, so a page whose <style> holds 2,000
+    // colours asked the editor to hand back the entire document 2,000 times.
+    const pageLength = document.getText().length;
+
+    for (const info of cssService.findDocumentColors(cssDoc, parsed)) {
         const start = toPageOffset(cssDoc.offsetAt(info.range.start));
         const end   = toPageOffset(cssDoc.offsetAt(info.range.end));
-        if (start < 0 || end > document.getText().length || end <= start) { continue; }
+        if (start < 0 || end > pageLength || end <= start) { continue; }
 
         found.push(new vscode.ColorInformation(
             new vscode.Range(document.positionAt(start), document.positionAt(end)),
@@ -98,13 +104,15 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
         const uri     = document.uri.toString();
         const colors: vscode.ColorInformation[] = [];
 
-        for (const block of getCssBlockRanges(content)) {
+        // Parsed once per document version and shared with CSS validation, which
+        // wants the same blocks on its own debounce a moment later.
+        for (const block of getParsedCssBlocks(uri, content, version, getCssBlockRanges(content))) {
             if (token.isCancellationRequested) { return undefined; }
-            // buildCssDoc wants an offset INSIDE the block it should extract.
-            const cssDoc = buildCssDoc(uri, content, version, block.start);
-            if (!cssDoc) { continue; }
-            // Position-aligned: an offset in this document is already a page offset.
-            colors.push(...colorsIn(document, cssDoc, offset => offset));
+            colors.push(...colorsIn(
+                document, block.cssDoc,
+                offset => pageOffset(block, offset),
+                block.stylesheet,
+            ));
         }
 
         for (const value of inlineStyleValues(content)) {
