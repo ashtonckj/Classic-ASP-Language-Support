@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { isSelfClosingTag } from '../constants/htmlTags';
+import { HTML_TAGS, isSelfClosingTag } from '../constants/htmlTags';
 import { getZone, Zone } from '../utils/zoneUtils';
 
 // ── VBScript block keyword constants ───────────────────────────────────────
@@ -329,7 +329,7 @@ function findAspOpenerIndent(document: vscode.TextDocument, closerLineIndex: num
         // A line that closes an ASP block (without also opening one) increases depth
         if (/^%>$/.test(text) || (/^(?!<%).*%>$/.test(text))) {
             depth++;
-        } else if (/^<%/.test(text)) {
+        } else if (text.startsWith('<%')) {
             depth--;
             if (depth === 0) {
                 const m = document.lineAt(i).text.match(/^(\s*)/);
@@ -367,11 +367,11 @@ function findEnclosingHtmlChildIndent(
         if (!text) { continue; }
 
         // Skip ASP fragment content (scan backwards: %> raises depth, <% lowers it)
-        if (/^%>/.test(text) || (text.endsWith('%>') && !text.startsWith('<%'))) {
+        if (text.startsWith('%>') || (text.endsWith('%>') && !text.startsWith('<%'))) {
             aspDepth++;
             continue;
         }
-        if (/^<%/.test(text)) {
+        if (text.startsWith('<%')) {
             if (aspDepth > 0) { aspDepth--; }
             continue;
         }
@@ -1458,7 +1458,7 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
             // Use the enclosing HTML opener's child indent — same logic as Enter after %>.
             targetIndent = findEnclosingHtmlChildIndent(editor.document, position.line, indentUnit)
                            ?? baseIndent;
-        } else if (/^<%/.test(prevLineText)) {
+        } else if (prevLineText.startsWith('<%')) {
             // After <% — VBScript code is at the same level as <%, no extra indent
             targetIndent = baseIndent;
         } else if (inAsp && isBlockOpener(prevLineText)) {

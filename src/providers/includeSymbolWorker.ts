@@ -1,6 +1,5 @@
 import { parentPort } from 'node:worker_threads';
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import { extractSymbols, type FileSymbols } from '../utils/symbolParser';
 import { resolveIncludePathsIn } from '../utils/includeDirectives';
 

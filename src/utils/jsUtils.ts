@@ -73,7 +73,7 @@
 
 import * as path from 'path';
 import * as ts from 'typescript';
-import { getZone, findNextRealTag } from './zoneUtils';
+import { findNextRealTag } from './zoneUtils';
 import { ASP_DOM_TYPES } from './aspDomTypes.generated';
 
 export const VIRTUAL_FILENAME    = 'asp-embedded.js';

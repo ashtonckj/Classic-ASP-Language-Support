@@ -688,8 +688,6 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                 const match = restoredCode.match(new RegExp(`([ \\t]*)<!--${escapedId}-->`));
 
                 if (match) {
-                    const lineIndent = match[1];
-
                     const placeholderIdx   = restoredCode.indexOf(`<!--${block.id}-->`);
                     const lineStart        = restoredCode.lastIndexOf('\n', placeholderIdx - 1) + 1;
                     const textBeforeOnLine = restoredCode.slice(lineStart, placeholderIdx);
@@ -717,9 +715,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                     if (isInlinePlaced && !aspSettings.aspTagsOnSameLine) {
                         // Block sits inline in tag text content (e.g. <td><!--ID--></td>).
                         // Expand it onto its own indented lines.
-                        const indentUnit  = aspSettings.useTabs ? '\t' : ' '.repeat(aspSettings.indentSize);
-                        const baseIndent  = textBeforeOnLine.match(/^([ \t]*)/)?.[1] ?? '';
-                        const blockIndent = baseIndent + indentUnit;
+                        const baseIndent = textBeforeOnLine.match(/^([ \t]*)/)?.[1] ?? '';
 
                         // In flat mode use the group's shared tag column so this block's
                         // tags align with all sibling blocks in the same VBScript group.
@@ -761,10 +757,10 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                         //
                         // 'flat' mode  — aspFormatter starts VBScript at level 0, so
                         //   content lines have only VBScript indent (e.g. "    If ...").
-                        //   The <% / %> tags should sit at the HTML placeholder indent
-                        //   (lineIndent) so they visually belong to the HTML structure,
-                        //   and content is indented further in from there.
-                        //   e.g.  <div>\n  <% ← lineIndent, content at lineIndent+vbsIndent
+                        //   The <% / %> tags should sit at the HTML placeholder's own
+                        //   indent so they visually belong to the HTML structure, and
+                        //   content is indented further in from there.
+                        //   e.g.  <div>\n  <% ← placeholder indent, content one level in
                         //
                         // 'continuation' mode — aspFormatter already adds HTML depth to
                         //   content indent, so content is fully self-contained.

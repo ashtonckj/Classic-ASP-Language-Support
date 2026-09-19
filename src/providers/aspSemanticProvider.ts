@@ -6,7 +6,7 @@ import {
     T_FUNCTION, T_NAMESPACE, T_VARIABLE, T_PARAMETER, T_CONSTANT,
     M_DECLARATION, M_READONLY,
     isSql, isSqlExpression, ALL_SQL_KEYWORDS,
-    SqlStringGroup, SqlStringSegment, extractSqlGroup, emitSqlTokensForGroup,
+    SqlStringGroup, extractSqlGroup, emitSqlTokensForGroup,
 } from './sqlSemanticProvider';
 // Use COMBINED_SEMANTIC_LEGEND from jsSemanticProvider — it now includes the
 // SQL token types (indices 23–34) so all three providers (ASP, SQL, JS) share

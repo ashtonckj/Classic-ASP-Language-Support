@@ -40,7 +40,7 @@ function shownCodes(scriptBody: string): number[] {
 
 const describeCodes = (body: string) => {
     const fullText = `<script>\n${body}\n</script>\n`;
-    const { virtualContent, preambleLength } = buildVirtualJsContent(fullText, 0);
+    const { virtualContent } = buildVirtualJsContent(fullText, 0);
     const svc = getJsLanguageService();
     svc.updateContent(virtualContent);
     return [...svc.getSemanticDiagnostics()]
