@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { HTML_TAGS, isSelfClosingTag } from '../constants/htmlTags';
+import { isSelfClosingTag } from '../constants/htmlTags';
+import { ASP_OBJECT_NAMES } from '../constants/aspKeywords';
 import { getZone, Zone } from '../utils/zoneUtils';
 
 // ── VBScript block keyword constants ───────────────────────────────────────
@@ -1284,9 +1285,25 @@ function tokenBefore(lineText: string, character: number): string {
 /**
  * True when the text before the caret is worth handing to Emmet even though the
  * user has not turned on expansion for every word.
+ *
+ * This only decides whether a word in an HTML or CSS zone is worth offering.
+ * What keeps VBScript safe is the zone, checked by the caller: `tag.class` is
+ * also the shape of every member expression in the language — Response.CharSet,
+ * Request.Form, Server.MapPath — and no amount of inspecting the token tells the
+ * two apart.
  */
-function looksLikeAbbreviation(token: string): boolean {
+export function looksLikeAbbreviation(token: string): boolean {
     if (!token || token.includes('<')) { return false; }
+
+    // A member of one of ASP's intrinsic objects is code, wherever it appears.
+    // The zone check above is the real defence, but it reads a page the way the
+    // engine does, and the engine ends a block at the first `%>` — even one
+    // inside a string. Everything after such a block is an HTML zone by the
+    // engine's own rule, so `Response.CharSet` on the next line would otherwise
+    // be offered to Emmet with nothing left to stop it.
+    const root = token.split(/[.#>+^*]/, 1)[0];
+    if (ASP_OBJECT_NAMES.has(root.toLowerCase())) { return false; }
+
     return ABBREVIATION_OPERATORS.test(token) || ABBREVIATION_SHORTHAND.test(token);
 }
 
@@ -1330,7 +1347,7 @@ async function expandAbbreviationOrTab(
     if (worthTrying) {
         const zone = getZone(editor.document.getText(), editor.document.offsetAt(position));
         if (zone === 'html' || zone === 'css') {
-            if (await tryEmmetExpansion(editor)) { return; }
+            if (await tryEmmetExpansion(editor, zone)) { return; }
         }
     }
 
@@ -1340,16 +1357,20 @@ async function expandAbbreviationOrTab(
 /**
  * Emmet's own commands, in the order worth trying.
  *
- * `editor.emmet.action.expandAbbreviation` is the editor action, and the one
- * that behaves correctly in every zone — it is what VS Code's own Tab binding
- * uses. `emmet.expandAbbreviation` is the command the Emmet extension registers
- * (and the one its `onCommand` activation event names); it is kept as a fallback
- * for a build that offers only that one, but it is NOT tried first, because it
- * does not expand a bare CSS abbreviation the way the editor action does.
+ * `emmet.expandAbbreviation` is the one the Emmet extension registers, and the
+ * only one that takes arguments — it accepts `{ language }` and falls back to
+ * the document's own language id only when none is given. Since `asp` is
+ * deliberately absent from emmet.includeLanguages, naming the syntax is what
+ * makes expansion work at all, so it is tried first.
+ *
+ * `editor.emmet.action.expandAbbreviation` is an editor action registered by
+ * VS Code itself rather than by the Emmet extension. It ignores arguments and
+ * reads the document's language, so for an .asp file it does nothing; it stays
+ * as a fallback for a build where the first command is missing.
  */
 const EMMET_EXPAND_COMMANDS = [
-    'editor.emmet.action.expandAbbreviation',
     'emmet.expandAbbreviation',
+    'editor.emmet.action.expandAbbreviation',
 ];
 
 /**
@@ -1365,14 +1386,29 @@ const EMMET_EXPAND_COMMANDS = [
  * Whether the document changed is the only signal that Emmet acted, because it
  * reports nothing when the text under the caret is not an abbreviation.
  */
-async function tryEmmetExpansion(editor: vscode.TextEditor): Promise<boolean> {
+async function tryEmmetExpansion(editor: vscode.TextEditor, zone: Zone): Promise<boolean> {
+    // The syntax is named explicitly rather than left to the document's language.
+    // Emmet only recognises a language listed in emmet.includeLanguages, and this
+    // extension deliberately does not put `asp` there: that setting is global and
+    // has no notion of where in the page the caret is, so it would offer
+    // abbreviations inside <% %> as readily as in the markup. Naming the syntax
+    // per call moves the decision here, where the zone is known.
+    const language = zone === 'css' ? 'css' : 'html';
+
     for (const command of EMMET_EXPAND_COMMANDS) {
         const before = editor.document.version;
         try {
-            await vscode.commands.executeCommand(command);
+            await vscode.commands.executeCommand(command, { language });
         } catch {
             continue;   // not registered in this build, or Emmet is disabled
         }
+
+        // Return on the first command that RAN, expanded or not. Trying the next
+        // one after a no-op looks harmless and is not: when
+        // emmet.triggerExpansionOnTab is on, Emmet's own failure path runs the
+        // `tab` command before returning, so a second attempt — or this
+        // function's caller falling through to its own `tab` — indents twice.
+        // Whether the document changed is what tells those two apart.
         return editor.document.version !== before;
     }
 

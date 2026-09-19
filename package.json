@@ -364,9 +364,6 @@
         "configurationDefaults": {
             "[asp]": {
                 "editor.wordBasedSuggestions": "off"
-            },
-            "emmet.includeLanguages": {
-                "asp": "html"
             }
         }
     },

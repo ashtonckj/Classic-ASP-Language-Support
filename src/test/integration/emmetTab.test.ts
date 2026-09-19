@@ -62,9 +62,9 @@ async function openAspFile(content: string): Promise<vscode.TextEditor> {
 }
 
 /** Puts the caret at the end of `line`, presses Tab, returns the whole page. */
-async function pressTab(content: string, line: number): Promise<string> {
+async function pressTab(content: string, line: number, column?: number): Promise<string> {
     const editor = await openAspFile(content);
-    const col = editor.document.lineAt(line).text.length;
+    const col = column ?? editor.document.lineAt(line).text.length;
     editor.selection = new vscode.Selection(line, col, line, col);
 
     // What the Tab key is actually bound to for this language.
@@ -96,7 +96,12 @@ suite('Emmet abbreviations need no setting at all (integration)', () => {
     // The suggest-widget route: Emmet contributes the expansion as a completion
     // item, and Tab or Enter accepts it. This is what a .html file does, and it
     // is why `emmet.triggerExpansionOnTab` is not required for any of this.
-    test('the abbreviation is offered as a completion while typing', async () => {
+    // Emmet is reached through Tab and nothing else — `asp` is deliberately not
+    // in emmet.includeLanguages, because that setting is global and knows
+    // nothing about where the caret is, so it offered abbreviations inside
+    // VBScript as readily as in markup. Typing an abbreviation therefore puts
+    // nothing in the suggest widget; Tab is what expands it.
+    test('typing an abbreviation puts nothing in the suggest widget', async () => {
         const editor = await openAspFile(
             ['<html>', '<body>', '', '</body>', '</html>', ''].join('\n'),
         );
@@ -115,8 +120,8 @@ suite('Emmet abbreviations need no setting at all (integration)', () => {
             typeof i.label === 'string' ? i.label : i.label.label,
         );
         assert.ok(
-            labels.includes('ul>li*3'),
-            `Emmet should offer the expansion; got ${JSON.stringify(labels.slice(0, 10))}`,
+            !labels.includes('ul>li*3'),
+            `Emmet should not be in the suggest list; got ${JSON.stringify(labels.slice(0, 10))}`,
         );
     });
 
@@ -183,6 +188,76 @@ suite('Emmet expands on Tab without the global setting (integration)', () => {
             out.includes('ul>li*3'),
             `VBScript must not be expanded as an abbreviation; got:\n${out}`,
         );
+    });
+
+    // Reported: Response.CharSet inside <% %> became
+    // <Response class="Charset"></Response>. Every VBScript member expression has
+    // the shape of Emmet's class shorthand, so this covers Request.Form,
+    // Session.Timeout and anything else written with a dot — the whole language.
+    test('a VBScript member expression inside <% %> is left alone', async () => {
+        const out = await pressTab('<%\nResponse.CharSet\n%>\n', 1);
+        assert.ok(
+            out.includes('Response.CharSet'),
+            `VBScript must not be expanded as an abbreviation; got:\n${out}`,
+        );
+        assert.ok(!/<Response/.test(out), `VBScript became markup; got:\n${out}`);
+    });
+
+    test('a VBScript member expression on one line with the tags is left alone', async () => {
+        const out = await pressTab('<% Response.CharSet %>\n', 0, 18);
+        assert.ok(!/<Response/.test(out), `VBScript became markup; got:\n${out}`);
+    });
+
+    test('a VBScript member expression in an unterminated block is left alone', async () => {
+        const out = await pressTab('<html>\n<body>\n<%\nResponse.CharSet\n', 3);
+        assert.ok(!/<Response/.test(out), `VBScript became markup; got:\n${out}`);
+    });
+
+    test('a VBScript member expression inside <%= %> is left alone', async () => {
+        const out = await pressTab('<p><%= Request.Form %></p>\n', 0, 19);
+        assert.ok(!/<Request/.test(out), `VBScript became markup; got:\n${out}`);
+    });
+
+    // ASP finds `%>` lexically, before VBScript sees the text, so a `%>` inside a
+    // string closes the block — zoneUtils.test.ts pins that against a live engine.
+    // Everything after it is therefore an HTML zone, and the zone check that
+    // normally keeps Emmet away from VBScript does not apply. What stops the next
+    // line being rewritten as markup is the abbreviation shape alone.
+    test('VBScript after a block closed by an in-string %> is left alone', async () => {
+        const out = await pressTab('<%\ns = "%>"\nResponse.CharSet\n%>\n', 2);
+        assert.ok(!/<Response/.test(out), `VBScript became markup; got:\n${out}`);
+        assert.ok(out.includes('Response.CharSet'), `the code should survive; got:\n${out}`);
+    });
+
+    test('VBScript in a plain HTML zone is still not an abbreviation', async () => {
+        const out = await pressTab('<html>\n<body>\nRequest.Form\n</body>\n</html>\n', 2);
+        assert.ok(!/<Request/.test(out), `VBScript became markup; got:\n${out}`);
+    });
+
+    // The route the report actually describes: not Tab against static text, but
+    // typing, the suggest widget appearing, and taking what it offered. Querying
+    // the providers directly is not the same thing — the widget asks with a
+    // trigger kind and character, and accepting runs the item's own insert and
+    // command. So this types the identifier one key at a time and accepts
+    // whatever comes up.
+    test('accepting a suggestion after typing VBScript does not produce markup', async () => {
+        const editor = await openAspFile('<html>\n<body>\n<%\n\n%>\n</body>\n</html>\n');
+        editor.selection = new vscode.Selection(3, 0, 3, 0);
+
+        for (const ch of 'Response.CharSet') {
+            await vscode.commands.executeCommand('type', { text: ch });
+            await sleep(40);
+        }
+        await sleep(500);
+
+        await vscode.commands.executeCommand('editor.action.triggerSuggest');
+        await sleep(800);
+        await vscode.commands.executeCommand('acceptSelectedSuggestion');
+        await sleep(500);
+
+        const out = editor.document.getText();
+        assert.ok(!/<Response/.test(out), `VBScript became markup; got:\n${out}`);
+        assert.ok(!/class="Charset"/i.test(out), `VBScript became markup; got:\n${out}`);
     });
 
     // A bare CSS abbreviation has no marker and is indistinguishable from a

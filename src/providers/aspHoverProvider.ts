@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../utils/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
+import { ASP_MEMBER_DOCS } from '../constants/aspKeywords';
 import { getZone } from '../utils/zoneUtils';
 import { aspCodeStartOnLine, isInsideVbString } from '../utils/documentHelper';
 import * as path from 'path';
@@ -232,6 +233,19 @@ export class AspHoverProvider implements vscode.HoverProvider {
             const objMatch      = textBeforeDot.match(/\b(\w+)$/);
             if (objMatch) {
                 const objName    = objMatch[1].toLowerCase();
+
+                // An intrinsic object first: Response, Request, Server and the
+                // rest are always in scope and are never declared, so they will
+                // not be among the collected symbols.
+                const aspMember = ASP_MEMBER_DOCS[`${objName}.${wordKey}`];
+                if (aspMember) {
+                    return new vscode.Hover(
+                        new vscode.MarkdownString(
+                            `**${aspMember.label}** *(${aspMember.kind})*\n\n${aspMember.doc}`,
+                        )
+                    );
+                }
+
                 const comVar     = allSymbols.comVariables.find(cv => cv.name.toLowerCase() === objName);
                 if (comVar) {
                     const memberDoc = COM_MEMBER_DOCS[`${comVar.progId}.${wordKey}`];

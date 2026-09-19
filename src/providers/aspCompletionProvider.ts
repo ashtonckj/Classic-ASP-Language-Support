@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ASP_OBJECTS, VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
+import { ASP_OBJECTS, ASP_OBJECT_NAMES, VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
 import { getTextBeforeCursor, isInsideVbStringOrComment } from '../utils/documentHelper';
 import { areIncludeSymbolsReady, collectAllSymbols, preloadIncludeSymbols } from './includeProvider';
 import { COM_TYPE_MAP } from '../constants/comObjects';
@@ -92,8 +92,9 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         if (dotAccessMatch) {
             const varName    = dotAccessMatch[1];
 
-            // 1a. Built-in ASP objects (Response, Request, etc.)
-            if (/^(Response|Request|Server|Session|Application)$/i.test(varName)) {
+            // 1a. Built-in ASP objects (Response, Request, etc.). Driven by the
+            // object list rather than a literal, so adding one there is enough.
+            if (ASP_OBJECT_NAMES.has(varName.toLowerCase())) {
                 return this.provideMethodCompletions(varName);
             }
 
@@ -261,7 +262,7 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
             item.detail = obj.description;
             item.documentation = new vscode.MarkdownString(
                 `**${obj.name}** Object\n\n${obj.description}\n\n` +
-                `**Methods/Properties:** ${obj.methods.join(', ')}`
+                `**Methods/Properties:** ${obj.members.map(m => m.name).join(', ')}`
             );
             item.preselect = false;
             item.sortText  = '1_' + obj.name;
@@ -294,50 +295,23 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         );
         if (!aspObject) return [];
 
-        return aspObject.methods.map(method => {
-            const item = new vscode.CompletionItem(method, vscode.CompletionItemKind.Method);
-            item.detail = `${objectName}.${method}`;
+        return aspObject.members.map(member => {
+            const kind = member.kind === 'method'
+                ? vscode.CompletionItemKind.Method
+                : member.kind === 'collection'
+                    ? vscode.CompletionItemKind.Field
+                    : vscode.CompletionItemKind.Property;
 
-            switch (method) {
-                case 'Write':
-                    item.documentation = 'Write output to the client';
-                    item.insertText    = new vscode.SnippetString('Write($0)');
-                    break;
-                case 'Redirect':
-                    item.documentation = 'Redirect to another URL';
-                    item.insertText    = new vscode.SnippetString('Redirect("$0")');
-                    break;
-                case 'Form':
-                    item.documentation = 'Get form data';
-                    item.insertText    = new vscode.SnippetString('Form("$0")');
-                    break;
-                case 'QueryString':
-                    item.documentation = 'Get query string parameter';
-                    item.insertText    = new vscode.SnippetString('QueryString("$0")');
-                    break;
-                case 'CreateObject':
-                    item.documentation = 'Create a COM object';
-                    item.insertText    = new vscode.SnippetString('CreateObject("$0")');
-                    break;
-                case 'MapPath':
-                    item.documentation = 'Map virtual path to physical path';
-                    item.insertText    = new vscode.SnippetString('MapPath("$0")');
-                    break;
-                case 'HTMLEncode':
-                    item.documentation = 'Encode HTML special characters';
-                    item.insertText    = new vscode.SnippetString('HTMLEncode($0)');
-                    break;
-                case 'URLEncode':
-                    item.documentation = 'Encode URL special characters';
-                    item.insertText    = new vscode.SnippetString('URLEncode($0)');
-                    break;
-                default:
-                    item.documentation = `${objectName}.${method} method`;
-                    item.insertText    = method;
-            }
-
+            const item = new vscode.CompletionItem(member.name, kind);
+            item.detail = `${aspObject.name}.${member.name}  [${member.kind}]`;
+            item.documentation = new vscode.MarkdownString(
+                `**${aspObject.name}.${member.name}**\n\n${member.doc}`,
+            );
+            item.insertText = member.snippet
+                ? new vscode.SnippetString(member.snippet)
+                : member.name;
             item.preselect = false;
-            item.sortText  = '0_' + method;
+            item.sortText  = '0_' + member.name;
             return item;
         });
     }
