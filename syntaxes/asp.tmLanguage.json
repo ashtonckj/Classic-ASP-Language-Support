@@ -226,7 +226,12 @@
                             "name": "punctuation.definition.parameters.asp"
                         },
                         "4": {
-                            "name": "variable.parameter.function.asp"
+                            "name": "variable.parameter.function.asp",
+                            "patterns": [
+                                {
+                                    "include": "#parameter-modifiers"
+                                }
+                            ]
                         },
                         "5": {
                             "name": "punctuation.definition.parameters.asp"
@@ -235,23 +240,40 @@
                 }
             ]
         },
+        "parameter-modifiers": {
+            "comment": "ByRef/ByVal, reached both on their own and from inside a declaration's parameter list",
+            "patterns": [
+                {
+                    "name": "storage.modifier.asp",
+                    "match": "(?i)\\b(ByRef|ByVal)\\b"
+                }
+            ]
+        },
         "keywords": {
             "patterns": [
                 {
                     "name": "keyword.control.asp",
-                    "match": "(?i)\\b(If|Then|Else|ElseIf|End\\s+If|While|Wend|For|To|Each|In|Step|Case|Select|End\\s+Select|Return|Continue|Do|Until|Loop|Next|With|End\\s+With|Exit\\s+Do|Exit\\s+For|Exit\\s+Function|Exit\\s+Property|Exit\\s+Sub|GoTo)\\b"
+                    "match": "(?i)\\b(If|Then|Else|ElseIf|End\\s+If|While|Wend|For|To|Each|In|Step|Case|Select|End\\s+Select|Do|Until|Loop|Next|With|End\\s+With|Exit\\s+Do|Exit\\s+For|Exit\\s+Function|Exit\\s+Property|Exit\\s+Sub|GoTo|Stop)\\b"
                 },
                 {
                     "name": "storage.type.asp",
-                    "match": "(?i)\\b(Call|Class|Const|Dim|ReDim|Function|Sub|Property|End\\s+Property|End\\s+Sub|End\\s+Function|End\\s+Class|Set|Let|Get|New|Randomize|Option\\s+Explicit|On\\s+Error\\s+Resume\\s+Next|On\\s+Error\\s+GoTo)\\b"
+                    "match": "(?i)\\b(Call|Class|Const|Dim|ReDim|Preserve|Erase|Function|Sub|Property|End\\s+Property|End\\s+Sub|End\\s+Function|End\\s+Class|Set|Let|Get|New|Randomize|Option\\s+Explicit|On\\s+Error\\s+Resume\\s+Next|On\\s+Error\\s+GoTo)\\b"
                 },
                 {
                     "name": "storage.modifier.asp",
                     "match": "(?i)\\b(Private|Public|Default)\\b"
                 },
                 {
+                    "comment": "Me is the current instance inside a Class, not a declared variable",
+                    "name": "variable.language.asp",
+                    "match": "(?i)\\b(Me)\\b"
+                },
+                {
                     "name": "keyword.operator.logical.asp",
                     "match": "(?i)\\b(And|Or|Not|Xor|Eqv|Imp|Is)\\b"
+                },
+                {
+                    "include": "#parameter-modifiers"
                 }
             ]
         },
