@@ -44,20 +44,61 @@ export function getPrettierSettings(): PrettierSettings {
 // ─── ASP block types ───────────────────────────────────────────────────────
 
 // Where in the HTML structure an ASP block sits:
-//   normal  – standalone on its own line(s)      → HTML comment placeholder
-//   inline  – inside a quoted attribute value    → bare token placeholder
-//   midtag  – between attributes, not quoted     → data- attribute placeholder
-//   rawtext – inside a <script>/<style> body     → bare identifier placeholder
+//   normal  – a statement block on its own line(s) → HTML comment placeholder
+//   text    – a <%= … %> expression in page content → word placeholder
+//   inline  – inside a quoted attribute value      → bare token placeholder
+//   midtag  – between attributes, not quoted       → data- attribute placeholder
+//   rawtext – inside a <script>/<style> body       → bare identifier placeholder
 //             (an HTML-comment placeholder is legal JS/CSS and gets parsed by
 //              Prettier — it would REORDER/corrupt the code — so raw-text blocks
 //              use an identifier token Prettier leaves in place instead)
-type AspBlockKind = 'normal' | 'inline' | 'midtag' | 'rawtext';
+type AspBlockKind = 'normal' | 'text' | 'inline' | 'midtag' | 'rawtext';
 
 interface AspBlock {
     code:       string;
     id:         string;
     lineNumber: number;
     kind:       AspBlockKind;
+    /** The exact string emitted in place of the block, for kinds that need one. */
+    token?:     string;
+}
+
+/** `<%= … %>` — Response.Write in expression form, so its output is page text. */
+function isAspExpression(block: string): boolean {
+    const trimmed = block.trimStart();
+    return trimmed.startsWith('<%=') || trimmed.startsWith('<% =');
+}
+
+/**
+ * A word-shaped stand-in for a `<%= … %>` expression in page content.
+ *
+ * Two properties matter, and the HTML-comment placeholder used for statement
+ * blocks has neither.
+ *
+ * It has to read as TEXT. Prettier treats a comment as a node that cannot share
+ * a line with prose, so it breaks the line around it and then moves the
+ * enclosing tag's `>` down to keep the rendered whitespace unchanged — which is
+ * where `<span class="info-value"\n  ><!--ID-->\n  &mdash;` comes from. Measured
+ * against Prettier directly, a bare word is laid out identically to the real
+ * text it stands for, while the comment is not.
+ *
+ * It has to be the RIGHT LENGTH. Prettier measures the MASKED line, so a
+ * 30-character placeholder standing in for `<%= txtbadge %>` reports a line as
+ * twice its true width and breaks one that would have fitted. Padding the token
+ * to the width of the block it replaces keeps printWidth honest.
+ *
+ * Widening the token until the page does not already contain it is the guard
+ * prettier-plugin-jinja-template uses for its own `#~1~#` tokens: a short token
+ * is only safe once it is known not to collide with real content.
+ */
+function textPlaceholderFor(index: number, width: number, source: string): string {
+    // The trailing `E` terminates the number, so no token can be a prefix of
+    // another once both are padded — `AspExpr1E…` never occurs inside
+    // `AspExpr12E…`, which matters because restoring replaces by substring.
+    let token = `AspExpr${index}E`;
+    if (token.length < width) { token += 'x'.repeat(width - token.length); }
+    while (source.includes(token)) { token += 'x'; }
+    return token;
 }
 
 // Module-level counter keeps IDs unique across calls in the same millisecond.
@@ -457,11 +498,24 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             const aspBlock   = jsPreMasked.slice(pos, end);
             // A block inside a <script>/<style> body is raw-text; otherwise decide
             // from the surrounding HTML whether it is inline/midtag/normal.
-            const kind       = isInRawText(pos, rawRanges) ? 'rawtext' : classifyContext(maskedCode);
+            let   kind       = isInRawText(pos, rawRanges) ? 'rawtext' : classifyContext(maskedCode);
             const lineNumber = code.slice(0, pos).split('\n').length - 1;
-            const id         = `ASPPH${_placeholderCounter++}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+            const index      = _placeholderCounter++;
+            const id         = `ASPPH${index}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 
-            aspBlocks.push({ code: aspBlock, id, lineNumber, kind });
+            // A `<%= … %>` in page content is an expression whose output is part
+            // of the text around it, so it is masked as text rather than as a
+            // comment — see textPlaceholderFor. This applies wherever the
+            // expression sits, not only where it shares a line, so that a page
+            // already broken apart by the old placeholder is pulled back
+            // together the next time it is formatted.
+            if (kind === 'normal' && isAspExpression(aspBlock)) { kind = 'text'; }
+
+            const token = kind === 'text'
+                ? textPlaceholderFor(index, aspBlock.length, code)
+                : undefined;
+
+            aspBlocks.push({ code: aspBlock, id, lineNumber, kind, token });
 
             // Replace leading whitespace + block with the placeholder
             // (strip the leadingWS we already emitted so the placeholder
@@ -471,6 +525,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             }
 
             switch (kind) {
+                case 'text':    maskedCode += token!;                break;
                 case 'inline':  maskedCode += `ASPINLINE_${id}_END`; break;
                 case 'midtag':  maskedCode += `data-asp-${id}="1"`;  break;
                 case 'rawtext': maskedCode += rawTokenFor(id);       break;
@@ -552,6 +607,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
     for (const block of aspBlocks) {
         const needle =
+            block.kind === 'text'    ? block.token!                 :
             block.kind === 'inline'  ? `ASPINLINE_${block.id}_END` :
             block.kind === 'midtag'  ? `data-asp-${block.id}`       :
             block.kind === 'rawtext' ? rawTokenFor(block.id)        :
@@ -637,6 +693,18 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         const escapedId = block.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
         switch (block.kind) {
+
+            case 'text': {
+                // A word placeholder is laid out as the surrounding prose, so
+                // wherever Prettier put it is where the expression belongs —
+                // including on a line it wrapped onto. A straight swap is all
+                // that is needed, and nothing may be done to the whitespace
+                // around it: in `<span><%= a %></span>` a single space either
+                // side is rendered text.
+                // Function replacement keeps `$`-sequences in the code literal.
+                restoredCode = restoredCode.replace(block.token!, () => formatted);
+                break;
+            }
 
             case 'rawtext': {
                 // Identifier placeholder inside <script>/<style>; Prettier kept it

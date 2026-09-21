@@ -126,3 +126,96 @@ describe('formatCompleteAspFile — processing directive', () => {
         );
     });
 });
+
+// `<%= … %>` is Response.Write in expression form, so its output is part of the
+// text around it. It used to be masked as an HTML comment before Prettier ran,
+// and Prettier treats a comment as a node that cannot share a line with prose:
+// it broke the line around it and then moved the enclosing tag's `>` down to
+// keep the rendered whitespace unchanged, giving
+//
+//     <span class="info-value"
+//       ><%= txtbadge %>
+//       &mdash;
+//       <%= empName %></span
+//     >
+//
+// The comment was also twice as long as the expression it stood for, so
+// Prettier measured a line that fitted as one that did not and broke it for no
+// reason. A word placeholder padded to the block's own width fixes both, and is
+// the same technique prettier-plugin-jinja-template and
+// prettier-plugin-go-template use for `{{ … }}`.
+describe('formatCompleteAspFile — <%= %> is laid out as page text', () => {
+
+    it('keeps an expression on the line of the text it belongs to', async () => {
+        const out = await formatCompleteAspFile('<p>Hello <%= name %>, welcome.</p>\n');
+        assert.strictEqual(out, '<p>Hello <%= name %>, welcome.</p>\n');
+    });
+
+    it('does not split a span around its expressions', async () => {
+        const source = '<span class="v"><%= a %> &mdash; <%= b %></span>\n';
+        assert.strictEqual(await formatCompleteAspFile(source), source);
+    });
+
+    it('never moves a closing tag onto its own line', async () => {
+        const out = await formatCompleteAspFile(
+            '<div class="info-row">\n<span class="info-label">Employee #</span>\n'
+            + '<span class="info-value"><%= txtbadge %> &mdash; <%= empName %></span>\n</div>\n');
+        assert.ok(!/<\/\w+\s*\n\s*>/.test(out), `a closing tag was split across lines:\n${out}`);
+        assert.ok(!/\n\s*><%/.test(out),        `an opening tag's > was pushed down:\n${out}`);
+        assert.ok(
+            out.includes('<span class="info-value"><%= txtbadge %> &mdash; <%= empName %></span>'),
+            `the span should be on one line; got:\n${out}`,
+        );
+    });
+
+    // A page formatted by the older version is full of the broken shape, so the
+    // fix has to pull it back together rather than leave it alone.
+    it('reflows a page the previous placeholder had already broken apart', async () => {
+        const broken = [
+            '<div class="info-row">',
+            '    <span class="info-label">Employee #</span>',
+            '    <span class="info-value">',
+            '         <%= txtbadge %>',
+            '        &mdash;',
+            '        <%= empName %></span>',
+            '</div>',
+            '',
+        ].join('\n');
+        const out = await formatCompleteAspFile(broken);
+        assert.ok(
+            /<span class="info-value">\s?<%= txtbadge %> &mdash; <%= empName %><\/span>/.test(out),
+            `the expressions should be pulled back onto one line; got:\n${out}`,
+        );
+    });
+
+    // The placeholder is padded to the width of the block it replaces, so a line
+    // that fits inside printWidth is not broken on account of the mask.
+    it('measures a line by the expression, not by the placeholder', async () => {
+        // 74 characters as written — comfortably inside the default 80 — but the
+        // old placeholder pushed it past the limit and forced a wrap.
+        const source = '<p>Order <%= ordNo %> for <%= custName %> shipped on <%= shipDate %>.</p>\n';
+        assert.ok(source.length - 1 < 80, 'the fixture must fit inside printWidth');
+        assert.strictEqual(await formatCompleteAspFile(source), source);
+    });
+
+    it('still wraps genuinely long text, keeping the expression inline', async () => {
+        const out = await formatCompleteAspFile(
+            '<p>This is a fairly long paragraph of text that will certainly exceed '
+            + 'the print width <%= n %> and wrap.</p>\n');
+        assert.ok(out.includes('width <%= n %> and wrap.'), `the expression should stay in the prose; got:\n${out}`);
+        assert.ok(out.split('\n').every(l => l.length <= 80), `a line exceeded printWidth:\n${out}`);
+    });
+
+    it('leaves an expression inside an attribute value alone', async () => {
+        const source = '<a href="/x?id=<%= id %>">link</a>\n';
+        assert.strictEqual(await formatCompleteAspFile(source), source);
+    });
+
+    it('leaves a statement block on its own line', async () => {
+        // Only expressions become text placeholders; a statement block still
+        // structures the page and keeps the comment placeholder.
+        const out = await formatCompleteAspFile('<ul>\n<% For i = 1 To 3 %>\n<li><%= i %></li>\n<% Next %>\n</ul>\n');
+        assert.ok(/<li><%= i %><\/li>/.test(out), `the list item should be intact; got:\n${out}`);
+        assert.ok(/\n\s*<%\n/.test(out),          `the For block should stand on its own lines; got:\n${out}`);
+    });
+});
