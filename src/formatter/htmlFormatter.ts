@@ -415,6 +415,30 @@ export function insertImpliedTableEndTags(html: string): string {
 
 // ─── Main entry point ──────────────────────────────────────────────────────
 
+/**
+ * True when Prettier left real content before this placeholder on its line, so
+ * the block will have to be moved onto lines of its own.
+ *
+ * A placeholder sitting inside an unclosed quote is an attribute value, not tag
+ * content — breaking the line there would split the tag open — so it does not
+ * count however much text precedes it.
+ */
+function placeholderIsInlinePlaced(code: string, placeholder: string): boolean {
+    const idx = code.indexOf(placeholder);
+    if (idx === -1) { return false; }
+
+    const lineStart = code.lastIndexOf('\n', idx - 1) + 1;
+    const before    = code.slice(lineStart, idx);
+    if (before.trim().length === 0) { return false; }
+
+    let quote: string | null = null;
+    for (const ch of before) {
+        if (!quote && (ch === '"' || ch === "'")) { quote = ch; }
+        else if (quote && ch === quote)           { quote = null; }
+    }
+    return quote === null;
+}
+
 export async function formatCompleteAspFile(code: string): Promise<string> {
     if (hasUnclosedAspTags(code)) {
         vscode.window.showWarningMessage(
@@ -554,6 +578,20 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
     // ── Step 3: Run Prettier on the masked HTML ──────────────────────────────
 
+    const prettierOptions: prettier.Options = {
+        parser:                    'html',
+        printWidth:                prettierSettings.printWidth,
+        tabWidth:                  prettierSettings.tabWidth,
+        useTabs:                   prettierSettings.useTabs,
+        semi:                      prettierSettings.semi,
+        singleQuote:               prettierSettings.singleQuote,
+        bracketSameLine:           prettierSettings.bracketSameLine,
+        arrowParens:               prettierSettings.arrowParens               as any,
+        trailingComma:             prettierSettings.trailingComma             as any,
+        endOfLine:                 prettierSettings.endOfLine                 as any,
+        htmlWhitespaceSensitivity: prettierSettings.htmlWhitespaceSensitivity as any,
+    };
+
     let prettifiedCode: string;
     try {
         prettifiedCode = await vscode.window.withProgress(
@@ -562,19 +600,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                 title:     'Classic ASP: Formatting…',
                 cancellable: false,
             },
-            () => prettier.format(maskedCode, {
-            parser:                    'html',
-            printWidth:                prettierSettings.printWidth,
-            tabWidth:                  prettierSettings.tabWidth,
-            useTabs:                   prettierSettings.useTabs,
-            semi:                      prettierSettings.semi,
-            singleQuote:               prettierSettings.singleQuote,
-            bracketSameLine:           prettierSettings.bracketSameLine,
-            arrowParens:               prettierSettings.arrowParens               as any,
-            trailingComma:             prettierSettings.trailingComma             as any,
-            endOfLine:                 prettierSettings.endOfLine                 as any,
-            htmlWhitespaceSensitivity: prettierSettings.htmlWhitespaceSensitivity as any,
-        })
+            () => prettier.format(maskedCode, prettierOptions)
         );
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -601,6 +627,59 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             `Check the "ASP Formatter Debug" output channel to see the masked code.`
         );
         return code;
+    }
+
+    // ── Step 3b: Lay the page out the way it is going to end up ─────────────
+    // A statement block that Prettier left inline — `<td><!--ID-->y</td>` — is
+    // about to be moved onto lines of its own during the restore. Its indent
+    // was read from the whitespace immediately before the placeholder, which is
+    // empty in exactly that case, so the block landed at column 0 and only
+    // reached its real column on a SECOND format, once the page already had it
+    // standalone. Every enclosing element behaved that way: td, div, p and span
+    // all took two passes.
+    //
+    // Rather than predict where Prettier would have put the block, put it there
+    // and ask. Splitting the placeholder onto its own line and formatting again
+    // yields, in one pass, exactly what the second pass used to produce — the
+    // indentation is Prettier's either way, just computed against the layout
+    // that is actually going to be written out.
+    //
+    // The second run only happens when there is something to move.
+    if (!aspSettings.aspTagsOnSameLine) {
+        const toSplit = aspBlocks.filter(block =>
+            block.kind === 'normal' &&
+            placeholderIsInlinePlaced(prettifiedCode, `<!--${block.id}-->`));
+
+        if (toSplit.length > 0) {
+            let respaced = prettifiedCode;
+            for (const block of toSplit) {
+                const placeholder = `<!--${block.id}-->`;
+                const idx         = respaced.indexOf(placeholder);
+                if (idx === -1) { continue; }
+
+                // Add only the newlines that are missing. The placeholder
+                // already ends its line whenever nothing follows it, and a
+                // second newline there would leave a blank line for Prettier
+                // to preserve — which is the blank line this formatter was
+                // just taught not to produce.
+                const afterIdx  = idx + placeholder.length;
+                const lineEnd   = respaced.indexOf('\n', afterIdx);
+                const afterText = lineEnd === -1
+                    ? respaced.slice(afterIdx)
+                    : respaced.slice(afterIdx, lineEnd);
+                const trailer   = afterText.trim().length > 0 ? '\n' : '';
+
+                respaced = respaced.slice(0, idx)
+                    + '\n' + placeholder + trailer
+                    + respaced.slice(afterIdx);
+            }
+            try {
+                prettifiedCode = await prettier.format(respaced, prettierOptions);
+            } catch {
+                // Keep the first result: a layout that needs a second format is
+                // far better than refusing to format at all.
+            }
+        }
     }
 
     // ── Step 3: Verify all placeholders survived Prettier ───────────────────

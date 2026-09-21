@@ -268,3 +268,66 @@ describe('formatCompleteAspFile — expanding an inline block adds no blank line
         }
     });
 });
+
+// A statement block Prettier left inline — `<td><!--ID-->y</td>` — is moved onto
+// lines of its own during the restore. Its indent was read from the whitespace
+// immediately BEFORE the placeholder, which is empty in exactly that case, so
+// the block landed at column 0 and only reached its real column on a second
+// format, once the page already had it standalone. td, div, p and span all took
+// two passes.
+//
+// The layout is now settled before the indent is read: the placeholder is split
+// onto its own line and Prettier is asked again, so one pass produces what two
+// used to. The indentation is Prettier's either way.
+describe('formatCompleteAspFile — a block nested in HTML settles in one pass', () => {
+
+    const settlesInOnePass = async (source: string) => {
+        const once  = await formatCompleteAspFile(source);
+        const twice = await formatCompleteAspFile(once);
+        assert.strictEqual(twice, once, `a second format changed the file:\n${once}\n--- became ---\n${twice}`);
+        return once;
+    };
+
+    it('puts the tags at the cell indent, not at column 0', async () => {
+        const out = await settlesInOnePass(
+            '<table><tr><td><% If a Then %>y<% End If %></td></tr></table>\n');
+        assert.ok(!/^<%/m.test(out), `a tag was left at column 0:\n${out}`);
+        // <td> sits at column 4, so its content — including the tags — is at 6.
+        for (const line of out.split('\n').filter(l => /<%|%>/.test(l))) {
+            assert.strictEqual(
+                line.match(/^[ \t]*/)![0].length, 6,
+                `expected the tags at the cell's content indent; got:\n${out}`,
+            );
+        }
+    });
+
+    it('settles for every kind of enclosing element', async () => {
+        for (const source of [
+            '<table><tr><td><% If a Then %>y<% End If %></td></tr></table>\n',
+            '<div><% If a Then %>y<% End If %></div>\n',
+            '<p><% If a Then %>y<% End If %></p>\n',
+            '<span>a<% If b Then %>c<% End If %></span>\n',
+            '<ul><li><% For i = 1 To 3 %>x<% Next %></li></ul>\n',
+        ]) {
+            await settlesInOnePass(source);
+        }
+    });
+
+    it('settles for an empty block', async () => {
+        await settlesInOnePass('<p><% %></p>\n');
+    });
+
+    it('settles a block nested several elements deep', async () => {
+        const out = await settlesInOnePass(
+            '<div><table><tr><td><div><% If a Then %>deep<% End If %></div></td></tr></table></div>\n');
+        assert.ok(out.includes('deep'), `the content should survive:\n${out}`);
+    });
+
+    // The re-layout must not undo the two fixes before it.
+    it('still adds no blank line and keeps expressions inline', async () => {
+        const out = await settlesInOnePass(
+            '<td><% If a Then %><span><%= name %> here</span><% End If %></td>\n');
+        assert.ok(!/\n[ \t]*\n/.test(out), `a blank line was inserted:\n${JSON.stringify(out)}`);
+        assert.ok(/<span><%= name %> here<\/span>/.test(out), `the expression should stay inline:\n${out}`);
+    });
+});
