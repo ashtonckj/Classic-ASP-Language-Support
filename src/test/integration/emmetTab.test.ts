@@ -178,9 +178,23 @@ suite('Emmet expands on Tab without the global setting (integration)', () => {
         assert.strictEqual((out.match(/<li>/g) ?? []).length, 3, `expected three <li>; got:\n${out}`);
     });
 
+    // The expansion has to be the ONLY thing the keystroke does. Emmet expands
+    // through `insertSnippet`, which leaves the caret in the first element, so a
+    // Tab that also falls through to the native `tab` command drops an indent
+    // right there — `<li>    </li>`. Counting the tags does not catch that; only
+    // comparing the whole expansion does.
+    test('an expansion leaves no stray indent at the caret', async () => {
+        const out = await pressTab('<html>\n<body>\nul>li*3\n</body>\n</html>\n', 2);
+        assert.strictEqual(
+            out,
+            '<html>\n<body>\n<ul>\n    <li></li>\n    <li></li>\n    <li></li>\n</ul>\n</body>\n</html>\n',
+            `the expansion should be the only edit; got:\n${out}`,
+        );
+    });
+
     test('a class shorthand expands', async () => {
         const out = await pressTab('<html>\n<body>\ndiv.row\n</body>\n</html>\n', 2);
-        assert.ok(/<div class="row">/.test(out), `expected <div class="row">; got:\n${out}`);
+        assert.ok(/<div class="row"><\/div>/.test(out), `expected an empty <div class="row">; got:\n${out}`);
     });
 
     test('an id shorthand expands', async () => {

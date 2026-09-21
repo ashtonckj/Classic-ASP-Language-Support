@@ -1404,24 +1404,68 @@ type EmmetOutcome =
     | 'ran'           // Emmet was asked and declined; it may have run `tab` itself
     | 'unavailable';  // no expand command could be invoked at all
 
+/**
+ * How long to keep waiting for Emmet's edit after its command has resolved.
+ *
+ * Reading `document.version` the moment the command returns does not work:
+ * Emmet expands through `editor.insertSnippet`, and that applies the edit in the
+ * editor before the extension host's copy of the document has caught up. Measured
+ * in a real Extension Host, an expansion that plainly succeeded still reported
+ * version 1 → 1 on return and only reached version 2 afterwards — so the check
+ * said "no expansion" EVERY time, and the caller's fallback dropped an indent
+ * into the snippet's first tabstop: `ul>li*3` + Tab gave `<li>    </li>`.
+ *
+ * The change event is the signal that does arrive, and only the one IPC hop
+ * behind, so the wait is short and is cut off by the first event. It is also only
+ * ever paid when Emmet DECLINED — an expansion resolves as soon as its edit lands.
+ */
+const EMMET_EDIT_GRACE_MS = 300;
+
+/** Resolves true if `document` changes within `EMMET_EDIT_GRACE_MS`. */
+function waitForEdit(document: vscode.TextDocument): { settled: () => Promise<boolean>, dispose: () => void } {
+    let changed = false;
+    let notify: (() => void) | undefined;
+    const subscription = vscode.workspace.onDidChangeTextDocument(event => {
+        if (event.document !== document || event.contentChanges.length === 0) { return; }
+        changed = true;
+        notify?.();
+    });
+
+    return {
+        dispose: () => subscription.dispose(),
+        settled: () => new Promise<boolean>(resolve => {
+            const finish = (result: boolean) => {
+                clearTimeout(timer);
+                subscription.dispose();
+                resolve(result);
+            };
+            if (changed) { finish(true); return; }
+            notify = () => finish(true);
+            const timer = setTimeout(() => finish(false), EMMET_EDIT_GRACE_MS);
+        }),
+    };
+}
+
 async function tryEmmetExpansion(editor: vscode.TextEditor, zone: Zone): Promise<EmmetOutcome> {
-    // The syntax is named explicitly rather than left to the document's language.
-    // `emmet.includeLanguages` maps the whole file to html, which is right for
-    // the markup but wrong inside <style>, where a bare `m10` should expand as
-    // CSS. The caller has already worked out the zone, so pass it on.
+    // The syntax is named explicitly because it has to be: `asp` is deliberately
+    // absent from emmet.includeLanguages — that mapping is per language and
+    // would offer abbreviations inside <% %> too, which is why the suggest-widget
+    // route is served by this extension's own provider instead. Naming the
+    // syntax per call is also what gets a caret inside <style> treated as CSS.
     const language = zone === 'css' ? 'css' : 'html';
 
     for (const command of EMMET_EXPAND_COMMANDS) {
-        const before = editor.document.version;
+        const edit = waitForEdit(editor.document);
         try {
             await vscode.commands.executeCommand(command, { language });
         } catch {
+edit.dispose();
             continue;   // not registered in this build, or Emmet is disabled
         }
 
         // The first command that RAN settles it — trying the next after a no-op
         // would ask Emmet to act twice on one keystroke.
-        return editor.document.version !== before ? 'expanded' : 'ran';
+        return await edit.settled() ? 'expanded' : 'ran';
     }
 
     warnEmmetUnavailableOnce();
