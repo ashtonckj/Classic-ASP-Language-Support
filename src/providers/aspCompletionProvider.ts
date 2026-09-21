@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
-import { ASP_OBJECTS, ASP_OBJECT_NAMES, VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
+import {
+    ASP_OBJECTS, ASP_OBJECT_NAMES, VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS, VBSCRIPT_CONSTANTS,
+} from '../constants/aspKeywords';
 import { getTextBeforeCursor, isInsideVbStringOrComment } from '../utils/documentHelper';
 import { areIncludeSymbolsReady, collectAllSymbols, preloadIncludeSymbols } from './includeProvider';
 import { COM_TYPE_MAP } from '../constants/comObjects';
@@ -117,6 +119,7 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         completions.push(...this.provideAspObjectCompletions());
         completions.push(...this.provideKeywordCompletions(isAfterEnd));
         completions.push(...this.provideFunctionCompletions());
+        completions.push(...this.provideConstantCompletions());
 
         // ── 3. User-defined symbols (current doc + include files) ─────────────
 
@@ -370,6 +373,20 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
             item.insertText   = new vscode.SnippetString(`${func}($0)`);
             item.preselect    = false;
             item.sortText     = '0_' + func;
+            return item;
+        });
+    }
+
+    // ── VBScript's built-in constants (vbCrLf, vbTextCompare, ...) ──────────
+    // They are not functions, so they take no call parentheses, and they are
+    // not keywords either — a page writes `s & vbCrLf` as an ordinary value.
+    private provideConstantCompletions(): vscode.CompletionItem[] {
+        return VBSCRIPT_CONSTANTS.map(constant => {
+            const item = new vscode.CompletionItem(constant.name, vscode.CompletionItemKind.Constant);
+            item.detail        = 'VBScript constant';
+            item.documentation = new vscode.MarkdownString(`**${constant.name}**\n\n${constant.doc}`);
+            item.preselect     = false;
+            item.sortText      = '0_' + constant.name;
             return item;
         });
     }
