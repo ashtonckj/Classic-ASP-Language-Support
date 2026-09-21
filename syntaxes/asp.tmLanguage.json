@@ -263,7 +263,7 @@
                 },
                 {
                     "name": "support.type.vb.asp",
-                    "match": "(?i)\\b(vbTrue|vbFalse|vbCr|vbCrLf|vbFormFeed|vbLf|vbNewLine|vbNullChar|vbNullString|vbTab|vbVerticalTab|vbBinaryCompare|vbTextCompare|vbSunday|vbMonday|vbTuesday|vbWednesday|vbThursday|vbFriday|vbSaturday|vbUseSystemDayOfWeek|vbFirstJan1|vbFirstFourDays|vbFirstFullWeek|vbGeneralDate|vbLongDate|vbShortDate|vbLongTime|vbShortTime|vbObjectError|vbEmpty|vbNull|vbInteger|vbLong|vbSingle|vbDouble|vbCurrency|vbDate|vbString|vbObject|vbError|vbBoolean|vbVariant|vbDataObject|vbDecimal|vbByte|vbArray)\\b"
+                    "match": "(?i)\\b(vbArray|vbBinaryCompare|vbBoolean|vbByte|vbCr|vbCrLf|vbCurrency|vbDataObject|vbDate|vbDecimal|vbDouble|vbEmpty|vbError|vbFalse|vbFirstFourDays|vbFirstFullWeek|vbFirstJan1|vbFormFeed|vbFriday|vbGeneralDate|vbInteger|vbLf|vbLong|vbLongDate|vbLongTime|vbMonday|vbNewLine|vbNull|vbNullChar|vbNullString|vbObject|vbObjectError|vbSaturday|vbShortDate|vbShortTime|vbSingle|vbString|vbSunday|vbTab|vbTextCompare|vbThursday|vbTrue|vbTuesday|vbUseDefault|vbUseSystemDayOfWeek|vbVariant|vbVerticalTab|vbWednesday)\\b"
                 }
             ]
         },
@@ -272,7 +272,7 @@
                 {
                     "comment": "ASP object.method or object.property pattern - must come first",
                     "name": "meta.object-access.asp",
-                    "match": "(?i)\\b(Application|ObjectContext|Request|Response|Server|Session)\\.(\\w+)",
+                    "match": "(?i)\\b(Application|ASPError|Err|ObjectContext|Request|Response|Server|Session)\\b\\.(\\w+)",
                     "captures": {
                         "1": {
                             "name": "support.class.asp"
@@ -284,19 +284,19 @@
                 },
                 {
                     "name": "support.class.asp",
-                    "match": "(?i)\\b(Application|ObjectContext|Request|Response|Server|Session)\\b"
+                    "match": "(?i)\\b(Application|ASPError|Err|ObjectContext|Request|Response|Server|Session)\\b"
                 },
                 {
                     "name": "support.class.collection.asp",
-                    "match": "(?i)\\b(Contents|StaticObjects|ClientCertificate|Cookies|Form|QueryString|ServerVariables)\\b"
+                    "match": "(?i)(?<=\\.)\\b(ClientCertificate|Contents|Cookies|Form|QueryString|ServerVariables|StaticObjects)\\b"
                 },
                 {
                     "name": "support.constant.asp",
-                    "match": "(?i)\\b(TotalBytes|Buffer|CacheControl|Charset|ContentType|Expires|ExpiresAbsolute|IsClientConnected|PICS|Status|ScriptTimeout|CodePage|LCID|SessionID|Timeout)\\b"
+                    "match": "(?i)(?<=\\.)\\b(ASPCode|ASPDescription|Buffer|CacheControl|Category|Charset|CodePage|Column|ContentType|Description|Expires|ExpiresAbsolute|File|HelpContext|HelpFile|IsClientConnected|LCID|Line|Number|PICS|ScriptTimeout|SessionID|Source|Status|Timeout|TotalBytes)\\b"
                 },
                 {
                     "name": "support.function.asp",
-                    "match": "(?i)\\b(Lock|Unlock|SetAbort|SetComplete|BinaryRead|AddHeader|AppendToLog|BinaryWrite|Clear|End|Flush|Redirect|Write|CreateObject|HTMLEncode|MapPath|URLEncode|Abandon)\\b"
+                    "match": "(?i)(?<=\\.)\\b(Abandon|AddHeader|AppendToLog|BinaryRead|BinaryWrite|Clear|CreateObject|End|Execute|Flush|GetLastError|HTMLEncode|Lock|MapPath|Raise|Redirect|SetAbort|SetComplete|Transfer|Unlock|URLEncode|Write)\\b"
                 },
                 {
                     "name": "support.function.event.asp",
@@ -329,7 +329,7 @@
             "patterns": [
                 {
                     "name": "support.function.vb.asp",
-                    "match": "(?i)\\b(Abs|Array|Add|Asc|Atn|CBool|CByte|CCur|CDate|CDbl|Chr|CInt|CLng|Conversions|Cos|CreateObject|CSng|CStr|Date|DateAdd|DateDiff|DatePart|DateSerial|DateValue|Day|Derived|Math|Escape|Eval|Exists|Exp|Filter|FormatCurrency|FormatDateTime|FormatNumber|FormatPercent|GetLocale|GetObject|GetRef|Hex|Hour|InputBox|InStr|InStrRev|Int|Fix|IsArray|IsDate|IsEmpty|IsNull|IsNumeric|IsObject|Item|Items|Join|Keys|LBound|LCase|Left|Len|LoadPicture|Log|LTrim|RTrim|Trim|Maths|Mid|Minute|Month|MonthName|MsgBox|Now|Oct|Remove|RemoveAll|Replace|RGB|Right|Rnd|Round|ScriptEngine|ScriptEngineBuildVersion|ScriptEngineMajorVersion|ScriptEngineMinorVersion|Second|SetLocale|Sgn|Sin|Space|Split|Sqr|StrComp|String|StrReverse|Tan|Time|Timer|TimeSerial|TimeValue|TypeName|UBound|UCase|Unescape|VarType|Weekday|WeekdayName|Year)\\b"
+                    "match": "(?i)\\b(Abs|Array|Asc|AscB|AscW|Atn|CBool|CByte|CCur|CDate|CDbl|Chr|ChrB|ChrW|CInt|CLng|Cos|CreateObject|CSng|CStr|Date|DateAdd|DateDiff|DatePart|DateSerial|DateValue|Day|Escape|Eval|Execute|ExecuteGlobal|Exp|Filter|Fix|FormatCurrency|FormatDateTime|FormatNumber|FormatPercent|GetLocale|GetObject|GetRef|Hex|Hour|InputBox|InStr|InStrB|InStrRev|Int|IsArray|IsDate|IsEmpty|IsNull|IsNumeric|IsObject|Join|LBound|LCase|Left|LeftB|Len|LenB|LoadPicture|Log|LTrim|Mid|MidB|Minute|Month|MonthName|MsgBox|Now|Oct|Replace|RGB|Right|RightB|Rnd|Round|RTrim|ScriptEngine|ScriptEngineBuildVersion|ScriptEngineMajorVersion|ScriptEngineMinorVersion|Second|SetLocale|Sgn|Sin|Space|Split|Sqr|StrComp|String|StrReverse|Tan|Time|Timer|TimeSerial|TimeValue|Trim|TypeName|UBound|UCase|Unescape|VarType|Weekday|WeekdayName|Year)\\b"
                 }
             ]
         },
@@ -339,7 +339,7 @@
                 {
                     "comment": "Matches the member name after any dot, e.g. rs.EOF, conn.Execute, dict.Add. Only the member after the dot gets this colour.",
                     "name": "support.function.com.asp",
-                    "match": "(?i)(?<=\\.)\\b(EOF|BOF|MoveNext|MovePrevious|MoveFirst|MoveLast|AddNew|Update|Delete|Fields|RecordCount|PageSize|PageCount|AbsolutePage|AbsolutePosition|CursorType|LockType|ActiveConnection|Source|Open|Close|Execute|BeginTrans|CommitTrans|RollbackTrans|ConnectionString|CommandTimeout|ConnectionTimeout|Errors|State|CursorLocation|CommandText|CommandType|Parameters|CreateParameter|Prepared|Add|Remove|RemoveAll|Exists|Item|Items|Keys|Count|CompareMode|CreateTextFile|OpenTextFile|FileExists|FolderExists|DeleteFile|DeleteFolder|CopyFile|MoveFile|GetFile|GetFolder|GetFileName|GetParentFolderName|BuildPath|Load|LoadXML|Save|SelectNodes|SelectSingleNode|CreateElement|CreateTextNode|DocumentElement|XML|ParseError|Send|SetRequestHeader|GetResponseHeader|ResponseText|ResponseXML|Status|StatusText|Run|Exec|ExpandEnvironmentStrings|RegRead|RegWrite|RegDelete|Environment)\\b"
+                    "match": "(?i)(?<=\\.)\\b(Abort|AbsolutePage|AbsolutePosition|ActiveConnection|ActualSize|Add|AddAttachment|AddNew|AppActivate|AppendChild|AppendChunk|Async|AtEndOfLine|AtEndOfStream|AttachFile|Attachments|AttachURL|Attributes|AvailableSpace|BaseName|Bcc|BeginTrans|Body|BodyFormat|BodyPart|BOF|Bookmark|BuildPath|CacheSize|Cancel|CancelUpdate|Cc|Charset|ChildNodes|CloneNode|Close|Column|CommandText|CommandTimeout|CommandType|CommitTrans|CompareMode|Configuration|ConnectionString|ConnectionTimeout|ContentBase|ContentLocation|Copy|CopyFile|CopyFolder|CopyTo|Count|CreateAttribute|CreateCDATASection|CreateElement|CreateFolder|CreateMHTMLBody|CreateNode|CreateParameter|CreateShortcut|CreateTextFile|CreateTextNode|CurrentDirectory|CursorLocation|CursorType|DateCreated|DateLastAccessed|DateLastModified|DefaultDatabase|DefinedSize|Delete|DeleteFile|DeleteFolder|Description|Direction|DocumentElement|Drive|DriveExists|DriveLetter|Drives|DriveType|EditMode|Environment|EOF|EOS|Errors|Exec|Execute|Exists|ExpandEnvironmentStrings|Fields|FileExists|Files|FileSystem|Filter|FirstChild|Flush|FolderExists|FreeSpace|From|GetAbsolutePathName|GetAllResponseHeaders|GetAttribute|GetBaseName|GetChunk|GetDrive|GetDriveName|GetExtensionName|GetFile|GetFileName|GetFolder|GetParentFolderName|GetResponseHeader|GetRows|GetSpecialFolder|GetStream|GetString|GetTempName|HasChildNodes|HelpContext|HelpFile|HTMLBody|Importance|InsertBefore|IsolationLevel|IsReady|IsRootFolder|Item|Items|Key|Keys|LastChild|Length|Line|LineSeparator|Load|LoadFromFile|LoadXML|LockType|LogEvent|MailFormat|MaxRecords|MimeFormatted|Mode|Move|MoveFile|MoveFirst|MoveFolder|MoveLast|MoveNext|MovePrevious|Name|NamespaceURI|NativeError|NextNode|NextRecordset|NextSibling|NodeName|NodeType|NodeValue|Number|NumericScale|Open|OpenAsTextStream|OpenSchema|OpenTextFile|Organization|OriginalValue|OwnerDocument|PageCount|PageSize|Parameters|ParentFolder|ParentNode|ParseError|Path|Popup|Position|Precision|Prepared|PreserveWhiteSpace|PreviousSibling|Properties|Provider|Read|ReadAll|ReadLine|ReadText|ReadyState|RecordCount|RegDelete|RegRead|RegWrite|Remove|RemoveAll|RemoveChild|ReplaceChild|ReplyTo|Requery|Reset|ResolveExternals|ResponseBody|ResponseStream|ResponseText|ResponseXML|RollbackTrans|RootFolder|Run|Save|SaveToFile|SelectNodes|SelectSingleNode|Send|Sender|SendKeys|SerialNumber|SetAttribute|SetEOS|SetOption|SetProperty|SetRequestHeader|SetTimeouts|ShareName|ShortName|ShortPath|Size|Skip|SkipLine|Sort|Source|SpecialFolders|SQLState|State|Status|StatusText|SubFolders|Subject|Supports|Text|TextBody|To|TotalSize|TransformNode|Type|UnderlyingValue|Update|UpdateBatch|ValidateOnParse|Value|Version|VolumeName|WaitForResponse|Write|WriteBlankLines|WriteLine|WriteText|XML)\\b"
                 }
             ]
         }
