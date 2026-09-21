@@ -227,3 +227,57 @@ describe('extractSymbols — CreateObject in a comment', () => {
         assert.deepStrictEqual(s.comVariables.map(c => c.name), ['rs']);
     });
 });
+
+// The ProgID written inside CreateObject is what every consumer looks the COM
+// type up by, so it has to come out of here in the form the type map is keyed
+// on. It was taken raw apart from lowercasing, which left the spelling
+// Microsoft's own documentation uses — version-pinned — resolving to nothing.
+describe('extractSymbols — COM ProgIDs are normalised', () => {
+
+    const progIdOf = (code: string) =>
+        extractSymbols(`<%\n${code}\n%>`, 'x.asp').comVariables[0]?.progId;
+
+    it('drops a pinned version', () => {
+        assert.strictEqual(
+            progIdOf('Set xml = Server.CreateObject("MSXML2.DOMDocument.6.0")'),
+            'msxml2.domdocument',
+        );
+    });
+
+    it('drops a single-digit version', () => {
+        assert.strictEqual(
+            progIdOf('Set conn = Server.CreateObject("ADODB.Connection.1")'),
+            'adodb.connection',
+        );
+    });
+
+    it('resolves an older alias to the type that replaced it', () => {
+        assert.strictEqual(
+            progIdOf('Set http = Server.CreateObject("Microsoft.XMLHTTP")'),
+            'msxml2.serverxmlhttp',
+        );
+    });
+
+    it('keeps a ProgID whose last component is not a version', () => {
+        assert.strictEqual(
+            progIdOf('Set d = Server.CreateObject("Scripting.Dictionary")'),
+            'scripting.dictionary',
+        );
+    });
+
+    it('leaves a third-party ProgID alone', () => {
+        assert.strictEqual(
+            progIdOf('Set up = Server.CreateObject("Persits.Upload")'),
+            'persits.upload',
+        );
+    });
+
+    it('carries the normalised type through a chained call', () => {
+        const s = extractSymbols(
+            '<%\nSet fso = Server.CreateObject("Scripting.FileSystemObject")\n'
+            + 'Set ts = fso.OpenTextFile("c:\a.txt", 1)\n%>', 'x.asp');
+        const ts = s.comVariables.find(c => c.name === 'ts');
+        assert.ok(ts, 'ts should be inferred from the chained call');
+        assert.strictEqual(ts.progId, 'scripting.textstream');
+    });
+});

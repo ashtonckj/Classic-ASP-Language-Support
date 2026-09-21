@@ -15,7 +15,7 @@
  * at all, and comObjects is a lookup table.
  */
 
-import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
+import { COM_METHOD_RETURN_TYPES, normalizeProgId } from '../constants/comObjects';
 import { createZoneResolver } from '../utils/zoneUtils';
 
 
@@ -367,7 +367,10 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
             if (setMatch) {
                 result.comVariables.push({
                     name:   setMatch[1],
-                    progId: setMatch[2].toLowerCase(),
+                    // Normalised, not just lowercased: the recommended spelling
+                    // pins a version — `MSXML2.DOMDocument.6.0` — and the raw
+                    // string is what every consumer looks the type up by.
+                    progId: normalizeProgId(setMatch[2]),
                     line:   lineIndex,
                     filePath,
                 });

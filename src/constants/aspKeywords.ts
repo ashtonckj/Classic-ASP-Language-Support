@@ -1,7 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // ASP intrinsic objects
 //
-// The seven objects the ASP runtime puts in scope without anyone creating them.
+// The objects that are in scope on every page without anyone creating them:
+// the seven from the ASP runtime, plus VBScript's `Err`. Err belongs to the
+// language rather than to ASP, but it reaches the editor the same way — a name
+// nobody declared, carrying members — and `On Error Resume Next` followed by
+// `If Err.Number <> 0 Then` is how a Classic ASP page handles an error at all.
+//
 // This is the complete member set of each, not a sample: the list used to hold
 // four or five members per object, so ordinary code like `Response.CharSet` or
 // `Server.Transfer` had no completion, no hover, and nothing marking it as part
@@ -129,6 +134,19 @@ export const ASP_OBJECTS: AspObjectDef[] = [
             { name: 'SetAbort',    kind: 'method', doc: 'Votes to abort the transaction this page is part of.' },
         ],
     },
+    {
+        name: 'Err',
+        description: 'The last runtime error (VBScript, not ASP)',
+        members: [
+            { name: 'Number',      kind: 'property', doc: 'The error code. `0` means no error — this is what `On Error Resume Next` code tests. Assigning to it also raises the error.' },
+            { name: 'Description', kind: 'property', doc: 'A short description of the error.' },
+            { name: 'Source',      kind: 'property', doc: 'The name of the object or application that raised the error.' },
+            { name: 'HelpFile',    kind: 'property', doc: 'Path of the help file associated with the error.' },
+            { name: 'HelpContext', kind: 'property', doc: 'Context id of the help topic associated with the error.' },
+            { name: 'Clear',       kind: 'method',   doc: 'Resets Err to `0`/empty. `On Error Resume Next` does NOT clear it between statements, so a later check sees the earlier error unless this is called.' },
+            { name: 'Raise',       kind: 'method',   doc: 'Raises a runtime error. Custom codes are conventionally `vbObjectError + n`.', snippet: 'Raise $1, "$2", "$0"' },
+        ],
+    },
 ];
 
 /** Lowercased names of the intrinsic objects, for quick membership tests. */
@@ -155,6 +173,8 @@ for (const object of ASP_OBJECTS) {
 export const VBSCRIPT_KEYWORDS = [
     { keyword: 'Dim', description: 'Declare variables' },
     { keyword: 'ReDim', description: 'Redimension dynamic array' },
+    { keyword: 'Preserve', description: 'Keep existing data when redimensioning' },
+    { keyword: 'Erase', description: 'Clear an array' },
     { keyword: 'Const', description: 'Declare constants' },
     { keyword: 'If', description: 'Conditional statement' },
     { keyword: 'Then', description: 'Part of If statement' },
@@ -176,10 +196,17 @@ export const VBSCRIPT_KEYWORDS = [
     { keyword: 'Loop', description: 'End Do loop' },
     { keyword: 'Until', description: 'Loop condition' },
     { keyword: 'Exit', description: 'Exit loop or function' },
+    { keyword: 'Exit Do', description: 'Leave a Do loop' },
+    { keyword: 'Exit For', description: 'Leave a For loop' },
+    { keyword: 'Exit Sub', description: 'Leave a subroutine' },
+    { keyword: 'Exit Function', description: 'Leave a function' },
+    { keyword: 'Exit Property', description: 'Leave a property' },
     { keyword: 'Sub', description: 'Declare subroutine' },
     { keyword: 'End Sub', description: 'End subroutine' },
     { keyword: 'Function', description: 'Declare function' },
     { keyword: 'End Function', description: 'End function' },
+    { keyword: 'ByRef', description: 'Pass a parameter by reference (the default)' },
+    { keyword: 'ByVal', description: 'Pass a parameter by value' },
     { keyword: 'Call', description: 'Call subroutine' },
     { keyword: 'Class', description: 'Declare class' },
     { keyword: 'End Class', description: 'End class' },
@@ -189,16 +216,28 @@ export const VBSCRIPT_KEYWORDS = [
     { keyword: 'Let', description: 'Property setter' },
     { keyword: 'Set', description: 'Set object reference' },
     { keyword: 'New', description: 'Create new object' },
+    { keyword: 'Me', description: 'The current instance, inside a class' },
+    { keyword: 'Default', description: "A class's default member — `Public Default Function`" },
+    { keyword: 'Class_Initialize', description: 'Runs when an instance of the class is created' },
+    { keyword: 'Class_Terminate', description: 'Runs when an instance of the class is released' },
     { keyword: 'With', description: 'With statement' },
     { keyword: 'End With', description: 'End With statement' },
     { keyword: 'Private', description: 'Private scope' },
     { keyword: 'Public', description: 'Public scope' },
     { keyword: 'Option Explicit', description: 'Require variable declaration' },
-    { keyword: 'On Error Resume Next', description: 'Error handling' },
+    { keyword: 'On Error Resume Next', description: 'Carry on at the statement after an error, leaving it in Err' },
+    { keyword: 'On Error GoTo 0', description: 'Stop ignoring errors — the counterpart of On Error Resume Next' },
+    { keyword: 'Rem', description: 'Comment, the older spelling of an apostrophe' },
+    { keyword: 'Stop', description: 'Break into the debugger' },
+    { keyword: 'Randomize', description: 'Seed the random number generator used by Rnd' },
     { keyword: 'And', description: 'Logical AND' },
     { keyword: 'Or', description: 'Logical OR' },
     { keyword: 'Not', description: 'Logical NOT' },
     { keyword: 'Xor', description: 'Logical XOR' },
+    { keyword: 'Eqv', description: 'Logical equivalence' },
+    { keyword: 'Imp', description: 'Logical implication' },
+    { keyword: 'Is', description: 'Compare two object references' },
+    { keyword: 'Mod', description: 'Remainder after division' },
     { keyword: 'True', description: 'Boolean true' },
     { keyword: 'False', description: 'Boolean false' },
     { keyword: 'Null', description: 'Null value' },
@@ -206,38 +245,132 @@ export const VBSCRIPT_KEYWORDS = [
     { keyword: 'Empty', description: 'Empty variant' },
 ];
 
-// Common VBScript Functions
+// ─────────────────────────────────────────────────────────────────────────────
+// VBScript's built-in functions — the whole documented set for VBScript 5.x,
+// which is what every supported IIS ships.
+//
+// A few are here despite being useless on a server, because they are part of
+// the language and a page that calls one should still be told what it is:
+// MsgBox and InputBox block on a dialog nobody can see, and LoadPicture needs a
+// display. The syntaxes/ grammar colours the same set, so the two are meant to
+// be compared when either changes.
+//
+// The `B` variants (AscB, ChrB, InStrB, LeftB, LenB, MidB, RightB) work in
+// bytes rather than characters. They are rare but real, and turn up in older
+// code that handles binary uploads a byte at a time.
+// ─────────────────────────────────────────────────────────────────────────────
 export const VBSCRIPT_FUNCTIONS = [
-    'Abs', 'Array', 'Asc', 'Atn', 'CBool', 'CByte', 'CCur', 'CDate', 'CDbl', 'Chr',
-    'CInt', 'CLng', 'Cos', 'CreateObject', 'CSng', 'CStr', 'Date', 'DateAdd',
-    'DateDiff', 'DatePart', 'DateSerial', 'DateValue', 'Day', 'Exp', 'Filter',
-    'Fix', 'FormatCurrency', 'FormatDateTime', 'FormatNumber', 'FormatPercent',
-    'GetObject', 'Hex', 'Hour', 'InputBox', 'InStr', 'InStrRev', 'Int', 'IsArray',
-    'IsDate', 'IsEmpty', 'IsNull', 'IsNumeric', 'IsObject', 'Join', 'LBound',
-    'LCase', 'Left', 'Len', 'LoadPicture', 'Log', 'LTrim', 'Mid', 'Minute',
-    'Month', 'MonthName', 'MsgBox', 'Now', 'Oct', 'Replace', 'RGB', 'Right',
-    'Rnd', 'Round', 'RTrim', 'Second', 'Sgn', 'Sin', 'Space', 'Split', 'Sqr',
-    'StrComp', 'String', 'StrReverse', 'Tan', 'Time', 'Timer', 'TimeSerial',
-    'TimeValue', 'Trim', 'TypeName', 'UBound', 'UCase', 'VarType', 'Weekday',
-    'WeekdayName', 'Year'
+    'Abs', 'Array', 'Asc', 'AscB', 'AscW', 'Atn', 'CBool', 'CByte', 'CCur',
+    'CDate', 'CDbl', 'Chr', 'ChrB', 'ChrW', 'CInt', 'CLng', 'Cos',
+    'CreateObject', 'CSng', 'CStr', 'Date', 'DateAdd', 'DateDiff', 'DatePart',
+    'DateSerial', 'DateValue', 'Day', 'Escape', 'Eval', 'Execute',
+    'ExecuteGlobal', 'Exp', 'Filter', 'Fix', 'FormatCurrency',
+    'FormatDateTime', 'FormatNumber', 'FormatPercent', 'GetLocale', 'GetObject',
+    'GetRef', 'Hex', 'Hour', 'InputBox', 'InStr', 'InStrB', 'InStrRev', 'Int',
+    'IsArray', 'IsDate', 'IsEmpty', 'IsNull', 'IsNumeric', 'IsObject', 'Join',
+    'LBound', 'LCase', 'Left', 'LeftB', 'Len', 'LenB', 'LoadPicture', 'Log',
+    'LTrim', 'Mid', 'MidB', 'Minute', 'Month', 'MonthName', 'MsgBox', 'Now',
+    'Oct', 'Replace', 'RGB', 'Right', 'RightB', 'Rnd', 'Round', 'RTrim',
+    'ScriptEngine', 'ScriptEngineBuildVersion', 'ScriptEngineMajorVersion',
+    'ScriptEngineMinorVersion', 'Second', 'SetLocale', 'Sgn', 'Sin', 'Space',
+    'Split', 'Sqr', 'StrComp', 'String', 'StrReverse', 'Tan', 'Time', 'Timer',
+    'TimeSerial', 'TimeValue', 'Trim', 'TypeName', 'UBound', 'UCase',
+    'Unescape', 'VarType', 'Weekday', 'WeekdayName', 'Year'
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VBScript's built-in constants.
+//
+// The grammar already colours these; this list is what makes them completable.
+// The MsgBox and colour families are deliberately absent — neither a dialog nor
+// a colour means anything in a page rendered on a server.
+// ─────────────────────────────────────────────────────────────────────────────
+export const VBSCRIPT_CONSTANTS: { name: string; doc: string }[] = [
+    { name: 'vbCrLf',               doc: 'Carriage return + line feed — `Chr(13) & Chr(10)`.' },
+    { name: 'vbCr',                 doc: 'Carriage return — `Chr(13)`.' },
+    { name: 'vbLf',                 doc: 'Line feed — `Chr(10)`.' },
+    { name: 'vbNewLine',            doc: 'The platform newline. On Windows this is the same as vbCrLf.' },
+    { name: 'vbTab',                doc: 'Tab — `Chr(9)`.' },
+    { name: 'vbNullChar',           doc: 'A character with the value 0 — `Chr(0)`.' },
+    { name: 'vbNullString',         doc: 'A null string reference. Not the same as `""`, though it compares equal.' },
+    { name: 'vbFormFeed',           doc: 'Form feed — `Chr(12)`.' },
+    { name: 'vbVerticalTab',        doc: 'Vertical tab — `Chr(11)`.' },
+    { name: 'vbObjectError',        doc: 'The base for user-defined error codes: `Err.Raise vbObjectError + 1`.' },
+    { name: 'vbBinaryCompare',      doc: '`0` — case-sensitive comparison, the default for InStr, Replace and StrComp.' },
+    { name: 'vbTextCompare',        doc: '`1` — case-insensitive comparison.' },
+    { name: 'vbTrue',               doc: '`-1`. A Tristate value, for the FileSystemObject.' },
+    { name: 'vbFalse',              doc: '`0`. A Tristate value, for the FileSystemObject.' },
+    { name: 'vbUseDefault',         doc: '`-2` — use the system default. A Tristate value.' },
+    { name: 'vbSunday',             doc: '`1`. A day constant, for Weekday and WeekdayName.' },
+    { name: 'vbMonday',             doc: '`2`. A day constant.' },
+    { name: 'vbTuesday',            doc: '`3`. A day constant.' },
+    { name: 'vbWednesday',          doc: '`4`. A day constant.' },
+    { name: 'vbThursday',           doc: '`5`. A day constant.' },
+    { name: 'vbFriday',             doc: '`6`. A day constant.' },
+    { name: 'vbSaturday',           doc: '`7`. A day constant.' },
+    { name: 'vbUseSystemDayOfWeek', doc: '`0` — use the first day of the week from the system settings.' },
+    { name: 'vbFirstJan1',          doc: '`1` — the week containing January 1st is week one.' },
+    { name: 'vbFirstFourDays',      doc: '`2` — the first week with at least four days in the new year is week one.' },
+    { name: 'vbFirstFullWeek',      doc: '`3` — the first whole week of the new year is week one.' },
+    { name: 'vbGeneralDate',        doc: '`0` — date and time in the locale format. A FormatDateTime constant.' },
+    { name: 'vbLongDate',           doc: '`1` — the long date format. A FormatDateTime constant.' },
+    { name: 'vbShortDate',          doc: '`2` — the short date format. A FormatDateTime constant.' },
+    { name: 'vbLongTime',           doc: '`3` — the long time format. A FormatDateTime constant.' },
+    { name: 'vbShortTime',          doc: '`4` — 24-hour hh:mm. A FormatDateTime constant.' },
+    { name: 'vbEmpty',              doc: '`0` — uninitialised. A VarType return value.' },
+    { name: 'vbNull',               doc: '`1` — contains no valid data. A VarType return value.' },
+    { name: 'vbInteger',            doc: '`2`. A VarType return value.' },
+    { name: 'vbLong',               doc: '`3`. A VarType return value.' },
+    { name: 'vbSingle',             doc: '`4`. A VarType return value.' },
+    { name: 'vbDouble',             doc: '`5`. A VarType return value.' },
+    { name: 'vbCurrency',           doc: '`6`. A VarType return value.' },
+    { name: 'vbDate',               doc: '`7`. A VarType return value.' },
+    { name: 'vbString',             doc: '`8`. A VarType return value.' },
+    { name: 'vbObject',             doc: '`9`. A VarType return value.' },
+    { name: 'vbError',              doc: '`10`. A VarType return value.' },
+    { name: 'vbBoolean',            doc: '`11`. A VarType return value.' },
+    { name: 'vbVariant',            doc: '`12` — only in an array of variants. A VarType return value.' },
+    { name: 'vbDataObject',         doc: '`13`. A VarType return value.' },
+    { name: 'vbDecimal',            doc: '`14`. A VarType return value.' },
+    { name: 'vbByte',               doc: '`17`. A VarType return value.' },
+    { name: 'vbArray',              doc: '`8192` — added to the element type. A VarType return value.' },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // VBSCRIPT_KEYWORDS_SET
-// Flat lowercase Set used by aspSemanticProvider to skip colouring keywords
-// as user variables/functions. Derives from VBSCRIPT_KEYWORDS above so the
-// two never drift apart, then adds extra bare tokens that appear in VBScript
-// code but are not in the completion keyword list (mid-word tokens, operators,
-// built-in object names, etc.).
+//
+// Flat lowercase Set of single tokens. `aspSemanticProvider` consults it to
+// avoid colouring a keyword as a user variable or function, and
+// `aspRenameProvider` to refuse renaming one — or renaming something TO one.
+//
+// Both ask about ONE identifier at a time, which is why the multi-word entries
+// in VBSCRIPT_KEYWORDS have to be split rather than lowercased whole: `'end if'`
+// as a single string is a member nothing can ever match, and it left `select`,
+// `option` and `explicit` out of the set entirely.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Words VBScript reserves but does not implement.
+ *
+ * They are kept out of VBSCRIPT_KEYWORDS because offering `Enum` or `Implements`
+ * as a completion would suggest a page could use them, and it cannot. They
+ * still matter to the rename provider: `Dim Enum` is a syntax error, so
+ * renaming a variable to `Enum` produces a page that will not run, and refusing
+ * it is the whole point of checking the set.
+ */
+const VBSCRIPT_RESERVED_UNIMPLEMENTED = [
+    'alias', 'any', 'as', 'boolean', 'byte', 'currency', 'debug', 'decimal',
+    'double', 'endif', 'enum', 'event', 'gosub', 'implements', 'integer',
+    'like', 'long', 'lset', 'object', 'optional', 'paramarray', 'raiseevent',
+    'rset', 'shared', 'single', 'static', 'type', 'typeof', 'variant',
+];
+
 export const VBSCRIPT_KEYWORDS_SET = new Set([
-    // All keywords from the completion list above (lowercased)
-    ...VBSCRIPT_KEYWORDS.map(kw => kw.keyword.toLowerCase()),
-    // Extra bare tokens not in the completion list
-    'end', 'each', 'in', 'to', 'step', 'until', 'then', 'wend', 'loop',
-    'eqv', 'imp', 'is', 'mod', 'xor',
-    'exit', 'return', 'goto', 'on', 'error', 'resume',
-    'randomize',
-    // Built-in ASP object names — should never be treated as user symbols
-    'response', 'request', 'server', 'session', 'application',
+    // Every word of every keyword above — 'End If' contributes `end` and `if`.
+    ...VBSCRIPT_KEYWORDS.flatMap(kw => kw.keyword.toLowerCase().split(/\s+/)),
+    // The intrinsic objects, derived rather than listed, so an object added to
+    // ASP_OBJECTS cannot be left out of here.
+    ...ASP_OBJECT_NAMES,
+    ...VBSCRIPT_RESERVED_UNIMPLEMENTED,
+    // Bare tokens that appear in VBScript without heading a keyword entry.
+    'each', 'goto', 'on', 'error', 'resume',
 ]);
