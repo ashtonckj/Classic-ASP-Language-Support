@@ -96,12 +96,10 @@ suite('Emmet abbreviations need no setting at all (integration)', () => {
     // The suggest-widget route: Emmet contributes the expansion as a completion
     // item, and Tab or Enter accepts it. This is what a .html file does, and it
     // is why `emmet.triggerExpansionOnTab` is not required for any of this.
-    // Emmet is reached through Tab and nothing else — `asp` is deliberately not
-    // in emmet.includeLanguages, because that setting is global and knows
-    // nothing about where the caret is, so it offered abbreviations inside
-    // VBScript as readily as in markup. Typing an abbreviation therefore puts
-    // nothing in the suggest widget; Tab is what expands it.
-    test('typing an abbreviation puts nothing in the suggest widget', async () => {
+    // The suggest-widget route: Emmet contributes the expansion as a completion
+    // item, and Tab or Enter accepts it. This is what a .html file does, and it
+    // is why `emmet.triggerExpansionOnTab` is not required for any of this.
+    test('the abbreviation is offered as a completion while typing', async () => {
         const editor = await openAspFile(
             ['<html>', '<body>', '', '</body>', '</html>', ''].join('\n'),
         );
@@ -120,9 +118,35 @@ suite('Emmet abbreviations need no setting at all (integration)', () => {
             typeof i.label === 'string' ? i.label : i.label.label,
         );
         assert.ok(
-            !labels.includes('ul>li*3'),
-            `Emmet should not be in the suggest list; got ${JSON.stringify(labels.slice(0, 10))}`,
+            labels.includes('ul>li*3'),
+            `Emmet should offer the expansion; got ${JSON.stringify(labels.slice(0, 10))}`,
         );
+    });
+
+    // Enter is what a .html file expands with, because Enter accepts the
+    // selected suggestion. The extension's own Enter handler stands aside while
+    // the widget is visible (`!suggestWidgetVisible` on the keybinding), so the
+    // editor's accept wins — this checks that is still true with the ASP
+    // keybindings in place.
+    test('Enter accepts the suggestion and expands, as in a .html file', async () => {
+        const editor = await openAspFile(
+            ['<html>', '<body>', '', '</body>', '</html>', ''].join('\n'),
+        );
+        editor.selection = new vscode.Selection(2, 0, 2, 0);
+        for (const ch of 'ul>li*3') {
+            await vscode.commands.executeCommand('type', { text: ch });
+            await sleep(40);
+        }
+        await sleep(600);
+
+        await vscode.commands.executeCommand('editor.action.triggerSuggest');
+        await sleep(800);
+        await vscode.commands.executeCommand('acceptSelectedSuggestion');
+        await sleep(500);
+
+        const out = editor.document.getText();
+        assert.ok(!out.includes('ul>li*3'), `the abbreviation should be gone; got:\n${out}`);
+        assert.strictEqual((out.match(/<li>/g) ?? []).length, 3, `expected three <li>; got:\n${out}`);
     });
 
     // Emmet is a built-in extension, so a user can disable it, and then the

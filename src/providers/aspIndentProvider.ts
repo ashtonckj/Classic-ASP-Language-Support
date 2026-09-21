@@ -1347,7 +1347,20 @@ async function expandAbbreviationOrTab(
     if (worthTrying) {
         const zone = getZone(editor.document.getText(), editor.document.offsetAt(position));
         if (zone === 'html' || zone === 'css') {
-            if (await tryEmmetExpansion(editor, zone)) { return; }
+            const outcome = await tryEmmetExpansion(editor, zone);
+            if (outcome === 'expanded') { return; }
+
+            // Emmet's own failure path ends in `executeCommand('tab')`, but only
+            // when emmet.triggerExpansionOnTab is on. So when it is on and Emmet
+            // was asked, the Tab has already been dealt with and inserting
+            // another indents twice.
+            //
+            // Asking the document whether it changed does not settle this: the
+            // `tab` command can resolve before its edit is applied, so the check
+            // sometimes sees the old version and sometimes the new one. That
+            // showed up as an intermittent double indent. The setting is the
+            // reliable signal, because it is what Emmet itself branches on.
+            if (outcome === 'ran' && triggerOnTab) { return; }
         }
     }
 
@@ -1359,14 +1372,14 @@ async function expandAbbreviationOrTab(
  *
  * `emmet.expandAbbreviation` is the one the Emmet extension registers, and the
  * only one that takes arguments — it accepts `{ language }` and falls back to
- * the document's own language id only when none is given. Since `asp` is
- * deliberately absent from emmet.includeLanguages, naming the syntax is what
- * makes expansion work at all, so it is tried first.
+ * the document's own language id only when none is given. It is tried first so
+ * the syntax can be named from the zone: a caret inside `<style>` gets `css`
+ * rather than whatever Emmet would infer for the page as a whole.
  *
  * `editor.emmet.action.expandAbbreviation` is an editor action registered by
  * VS Code itself rather than by the Emmet extension. It ignores arguments and
- * reads the document's language, so for an .asp file it does nothing; it stays
- * as a fallback for a build where the first command is missing.
+ * reads the document's language, so it is kept only as a fallback for a build
+ * where the first command is missing.
  */
 const EMMET_EXPAND_COMMANDS = [
     'emmet.expandAbbreviation',
@@ -1386,13 +1399,16 @@ const EMMET_EXPAND_COMMANDS = [
  * Whether the document changed is the only signal that Emmet acted, because it
  * reports nothing when the text under the caret is not an abbreviation.
  */
-async function tryEmmetExpansion(editor: vscode.TextEditor, zone: Zone): Promise<boolean> {
+type EmmetOutcome =
+    | 'expanded'      // Emmet rewrote the abbreviation
+    | 'ran'           // Emmet was asked and declined; it may have run `tab` itself
+    | 'unavailable';  // no expand command could be invoked at all
+
+async function tryEmmetExpansion(editor: vscode.TextEditor, zone: Zone): Promise<EmmetOutcome> {
     // The syntax is named explicitly rather than left to the document's language.
-    // Emmet only recognises a language listed in emmet.includeLanguages, and this
-    // extension deliberately does not put `asp` there: that setting is global and
-    // has no notion of where in the page the caret is, so it would offer
-    // abbreviations inside <% %> as readily as in the markup. Naming the syntax
-    // per call moves the decision here, where the zone is known.
+    // `emmet.includeLanguages` maps the whole file to html, which is right for
+    // the markup but wrong inside <style>, where a bare `m10` should expand as
+    // CSS. The caller has already worked out the zone, so pass it on.
     const language = zone === 'css' ? 'css' : 'html';
 
     for (const command of EMMET_EXPAND_COMMANDS) {
@@ -1403,17 +1419,13 @@ async function tryEmmetExpansion(editor: vscode.TextEditor, zone: Zone): Promise
             continue;   // not registered in this build, or Emmet is disabled
         }
 
-        // Return on the first command that RAN, expanded or not. Trying the next
-        // one after a no-op looks harmless and is not: when
-        // emmet.triggerExpansionOnTab is on, Emmet's own failure path runs the
-        // `tab` command before returning, so a second attempt — or this
-        // function's caller falling through to its own `tab` — indents twice.
-        // Whether the document changed is what tells those two apart.
-        return editor.document.version !== before;
+        // The first command that RAN settles it — trying the next after a no-op
+        // would ask Emmet to act twice on one keystroke.
+        return editor.document.version !== before ? 'expanded' : 'ran';
     }
 
     warnEmmetUnavailableOnce();
-    return false;
+    return 'unavailable';
 }
 
 let warnedAboutEmmet = false;

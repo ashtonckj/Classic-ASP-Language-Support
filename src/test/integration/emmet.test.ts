@@ -1,21 +1,22 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
-// Emmet reaches a Classic ASP page through ONE route: the Tab handler in
-// aspIndentProvider, which checks the zone first and asks Emmet to expand using
-// an explicitly named syntax. See emmetTab.test.ts for that behaviour.
+// Emmet should behave in a Classic ASP page the way it does in a .html file:
+// the abbreviation appears in the suggest widget as you type, and Enter or Tab
+// accepts it. That comes from Emmet's own completion provider, which is only
+// registered for languages listed in `emmet.includeLanguages` — so the
+// extension ships `asp: html` as a configuration default.
 //
-// It deliberately does NOT reach the page through `emmet.includeLanguages`.
-// That setting maps a whole language to an Emmet syntax, and Emmet reads its
-// configuration with no resource and no position, so there is no way to say
-// "html, but only outside <% %>". With `asp` listed there, the suggest widget
-// offered abbreviations everywhere in the file, including in the middle of
-// VBScript — `Response.CharSet` was offered as `<Response class="Charset">`.
+// The part that has to be different is VBScript. Inside <% %>, `ul>li*3` is a
+// comparison between undeclared variables and `Response.CharSet` is a property
+// of a built-in object, and neither is markup.
 //
-// So the mapping is gone, and these tests hold that line: nothing in an .asp
-// file should produce an Emmet completion item, least of all inside an ASP
-// block. Losing the suggest-widget route is the deliberate cost; Tab still
-// expands, which is how abbreviations are written anyway.
+// Emmet's mapping is per LANGUAGE, with no notion of where the caret is, so the
+// extension cannot tell it to skip those regions. What does the work is Emmet's
+// own HTML parser: `<% … %>` looks like an ordinary tag to it — `<`, a name,
+// then `>` — and Emmet refuses to expand inside a tag, for the same reason it
+// refuses inside `<div class="…">`. These tests hold that line, since it is
+// relied on rather than controlled.
 
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -41,26 +42,27 @@ function hasEmmetExpansion(labels: string[], abbreviation: string): boolean {
     return labels.includes(abbreviation);
 }
 
-suite('Emmet does not reach the suggest widget in an ASP page (integration)', () => {
+suite('Emmet abbreviations are offered in the markup (integration)', () => {
 
-    test('an abbreviation in the markup is not offered as a completion', async () => {
+    test('a nested abbreviation with a repeat is offered', async () => {
         const labels = await completionsAtEndOf('<html>\n<body>\nul>li*3\n</body>\n</html>\n', 2);
         assert.ok(
-            !hasEmmetExpansion(labels, 'ul>li*3'),
-            `Emmet should not be in the suggest list; got ${JSON.stringify(labels.slice(0, 25))}`,
+            hasEmmetExpansion(labels, 'ul>li*3'),
+            `Emmet should offer the abbreviation; got ${JSON.stringify(labels.slice(0, 25))}`,
         );
     });
 
-    test('a class abbreviation in the markup is not offered either', async () => {
+    test('a class abbreviation is offered', async () => {
         const labels = await completionsAtEndOf('<html>\n<body>\ndiv.row\n</body>\n</html>\n', 2);
         assert.ok(
-            !hasEmmetExpansion(labels, 'div.row'),
-            `Emmet should not be in the suggest list; got ${JSON.stringify(labels.slice(0, 25))}`,
+            hasEmmetExpansion(labels, 'div.row'),
+            `Emmet should offer the abbreviation; got ${JSON.stringify(labels.slice(0, 25))}`,
         );
     });
+});
 
-    // Inside a VBScript block `ul>li*3` is a comparison against undeclared
-    // variables, not markup, so Emmet must stay out of it.
+suite('Emmet stays out of VBScript (integration)', () => {
+
     test('an abbreviation inside a <% %> block is not offered', async () => {
         const labels = await completionsAtEndOf('<%\nul>li*3\n%>\n', 1);
         assert.ok(
@@ -73,8 +75,7 @@ suite('Emmet does not reach the suggest widget in an ASP page (integration)', ()
     // replaced it with <Response class="Charset"></Response>. Every VBScript
     // member expression has the shape of Emmet's class shorthand (tag.class), so
     // this is not one unlucky identifier — Request.Form, Session.Timeout and
-    // anything else written with a dot are all abbreviations as far as Emmet is
-    // concerned.
+    // anything else written with a dot look the same to Emmet.
     test('a VBScript member expression inside <% %> is not offered', async () => {
         const labels = await completionsAtEndOf('<%\nResponse.CharSet\n%>\n', 1);
         assert.ok(
@@ -90,12 +91,21 @@ suite('Emmet does not reach the suggest widget in an ASP page (integration)', ()
             `VBScript code must not be treated as an abbreviation; got ${JSON.stringify(labels.slice(0, 25))}`,
         );
     });
+
+    test('an indented statement inside a multi-line block is not offered', async () => {
+        const labels = await completionsAtEndOf(
+            '<html>\n<body>\n<%\n    If x Then\n        Session.Timeout\n    End If\n%>\n</body>\n</html>\n', 4);
+        assert.ok(
+            !hasEmmetExpansion(labels, 'Session.Timeout'),
+            `VBScript code must not be treated as an abbreviation; got ${JSON.stringify(labels.slice(0, 25))}`,
+        );
+    });
 });
 
 suite('The extension still completes ASP intrinsics (integration)', () => {
 
-    // The mapping being gone must not have taken the extension's own
-    // completions with it — these come from ASP_OBJECTS, not from Emmet.
+    // These come from ASP_OBJECTS, not from Emmet, and must survive whatever
+    // Emmet is or is not doing in the same position.
     test('Response. offers its members, including ones beyond Write', async () => {
         const labels = await completionsAtEndOf('<%\nResponse.\n%>\n', 1);
         for (const member of ['Write', 'Charset', 'ContentType', 'Status', 'Buffer']) {
