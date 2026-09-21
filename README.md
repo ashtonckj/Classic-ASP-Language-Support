@@ -166,7 +166,7 @@
 |---------|---------|-------------|
 | `aspLanguageSupport.keywordCase` | `PascalCase` | `lowercase` · `UPPERCASE` · `PascalCase` |
 | `aspLanguageSupport.aspTagsOnSameLine` | `false` | Keep `<% %>` on the same line as code |
-| `aspLanguageSupport.htmlIndentMode` | `flat` | `flat` — VBScript always at column 0; `continuation` — follows HTML nesting |
+| `aspLanguageSupport.htmlIndentMode` | `continuation` | Where `<%` and `%>` sit: `continuation` — at the indent of the surrounding HTML; `flat` — at column 0. The VBScript inside is indented the same either way |
 | `aspLanguageSupport.virtualRoot` | *(empty)* | Absolute path to your IIS application root, used to resolve `#include virtual="..."` and root-relative `href`/`src`. Empty = the workspace folder root |
 | `aspLanguageSupport.defaultIncludes` | *(empty)* | Files always added to IntelliSense, hover, and Go to Definition for every document, even without an `#include` for them. For libraries pulled in through a shared bootstrap page at runtime. Resolved like `#include virtual="..."` |
 | `aspLanguageSupport.formatPreview` | `false` | Debug: `Alt + Shift + F` opens a diff preview instead of applying the format |

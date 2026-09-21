@@ -10,6 +10,23 @@ export interface AspFormatterSettings {
     htmlIndentMode:    string;   // 'flat' | 'continuation'
 }
 
+/**
+ * Whether `<%` and `%>` go to column 0 rather than to the indent of the HTML
+ * around them. The VBScript INSIDE the block is indented the same either way;
+ * only the delimiters move.
+ *
+ * Every site that cares asks this rather than comparing the setting string. The
+ * two values used to be wired up as each other — `flat` was documented as
+ * "always starts at column 0" and put the delimiters at the HTML depth, while
+ * `continuation` was documented as continuing from the HTML indent and put them
+ * at column 0 — and six separate `=== 'continuation'` checks spread across two
+ * files is how that stayed unnoticed. One named question is harder to get
+ * backwards than six inverted comparisons.
+ */
+export function delimitersAtColumnZero(settings: AspFormatterSettings): boolean {
+    return settings.htmlIndentMode === 'flat';
+}
+
 export function getAspSettings(): AspFormatterSettings {
     const config         = vscode.workspace.getConfiguration('aspLanguageSupport');
     const prettierConfig = vscode.workspace.getConfiguration('aspLanguageSupport.prettier');
@@ -18,7 +35,7 @@ export function getAspSettings(): AspFormatterSettings {
         useTabs:           prettierConfig.get<boolean>('useTabs',        false),
         indentSize:        prettierConfig.get<number>('tabWidth',        2),
         aspTagsOnSameLine: config.get<boolean>('aspTagsOnSameLine',      false),
-        htmlIndentMode:    config.get<string>('htmlIndentMode',          'flat'),
+        htmlIndentMode:    config.get<string>('htmlIndentMode',          'continuation'),
     };
 }
 
@@ -36,8 +53,8 @@ export interface FormatBlockResult {
  * @param block         Raw ASP block including the <% and %> delimiters.
  * @param settings      Formatter settings.
  * @param htmlIndent    Whitespace string that Prettier placed before the
- *                      placeholder comment — used only when htmlIndentMode
- *                      is 'continuation'.
+ *                      placeholder comment — used only when the delimiters go
+ *                      to column 0, so the VBScript inside carries the depth.
  * @param startLevel    VBScript indent level inherited from the previous block.
  */
 export function formatSingleAspBlock(
@@ -90,7 +107,22 @@ export function formatSingleAspBlock(
             };
         }
 
-        const aspIndent = getIndentString(levelBefore, settings.useTabs, settings.indentSize);
+        // An empty block has no content line to write. Emitting one anyway left
+        // `<%` and `%>` separated by a blank line — or by a line of nothing but
+        // indentation, which is worse because it is invisible.
+        if (formattedContent.length === 0) {
+            return { formatted: '<%\n%>', endLevel: levelAfter };
+        }
+
+        // The base level has to match what a multi-line block would use, or the
+        // two disagree: with the delimiters at column 0 the multi-line path starts
+        // from the HTML depth while this path started from zero, so a one-line
+        // block came out at column 0 and then moved once the first format had
+        // turned it into a multi-line one — two passes to settle.
+        const baseLevel = delimitersAtColumnZero(settings)
+            ? inferLevelFromIndent(htmlIndent, settings.useTabs, settings.indentSize)
+            : 0;
+        const aspIndent = getIndentString(baseLevel + levelBefore, settings.useTabs, settings.indentSize);
         return {
             formatted: '<%\n' + aspIndent + formattedContent + '\n%>',
             endLevel:  levelAfter,
@@ -110,9 +142,10 @@ function formatMultiLineAspBlock(
     startLevel: number,
 ): FormatBlockResult {
 
-    // In 'flat' mode the VBScript base indent is always 0.
-    // In 'continuation' mode it starts at the HTML depth inferred from htmlIndent.
-    const baseLevel = settings.htmlIndentMode === 'continuation'
+    // When the delimiters sit at column 0 the VBScript inside has to carry the
+    // HTML depth itself, inferred from htmlIndent. When they sit at the HTML
+    // indent the surrounding indent already supplies it, so the base is 0.
+    const baseLevel = delimitersAtColumnZero(settings)
         ? inferLevelFromIndent(htmlIndent, settings.useTabs, settings.indentSize)
         : 0;
 

@@ -199,16 +199,16 @@
                     },
                     "aspLanguageSupport.htmlIndentMode": {
                         "type": "string",
-                        "default": "flat",
+                        "default": "continuation",
                         "enum": [
                             "flat",
                             "continuation"
                         ],
                         "enumDescriptions": [
-                            "VBScript always starts at column 0 regardless of HTML nesting depth. This is the Classic ASP convention and works best for files with deeply nested HTML.",
-                            "VBScript indentation continues from the HTML indent level at the point where the <% block appears. Useful if you prefer a fully unified indent style."
+                            "The <% and %> delimiters sit at column 0 whatever the HTML nesting depth, and the VBScript inside is indented from there. This is the older Classic ASP convention and keeps deeply nested pages from pushing code far to the right.",
+                            "The <% and %> delimiters sit at the indent of the HTML around them, so a block reads as part of the markup it is nested in. This is the default."
                         ],
-                        "description": "Controls how VBScript indentation relates to the surrounding HTML structure"
+                        "description": "Where the <% and %> delimiters sit relative to the surrounding HTML. The VBScript inside the block is indented the same either way — only the delimiters move."
                     },
                     "aspLanguageSupport.virtualRoot": {
                         "type": "string",

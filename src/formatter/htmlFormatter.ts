@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as prettier from 'prettier';
-import { formatSingleAspBlock, getAspSettings } from './aspFormatter';
+import { formatSingleAspBlock, getAspSettings, delimitersAtColumnZero } from './aspFormatter';
 import { findNextRealTag, findTagEnd, findClosingTag } from '../utils/zoneUtils';
 
 // ─── Prettier settings ─────────────────────────────────────────────────────
@@ -765,7 +765,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
     const blockTagIndents: string[] = new Array(aspBlocks.length).fill('');
 
-    if (aspSettings.htmlIndentMode !== 'continuation') {
+    if (!delimitersAtColumnZero(aspSettings)) {
         let groupTagIndent = '';
         for (let i = 0; i < aspBlocks.length; i++) {
             if (aspBlocks[i].kind !== 'normal') continue;
@@ -881,7 +881,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
                         // In flat mode use the group's shared tag column so this block's
                         // tags align with all sibling blocks in the same VBScript group.
-                        const inlineTagIndent = aspSettings.htmlIndentMode === 'continuation'
+                        const inlineTagIndent = delimitersAtColumnZero(aspSettings)
                             ? ''
                             : blockTagIndents[i];
 
@@ -891,7 +891,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                                 if (!line.trim()) return line;
                                 const t = line.trim();
                                 if (t === '<%' || t === '%>') return inlineTagIndent + t;
-                                return aspSettings.htmlIndentMode === 'continuation'
+                                return delimitersAtColumnZero(aspSettings)
                                     ? line
                                     : blockTagIndents[i] + line;
                             })
@@ -951,7 +951,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                         // 'flat' mode: use the group's shared tag column (the HTML indent
                         // of the first/shallowest block in this VBScript group) so all
                         // <% / %> tags in the group align at the same column.
-                        const tagIndent = aspSettings.htmlIndentMode === 'continuation'
+                        const tagIndent = delimitersAtColumnZero(aspSettings)
                             ? ''                   // tags at col 0; content has full indent
                             : blockTagIndents[i];  // shared group column
 
@@ -964,7 +964,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                                 // Content lines: in flat mode add the group tag indent on
                                 // top of the VBScript indent aspFormatter produced.
                                 // In continuation mode keep as-is (full indent baked in).
-                                return aspSettings.htmlIndentMode === 'continuation'
+                                return delimitersAtColumnZero(aspSettings)
                                     ? line
                                     : blockTagIndents[i] + line;
                             })

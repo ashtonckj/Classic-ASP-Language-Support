@@ -184,3 +184,48 @@ describe('formatSingleAspBlock — <%@ %> processing directive', () => {
         assert.strictEqual(out, '<%\nOption Explicit\n%>');
     });
 });
+
+// The single-line block path built its indent from level 0 regardless of
+// htmlIndentMode, while the multi-line path starts from the HTML depth in
+// 'continuation' mode. So a one-line block came out at column 0 and then moved
+// once the first format had turned it into a multi-line one — which is why that
+// mode needed two passes to settle.
+describe('formatSingleAspBlock — one-line and multi-line agree on the base indent', () => {
+
+    const flat: AspFormatterSettings = {
+        keywordCase: 'PascalCase', indentSize: 4, useTabs: false,
+        aspTagsOnSameLine: false, htmlIndentMode: 'flat',
+    };
+    const continuation: AspFormatterSettings = { ...flat, htmlIndentMode: 'continuation' };
+
+    // 'flat' puts the delimiters at column 0, so the VBScript inside has to
+    // carry the HTML depth itself. 'continuation' puts them at the HTML indent,
+    // which already supplies it. These two assertions are also what pins the
+    // two values the right way round.
+    it('carries the HTML depth inside the block in flat mode', () => {
+        const out = formatSingleAspBlock('<% x = 1 %>', flat, '        ', 0);
+        assert.strictEqual(out.formatted, '<%\n        x = 1\n%>');
+    });
+
+    it('leaves the depth to the surrounding indent in continuation mode', () => {
+        const out = formatSingleAspBlock('<% x = 1 %>', continuation, '        ', 0);
+        assert.strictEqual(out.formatted, '<%\nx = 1\n%>');
+    });
+
+    it('indents a one-line block the same as the multi-line form of it', () => {
+        for (const settings of [flat, continuation]) {
+            const single = formatSingleAspBlock('<% x = 1 %>',   settings, '    ', 0);
+            const multi  = formatSingleAspBlock('<%\nx = 1\n%>', settings, '    ', 0);
+            assert.strictEqual(single.formatted, multi.formatted, settings.htmlIndentMode);
+        }
+    });
+
+    // An empty block has no content line to write. Emitting one anyway left <%
+    // and %> separated by a line of nothing but indentation.
+    it('writes no content line for an empty block', () => {
+        for (const settings of [flat, continuation]) {
+            assert.strictEqual(formatSingleAspBlock('<% %>',  settings, '    ', 0).formatted, '<%\n%>');
+            assert.strictEqual(formatSingleAspBlock('<%  %>', settings, '    ', 0).formatted, '<%\n%>');
+        }
+    });
+});
