@@ -219,3 +219,52 @@ describe('formatCompleteAspFile — <%= %> is laid out as page text', () => {
         assert.ok(/\n\s*<%\n/.test(out),          `the For block should stand on its own lines; got:\n${out}`);
     });
 });
+
+// Converting an inline `<% … %>` block onto its own lines appended a newline
+// plus the base indent unconditionally. When the placeholder had already ended
+// its line, that line's own newline was still there, so the two together left a
+// blank line: permanent in the middle of a file, and stripped by the NEXT
+// format at end of file, so such a file never converged.
+describe('formatCompleteAspFile — expanding an inline block adds no blank line', () => {
+
+    it('leaves no blank line at end of file, and settles in one pass', async () => {
+        const out = await formatCompleteAspFile('<% If a Then %>yes<% End If %>\n');
+        assert.ok(!/\n[ \t]*\n/.test(out), `a blank line was inserted:\n${JSON.stringify(out)}`);
+        assert.strictEqual(await formatCompleteAspFile(out), out, 'the result should be stable');
+    });
+
+    it('leaves no blank line in the middle of a file', async () => {
+        const out = await formatCompleteAspFile('<p>a</p>\n<% If a Then %>yes<% End If %>\n<p>b</p>\n');
+        assert.ok(!/\n[ \t]*\n/.test(out), `a blank line was inserted:\n${JSON.stringify(out)}`);
+        assert.ok(out.includes('<p>b</p>'), `the following markup should survive:\n${out}`);
+        assert.strictEqual(await formatCompleteAspFile(out), out, 'the result should be stable');
+    });
+
+    // The newline after the block is still needed when the block did NOT end its
+    // line — otherwise whatever followed would be swallowed onto the %> line.
+    it('still breaks the line when content follows the block', async () => {
+        const out = await formatCompleteAspFile('<p>a</p>\n<% If a Then %>yes<% End If %> tail\n<p>b</p>\n');
+        assert.ok(/%>\ntail/.test(out), `trailing content should start a new line; got:\n${out}`);
+        assert.ok(!/\n[ \t]*\n/.test(out), `a blank line was inserted:\n${JSON.stringify(out)}`);
+    });
+
+    // Found by sweeping a corpus rather than by one report — 10 of 18 inline
+    // block shapes were affected, so the property is worth asserting broadly.
+    it('adds no blank line for any inline block shape', async () => {
+        const shapes = [
+            '<% If a Then %>yes<% End If %>\n',
+            '<p><% If a Then %>yes<% End If %></p>\n',
+            '<div><% For i = 1 To 3 %>x<% Next %></div>\n',
+            '<% Do While x %>y<% Loop %>\n',
+            '<span>a<% If b Then %>c<% End If %></span>\n',
+            '<p>before</p>\n<% Select Case x %><% Case 1 %>one<% End Select %>\n<p>after</p>\n',
+        ];
+        for (const shape of shapes) {
+            const out = await formatCompleteAspFile(shape);
+            assert.ok(
+                !/\n[ \t]*\n/.test(out),
+                `a blank line was inserted for ${JSON.stringify(shape)}:\n${JSON.stringify(out)}`,
+            );
+        }
+    });
+});

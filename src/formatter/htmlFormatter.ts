@@ -803,9 +803,29 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                             })
                             .join('\n');
 
+                        // Start a new line AFTER the block only when something
+                        // else is still on this one. When the placeholder ended
+                        // its line, that line's own newline already separates the
+                        // block from what follows, and adding another leaves a
+                        // blank line behind: permanent in the middle of a file,
+                        // and stripped by the NEXT format at end of file, so the
+                        // file never converges.
+                        const placeholder = `<!--${block.id}-->`;
+                        const afterIdx    = placeholderIdx + placeholder.length;
+                        const lineEnd     = restoredCode.indexOf('\n', afterIdx);
+                        const restOfLine  = lineEnd === -1
+                            ? restoredCode.slice(afterIdx)
+                            : restoredCode.slice(afterIdx, lineEnd);
+                        const endsTheLine = restOfLine.trim().length === 0;
+
                         restoredCode = restoredCode.replace(
-                            new RegExp(`[ \\t]*<!--${escapedId}-->`),
-                            () => `\n${indentedBlock}\n${baseIndent}`
+                            // Trailing spaces are swallowed too when nothing
+                            // follows, so the %> line is not left with whitespace
+                            // the next pass would have to remove.
+                            new RegExp(`[ \\t]*<!--${escapedId}-->${endsTheLine ? '[ \\t]*' : ''}`),
+                            () => endsTheLine
+                                ? `\n${indentedBlock}`
+                                : `\n${indentedBlock}\n${baseIndent}`
                         );
                     } else {
                         // Expression sitting inline in tag text content (e.g. <td><%= val %></td>)
