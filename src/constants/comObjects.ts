@@ -597,6 +597,12 @@ export const COM_METHOD_RETURN_TYPES: Record<string, string> = {
     'adodb.command.execute':                      'adodb.recordset',
     'adodb.command.createparameter':              'adodb.parameter',
     'adodb.recordset.nextrecordset':              'adodb.recordset',
+    // Indexing a collection, not calling a method — but it is written with
+    // parentheses, which is all the chain rule looks for, and it is the only
+    // way a page ever gets hold of a Field, an Error or a stored Parameter.
+    'adodb.recordset.fields':                     'adodb.field',
+    'adodb.connection.errors':                    'adodb.error',
+    'adodb.command.parameters':                   'adodb.parameter',
 
     // Scripting.FileSystemObject
     'scripting.filesystemobject.createtextfile':  'scripting.textstream',

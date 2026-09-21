@@ -36,6 +36,29 @@ describe('COM types — the graph closes', () => {
         }
     });
 
+    // A type no page can arrive at is dead data: it can never be the type of a
+    // variable, so nothing it lists will ever be offered. ADODB.Field and
+    // ADODB.Error were both in that state — a Field is only ever reached through
+    // `rs.Fields("name")`, and nothing mapped that.
+    it('every type can be reached from something a page writes', () => {
+        // The ProgIDs someone types into CreateObject. The rest have to be
+        // arrived at through a call on an object they already hold.
+        const created = new Set([
+            'adodb.recordset', 'adodb.connection', 'adodb.command', 'adodb.stream',
+            'scripting.dictionary', 'scripting.filesystemobject',
+            'msxml2.domdocument', 'msxml2.serverxmlhttp',
+            'cdo.message', 'cdo.configuration', 'cdonts.newmail', 'wscript.shell',
+        ]);
+        const inferred = new Set(Object.values(COM_METHOD_RETURN_TYPES));
+
+        for (const progId of Object.keys(COM_TYPE_MAP)) {
+            assert.ok(
+                created.has(progId) || inferred.has(progId),
+                `nothing can produce a ${progId}, so its members are never offered`,
+            );
+        }
+    });
+
     it('every inferred return type names a method the owner actually has', () => {
         for (const key of Object.keys(COM_METHOD_RETURN_TYPES)) {
             const owner  = key.slice(0, key.lastIndexOf('.'));
