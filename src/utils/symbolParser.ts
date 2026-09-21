@@ -402,6 +402,42 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         }
     });
 
+/**
+ * True when the call opening at `openParen` runs to the end of the statement.
+ *
+ * Parentheses are matched rather than counted to the first `)`, because an
+ * argument is regularly a call of its own —
+ * `fso.OpenTextFile(Server.MapPath("/x"), 1)` — and quotes are skipped so a
+ * bracket inside a SQL string or a path cannot close the call early.
+ */
+function callIsWholeExpression(line: string, openParen: number): boolean {
+    let depth = 0;
+    let inString = false;
+
+    for (let i = openParen; i < line.length; i++) {
+        const ch = line[i];
+
+        if (inString) {
+            // "" is an escaped quote in VBScript, so it does not end the string.
+            if (ch === '"') {
+                if (line[i + 1] === '"') { i++; } else { inString = false; }
+            }
+            continue;
+        }
+
+        if (ch === '"') { inString = true; continue; }
+        if (ch === '(') { depth++; continue; }
+        if (ch === ')') {
+            depth--;
+            if (depth > 0) { continue; }
+            // Only whitespace or a trailing comment may follow the call.
+            return /^\s*('.*)?$/.test(line.slice(i + 1));
+        }
+    }
+
+    return false;   // unbalanced — the statement continues on another line
+}
+
     // Third pass — infer COM types from chained method calls.
     // Matches: Set x = someVar.Method(...)
     // Looks up someVar's progId from already-collected comVariables, then checks
@@ -417,6 +453,13 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
 
         // Skip if already tracked via CreateObject
         if (comVarIndex.has(assignTo.toLowerCase())) return;
+
+        // The call has to BE the right-hand side, not just start it. Without
+        // this, `Set s = fso.GetFile(p).Size` reads only as far as `GetFile(`
+        // and types s as a File, when what it is assigned is a number — and a
+        // confidently wrong type is worse than none, because a dotted access on
+        // a variable with a type offers that type's members and nothing else.
+        if (!callIsWholeExpression(line, chainMatch.index! + chainMatch[0].length - 1)) return;
 
         const sourceProgId = comVarIndex.get(sourceVar.toLowerCase());
         if (!sourceProgId) return;

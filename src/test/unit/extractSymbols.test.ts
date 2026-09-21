@@ -281,3 +281,55 @@ describe('extractSymbols — COM ProgIDs are normalised', () => {
         assert.strictEqual(ts.progId, 'scripting.textstream');
     });
 });
+
+// The chained rule reads `Set x = someVar.Method(…)` and types x from what the
+// method returns. It has to be sure the call IS the right-hand side, not just
+// the start of it: a confidently wrong type is worse than none here, because a
+// dotted access on a variable that HAS a type offers that type's members and
+// nothing else.
+describe('extractSymbols — a chained call must be the whole expression', () => {
+
+    const PRELUDE = [
+        '<%',
+        'Set fso = Server.CreateObject("Scripting.FileSystemObject")',
+        'Set xml = Server.CreateObject("MSXML2.DOMDocument")',
+    ].join('\n') + '\n';
+
+    const inferred = (code: string) => {
+        const symbols = extractSymbols(`${PRELUDE}${code}\n%>`, 'x.asp');
+        return symbols.comVariables.find(c => c.name !== 'fso' && c.name !== 'xml');
+    };
+
+    it('types a plain call', () => {
+        assert.strictEqual(inferred('Set ts = fso.OpenTextFile(p, 1)')?.progId, 'scripting.textstream');
+    });
+
+    it('types a call whose argument is itself a call', () => {
+        assert.strictEqual(
+            inferred('Set ts = fso.OpenTextFile(Server.MapPath("/a"), 1)')?.progId,
+            'scripting.textstream',
+        );
+    });
+
+    it('is not ended early by a bracket inside a string argument', () => {
+        assert.strictEqual(
+            inferred('Set ts = fso.OpenTextFile("c:/a)b.txt", 1)')?.progId,
+            'scripting.textstream',
+        );
+    });
+
+    it('allows a trailing comment', () => {
+        assert.strictEqual(inferred("Set f = fso.GetFile(p)   ' the notes file")?.progId, 'scripting.file');
+    });
+
+    it('declines when the expression continues past the call', () => {
+        // `.Size` is a number, not a File — typing s as a File would offer
+        // DateLastModified and OpenAsTextStream on an integer.
+        assert.strictEqual(inferred('Set s = fso.GetFile(p).Size'), undefined);
+        assert.strictEqual(inferred('Set q = xml.SelectSingleNode("//a").ParentNode'), undefined);
+    });
+
+    it('declines when the call is only part of a larger expression', () => {
+        assert.strictEqual(inferred('Set s = fso.GetFile(p) & "x"'), undefined);
+    });
+});
