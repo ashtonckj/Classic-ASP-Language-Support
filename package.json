@@ -364,9 +364,6 @@
         "configurationDefaults": {
             "[asp]": {
                 "editor.wordBasedSuggestions": "off"
-            },
-            "emmet.includeLanguages": {
-                "asp": "html"
             }
         }
     },
@@ -384,6 +381,7 @@
         "test:integration": "npm run compile && vscode-test"
     },
     "dependencies": {
+        "@vscode/emmet-helper": "^2.11.0",
         "prettier": "^3.8.1",
         "typescript": "^5.9.3",
         "vscode-css-languageservice": "^6.3.9",

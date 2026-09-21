@@ -150,3 +150,31 @@ node_modules/**/CHANGELOG.md
 node_modules/**/SECURITY.md
 node_modules/vscode-css-languageservice/docs/**
 node_modules/@vscode/l10n/dist/tsdoc-metadata.json
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dependencies: emmet
+# ─────────────────────────────────────────────────────────────────────────────
+# EmmetCompletionProvider requires @vscode/emmet-helper, which is CommonJS, so
+# it takes each package's "main" and never the "module" entry beside it:
+# lib/cjs rather than lib/esm in the helper, dist/emmet.cjs rather than
+# dist/emmet.es.js in emmet, lib/umd rather than lib/esm in jsonc-parser.
+# The snippet data is compiled into those bundles — there is no data file to
+# keep. (The .map files beside them are already covered by **/*.map.)
+node_modules/@vscode/emmet-helper/lib/esm/**
+node_modules/emmet/dist/emmet.es.js
+node_modules/jsonc-parser/lib/esm/**
+node_modules/jsonc-parser/.eslintrc.json
+node_modules/jsonc-parser/.mocharc.json
+node_modules/@vscode/emmet-helper/**/*.d.ts
+node_modules/emmet/**/*.d.ts
+node_modules/jsonc-parser/**/*.d.ts
+
+# emmet's own bundle is self-contained — dist/emmet.cjs makes no require()
+# calls at all — so the @emmetio/* packages npm installs alongside it are
+# reached only through the ESM build. Their .cjs entry points are left in
+# place rather than dropping the packages outright, in case anything ever
+# resolves one; it is the builds nothing can reach that go.
+node_modules/@emmetio/abbreviation/dist/index.js
+node_modules/@emmetio/css-abbreviation/dist/index.js
+node_modules/@emmetio/scanner/scanner.js
+node_modules/@emmetio/**/*.d.ts

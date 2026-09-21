@@ -8,6 +8,13 @@
         "sourceMap": true,
         "strict": true,
         "resolveJsonModule": true,
+        // @vscode/emmet-helper's own .d.ts imports "emmet", a package whose
+        // "exports" map offers no "types" condition and only an ESM entry, so
+        // under Node16 resolution that import cannot be typed from a CommonJS
+        // build however it is pointed at. Skipping declaration-file checking is
+        // the usual answer and costs nothing here: it does not relax checking of
+        // anything under src/.
+        "skipLibCheck": true,
         "esModuleInterop": true,
         "alwaysStrict": true,
         "removeComments": true,

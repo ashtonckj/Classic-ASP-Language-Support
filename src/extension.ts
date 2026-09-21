@@ -4,6 +4,7 @@ import { HtmlCompletionProvider } from './providers/htmlCompletionProvider';
 import { registerAutoClosingTag, registerEnterKeyHandler, registerTabKeyHandler, registerSmartQuoteHandler, registerLineContinuationGuard } from './providers/aspIndentProvider';
 import { AspCompletionProvider } from './providers/aspCompletionProvider';
 import { CssCompletionProvider } from './providers/cssCompletionProvider';
+import { EmmetCompletionProvider } from './providers/emmetCompletionProvider';
 import { CssHoverProvider } from './providers/cssHoverProvider';
 import { CssColorProvider } from './providers/cssColorProvider';
 import { registerCssDiagnostics } from './providers/cssDiagnosticsProvider';
@@ -190,6 +191,16 @@ export function activate(context: vscode.ExtensionContext) {
     const jsCompletionProvider = vscode.languages.registerCompletionItemProvider(
         'asp', new JsCompletionProvider(),
         '.', '('
+    );
+
+    // Emmet abbreviations. Registered here rather than through
+    // `emmet.includeLanguages`, because that mapping applies to the whole
+    // language and would offer markup inside <% %> — see the provider for what
+    // Emmet's own guard does and does not catch.
+    const emmetCompletionProvider = vscode.languages.registerCompletionItemProvider(
+        'asp', new EmmetCompletionProvider(),
+        '!', '.', '}', ':', '*', '$', ']', '/', '>', '-',
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
     );
 
     const includePathProvider = vscode.languages.registerCompletionItemProvider(
@@ -451,6 +462,7 @@ export function activate(context: vscode.ExtensionContext) {
         cssHoverProvider,
         cssColorProvider,
         jsCompletionProvider,
+        emmetCompletionProvider,
         jsHoverProvider,
         jsSignatureHelpProvider,
         combinedSemanticProvider,

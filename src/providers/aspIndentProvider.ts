@@ -1243,24 +1243,6 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
 // ── Tab key handler ────────────────────────────────────────────────────────
 
 /**
- * Emmet's Tab expansion, falling back to a plain Tab when nothing expanded.
- *
- * Tab is bound to `asp.insertTab` for this language, so everything the Tab key
- * would otherwise do has to happen here — and one of those things is Emmet
- * turning `ul>li*3` into a real list, which is how HTML gets written by hand.
- * Going straight to the native `tab` command swallowed it, because that command
- * knows nothing about abbreviations.
- *
- * Only the HTML and CSS zones are offered to Emmet. Inside `<% %>` an
- * abbreviation like `ul>li*3` is a comparison between two undeclared variables,
- * and inside `<script>` it is JavaScript; expanding either would replace working
- * code with markup.
- *
- * `emmet.triggerExpansionOnTab` is off by default in VS Code — for .html just as
- * much as for .asp — so this changes nothing until the user turns it on, which
- * is the behaviour to match rather than diverge from.
- */
-/**
  * Tokens that are unmistakably an Emmet abbreviation rather than prose.
  *
  * `>` `+` `^` `*` are Emmet's structural operators (child, sibling, climb,
@@ -1372,14 +1354,14 @@ async function expandAbbreviationOrTab(
  *
  * `emmet.expandAbbreviation` is the one the Emmet extension registers, and the
  * only one that takes arguments — it accepts `{ language }` and falls back to
- * the document's own language id only when none is given. It is tried first so
- * the syntax can be named from the zone: a caret inside `<style>` gets `css`
- * rather than whatever Emmet would infer for the page as a whole.
+ * the document's own language id only when none is given. Since `asp` is
+ * deliberately absent from emmet.includeLanguages, naming the syntax is what
+ * makes expansion work at all, so it is tried first.
  *
  * `editor.emmet.action.expandAbbreviation` is an editor action registered by
  * VS Code itself rather than by the Emmet extension. It ignores arguments and
- * reads the document's language, so it is kept only as a fallback for a build
- * where the first command is missing.
+ * reads the document's language, so for an .asp file it does nothing; it stays
+ * as a fallback for a build where the first command is missing.
  */
 const EMMET_EXPAND_COMMANDS = [
     'emmet.expandAbbreviation',
@@ -1459,7 +1441,7 @@ async function tryEmmetExpansion(editor: vscode.TextEditor, zone: Zone): Promise
         try {
             await vscode.commands.executeCommand(command, { language });
         } catch {
-edit.dispose();
+            edit.dispose();
             continue;   // not registered in this build, or Emmet is disabled
         }
 
