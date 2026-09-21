@@ -331,3 +331,66 @@ describe('formatCompleteAspFile — a block nested in HTML settles in one pass',
         assert.ok(/<span><%= name %> here<\/span>/.test(out), `the expression should stay inline:\n${out}`);
     });
 });
+
+// An ASP block inside an HTML tag — between two attributes, or inside an
+// attribute value — has nowhere to put a line break. Only raw-text blocks
+// (inside <script>/<style>) were kept on one line, so a statement between
+// attributes was expanded and the tag torn apart around it:
+//
+//     <input
+//       type="text" <%
+//     If sel Then
+//     %>
+//       checked <%
+//
+// The placeholders for those two kinds were also far longer than the ASP they
+// stood for — `ASPINLINE_<id>_END` is 37 characters for a 9-character
+// `<%= id %>` — so Prettier measured lines as twice their width and broke tags
+// that would have fitted.
+describe('formatCompleteAspFile — ASP inside an HTML tag stays inside it', () => {
+
+    it('keeps a statement between attributes on one line', async () => {
+        const out = await formatCompleteAspFile(
+            '<input type="text" <% If sel Then %>checked<% End If %> name="a">\n');
+        assert.ok(!/^<%/m.test(out), `the VBScript was dedented out of the tag:\n${out}`);
+        assert.ok(!/<%\n/.test(out), `the block was expanded inside a tag:\n${out}`);
+        assert.ok(/<% If sel Then %>/.test(out) && /<% End If %>/.test(out),
+            `the blocks should stay on one line each; got:\n${out}`);
+    });
+
+    it('keeps a statement inside an attribute value on one line', async () => {
+        const out = await formatCompleteAspFile('<input value="<% If a Then %>x<% End If %>">\n');
+        assert.ok(!/<%\n/.test(out), `the block was expanded inside an attribute:\n${out}`);
+        assert.ok(/value="<% If a Then %>x<% End If %>"/.test(out),
+            `the attribute value should be intact; got:\n${out}`);
+    });
+
+    it('does not break a tag that fits once the mask is the right size', async () => {
+        // 43 characters. Its two inline placeholders used to measure 37 each,
+        // so the masked line came to 99 and Prettier split the tag open.
+        const source = '<a href="/p?id=<%= id %>&n=<%= n %>">go</a>\n';
+        assert.ok(source.length - 1 < 80, 'the fixture must fit inside printWidth');
+        assert.strictEqual(await formatCompleteAspFile(source), source);
+    });
+
+    it('keeps a conditional attribute on its element', async () => {
+        const out = await formatCompleteAspFile('<td <% If hi Then %>class="hi"<% End If %>>cell</td>\n');
+        assert.ok(/<td <% If hi Then %> class="hi" <% End If %>>/.test(out),
+            `the tag should stay on one line; got:\n${out}`);
+    });
+
+    it('settles in one pass for every in-tag shape', async () => {
+        for (const source of [
+            '<input type="text" <% If sel Then %>checked<% End If %> name="a">\n',
+            '<input <% If a Then %>checked<% End If %>>\n',
+            '<input value="<% If a Then %>x<% End If %>">\n',
+            '<a href="/p?id=<%= id %>&n=<%= n %>">go</a>\n',
+            '<td <% If hi Then %>class="hi"<% End If %>>cell</td>\n',
+            '<input <% If a Then %>checked<% End If %> <% If b Then %>disabled<% End If %>>\n',
+        ]) {
+            const once  = await formatCompleteAspFile(source);
+            const twice = await formatCompleteAspFile(once);
+            assert.strictEqual(twice, once, `a second format changed:\n${once}\n--- became ---\n${twice}`);
+        }
+    });
+});

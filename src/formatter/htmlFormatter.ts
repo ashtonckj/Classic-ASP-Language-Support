@@ -91,11 +91,11 @@ function isAspExpression(block: string): boolean {
  * prettier-plugin-jinja-template uses for its own `#~1~#` tokens: a short token
  * is only safe once it is known not to collide with real content.
  */
-function textPlaceholderFor(index: number, width: number, source: string): string {
+function paddedToken(prefix: string, index: number, width: number, source: string): string {
     // The trailing `E` terminates the number, so no token can be a prefix of
     // another once both are padded — `AspExpr1E…` never occurs inside
     // `AspExpr12E…`, which matters because restoring replaces by substring.
-    let token = `AspExpr${index}E`;
+    let token = `${prefix}${index}E`;
     if (token.length < width) { token += 'x'.repeat(width - token.length); }
     while (source.includes(token)) { token += 'x'; }
     return token;
@@ -535,9 +535,13 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             // together the next time it is formatted.
             if (kind === 'normal' && isAspExpression(aspBlock)) { kind = 'text'; }
 
-            const token = kind === 'text'
-                ? textPlaceholderFor(index, aspBlock.length, code)
-                : undefined;
+            // `midtag` is emitted as `name="1"`, four characters more than the
+            // name itself, so the name is padded to that much less.
+            const token =
+                kind === 'text'   ? paddedToken('AspExpr', index, aspBlock.length,     code) :
+                kind === 'inline' ? paddedToken('AspAttr', index, aspBlock.length,     code) :
+                kind === 'midtag' ? paddedToken('aspmid',  index, aspBlock.length - 4, code) :
+                undefined;
 
             aspBlocks.push({ code: aspBlock, id, lineNumber, kind, token });
 
@@ -549,11 +553,11 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             }
 
             switch (kind) {
-                case 'text':    maskedCode += token!;                break;
-                case 'inline':  maskedCode += `ASPINLINE_${id}_END`; break;
-                case 'midtag':  maskedCode += `data-asp-${id}="1"`;  break;
-                case 'rawtext': maskedCode += rawTokenFor(id);       break;
-                default:        maskedCode += `<!--${id}-->`;        break;
+                case 'text':    maskedCode += token!;           break;
+                case 'inline':  maskedCode += token!;           break;
+                case 'midtag':  maskedCode += `${token}="1"`;   break;
+                case 'rawtext': maskedCode += rawTokenFor(id);  break;
+                default:        maskedCode += `<!--${id}-->`;   break;
             }
             pos = end;
             continue;
@@ -686,10 +690,10 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
     for (const block of aspBlocks) {
         const needle =
-            block.kind === 'text'    ? block.token!                 :
-            block.kind === 'inline'  ? `ASPINLINE_${block.id}_END` :
-            block.kind === 'midtag'  ? `data-asp-${block.id}`       :
-            block.kind === 'rawtext' ? rawTokenFor(block.id)        :
+            block.kind === 'text'    ? block.token!           :
+            block.kind === 'inline'  ? block.token!           :
+            block.kind === 'midtag'  ? block.token!           :
+            block.kind === 'rawtext' ? rawTokenFor(block.id)  :
             block.id;
 
         if (!prettifiedCode.includes(needle)) {
@@ -712,12 +716,23 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
     for (const block of aspBlocks) {
         if (block.kind !== 'normal') {
-            // Inline / midtag / rawtext blocks: format but don't change the tracked
-            // level. Raw-text blocks sit inline in JS/CSS, so keep <% %> on one line
-            // (aspTagsOnSameLine) — a multi-line expansion would split a JS statement.
-            const blockSettings = block.kind === 'rawtext'
-                ? { ...aspSettings, aspTagsOnSameLine: true }
-                : aspSettings;
+            // Format but don't change the tracked level, and keep <% %> on one
+            // line whatever aspTagsOnSameLine says.
+            //
+            // Every kind other than `normal` sits inside something a line break
+            // would break open: a JS or CSS statement (rawtext), an attribute
+            // value (inline), the gap between two attributes (midtag), or a run
+            // of page text (text). Only rawtext was given this treatment, so a
+            // statement between attributes was expanded to
+            //
+            //     <input
+            //       type="text" <%
+            //     If sel Then
+            //     %>
+            //       checked <%
+            //
+            // — the VBScript dedented to column 0 and the tag torn apart around it.
+            const blockSettings = { ...aspSettings, aspTagsOnSameLine: true };
             const result = formatSingleAspBlock(block.code, blockSettings, '', currentIndentLevel);
             formattedBlocks.push(result.formatted);
             blockStartLevels.push(-1);
@@ -794,7 +809,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             }
 
             case 'inline': {
-                const inlineToken  = `ASPINLINE_${block.id}_END`;
+                const inlineToken  = block.token!;
                 const escapedToken = inlineToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 const isExpression = block.code.trimStart().startsWith('<%=') ||
                                      block.code.trimStart().startsWith('<% =');
@@ -826,7 +841,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                 // Prettier may have normalised quotes/spacing around the attribute.
                 // Function replacement keeps `$`-sequences in the code literal.
                 restoredCode = restoredCode.replace(
-                    new RegExp(`\\s*data-asp-${escapedId}\\s*=\\s*["']1["']`),
+                    new RegExp(`\\s*${block.token!}\\s*=\\s*["']1["']`, 'i'),
                     () => ` ${formatted}`
                 );
                 break;
