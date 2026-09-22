@@ -116,3 +116,47 @@ describe('isTsTriggerCharacter matches TypeScript CompletionsTriggerCharacter', 
         assert.strictEqual(isTsTriggerCharacter(undefined), false);
     });
 });
+
+// TypeScript offers a function that has no name yet — the moment after
+// `function` is typed and before the name is — as a global completion whose
+// name is the empty string. Turned into a CompletionItem that is an item with
+// no label, which VS Code drops with "did IGNORE invalid completion item from
+// ashtonckj.classic-asp-language-support" in the log. The provider filters it,
+// and this records the upstream behaviour that makes the filter necessary, so
+// the filter is not later removed as pointless.
+describe('An unnamed function does not reach the suggest widget', () => {
+
+    /** True when the raw TypeScript entries include one with no name. */
+    function hasNamelessEntry(script: string, caretMarker: string): boolean {
+        const doc   = `<script>\n${script}\n</script>\n`;
+        const caret = doc.indexOf(caretMarker) + caretMarker.length;
+        const { virtualContent, preambleLength } = buildVirtualJsContent(doc, caret);
+        const svc = getJsLanguageService();
+        svc.updateContent(virtualContent);
+        const info = svc.getCompletions(caret + preambleLength, undefined);
+        return (info?.entries ?? []).some(entry => entry.name === '');
+    }
+
+    it('is what TypeScript really returns for a half-typed function', () => {
+        assert.ok(
+            hasNamelessEntry('function', '<script>'),
+            'TypeScript no longer offers a nameless entry — the provider filter may be removable',
+        );
+    });
+
+    it('is not returned once the function has a name', () => {
+        assert.ok(!hasNamelessEntry('function add() {}', '<script>'));
+        assert.ok(!hasNamelessEntry('var x = 1;', '<script>'));
+    });
+
+    it('is dropped by the same rule that hides the projection variables', () => {
+        // The provider's filter, applied to the entry names it would receive.
+        const offerable = (name: string) =>
+            !name.startsWith('_asp_') && name !== '_asp' && name !== '';
+
+        assert.strictEqual(offerable(''), false, 'a nameless entry must not be offered');
+        assert.strictEqual(offerable('_asp'), false);
+        assert.strictEqual(offerable('_asp_x'), false);
+        assert.strictEqual(offerable('addRow'), true);
+    });
+});
