@@ -5,6 +5,46 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-09-22
+
+### ✨ Added
+- **`Err` is now a known object** - `Err.Number`, `Err.Description`, `Err.Raise` and the rest get completions and hover, so `On Error Resume Next` has its other half
+- **VBScript constants are offered** - `vbCrLf`, `vbTab`, `vbTextCompare`, `vbObjectError` and the rest of the set, with documentation
+- **Thirteen more COM types** - `ADODB.Stream`, `ADODB.Field`, `Scripting.TextStream`, `Scripting.File`, `Scripting.Folder`, `Scripting.Drive`, `CDO.Message` and others
+- **More of VBScript itself** - `Preserve`, `Erase`, `ByRef`, `ByVal`, `Me`, `Stop` and 23 more functions including `Eval`, `GetRef` and `Escape`
+
+### 🛠️ Fixed
+**Formatter**
+- **`<%= %>` stays in the line of text it belongs to** - An expression no longer splits its element across four lines or pushes the closing tag onto its own
+- **A page settles on the first format** - Blocks nested in HTML, inline blocks and continuation lines all needed a second Format Document to reach their final position
+- **No more stray blank lines** - Expanding an inline block, and two adjacent blocks, each left a blank line behind
+- **ASP inside a tag stays inside it** - A block between attributes was dedented to column 0 and the tag torn apart around it
+- **`htmlIndentMode`'s two values now mean what they say** - `flat` and `continuation` each did what the other's description promised; the default is unchanged
+- **Your variable names are left alone** - Keyword casing renamed `connectionString` to `ConnectionString` and `item` to `Item`
+
+**IntelliSense**
+- **Typed variables offer their members** - `Set ts = fso.OpenTextFile(p)` and version-pinned ProgIDs like `MSXML2.DOMDocument.6.0` offered nothing at all
+- **`rs.MovePrevious`** - Was listed as `MovePrev`, which is not a member of anything
+
+**Emmet**
+- **Abbreviations no longer expand inside `<% %>`** - Taking a suggestion turned `Response.CharSet` into `<Response class="CharSet">`
+- **Tab expansion no longer adds a stray indent** - `ul>li*3` came out with four spaces inside the first `<li>`
+
+**Syntax highlighting**
+- **`Preserve`, `ByRef`, `ByVal`, `Erase` and `Me` are coloured** - And `Return` and `Continue`, which VBScript does not have, no longer are
+- **Your own names stay plain** - A variable called `Math` or a Sub called `Add` was coloured as part of the language
+
+**JavaScript**
+- **A half-typed `function` no longer produces an empty suggestion**
+
+### ⚡ Performance
+- **CSS scanning** - The `<style>` scanners read the page once instead of once per block
+
+### 🔄 Refactored
+- The grammar's name lists are generated from the same constants IntelliSense uses, so colouring and completion cannot disagree
+
+---
+
 ## [0.6.2] - 2026-09-17
 
 ### ✨ Added
@@ -535,6 +575,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[0.6.3]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.3
 [0.6.2]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.2
 [0.6.1]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.1
 [0.6.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.0
