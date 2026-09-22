@@ -234,10 +234,25 @@ function formatMultiLineAspBlock(
 
             const content = trimmed.slice(0, -2).trim();
             if (content) {
-                const indent       = applyIndentForLine(content, aspIndentLevel, selectCaseStack);
-                aspIndentLevel     = indent.printLevel;
-                const aspIndent    = getIndentString(baseLevel + aspIndentLevel, settings.useTabs, settings.indentSize);
-                const formatted    = applyKeywordCase(content, settings.keywordCase);
+                const formatted = applyKeywordCase(content, settings.keywordCase);
+                let   aspIndent: string;
+
+                if (prevHadContinuation) {
+                    // This line finishes a `_` continuation AND closes the
+                    // block, so it is a continuation line first and a closing
+                    // line second. Reading it as a fresh statement put it at the
+                    // statement indent — column 0 — and only the NEXT format, by
+                    // which time `%>` had moved to a line of its own, gave it the
+                    // alignment column. Its indent level must not move either:
+                    // `b Then` is half of `If a And b Then`, not a statement.
+                    aspIndent = continuationIndent(
+                        continuationAlignCol, baseLevel, aspIndentLevel, settings);
+                } else {
+                    const indent   = applyIndentForLine(content, aspIndentLevel, selectCaseStack);
+                    aspIndentLevel = indent.printLevel;
+                    aspIndent      = getIndentString(baseLevel + aspIndentLevel, settings.useTabs, settings.indentSize);
+                    aspIndentLevel = indent.endLevel;
+                }
 
                 if (settings.aspTagsOnSameLine) {
                     formattedLines.push(aspIndent + formatted + ' %>');
@@ -245,8 +260,6 @@ function formatMultiLineAspBlock(
                     formattedLines.push(aspIndent + formatted);
                     formattedLines.push('%>');
                 }
-
-                aspIndentLevel = indent.endLevel;
             } else {
                 formattedLines.push('%>');
             }
@@ -278,12 +291,8 @@ function formatMultiLineAspBlock(
                 // If we have a valid align column from the first line of the
                 // continuation (e.g. anpSub = "(SELECT " & _  → col 9), use it
                 // for variable lines too so they align with string lines.
-                if (continuationAlignCol !== -1) {
-                    formattedLines.push(' '.repeat(continuationAlignCol) + trimmed);
-                } else {
-                    const aspIndent = getIndentString(baseLevel + aspIndentLevel + 1, settings.useTabs, settings.indentSize);
-                    formattedLines.push(aspIndent + trimmed);
-                }
+                formattedLines.push(
+                    continuationIndent(continuationAlignCol, baseLevel, aspIndentLevel, settings) + trimmed);
 
                 if (!trimmed.trimEnd().endsWith('_')) {
                     prevHadContinuation = false;
@@ -300,11 +309,9 @@ function formatMultiLineAspBlock(
                 const extraLevel     = relativeIndent > 0 ? 1 : 0;
                 const aspIndent      = getIndentString(baseLevel + aspIndentLevel + 1 + extraLevel, settings.useTabs, settings.indentSize);
                 formattedLines.push(aspIndent + trimmed);
-            } else if (continuationAlignCol === -1) {
-                const aspIndent = getIndentString(baseLevel + aspIndentLevel + 1, settings.useTabs, settings.indentSize);
-                formattedLines.push(aspIndent + trimmed);
             } else {
-                formattedLines.push(' '.repeat(continuationAlignCol) + trimmed);
+                formattedLines.push(
+                    continuationIndent(continuationAlignCol, baseLevel, aspIndentLevel, settings) + trimmed);
             }
 
             if (!trimmed.trimEnd().endsWith('_')) {
@@ -521,6 +528,26 @@ function updateContinuationState(
             isInSQLBlock:        false,
         });
     }
+}
+
+/**
+ * The indent a line continued from the previous one with `_` takes: the column
+ * of the string it should line up under, or one level in when the first line
+ * had no string to align to.
+ *
+ * Shared by the two places that print such a line — an ordinary continuation
+ * line, and one that also happens to close the block — because those two
+ * disagreeing is exactly the bug this exists to prevent.
+ */
+function continuationIndent(
+    continuationAlignCol: number,
+    baseLevel:            number,
+    aspIndentLevel:       number,
+    settings:             AspFormatterSettings,
+): string {
+    return continuationAlignCol !== -1
+        ? ' '.repeat(continuationAlignCol)
+        : getIndentString(baseLevel + aspIndentLevel + 1, settings.useTabs, settings.indentSize);
 }
 
 function calcContinuationColumn(line: string, indent: string): number {

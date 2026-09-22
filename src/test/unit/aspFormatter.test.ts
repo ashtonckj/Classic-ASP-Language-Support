@@ -229,3 +229,49 @@ describe('formatSingleAspBlock — one-line and multi-line agree on the base ind
         }
     });
 });
+
+// A line that both finishes a `_` continuation and closes the block was read by
+// the `%>` branch as a fresh statement, so it landed at the statement indent —
+// column 0 — and only reached its alignment column on a SECOND format, once
+// `%>` had moved to a line of its own.
+describe('formatMultiLineAspBlock — a continuation that also closes the block', () => {
+
+    const settings: AspFormatterSettings = {
+        keywordCase: 'PascalCase', indentSize: 2, useTabs: false,
+        aspTagsOnSameLine: false, htmlIndentMode: 'continuation',
+    };
+
+    it('aligns under the string when the first line has one', () => {
+        const out = formatSingleAspBlock('<% s = "a" & _\n     "b" %>', settings, '', 0);
+        assert.strictEqual(out.formatted, '<%\ns = "a" & _\n    "b"\n%>');
+    });
+
+    it('indents one level in when there is no string to align to', () => {
+        const out = formatSingleAspBlock('<% Call Foo(1, _\n   2) %>', settings, '', 0);
+        assert.strictEqual(out.formatted, '<%\nCall Foo(1, _\n  2)\n%>');
+    });
+
+    it('gives the same result whether or not %> shares the line', () => {
+        // The two spellings are the same code, so they must format alike —
+        // which is also what makes the whole file settle in one pass.
+        const sharesLine = formatSingleAspBlock('<% s = "a" & _\n     "b" %>',     settings, '', 0);
+        const ownLine    = formatSingleAspBlock('<%\ns = "a" & _\n     "b"\n%>',   settings, '', 0);
+        assert.strictEqual(sharesLine.formatted, ownLine.formatted);
+    });
+
+    it('does not read the continued half as a statement of its own', () => {
+        // `b Then` is half of `If a And b Then`. Running it through the
+        // statement indenter moved the level as well as the column.
+        const out = formatSingleAspBlock('<% If a And _\n   b Then %>', settings, '', 0);
+        assert.strictEqual(out.formatted, '<%\nIf a And _\n  b Then\n%>');
+    });
+
+    it('keeps a multi-part SQL concatenation aligned', () => {
+        const out = formatSingleAspBlock(
+            '<% sql = "SELECT a" & _\n  " FROM t" & _\n  " WHERE x=1" %>', settings, '', 0);
+        assert.strictEqual(
+            out.formatted,
+            '<%\nsql = "SELECT a" & _\n      " FROM t" & _\n      " WHERE x=1"\n%>',
+        );
+    });
+});
