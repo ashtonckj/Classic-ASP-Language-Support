@@ -91,9 +91,16 @@ function aspSignature(source: string): string {
     return (source.match(/<%[\s\S]*?%>/g) ?? []).join('').replace(/\s+/g, '').toLowerCase();
 }
 
-/** How many blank lines the text contains. */
+/**
+ * How many blank lines the text contains.
+ *
+ * The final newline is dropped first. Splitting `"a\n"` yields a trailing empty
+ * string that is not a blank line, and a page that did not end with a newline
+ * gains one when it is formatted — which is correct, and would otherwise be
+ * reported as a blank line appearing out of nowhere.
+ */
 function blankLines(source: string): number {
-    return source.split('\n').filter(line => line.trim().length === 0).length;
+    return source.replace(/\n$/, '').split('\n').filter(line => line.trim().length === 0).length;
 }
 
 function combinations(): string[] {
