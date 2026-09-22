@@ -275,3 +275,75 @@ describe('formatMultiLineAspBlock — a continuation that also closes the block'
         );
     });
 });
+
+// The casing tables mixed two different things: words that belong to VBScript,
+// and names that belong to an object. Casing the second kind wherever it
+// appeared meant the formatter quietly renamed people's variables — `Dim
+// connectionString` came back as `Dim ConnectionString`, `For Each item` as
+// `For Each Item`. VBScript is case-insensitive so nothing broke, but rewriting
+// a name the author chose is not the formatter's business.
+describe('applyKeywordCase — member names are only cased after a dot', () => {
+
+    it('leaves a variable that happens to share a member name alone', () => {
+        for (const [source, expected] of [
+            ['Dim connectionString',       'Dim connectionString'],
+            ['Dim recordset',              'Dim recordset'],
+            ['Dim form, count, key',       'Dim form, count, key'],
+            ['Dim writeLine, readAll',     'Dim writeLine, readAll'],
+            ['For Each item In itemList',  'For Each item In itemList'],
+        ]) {
+            assert.strictEqual(applyKeywordCase(source, 'PascalCase'), expected);
+        }
+    });
+
+    it('still cases a member reached through a dot', () => {
+        for (const [source, expected] of [
+            ['rs.movenext',                'rs.MoveNext'],
+            ['conn.connectionstring = x',  'conn.ConnectionString = x'],
+            ['Response.write "hi"',        'Response.Write "hi"'],
+            ['fso.getfile(p)',             'fso.GetFile(p)'],
+            ['Request.querystring("id")',  'Request.QueryString("id")'],
+            ['d.removeall',                'd.RemoveAll'],
+        ]) {
+            assert.strictEqual(applyKeywordCase(source, 'PascalCase'), expected);
+        }
+    });
+
+    it('cases a member reached through a leading dot inside With', () => {
+        assert.strictEqual(
+            applyKeywordCase('With rs : .movefirst : End With', 'PascalCase'),
+            'With rs : .MoveFirst : End With',
+        );
+    });
+
+    it('still cases the words that really are VBScript', () => {
+        for (const [source, expected] of [
+            ['dim x',                'Dim x'],
+            ['if a then',            'If a Then'],
+            ['for each k in d',      'For Each k In d'],
+            ['redim preserve b(2)',  'ReDim Preserve b(2)'],
+            ['elseif y then',        'ElseIf y Then'],
+        ]) {
+            assert.strictEqual(applyKeywordCase(source, 'PascalCase'), expected);
+        }
+    });
+
+    // Title-casing each word gives `Goto`; the keyword has an internal capital.
+    it('spells GoTo the way VBScript does', () => {
+        assert.strictEqual(applyKeywordCase('on error goto 0', 'PascalCase'), 'On Error GoTo 0');
+        assert.strictEqual(applyKeywordCase('On Error GoTo 0', 'PascalCase'), 'On Error GoTo 0');
+        assert.strictEqual(applyKeywordCase('on  error  goto  0', 'PascalCase'), 'On Error GoTo 0');
+    });
+
+    // These are VB6/VBA file I/O. VBScript has none of them, so a variable named
+    // `input` or `binary` was being cased for no reason at all.
+    it('does not case words VBScript does not have', () => {
+        for (const source of [
+            'Dim input, output, append',
+            'Dim binary, random',
+            'Dim put, as, like',
+        ]) {
+            assert.strictEqual(applyKeywordCase(source, 'PascalCase'), source);
+        }
+    });
+});

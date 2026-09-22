@@ -684,54 +684,65 @@ function splitOffComment(line: string): { code: string; comment: string } {
 
 // Multi-word and special-cased keywords that need exact casing.
 const PROPER_CASING_MAP: Record<string, string> = {
-    'elseif': 'ElseIf', 'redim': 'ReDim', 'byval': 'ByVal', 'byref': 'ByRef',
-    'isnull': 'IsNull', 'isempty': 'IsEmpty', 'isnumeric': 'IsNumeric',
-    'isarray': 'IsArray', 'isobject': 'IsObject', 'isdate': 'IsDate',
-    'readonly': 'ReadOnly', 'writeonly': 'WriteOnly', 'typename': 'TypeName',
-    'vartype': 'VarType', 'getobject': 'GetObject', 'createobject': 'CreateObject',
-    'getref': 'GetRef', 'endif': 'EndIf', 'endsub': 'EndSub',
-    'endfunction': 'EndFunction', 'endwith': 'EndWith', 'endselect': 'EndSelect',
-    'endclass': 'EndClass', 'endproperty': 'EndProperty', 'exitfor': 'ExitFor',
-    'exitdo': 'ExitDo', 'exitsub': 'ExitSub', 'exitfunction': 'ExitFunction',
-    'exitproperty': 'ExitProperty', 'onerror': 'OnError',
-    'querystring': 'QueryString', 'servervariables': 'ServerVariables',
-    'totalbytes': 'TotalBytes', 'binaryread': 'BinaryRead',
-    'clientcertificate': 'ClientCertificate', 'contenttype': 'ContentType',
-    'addheader': 'AddHeader', 'appendtolog': 'AppendToLog',
-    'binarywrite': 'BinaryWrite', 'cacheecontrol': 'CacheControl',
-    'clearheaders': 'ClearHeaders',
-    'contentlength': 'ContentLength',
-    'expiresabsolute': 'ExpiresAbsolute', 'isclientconnected': 'IsClientConnected',
-    'pics': 'PICS', 'mappath': 'MapPath',
-    'scripttimeout': 'ScriptTimeout', 'htmlencode': 'HTMLEncode',
-    'urlencode': 'URLEncode', 'createtextfile': 'CreateTextFile',
-    'opentextfile': 'OpenTextFile', 'getlasterror': 'GetLastError',
-    'sessionid': 'SessionID', 'codepage': 'CodePage',
-    'lcid': 'LCID', 'filesystemobject': 'FileSystemObject',
-    'getfile': 'GetFile', 'getfolder': 'GetFolder', 'getdrive': 'GetDrive',
-    'fileexists': 'FileExists', 'folderexists': 'FolderExists',
-    'driveexists': 'DriveExists', 'getfilename': 'GetFileName',
-    'getbasename': 'GetBaseName', 'getextensionname': 'GetExtensionName',
-    'getparentfoldername': 'GetParentFolderName', 'getdrivename': 'GetDriveName',
-    'getabsolutepathname': 'GetAbsolutePathName', 'buildpath': 'BuildPath',
-    'getspecialfolder': 'GetSpecialFolder', 'gettempname': 'GetTempName',
-    'deletefile': 'DeleteFile', 'deletefolder': 'DeleteFolder',
-    'movefile': 'MoveFile', 'movefolder': 'MoveFolder',
-    'copyfile': 'CopyFile', 'copyfolder': 'CopyFolder', 'createfolder': 'CreateFolder',
-    'writeline': 'WriteLine', 'writeblanklines': 'WriteBlankLines',
-    'readline': 'ReadLine', 'readall': 'ReadAll', 'atendofstream': 'AtEndOfStream',
-    'atendofline': 'AtEndOfLine', 'skipline': 'SkipLine', 'closetext': 'CloseText',
-    'datelastmodified': 'DateLastModified', 'datelastaccessed': 'DateLastAccessed',
-    'datecreated': 'DateCreated', 'parentfolder': 'ParentFolder',
-    'shortname': 'ShortName', 'shortpath': 'ShortPath', 'rootfolder': 'RootFolder',
-    'recordset': 'Recordset', 'movenext': 'MoveNext', 'movefirst': 'MoveFirst',
-    'movelast': 'MoveLast', 'moveprevious': 'MovePrevious', 'addnew': 'AddNew',
-    'recordcount': 'RecordCount', 'pagesize': 'PageSize', 'pagecount': 'PageCount',
-    'absolutepage': 'AbsolutePage', 'absoluteposition': 'AbsolutePosition',
-    'cursortype': 'CursorType', 'cursorlocation': 'CursorLocation',
-    'locktype': 'LockType', 'commandtext': 'CommandText', 'commandtype': 'CommandType',
-    'connectionstring': 'ConnectionString', 'begintrans': 'BeginTrans',
-    'committrans': 'CommitTrans', 'rollbacktrans': 'RollbackTrans',
+    'elseif': 'ElseIf', 'redim': 'ReDim', 'byval': 'ByVal',
+    'byref': 'ByRef', 'isnull': 'IsNull', 'isempty': 'IsEmpty',
+    'isnumeric': 'IsNumeric', 'isarray': 'IsArray', 'isobject': 'IsObject',
+    'isdate': 'IsDate', 'readonly': 'ReadOnly', 'writeonly': 'WriteOnly',
+    'typename': 'TypeName', 'vartype': 'VarType', 'getobject': 'GetObject',
+    'createobject': 'CreateObject', 'getref': 'GetRef', 'endif': 'EndIf',
+    'endsub': 'EndSub', 'endfunction': 'EndFunction', 'endwith': 'EndWith',
+    'endselect': 'EndSelect', 'endclass': 'EndClass', 'endproperty': 'EndProperty',
+    'exitfor': 'ExitFor', 'exitdo': 'ExitDo', 'exitsub': 'ExitSub',
+    'exitfunction': 'ExitFunction', 'exitproperty': 'ExitProperty', 'onerror': 'OnError', 'goto': 'GoTo',
+    'on error goto 0': 'On Error GoTo 0',
+};
+
+/**
+ * Names that belong to an object rather than to the language — Response.Buffer,
+ * rs.MoveNext, fso.GetFile. They are cased ONLY after a dot.
+ *
+ * They used to be cased wherever they appeared, which meant the formatter
+ * quietly renamed people's variables: `Dim connectionString` came back as
+ * `Dim ConnectionString`, `For Each item` as `For Each Item`. VBScript is
+ * case-insensitive so nothing broke, but rewriting a name the author chose is
+ * not the formatter's business. After a dot the name really is the API's, and
+ * casing it to match the documentation is worth doing.
+ */
+const MEMBER_CASING_MAP: Record<string, string> = {
+    'absolutepage': 'AbsolutePage', 'absoluteposition': 'AbsolutePosition', 'add': 'Add',
+    'addheader': 'AddHeader', 'addnew': 'AddNew', 'appendtolog': 'AppendToLog',
+    'atendofline': 'AtEndOfLine', 'atendofstream': 'AtEndOfStream', 'begintrans': 'BeginTrans',
+    'binaryread': 'BinaryRead', 'binarywrite': 'BinaryWrite', 'buildpath': 'BuildPath',
+    'cacheecontrol': 'CacheControl', 'clearheaders': 'ClearHeaders', 'clientcertificate': 'ClientCertificate',
+    'close': 'Close', 'closetext': 'CloseText', 'codepage': 'CodePage',
+    'commandtext': 'CommandText', 'commandtype': 'CommandType', 'committrans': 'CommitTrans',
+    'connectionstring': 'ConnectionString', 'contentlength': 'ContentLength', 'contenttype': 'ContentType',
+    'cookies': 'Cookies', 'copyfile': 'CopyFile', 'copyfolder': 'CopyFolder',
+    'count': 'Count', 'createfolder': 'CreateFolder', 'createtextfile': 'CreateTextFile',
+    'cursorlocation': 'CursorLocation', 'cursortype': 'CursorType', 'datecreated': 'DateCreated',
+    'datelastaccessed': 'DateLastAccessed', 'datelastmodified': 'DateLastModified', 'deletefile': 'DeleteFile',
+    'deletefolder': 'DeleteFolder', 'dictionary': 'Dictionary', 'driveexists': 'DriveExists',
+    'exists': 'Exists', 'expiresabsolute': 'ExpiresAbsolute', 'fileexists': 'FileExists',
+    'filesystemobject': 'FileSystemObject', 'folderexists': 'FolderExists', 'form': 'Form',
+    'getabsolutepathname': 'GetAbsolutePathName', 'getbasename': 'GetBaseName', 'getdrive': 'GetDrive',
+    'getdrivename': 'GetDriveName', 'getextensionname': 'GetExtensionName', 'getfile': 'GetFile',
+    'getfilename': 'GetFileName', 'getfolder': 'GetFolder', 'getlasterror': 'GetLastError',
+    'getparentfoldername': 'GetParentFolderName', 'getspecialfolder': 'GetSpecialFolder', 'gettempname': 'GetTempName',
+    'htmlencode': 'HTMLEncode', 'isclientconnected': 'IsClientConnected', 'item': 'Item',
+    'items': 'Items', 'key': 'Key', 'keys': 'Keys',
+    'lcid': 'LCID', 'locktype': 'LockType', 'mappath': 'MapPath',
+    'movefile': 'MoveFile', 'movefirst': 'MoveFirst', 'movefolder': 'MoveFolder',
+    'movelast': 'MoveLast', 'movenext': 'MoveNext', 'moveprevious': 'MovePrevious',
+    'open': 'Open', 'opentextfile': 'OpenTextFile', 'pagecount': 'PageCount',
+    'pagesize': 'PageSize', 'parentfolder': 'ParentFolder', 'pics': 'PICS',
+    'querystring': 'QueryString', 'readall': 'ReadAll', 'readline': 'ReadLine',
+    'recordcount': 'RecordCount', 'recordset': 'Recordset', 'redirect': 'Redirect',
+    'remove': 'Remove', 'removeall': 'RemoveAll', 'rollbacktrans': 'RollbackTrans',
+    'rootfolder': 'RootFolder', 'scripting': 'Scripting', 'scripttimeout': 'ScriptTimeout',
+    'servervariables': 'ServerVariables', 'sessionid': 'SessionID', 'shortname': 'ShortName',
+    'shortpath': 'ShortPath', 'skipline': 'SkipLine', 'totalbytes': 'TotalBytes',
+    'urlencode': 'URLEncode', 'write': 'Write', 'writeblanklines': 'WriteBlankLines',
+    'writeline': 'WriteLine',
 };
 
 const VBSCRIPT_FUNCTIONS_MAP: Record<string, string> = {
@@ -764,34 +775,38 @@ const VBSCRIPT_FUNCTIONS_MAP: Record<string, string> = {
 // General VBScript keywords ordered longest-first so multi-word keywords
 // like "end function" are matched before single-word ones like "end".
 const KEYWORDS_SORTED: string[] = [
-    'if', 'then', 'else', 'elseif', 'end if', 'select case', 'case', 'case else',
-    'end select', 'for', 'to', 'step', 'next', 'for each', 'in', 'while', 'wend',
-    'do', 'loop', 'until', 'exit do', 'exit for', 'sub', 'end sub', 'function',
-    'end function', 'call', 'exit sub', 'exit function', 'dim', 'redim', 'preserve',
-    'const', 'private', 'public', 'static', 'class', 'end class', 'new', 'set',
-    'property get', 'property let', 'property set', 'end property',
-    'on error resume next', 'on error goto 0', 'err', 'error',
-    'and', 'or', 'not', 'xor', 'eqv', 'imp', 'is', 'like',
-    'nothing', 'null', 'empty', 'true', 'false',
-    'option explicit', 'randomize', 'with', 'end with', 'exit', 'mod',
-    'byval', 'byref', 'default', 'erase', 'let', 'resume', 'stop', 'get', 'put',
-    'open', 'close', 'input', 'output', 'append', 'binary', 'random', 'as',
-    'len', 'mid', 'left', 'right', 'trim', 'replace', 'split', 'join', 'filter',
-    'string', 'space', 'chr', 'asc', 'int', 'fix', 'abs', 'sgn', 'sqr', 'exp',
-    'log', 'sin', 'cos', 'tan', 'atn', 'round', 'rnd',
-    'array', 'date', 'time', 'now', 'timer',
+    'if', 'then', 'else', 'elseif', 'end if', 'select case', 'case',
+    'case else', 'end select', 'for', 'to', 'step', 'next', 'for each',
+    'in', 'while', 'wend', 'do', 'loop', 'until', 'exit do',
+    'exit for', 'sub', 'end sub', 'function', 'end function', 'call', 'exit sub',
+    'exit function', 'dim', 'redim', 'preserve', 'const', 'private', 'public',
+    'static', 'class', 'end class', 'new', 'set', 'property get', 'property let',
+    'property set', 'end property', 'on error resume next', 'on error goto 0', 'err', 'error', 'and',
+    'or', 'not', 'xor', 'eqv', 'imp', 'is', 'nothing',
+    'null', 'empty', 'true', 'false', 'option explicit', 'randomize', 'with',
+    'end with', 'exit', 'mod', 'byval', 'byref', 'default', 'erase',
+    'let', 'resume', 'stop', 'get', 'len', 'mid', 'left',
+    'right', 'trim', 'replace', 'split', 'join', 'filter', 'string',
+    'space', 'chr', 'asc', 'int', 'fix', 'abs', 'sgn',
+    'sqr', 'exp', 'log', 'sin', 'cos', 'tan', 'atn',
+    'round', 'rnd', 'array', 'date', 'time', 'now', 'timer',
     'year', 'month', 'day', 'weekday', 'hour', 'minute', 'second',
     'response', 'request', 'server', 'session', 'application',
-    'write', 'redirect', 'querystring', 'form', 'servervariables',
-    'cookies', 'mappath', 'createtextfile', 'opentextfile', 'writeline',
-    'readline', 'readall', 'atendofstream', 'filesystemobject', 'scripting',
-    'dictionary', 'add', 'exists', 'items', 'keys', 'remove', 'removeall',
-    'count', 'item', 'key',
 ].sort((a, b) => b.length - a.length);
 
 // Pre-compile all regexes once at module load.
+// A key may span words, the way the keyword regexes already allow, so a
+// multi-word form can override the generic title-caser — `On Error GoTo 0`
+// would otherwise come back out as `On Error Goto 0`.
 const PROPER_CASING_REGEXES = Object.entries(PROPER_CASING_MAP).map(([lower, proper]) => ({
-    re: new RegExp('\\b' + lower + '\\b', 'gi'),
+    re: new RegExp('\\b' + lower.replace(/\s+/g, '\\s+') + '\\b', 'gi'),
+    replacement: proper,
+}));
+
+// Anchored on a preceding dot, so only a member access is touched. `rs.MoveNext`
+// is cased; `Dim movenext` is the author's variable and is left alone.
+const MEMBER_CASING_REGEXES = Object.entries(MEMBER_CASING_MAP).map(([lower, proper]) => ({
+    re: new RegExp('(?<=\\.)' + lower + '\\b', 'gi'),
     replacement: proper,
 }));
 
@@ -831,6 +846,9 @@ function applyKeywordCaseToText(text: string, caseStyle: string): string {
 
     if (caseStyle === 'PascalCase') {
         for (const { re, replacement } of PROPER_CASING_REGEXES) {
+            result = result.replace(re, replacement);
+        }
+        for (const { re, replacement } of MEMBER_CASING_REGEXES) {
             result = result.replace(re, replacement);
         }
     }
