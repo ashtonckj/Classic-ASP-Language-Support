@@ -10,6 +10,23 @@ export interface AspFormatterSettings {
     htmlIndentMode:    string;   // 'flat' | 'continuation'
 }
 
+/**
+ * Whether `<%` and `%>` go to column 0 rather than to the indent of the HTML
+ * around them. The VBScript INSIDE the block is indented the same either way;
+ * only the delimiters move.
+ *
+ * Every site that cares asks this rather than comparing the setting string. The
+ * two values used to be wired up as each other — `flat` was documented as
+ * "always starts at column 0" and put the delimiters at the HTML depth, while
+ * `continuation` was documented as continuing from the HTML indent and put them
+ * at column 0 — and six separate `=== 'continuation'` checks spread across two
+ * files is how that stayed unnoticed. One named question is harder to get
+ * backwards than six inverted comparisons.
+ */
+export function delimitersAtColumnZero(settings: AspFormatterSettings): boolean {
+    return settings.htmlIndentMode === 'flat';
+}
+
 export function getAspSettings(): AspFormatterSettings {
     const config         = vscode.workspace.getConfiguration('aspLanguageSupport');
     const prettierConfig = vscode.workspace.getConfiguration('aspLanguageSupport.prettier');
@@ -18,7 +35,7 @@ export function getAspSettings(): AspFormatterSettings {
         useTabs:           prettierConfig.get<boolean>('useTabs',        false),
         indentSize:        prettierConfig.get<number>('tabWidth',        2),
         aspTagsOnSameLine: config.get<boolean>('aspTagsOnSameLine',      false),
-        htmlIndentMode:    config.get<string>('htmlIndentMode',          'flat'),
+        htmlIndentMode:    config.get<string>('htmlIndentMode',          'continuation'),
     };
 }
 
@@ -36,8 +53,8 @@ export interface FormatBlockResult {
  * @param block         Raw ASP block including the <% and %> delimiters.
  * @param settings      Formatter settings.
  * @param htmlIndent    Whitespace string that Prettier placed before the
- *                      placeholder comment — used only when htmlIndentMode
- *                      is 'continuation'.
+ *                      placeholder comment — used only when the delimiters go
+ *                      to column 0, so the VBScript inside carries the depth.
  * @param startLevel    VBScript indent level inherited from the previous block.
  */
 export function formatSingleAspBlock(
@@ -90,7 +107,22 @@ export function formatSingleAspBlock(
             };
         }
 
-        const aspIndent = getIndentString(levelBefore, settings.useTabs, settings.indentSize);
+        // An empty block has no content line to write. Emitting one anyway left
+        // `<%` and `%>` separated by a blank line — or by a line of nothing but
+        // indentation, which is worse because it is invisible.
+        if (formattedContent.length === 0) {
+            return { formatted: '<%\n%>', endLevel: levelAfter };
+        }
+
+        // The base level has to match what a multi-line block would use, or the
+        // two disagree: with the delimiters at column 0 the multi-line path starts
+        // from the HTML depth while this path started from zero, so a one-line
+        // block came out at column 0 and then moved once the first format had
+        // turned it into a multi-line one — two passes to settle.
+        const baseLevel = delimitersAtColumnZero(settings)
+            ? inferLevelFromIndent(htmlIndent, settings.useTabs, settings.indentSize)
+            : 0;
+        const aspIndent = getIndentString(baseLevel + levelBefore, settings.useTabs, settings.indentSize);
         return {
             formatted: '<%\n' + aspIndent + formattedContent + '\n%>',
             endLevel:  levelAfter,
@@ -110,9 +142,10 @@ function formatMultiLineAspBlock(
     startLevel: number,
 ): FormatBlockResult {
 
-    // In 'flat' mode the VBScript base indent is always 0.
-    // In 'continuation' mode it starts at the HTML depth inferred from htmlIndent.
-    const baseLevel = settings.htmlIndentMode === 'continuation'
+    // When the delimiters sit at column 0 the VBScript inside has to carry the
+    // HTML depth itself, inferred from htmlIndent. When they sit at the HTML
+    // indent the surrounding indent already supplies it, so the base is 0.
+    const baseLevel = delimitersAtColumnZero(settings)
         ? inferLevelFromIndent(htmlIndent, settings.useTabs, settings.indentSize)
         : 0;
 
@@ -201,10 +234,25 @@ function formatMultiLineAspBlock(
 
             const content = trimmed.slice(0, -2).trim();
             if (content) {
-                const indent       = applyIndentForLine(content, aspIndentLevel, selectCaseStack);
-                aspIndentLevel     = indent.printLevel;
-                const aspIndent    = getIndentString(baseLevel + aspIndentLevel, settings.useTabs, settings.indentSize);
-                const formatted    = applyKeywordCase(content, settings.keywordCase);
+                const formatted = applyKeywordCase(content, settings.keywordCase);
+                let   aspIndent: string;
+
+                if (prevHadContinuation) {
+                    // This line finishes a `_` continuation AND closes the
+                    // block, so it is a continuation line first and a closing
+                    // line second. Reading it as a fresh statement put it at the
+                    // statement indent — column 0 — and only the NEXT format, by
+                    // which time `%>` had moved to a line of its own, gave it the
+                    // alignment column. Its indent level must not move either:
+                    // `b Then` is half of `If a And b Then`, not a statement.
+                    aspIndent = continuationIndent(
+                        continuationAlignCol, baseLevel, aspIndentLevel, settings);
+                } else {
+                    const indent   = applyIndentForLine(content, aspIndentLevel, selectCaseStack);
+                    aspIndentLevel = indent.printLevel;
+                    aspIndent      = getIndentString(baseLevel + aspIndentLevel, settings.useTabs, settings.indentSize);
+                    aspIndentLevel = indent.endLevel;
+                }
 
                 if (settings.aspTagsOnSameLine) {
                     formattedLines.push(aspIndent + formatted + ' %>');
@@ -212,8 +260,6 @@ function formatMultiLineAspBlock(
                     formattedLines.push(aspIndent + formatted);
                     formattedLines.push('%>');
                 }
-
-                aspIndentLevel = indent.endLevel;
             } else {
                 formattedLines.push('%>');
             }
@@ -245,12 +291,8 @@ function formatMultiLineAspBlock(
                 // If we have a valid align column from the first line of the
                 // continuation (e.g. anpSub = "(SELECT " & _  → col 9), use it
                 // for variable lines too so they align with string lines.
-                if (continuationAlignCol !== -1) {
-                    formattedLines.push(' '.repeat(continuationAlignCol) + trimmed);
-                } else {
-                    const aspIndent = getIndentString(baseLevel + aspIndentLevel + 1, settings.useTabs, settings.indentSize);
-                    formattedLines.push(aspIndent + trimmed);
-                }
+                formattedLines.push(
+                    continuationIndent(continuationAlignCol, baseLevel, aspIndentLevel, settings) + trimmed);
 
                 if (!trimmed.trimEnd().endsWith('_')) {
                     prevHadContinuation = false;
@@ -267,11 +309,9 @@ function formatMultiLineAspBlock(
                 const extraLevel     = relativeIndent > 0 ? 1 : 0;
                 const aspIndent      = getIndentString(baseLevel + aspIndentLevel + 1 + extraLevel, settings.useTabs, settings.indentSize);
                 formattedLines.push(aspIndent + trimmed);
-            } else if (continuationAlignCol === -1) {
-                const aspIndent = getIndentString(baseLevel + aspIndentLevel + 1, settings.useTabs, settings.indentSize);
-                formattedLines.push(aspIndent + trimmed);
             } else {
-                formattedLines.push(' '.repeat(continuationAlignCol) + trimmed);
+                formattedLines.push(
+                    continuationIndent(continuationAlignCol, baseLevel, aspIndentLevel, settings) + trimmed);
             }
 
             if (!trimmed.trimEnd().endsWith('_')) {
@@ -490,6 +530,26 @@ function updateContinuationState(
     }
 }
 
+/**
+ * The indent a line continued from the previous one with `_` takes: the column
+ * of the string it should line up under, or one level in when the first line
+ * had no string to align to.
+ *
+ * Shared by the two places that print such a line — an ordinary continuation
+ * line, and one that also happens to close the block — because those two
+ * disagreeing is exactly the bug this exists to prevent.
+ */
+function continuationIndent(
+    continuationAlignCol: number,
+    baseLevel:            number,
+    aspIndentLevel:       number,
+    settings:             AspFormatterSettings,
+): string {
+    return continuationAlignCol !== -1
+        ? ' '.repeat(continuationAlignCol)
+        : getIndentString(baseLevel + aspIndentLevel + 1, settings.useTabs, settings.indentSize);
+}
+
 function calcContinuationColumn(line: string, indent: string): number {
     const trimmed   = line.trim();
     const baseLen   = indent.length;
@@ -624,54 +684,65 @@ function splitOffComment(line: string): { code: string; comment: string } {
 
 // Multi-word and special-cased keywords that need exact casing.
 const PROPER_CASING_MAP: Record<string, string> = {
-    'elseif': 'ElseIf', 'redim': 'ReDim', 'byval': 'ByVal', 'byref': 'ByRef',
-    'isnull': 'IsNull', 'isempty': 'IsEmpty', 'isnumeric': 'IsNumeric',
-    'isarray': 'IsArray', 'isobject': 'IsObject', 'isdate': 'IsDate',
-    'readonly': 'ReadOnly', 'writeonly': 'WriteOnly', 'typename': 'TypeName',
-    'vartype': 'VarType', 'getobject': 'GetObject', 'createobject': 'CreateObject',
-    'getref': 'GetRef', 'endif': 'EndIf', 'endsub': 'EndSub',
-    'endfunction': 'EndFunction', 'endwith': 'EndWith', 'endselect': 'EndSelect',
-    'endclass': 'EndClass', 'endproperty': 'EndProperty', 'exitfor': 'ExitFor',
-    'exitdo': 'ExitDo', 'exitsub': 'ExitSub', 'exitfunction': 'ExitFunction',
-    'exitproperty': 'ExitProperty', 'onerror': 'OnError',
-    'querystring': 'QueryString', 'servervariables': 'ServerVariables',
-    'totalbytes': 'TotalBytes', 'binaryread': 'BinaryRead',
-    'clientcertificate': 'ClientCertificate', 'contenttype': 'ContentType',
-    'addheader': 'AddHeader', 'appendtolog': 'AppendToLog',
-    'binarywrite': 'BinaryWrite', 'cacheecontrol': 'CacheControl',
-    'clearheaders': 'ClearHeaders',
-    'contentlength': 'ContentLength',
-    'expiresabsolute': 'ExpiresAbsolute', 'isclientconnected': 'IsClientConnected',
-    'pics': 'PICS', 'mappath': 'MapPath',
-    'scripttimeout': 'ScriptTimeout', 'htmlencode': 'HTMLEncode',
-    'urlencode': 'URLEncode', 'createtextfile': 'CreateTextFile',
-    'opentextfile': 'OpenTextFile', 'getlasterror': 'GetLastError',
-    'sessionid': 'SessionID', 'codepage': 'CodePage',
-    'lcid': 'LCID', 'filesystemobject': 'FileSystemObject',
-    'getfile': 'GetFile', 'getfolder': 'GetFolder', 'getdrive': 'GetDrive',
-    'fileexists': 'FileExists', 'folderexists': 'FolderExists',
-    'driveexists': 'DriveExists', 'getfilename': 'GetFileName',
-    'getbasename': 'GetBaseName', 'getextensionname': 'GetExtensionName',
-    'getparentfoldername': 'GetParentFolderName', 'getdrivename': 'GetDriveName',
-    'getabsolutepathname': 'GetAbsolutePathName', 'buildpath': 'BuildPath',
-    'getspecialfolder': 'GetSpecialFolder', 'gettempname': 'GetTempName',
-    'deletefile': 'DeleteFile', 'deletefolder': 'DeleteFolder',
-    'movefile': 'MoveFile', 'movefolder': 'MoveFolder',
-    'copyfile': 'CopyFile', 'copyfolder': 'CopyFolder', 'createfolder': 'CreateFolder',
-    'writeline': 'WriteLine', 'writeblanklines': 'WriteBlankLines',
-    'readline': 'ReadLine', 'readall': 'ReadAll', 'atendofstream': 'AtEndOfStream',
-    'atendofline': 'AtEndOfLine', 'skipline': 'SkipLine', 'closetext': 'CloseText',
-    'datelastmodified': 'DateLastModified', 'datelastaccessed': 'DateLastAccessed',
-    'datecreated': 'DateCreated', 'parentfolder': 'ParentFolder',
-    'shortname': 'ShortName', 'shortpath': 'ShortPath', 'rootfolder': 'RootFolder',
-    'recordset': 'Recordset', 'movenext': 'MoveNext', 'movefirst': 'MoveFirst',
-    'movelast': 'MoveLast', 'moveprevious': 'MovePrevious', 'addnew': 'AddNew',
-    'recordcount': 'RecordCount', 'pagesize': 'PageSize', 'pagecount': 'PageCount',
-    'absolutepage': 'AbsolutePage', 'absoluteposition': 'AbsolutePosition',
-    'cursortype': 'CursorType', 'cursorlocation': 'CursorLocation',
-    'locktype': 'LockType', 'commandtext': 'CommandText', 'commandtype': 'CommandType',
-    'connectionstring': 'ConnectionString', 'begintrans': 'BeginTrans',
-    'committrans': 'CommitTrans', 'rollbacktrans': 'RollbackTrans',
+    'elseif': 'ElseIf', 'redim': 'ReDim', 'byval': 'ByVal',
+    'byref': 'ByRef', 'isnull': 'IsNull', 'isempty': 'IsEmpty',
+    'isnumeric': 'IsNumeric', 'isarray': 'IsArray', 'isobject': 'IsObject',
+    'isdate': 'IsDate', 'readonly': 'ReadOnly', 'writeonly': 'WriteOnly',
+    'typename': 'TypeName', 'vartype': 'VarType', 'getobject': 'GetObject',
+    'createobject': 'CreateObject', 'getref': 'GetRef', 'endif': 'EndIf',
+    'endsub': 'EndSub', 'endfunction': 'EndFunction', 'endwith': 'EndWith',
+    'endselect': 'EndSelect', 'endclass': 'EndClass', 'endproperty': 'EndProperty',
+    'exitfor': 'ExitFor', 'exitdo': 'ExitDo', 'exitsub': 'ExitSub',
+    'exitfunction': 'ExitFunction', 'exitproperty': 'ExitProperty', 'onerror': 'OnError', 'goto': 'GoTo',
+    'on error goto 0': 'On Error GoTo 0',
+};
+
+/**
+ * Names that belong to an object rather than to the language — Response.Buffer,
+ * rs.MoveNext, fso.GetFile. They are cased ONLY after a dot.
+ *
+ * They used to be cased wherever they appeared, which meant the formatter
+ * quietly renamed people's variables: `Dim connectionString` came back as
+ * `Dim ConnectionString`, `For Each item` as `For Each Item`. VBScript is
+ * case-insensitive so nothing broke, but rewriting a name the author chose is
+ * not the formatter's business. After a dot the name really is the API's, and
+ * casing it to match the documentation is worth doing.
+ */
+const MEMBER_CASING_MAP: Record<string, string> = {
+    'absolutepage': 'AbsolutePage', 'absoluteposition': 'AbsolutePosition', 'add': 'Add',
+    'addheader': 'AddHeader', 'addnew': 'AddNew', 'appendtolog': 'AppendToLog',
+    'atendofline': 'AtEndOfLine', 'atendofstream': 'AtEndOfStream', 'begintrans': 'BeginTrans',
+    'binaryread': 'BinaryRead', 'binarywrite': 'BinaryWrite', 'buildpath': 'BuildPath',
+    'cacheecontrol': 'CacheControl', 'clearheaders': 'ClearHeaders', 'clientcertificate': 'ClientCertificate',
+    'close': 'Close', 'closetext': 'CloseText', 'codepage': 'CodePage',
+    'commandtext': 'CommandText', 'commandtype': 'CommandType', 'committrans': 'CommitTrans',
+    'connectionstring': 'ConnectionString', 'contentlength': 'ContentLength', 'contenttype': 'ContentType',
+    'cookies': 'Cookies', 'copyfile': 'CopyFile', 'copyfolder': 'CopyFolder',
+    'count': 'Count', 'createfolder': 'CreateFolder', 'createtextfile': 'CreateTextFile',
+    'cursorlocation': 'CursorLocation', 'cursortype': 'CursorType', 'datecreated': 'DateCreated',
+    'datelastaccessed': 'DateLastAccessed', 'datelastmodified': 'DateLastModified', 'deletefile': 'DeleteFile',
+    'deletefolder': 'DeleteFolder', 'dictionary': 'Dictionary', 'driveexists': 'DriveExists',
+    'exists': 'Exists', 'expiresabsolute': 'ExpiresAbsolute', 'fileexists': 'FileExists',
+    'filesystemobject': 'FileSystemObject', 'folderexists': 'FolderExists', 'form': 'Form',
+    'getabsolutepathname': 'GetAbsolutePathName', 'getbasename': 'GetBaseName', 'getdrive': 'GetDrive',
+    'getdrivename': 'GetDriveName', 'getextensionname': 'GetExtensionName', 'getfile': 'GetFile',
+    'getfilename': 'GetFileName', 'getfolder': 'GetFolder', 'getlasterror': 'GetLastError',
+    'getparentfoldername': 'GetParentFolderName', 'getspecialfolder': 'GetSpecialFolder', 'gettempname': 'GetTempName',
+    'htmlencode': 'HTMLEncode', 'isclientconnected': 'IsClientConnected', 'item': 'Item',
+    'items': 'Items', 'key': 'Key', 'keys': 'Keys',
+    'lcid': 'LCID', 'locktype': 'LockType', 'mappath': 'MapPath',
+    'movefile': 'MoveFile', 'movefirst': 'MoveFirst', 'movefolder': 'MoveFolder',
+    'movelast': 'MoveLast', 'movenext': 'MoveNext', 'moveprevious': 'MovePrevious',
+    'open': 'Open', 'opentextfile': 'OpenTextFile', 'pagecount': 'PageCount',
+    'pagesize': 'PageSize', 'parentfolder': 'ParentFolder', 'pics': 'PICS',
+    'querystring': 'QueryString', 'readall': 'ReadAll', 'readline': 'ReadLine',
+    'recordcount': 'RecordCount', 'recordset': 'Recordset', 'redirect': 'Redirect',
+    'remove': 'Remove', 'removeall': 'RemoveAll', 'rollbacktrans': 'RollbackTrans',
+    'rootfolder': 'RootFolder', 'scripting': 'Scripting', 'scripttimeout': 'ScriptTimeout',
+    'servervariables': 'ServerVariables', 'sessionid': 'SessionID', 'shortname': 'ShortName',
+    'shortpath': 'ShortPath', 'skipline': 'SkipLine', 'totalbytes': 'TotalBytes',
+    'urlencode': 'URLEncode', 'write': 'Write', 'writeblanklines': 'WriteBlankLines',
+    'writeline': 'WriteLine',
 };
 
 const VBSCRIPT_FUNCTIONS_MAP: Record<string, string> = {
@@ -704,34 +775,38 @@ const VBSCRIPT_FUNCTIONS_MAP: Record<string, string> = {
 // General VBScript keywords ordered longest-first so multi-word keywords
 // like "end function" are matched before single-word ones like "end".
 const KEYWORDS_SORTED: string[] = [
-    'if', 'then', 'else', 'elseif', 'end if', 'select case', 'case', 'case else',
-    'end select', 'for', 'to', 'step', 'next', 'for each', 'in', 'while', 'wend',
-    'do', 'loop', 'until', 'exit do', 'exit for', 'sub', 'end sub', 'function',
-    'end function', 'call', 'exit sub', 'exit function', 'dim', 'redim', 'preserve',
-    'const', 'private', 'public', 'static', 'class', 'end class', 'new', 'set',
-    'property get', 'property let', 'property set', 'end property',
-    'on error resume next', 'on error goto 0', 'err', 'error',
-    'and', 'or', 'not', 'xor', 'eqv', 'imp', 'is', 'like',
-    'nothing', 'null', 'empty', 'true', 'false',
-    'option explicit', 'randomize', 'with', 'end with', 'exit', 'mod',
-    'byval', 'byref', 'default', 'erase', 'let', 'resume', 'stop', 'get', 'put',
-    'open', 'close', 'input', 'output', 'append', 'binary', 'random', 'as',
-    'len', 'mid', 'left', 'right', 'trim', 'replace', 'split', 'join', 'filter',
-    'string', 'space', 'chr', 'asc', 'int', 'fix', 'abs', 'sgn', 'sqr', 'exp',
-    'log', 'sin', 'cos', 'tan', 'atn', 'round', 'rnd',
-    'array', 'date', 'time', 'now', 'timer',
+    'if', 'then', 'else', 'elseif', 'end if', 'select case', 'case',
+    'case else', 'end select', 'for', 'to', 'step', 'next', 'for each',
+    'in', 'while', 'wend', 'do', 'loop', 'until', 'exit do',
+    'exit for', 'sub', 'end sub', 'function', 'end function', 'call', 'exit sub',
+    'exit function', 'dim', 'redim', 'preserve', 'const', 'private', 'public',
+    'static', 'class', 'end class', 'new', 'set', 'property get', 'property let',
+    'property set', 'end property', 'on error resume next', 'on error goto 0', 'err', 'error', 'and',
+    'or', 'not', 'xor', 'eqv', 'imp', 'is', 'nothing',
+    'null', 'empty', 'true', 'false', 'option explicit', 'randomize', 'with',
+    'end with', 'exit', 'mod', 'byval', 'byref', 'default', 'erase',
+    'let', 'resume', 'stop', 'get', 'len', 'mid', 'left',
+    'right', 'trim', 'replace', 'split', 'join', 'filter', 'string',
+    'space', 'chr', 'asc', 'int', 'fix', 'abs', 'sgn',
+    'sqr', 'exp', 'log', 'sin', 'cos', 'tan', 'atn',
+    'round', 'rnd', 'array', 'date', 'time', 'now', 'timer',
     'year', 'month', 'day', 'weekday', 'hour', 'minute', 'second',
     'response', 'request', 'server', 'session', 'application',
-    'write', 'redirect', 'querystring', 'form', 'servervariables',
-    'cookies', 'mappath', 'createtextfile', 'opentextfile', 'writeline',
-    'readline', 'readall', 'atendofstream', 'filesystemobject', 'scripting',
-    'dictionary', 'add', 'exists', 'items', 'keys', 'remove', 'removeall',
-    'count', 'item', 'key',
 ].sort((a, b) => b.length - a.length);
 
 // Pre-compile all regexes once at module load.
+// A key may span words, the way the keyword regexes already allow, so a
+// multi-word form can override the generic title-caser — `On Error GoTo 0`
+// would otherwise come back out as `On Error Goto 0`.
 const PROPER_CASING_REGEXES = Object.entries(PROPER_CASING_MAP).map(([lower, proper]) => ({
-    re: new RegExp('\\b' + lower + '\\b', 'gi'),
+    re: new RegExp('\\b' + lower.replace(/\s+/g, '\\s+') + '\\b', 'gi'),
+    replacement: proper,
+}));
+
+// Anchored on a preceding dot, so only a member access is touched. `rs.MoveNext`
+// is cased; `Dim movenext` is the author's variable and is left alone.
+const MEMBER_CASING_REGEXES = Object.entries(MEMBER_CASING_MAP).map(([lower, proper]) => ({
+    re: new RegExp('(?<=\\.)' + lower + '\\b', 'gi'),
     replacement: proper,
 }));
 
@@ -771,6 +846,9 @@ function applyKeywordCaseToText(text: string, caseStyle: string): string {
 
     if (caseStyle === 'PascalCase') {
         for (const { re, replacement } of PROPER_CASING_REGEXES) {
+            result = result.replace(re, replacement);
+        }
+        for (const { re, replacement } of MEMBER_CASING_REGEXES) {
             result = result.replace(re, replacement);
         }
     }

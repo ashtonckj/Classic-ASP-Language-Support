@@ -1,6 +1,16 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
+// Close what the test opened. Each test here opens a document and never closed
+// it, so across a full run the editors accumulated -- by the time the later
+// suites ran there were dozens open at once, and the active editor is what every
+// command in this file acts through. Run on its own the suite passed every time;
+// run after the others it failed intermittently, always by the command appearing
+// to do nothing at all.
+teardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+});
+
 // Integration tests: drive the REAL Enter/Tab keybinding commands inside the
 // Extension Host and assert the resulting buffer. These catch the class of bug
 // the unit harness can't — the handlers only misbehave with a live editor.

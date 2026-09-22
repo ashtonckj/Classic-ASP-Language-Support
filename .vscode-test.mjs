@@ -14,5 +14,15 @@ export default defineConfig({
     mocha: {
         ui: 'tdd',
         timeout: 60000,
+        // Waits for the extension to activate before any test runs. It declares
+        // onLanguage:asp, so it does not exist until something opens an .asp
+        // document, and activating takes about a second — long enough that the
+        // first test of several suites used to act on an editor with no
+        // providers registered yet, and simply see the command do nothing.
+        //
+        // The file has to export `mochaGlobalSetup`: @vscode/test-cli requires
+        // it and awaits that export itself, and does not pass mocha's root-hook
+        // plumbing through, so a `mochaHooks` export is silently ignored.
+        require: './out/test/integration/_activate.js',
     },
 });

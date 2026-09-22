@@ -2,6 +2,16 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as os from 'os';
 
+// Close what the test opened. Each test here opens a document and never closed
+// it, so across a full run the editors accumulated -- by the time the later
+// suites ran there were dozens open at once, and the active editor is what every
+// command in this file acts through. Run on its own the suite passed every time;
+// run after the others it failed intermittently, always by the command appearing
+// to do nothing at all.
+teardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+});
+
 // Tab is bound to `asp.insertTab` for .asp files, so everything Tab would
 // otherwise do has to be done by that command. Emmet's Tab expansion is one of
 // those things: `ul>li*3` and Tab should become a real list. The keybinding

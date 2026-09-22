@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as prettier from 'prettier';
-import { formatSingleAspBlock, getAspSettings } from './aspFormatter';
+import { formatSingleAspBlock, getAspSettings, delimitersAtColumnZero } from './aspFormatter';
 import { findNextRealTag, findTagEnd, findClosingTag } from '../utils/zoneUtils';
 
 // ─── Prettier settings ─────────────────────────────────────────────────────
@@ -44,20 +44,61 @@ export function getPrettierSettings(): PrettierSettings {
 // ─── ASP block types ───────────────────────────────────────────────────────
 
 // Where in the HTML structure an ASP block sits:
-//   normal  – standalone on its own line(s)      → HTML comment placeholder
-//   inline  – inside a quoted attribute value    → bare token placeholder
-//   midtag  – between attributes, not quoted     → data- attribute placeholder
-//   rawtext – inside a <script>/<style> body     → bare identifier placeholder
+//   normal  – a statement block on its own line(s) → HTML comment placeholder
+//   text    – a <%= … %> expression in page content → word placeholder
+//   inline  – inside a quoted attribute value      → bare token placeholder
+//   midtag  – between attributes, not quoted       → data- attribute placeholder
+//   rawtext – inside a <script>/<style> body       → bare identifier placeholder
 //             (an HTML-comment placeholder is legal JS/CSS and gets parsed by
 //              Prettier — it would REORDER/corrupt the code — so raw-text blocks
 //              use an identifier token Prettier leaves in place instead)
-type AspBlockKind = 'normal' | 'inline' | 'midtag' | 'rawtext';
+type AspBlockKind = 'normal' | 'text' | 'inline' | 'midtag' | 'rawtext';
 
 interface AspBlock {
     code:       string;
     id:         string;
     lineNumber: number;
     kind:       AspBlockKind;
+    /** The exact string emitted in place of the block, for kinds that need one. */
+    token?:     string;
+}
+
+/** `<%= … %>` — Response.Write in expression form, so its output is page text. */
+function isAspExpression(block: string): boolean {
+    const trimmed = block.trimStart();
+    return trimmed.startsWith('<%=') || trimmed.startsWith('<% =');
+}
+
+/**
+ * A word-shaped stand-in for a `<%= … %>` expression in page content.
+ *
+ * Two properties matter, and the HTML-comment placeholder used for statement
+ * blocks has neither.
+ *
+ * It has to read as TEXT. Prettier treats a comment as a node that cannot share
+ * a line with prose, so it breaks the line around it and then moves the
+ * enclosing tag's `>` down to keep the rendered whitespace unchanged — which is
+ * where `<span class="info-value"\n  ><!--ID-->\n  &mdash;` comes from. Measured
+ * against Prettier directly, a bare word is laid out identically to the real
+ * text it stands for, while the comment is not.
+ *
+ * It has to be the RIGHT LENGTH. Prettier measures the MASKED line, so a
+ * 30-character placeholder standing in for `<%= txtbadge %>` reports a line as
+ * twice its true width and breaks one that would have fitted. Padding the token
+ * to the width of the block it replaces keeps printWidth honest.
+ *
+ * Widening the token until the page does not already contain it is the guard
+ * prettier-plugin-jinja-template uses for its own `#~1~#` tokens: a short token
+ * is only safe once it is known not to collide with real content.
+ */
+function paddedToken(prefix: string, index: number, width: number, source: string): string {
+    // The trailing `E` terminates the number, so no token can be a prefix of
+    // another once both are padded — `AspExpr1E…` never occurs inside
+    // `AspExpr12E…`, which matters because restoring replaces by substring.
+    let token = `${prefix}${index}E`;
+    if (token.length < width) { token += 'x'.repeat(width - token.length); }
+    while (source.includes(token)) { token += 'x'; }
+    return token;
 }
 
 // Module-level counter keeps IDs unique across calls in the same millisecond.
@@ -374,6 +415,30 @@ export function insertImpliedTableEndTags(html: string): string {
 
 // ─── Main entry point ──────────────────────────────────────────────────────
 
+/**
+ * True when Prettier left real content before this placeholder on its line, so
+ * the block will have to be moved onto lines of its own.
+ *
+ * A placeholder sitting inside an unclosed quote is an attribute value, not tag
+ * content — breaking the line there would split the tag open — so it does not
+ * count however much text precedes it.
+ */
+function placeholderIsInlinePlaced(code: string, placeholder: string): boolean {
+    const idx = code.indexOf(placeholder);
+    if (idx === -1) { return false; }
+
+    const lineStart = code.lastIndexOf('\n', idx - 1) + 1;
+    const before    = code.slice(lineStart, idx);
+    if (before.trim().length === 0) { return false; }
+
+    let quote: string | null = null;
+    for (const ch of before) {
+        if (!quote && (ch === '"' || ch === "'")) { quote = ch; }
+        else if (quote && ch === quote)           { quote = null; }
+    }
+    return quote === null;
+}
+
 export async function formatCompleteAspFile(code: string): Promise<string> {
     if (hasUnclosedAspTags(code)) {
         vscode.window.showWarningMessage(
@@ -457,11 +522,28 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             const aspBlock   = jsPreMasked.slice(pos, end);
             // A block inside a <script>/<style> body is raw-text; otherwise decide
             // from the surrounding HTML whether it is inline/midtag/normal.
-            const kind       = isInRawText(pos, rawRanges) ? 'rawtext' : classifyContext(maskedCode);
+            let   kind       = isInRawText(pos, rawRanges) ? 'rawtext' : classifyContext(maskedCode);
             const lineNumber = code.slice(0, pos).split('\n').length - 1;
-            const id         = `ASPPH${_placeholderCounter++}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+            const index      = _placeholderCounter++;
+            const id         = `ASPPH${index}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 
-            aspBlocks.push({ code: aspBlock, id, lineNumber, kind });
+            // A `<%= … %>` in page content is an expression whose output is part
+            // of the text around it, so it is masked as text rather than as a
+            // comment — see textPlaceholderFor. This applies wherever the
+            // expression sits, not only where it shares a line, so that a page
+            // already broken apart by the old placeholder is pulled back
+            // together the next time it is formatted.
+            if (kind === 'normal' && isAspExpression(aspBlock)) { kind = 'text'; }
+
+            // `midtag` is emitted as `name="1"`, four characters more than the
+            // name itself, so the name is padded to that much less.
+            const token =
+                kind === 'text'   ? paddedToken('AspExpr', index, aspBlock.length,     code) :
+                kind === 'inline' ? paddedToken('AspAttr', index, aspBlock.length,     code) :
+                kind === 'midtag' ? paddedToken('aspmid',  index, aspBlock.length - 4, code) :
+                undefined;
+
+            aspBlocks.push({ code: aspBlock, id, lineNumber, kind, token });
 
             // Replace leading whitespace + block with the placeholder
             // (strip the leadingWS we already emitted so the placeholder
@@ -471,10 +553,11 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             }
 
             switch (kind) {
-                case 'inline':  maskedCode += `ASPINLINE_${id}_END`; break;
-                case 'midtag':  maskedCode += `data-asp-${id}="1"`;  break;
-                case 'rawtext': maskedCode += rawTokenFor(id);       break;
-                default:        maskedCode += `<!--${id}-->`;        break;
+                case 'text':    maskedCode += token!;           break;
+                case 'inline':  maskedCode += token!;           break;
+                case 'midtag':  maskedCode += `${token}="1"`;   break;
+                case 'rawtext': maskedCode += rawTokenFor(id);  break;
+                default:        maskedCode += `<!--${id}-->`;   break;
             }
             pos = end;
             continue;
@@ -499,6 +582,20 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
     // ── Step 3: Run Prettier on the masked HTML ──────────────────────────────
 
+    const prettierOptions: prettier.Options = {
+        parser:                    'html',
+        printWidth:                prettierSettings.printWidth,
+        tabWidth:                  prettierSettings.tabWidth,
+        useTabs:                   prettierSettings.useTabs,
+        semi:                      prettierSettings.semi,
+        singleQuote:               prettierSettings.singleQuote,
+        bracketSameLine:           prettierSettings.bracketSameLine,
+        arrowParens:               prettierSettings.arrowParens               as any,
+        trailingComma:             prettierSettings.trailingComma             as any,
+        endOfLine:                 prettierSettings.endOfLine                 as any,
+        htmlWhitespaceSensitivity: prettierSettings.htmlWhitespaceSensitivity as any,
+    };
+
     let prettifiedCode: string;
     try {
         prettifiedCode = await vscode.window.withProgress(
@@ -507,19 +604,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                 title:     'Classic ASP: Formatting…',
                 cancellable: false,
             },
-            () => prettier.format(maskedCode, {
-            parser:                    'html',
-            printWidth:                prettierSettings.printWidth,
-            tabWidth:                  prettierSettings.tabWidth,
-            useTabs:                   prettierSettings.useTabs,
-            semi:                      prettierSettings.semi,
-            singleQuote:               prettierSettings.singleQuote,
-            bracketSameLine:           prettierSettings.bracketSameLine,
-            arrowParens:               prettierSettings.arrowParens               as any,
-            trailingComma:             prettierSettings.trailingComma             as any,
-            endOfLine:                 prettierSettings.endOfLine                 as any,
-            htmlWhitespaceSensitivity: prettierSettings.htmlWhitespaceSensitivity as any,
-        })
+            () => prettier.format(maskedCode, prettierOptions)
         );
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -548,13 +633,75 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         return code;
     }
 
+    // ── Step 3b: Lay the page out the way it is going to end up ─────────────
+    // A statement block that Prettier left inline — `<td><!--ID-->y</td>` — is
+    // about to be moved onto lines of its own during the restore. Its indent
+    // was read from the whitespace immediately before the placeholder, which is
+    // empty in exactly that case, so the block landed at column 0 and only
+    // reached its real column on a SECOND format, once the page already had it
+    // standalone. Every enclosing element behaved that way: td, div, p and span
+    // all took two passes.
+    //
+    // Rather than predict where Prettier would have put the block, put it there
+    // and ask. Splitting the placeholder onto its own line and formatting again
+    // yields, in one pass, exactly what the second pass used to produce — the
+    // indentation is Prettier's either way, just computed against the layout
+    // that is actually going to be written out.
+    //
+    // The second run only happens when there is something to move.
+    if (!aspSettings.aspTagsOnSameLine) {
+        const toSplit = aspBlocks.filter(block =>
+            block.kind === 'normal' &&
+            placeholderIsInlinePlaced(prettifiedCode, `<!--${block.id}-->`));
+
+        if (toSplit.length > 0) {
+            let respaced = prettifiedCode;
+            for (const block of toSplit) {
+                const placeholder = `<!--${block.id}-->`;
+
+                // Re-asked against the text as it NOW stands, not against the
+                // list built before the loop. Two adjacent blocks —
+                // `<% End If %><% End If %>` — are both inline-placed to begin
+                // with, but splitting the first already pushes the second onto a
+                // line of its own, and prepending a second newline to it leaves
+                // a blank line behind.
+                if (!placeholderIsInlinePlaced(respaced, placeholder)) { continue; }
+
+                const idx = respaced.indexOf(placeholder);
+
+                // Add only the newlines that are missing. The placeholder
+                // already ends its line whenever nothing follows it, and a
+                // second newline there would leave a blank line for Prettier
+                // to preserve — which is the blank line this formatter was
+                // just taught not to produce.
+                const afterIdx  = idx + placeholder.length;
+                const lineEnd   = respaced.indexOf('\n', afterIdx);
+                const afterText = lineEnd === -1
+                    ? respaced.slice(afterIdx)
+                    : respaced.slice(afterIdx, lineEnd);
+                const trailer   = afterText.trim().length > 0 ? '\n' : '';
+
+                respaced = respaced.slice(0, idx)
+                    + '\n' + placeholder + trailer
+                    + respaced.slice(afterIdx);
+            }
+            try {
+                prettifiedCode = await prettier.format(respaced, prettierOptions);
+            } catch {
+                // Keep the first result: a layout that needs a second format is
+                // far better than refusing to format at all.
+            }
+        }
+    }
+
     // ── Step 3: Verify all placeholders survived Prettier ───────────────────
 
     for (const block of aspBlocks) {
         const needle =
-            block.kind === 'inline'  ? `ASPINLINE_${block.id}_END` :
-            block.kind === 'midtag'  ? `data-asp-${block.id}`       :
-            block.kind === 'rawtext' ? rawTokenFor(block.id)        :
+            block.kind === 'text'    ? block.token!           :
+            block.kind === 'inline'  ? block.token!           :
+            block.kind === 'midtag'  ? block.token!           :
+            block.kind === 'rawtext' ? rawTokenFor(block.id)  :
             block.id;
 
         if (!prettifiedCode.includes(needle)) {
@@ -577,12 +724,23 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
     for (const block of aspBlocks) {
         if (block.kind !== 'normal') {
-            // Inline / midtag / rawtext blocks: format but don't change the tracked
-            // level. Raw-text blocks sit inline in JS/CSS, so keep <% %> on one line
-            // (aspTagsOnSameLine) — a multi-line expansion would split a JS statement.
-            const blockSettings = block.kind === 'rawtext'
-                ? { ...aspSettings, aspTagsOnSameLine: true }
-                : aspSettings;
+            // Format but don't change the tracked level, and keep <% %> on one
+            // line whatever aspTagsOnSameLine says.
+            //
+            // Every kind other than `normal` sits inside something a line break
+            // would break open: a JS or CSS statement (rawtext), an attribute
+            // value (inline), the gap between two attributes (midtag), or a run
+            // of page text (text). Only rawtext was given this treatment, so a
+            // statement between attributes was expanded to
+            //
+            //     <input
+            //       type="text" <%
+            //     If sel Then
+            //     %>
+            //       checked <%
+            //
+            // — the VBScript dedented to column 0 and the tag torn apart around it.
+            const blockSettings = { ...aspSettings, aspTagsOnSameLine: true };
             const result = formatSingleAspBlock(block.code, blockSettings, '', currentIndentLevel);
             formattedBlocks.push(result.formatted);
             blockStartLevels.push(-1);
@@ -615,7 +773,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
     const blockTagIndents: string[] = new Array(aspBlocks.length).fill('');
 
-    if (aspSettings.htmlIndentMode !== 'continuation') {
+    if (!delimitersAtColumnZero(aspSettings)) {
         let groupTagIndent = '';
         for (let i = 0; i < aspBlocks.length; i++) {
             if (aspBlocks[i].kind !== 'normal') continue;
@@ -638,6 +796,18 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
         switch (block.kind) {
 
+            case 'text': {
+                // A word placeholder is laid out as the surrounding prose, so
+                // wherever Prettier put it is where the expression belongs —
+                // including on a line it wrapped onto. A straight swap is all
+                // that is needed, and nothing may be done to the whitespace
+                // around it: in `<span><%= a %></span>` a single space either
+                // side is rendered text.
+                // Function replacement keeps `$`-sequences in the code literal.
+                restoredCode = restoredCode.replace(block.token!, () => formatted);
+                break;
+            }
+
             case 'rawtext': {
                 // Identifier placeholder inside <script>/<style>; Prettier kept it
                 // in place, so a straight swap restores the original position.
@@ -647,7 +817,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             }
 
             case 'inline': {
-                const inlineToken  = `ASPINLINE_${block.id}_END`;
+                const inlineToken  = block.token!;
                 const escapedToken = inlineToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 const isExpression = block.code.trimStart().startsWith('<%=') ||
                                      block.code.trimStart().startsWith('<% =');
@@ -679,7 +849,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                 // Prettier may have normalised quotes/spacing around the attribute.
                 // Function replacement keeps `$`-sequences in the code literal.
                 restoredCode = restoredCode.replace(
-                    new RegExp(`\\s*data-asp-${escapedId}\\s*=\\s*["']1["']`),
+                    new RegExp(`\\s*${block.token!}\\s*=\\s*["']1["']`, 'i'),
                     () => ` ${formatted}`
                 );
                 break;
@@ -719,7 +889,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
                         // In flat mode use the group's shared tag column so this block's
                         // tags align with all sibling blocks in the same VBScript group.
-                        const inlineTagIndent = aspSettings.htmlIndentMode === 'continuation'
+                        const inlineTagIndent = delimitersAtColumnZero(aspSettings)
                             ? ''
                             : blockTagIndents[i];
 
@@ -729,15 +899,35 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                                 if (!line.trim()) return line;
                                 const t = line.trim();
                                 if (t === '<%' || t === '%>') return inlineTagIndent + t;
-                                return aspSettings.htmlIndentMode === 'continuation'
+                                return delimitersAtColumnZero(aspSettings)
                                     ? line
                                     : blockTagIndents[i] + line;
                             })
                             .join('\n');
 
+                        // Start a new line AFTER the block only when something
+                        // else is still on this one. When the placeholder ended
+                        // its line, that line's own newline already separates the
+                        // block from what follows, and adding another leaves a
+                        // blank line behind: permanent in the middle of a file,
+                        // and stripped by the NEXT format at end of file, so the
+                        // file never converges.
+                        const placeholder = `<!--${block.id}-->`;
+                        const afterIdx    = placeholderIdx + placeholder.length;
+                        const lineEnd     = restoredCode.indexOf('\n', afterIdx);
+                        const restOfLine  = lineEnd === -1
+                            ? restoredCode.slice(afterIdx)
+                            : restoredCode.slice(afterIdx, lineEnd);
+                        const endsTheLine = restOfLine.trim().length === 0;
+
                         restoredCode = restoredCode.replace(
-                            new RegExp(`[ \\t]*<!--${escapedId}-->`),
-                            () => `\n${indentedBlock}\n${baseIndent}`
+                            // Trailing spaces are swallowed too when nothing
+                            // follows, so the %> line is not left with whitespace
+                            // the next pass would have to remove.
+                            new RegExp(`[ \\t]*<!--${escapedId}-->${endsTheLine ? '[ \\t]*' : ''}`),
+                            () => endsTheLine
+                                ? `\n${indentedBlock}`
+                                : `\n${indentedBlock}\n${baseIndent}`
                         );
                     } else {
                         // Expression sitting inline in tag text content (e.g. <td><%= val %></td>)
@@ -769,7 +959,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                         // 'flat' mode: use the group's shared tag column (the HTML indent
                         // of the first/shallowest block in this VBScript group) so all
                         // <% / %> tags in the group align at the same column.
-                        const tagIndent = aspSettings.htmlIndentMode === 'continuation'
+                        const tagIndent = delimitersAtColumnZero(aspSettings)
                             ? ''                   // tags at col 0; content has full indent
                             : blockTagIndents[i];  // shared group column
 
@@ -782,7 +972,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                                 // Content lines: in flat mode add the group tag indent on
                                 // top of the VBScript indent aspFormatter produced.
                                 // In continuation mode keep as-is (full indent baked in).
-                                return aspSettings.htmlIndentMode === 'continuation'
+                                return delimitersAtColumnZero(aspSettings)
                                     ? line
                                     : blockTagIndents[i] + line;
                             })

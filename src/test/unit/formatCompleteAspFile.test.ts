@@ -126,3 +126,271 @@ describe('formatCompleteAspFile — processing directive', () => {
         );
     });
 });
+
+// `<%= … %>` is Response.Write in expression form, so its output is part of the
+// text around it. It used to be masked as an HTML comment before Prettier ran,
+// and Prettier treats a comment as a node that cannot share a line with prose:
+// it broke the line around it and then moved the enclosing tag's `>` down to
+// keep the rendered whitespace unchanged, giving
+//
+//     <span class="info-value"
+//       ><%= txtbadge %>
+//       &mdash;
+//       <%= empName %></span
+//     >
+//
+// The comment was also twice as long as the expression it stood for, so
+// Prettier measured a line that fitted as one that did not and broke it for no
+// reason. A word placeholder padded to the block's own width fixes both, and is
+// the same technique prettier-plugin-jinja-template and
+// prettier-plugin-go-template use for `{{ … }}`.
+describe('formatCompleteAspFile — <%= %> is laid out as page text', () => {
+
+    it('keeps an expression on the line of the text it belongs to', async () => {
+        const out = await formatCompleteAspFile('<p>Hello <%= name %>, welcome.</p>\n');
+        assert.strictEqual(out, '<p>Hello <%= name %>, welcome.</p>\n');
+    });
+
+    it('does not split a span around its expressions', async () => {
+        const source = '<span class="v"><%= a %> &mdash; <%= b %></span>\n';
+        assert.strictEqual(await formatCompleteAspFile(source), source);
+    });
+
+    it('never moves a closing tag onto its own line', async () => {
+        const out = await formatCompleteAspFile(
+            '<div class="info-row">\n<span class="info-label">Employee #</span>\n'
+            + '<span class="info-value"><%= txtbadge %> &mdash; <%= empName %></span>\n</div>\n');
+        assert.ok(!/<\/\w+\s*\n\s*>/.test(out), `a closing tag was split across lines:\n${out}`);
+        assert.ok(!/\n\s*><%/.test(out),        `an opening tag's > was pushed down:\n${out}`);
+        assert.ok(
+            out.includes('<span class="info-value"><%= txtbadge %> &mdash; <%= empName %></span>'),
+            `the span should be on one line; got:\n${out}`,
+        );
+    });
+
+    // A page formatted by the older version is full of the broken shape, so the
+    // fix has to pull it back together rather than leave it alone.
+    it('reflows a page the previous placeholder had already broken apart', async () => {
+        const broken = [
+            '<div class="info-row">',
+            '    <span class="info-label">Employee #</span>',
+            '    <span class="info-value">',
+            '         <%= txtbadge %>',
+            '        &mdash;',
+            '        <%= empName %></span>',
+            '</div>',
+            '',
+        ].join('\n');
+        const out = await formatCompleteAspFile(broken);
+        assert.ok(
+            /<span class="info-value">\s?<%= txtbadge %> &mdash; <%= empName %><\/span>/.test(out),
+            `the expressions should be pulled back onto one line; got:\n${out}`,
+        );
+    });
+
+    // The placeholder is padded to the width of the block it replaces, so a line
+    // that fits inside printWidth is not broken on account of the mask.
+    it('measures a line by the expression, not by the placeholder', async () => {
+        // 74 characters as written — comfortably inside the default 80 — but the
+        // old placeholder pushed it past the limit and forced a wrap.
+        const source = '<p>Order <%= ordNo %> for <%= custName %> shipped on <%= shipDate %>.</p>\n';
+        assert.ok(source.length - 1 < 80, 'the fixture must fit inside printWidth');
+        assert.strictEqual(await formatCompleteAspFile(source), source);
+    });
+
+    it('still wraps genuinely long text, keeping the expression inline', async () => {
+        const out = await formatCompleteAspFile(
+            '<p>This is a fairly long paragraph of text that will certainly exceed '
+            + 'the print width <%= n %> and wrap.</p>\n');
+        assert.ok(out.includes('width <%= n %> and wrap.'), `the expression should stay in the prose; got:\n${out}`);
+        assert.ok(out.split('\n').every(l => l.length <= 80), `a line exceeded printWidth:\n${out}`);
+    });
+
+    it('leaves an expression inside an attribute value alone', async () => {
+        const source = '<a href="/x?id=<%= id %>">link</a>\n';
+        assert.strictEqual(await formatCompleteAspFile(source), source);
+    });
+
+    it('leaves a statement block on its own line', async () => {
+        // Only expressions become text placeholders; a statement block still
+        // structures the page and keeps the comment placeholder.
+        const out = await formatCompleteAspFile('<ul>\n<% For i = 1 To 3 %>\n<li><%= i %></li>\n<% Next %>\n</ul>\n');
+        assert.ok(/<li><%= i %><\/li>/.test(out), `the list item should be intact; got:\n${out}`);
+        assert.ok(/\n\s*<%\n/.test(out),          `the For block should stand on its own lines; got:\n${out}`);
+    });
+});
+
+// Converting an inline `<% … %>` block onto its own lines appended a newline
+// plus the base indent unconditionally. When the placeholder had already ended
+// its line, that line's own newline was still there, so the two together left a
+// blank line: permanent in the middle of a file, and stripped by the NEXT
+// format at end of file, so such a file never converged.
+describe('formatCompleteAspFile — expanding an inline block adds no blank line', () => {
+
+    it('leaves no blank line at end of file, and settles in one pass', async () => {
+        const out = await formatCompleteAspFile('<% If a Then %>yes<% End If %>\n');
+        assert.ok(!/\n[ \t]*\n/.test(out), `a blank line was inserted:\n${JSON.stringify(out)}`);
+        assert.strictEqual(await formatCompleteAspFile(out), out, 'the result should be stable');
+    });
+
+    it('leaves no blank line in the middle of a file', async () => {
+        const out = await formatCompleteAspFile('<p>a</p>\n<% If a Then %>yes<% End If %>\n<p>b</p>\n');
+        assert.ok(!/\n[ \t]*\n/.test(out), `a blank line was inserted:\n${JSON.stringify(out)}`);
+        assert.ok(out.includes('<p>b</p>'), `the following markup should survive:\n${out}`);
+        assert.strictEqual(await formatCompleteAspFile(out), out, 'the result should be stable');
+    });
+
+    // The newline after the block is still needed when the block did NOT end its
+    // line — otherwise whatever followed would be swallowed onto the %> line.
+    it('still breaks the line when content follows the block', async () => {
+        const out = await formatCompleteAspFile('<p>a</p>\n<% If a Then %>yes<% End If %> tail\n<p>b</p>\n');
+        assert.ok(/%>\ntail/.test(out), `trailing content should start a new line; got:\n${out}`);
+        assert.ok(!/\n[ \t]*\n/.test(out), `a blank line was inserted:\n${JSON.stringify(out)}`);
+    });
+
+    // Found by sweeping a corpus rather than by one report — 10 of 18 inline
+    // block shapes were affected, so the property is worth asserting broadly.
+    it('adds no blank line for any inline block shape', async () => {
+        const shapes = [
+            '<% If a Then %>yes<% End If %>\n',
+            '<p><% If a Then %>yes<% End If %></p>\n',
+            '<div><% For i = 1 To 3 %>x<% Next %></div>\n',
+            '<% Do While x %>y<% Loop %>\n',
+            '<span>a<% If b Then %>c<% End If %></span>\n',
+            '<p>before</p>\n<% Select Case x %><% Case 1 %>one<% End Select %>\n<p>after</p>\n',
+        ];
+        for (const shape of shapes) {
+            const out = await formatCompleteAspFile(shape);
+            assert.ok(
+                !/\n[ \t]*\n/.test(out),
+                `a blank line was inserted for ${JSON.stringify(shape)}:\n${JSON.stringify(out)}`,
+            );
+        }
+    });
+});
+
+// A statement block Prettier left inline — `<td><!--ID-->y</td>` — is moved onto
+// lines of its own during the restore. Its indent was read from the whitespace
+// immediately BEFORE the placeholder, which is empty in exactly that case, so
+// the block landed at column 0 and only reached its real column on a second
+// format, once the page already had it standalone. td, div, p and span all took
+// two passes.
+//
+// The layout is now settled before the indent is read: the placeholder is split
+// onto its own line and Prettier is asked again, so one pass produces what two
+// used to. The indentation is Prettier's either way.
+describe('formatCompleteAspFile — a block nested in HTML settles in one pass', () => {
+
+    const settlesInOnePass = async (source: string) => {
+        const once  = await formatCompleteAspFile(source);
+        const twice = await formatCompleteAspFile(once);
+        assert.strictEqual(twice, once, `a second format changed the file:\n${once}\n--- became ---\n${twice}`);
+        return once;
+    };
+
+    it('puts the tags at the cell indent, not at column 0', async () => {
+        const out = await settlesInOnePass(
+            '<table><tr><td><% If a Then %>y<% End If %></td></tr></table>\n');
+        assert.ok(!/^<%/m.test(out), `a tag was left at column 0:\n${out}`);
+        // <td> sits at column 4, so its content — including the tags — is at 6.
+        for (const line of out.split('\n').filter(l => /<%|%>/.test(l))) {
+            assert.strictEqual(
+                line.match(/^[ \t]*/)![0].length, 6,
+                `expected the tags at the cell's content indent; got:\n${out}`,
+            );
+        }
+    });
+
+    it('settles for every kind of enclosing element', async () => {
+        for (const source of [
+            '<table><tr><td><% If a Then %>y<% End If %></td></tr></table>\n',
+            '<div><% If a Then %>y<% End If %></div>\n',
+            '<p><% If a Then %>y<% End If %></p>\n',
+            '<span>a<% If b Then %>c<% End If %></span>\n',
+            '<ul><li><% For i = 1 To 3 %>x<% Next %></li></ul>\n',
+        ]) {
+            await settlesInOnePass(source);
+        }
+    });
+
+    it('settles for an empty block', async () => {
+        await settlesInOnePass('<p><% %></p>\n');
+    });
+
+    it('settles a block nested several elements deep', async () => {
+        const out = await settlesInOnePass(
+            '<div><table><tr><td><div><% If a Then %>deep<% End If %></div></td></tr></table></div>\n');
+        assert.ok(out.includes('deep'), `the content should survive:\n${out}`);
+    });
+
+    // The re-layout must not undo the two fixes before it.
+    it('still adds no blank line and keeps expressions inline', async () => {
+        const out = await settlesInOnePass(
+            '<td><% If a Then %><span><%= name %> here</span><% End If %></td>\n');
+        assert.ok(!/\n[ \t]*\n/.test(out), `a blank line was inserted:\n${JSON.stringify(out)}`);
+        assert.ok(/<span><%= name %> here<\/span>/.test(out), `the expression should stay inline:\n${out}`);
+    });
+});
+
+// An ASP block inside an HTML tag — between two attributes, or inside an
+// attribute value — has nowhere to put a line break. Only raw-text blocks
+// (inside <script>/<style>) were kept on one line, so a statement between
+// attributes was expanded and the tag torn apart around it:
+//
+//     <input
+//       type="text" <%
+//     If sel Then
+//     %>
+//       checked <%
+//
+// The placeholders for those two kinds were also far longer than the ASP they
+// stood for — `ASPINLINE_<id>_END` is 37 characters for a 9-character
+// `<%= id %>` — so Prettier measured lines as twice their width and broke tags
+// that would have fitted.
+describe('formatCompleteAspFile — ASP inside an HTML tag stays inside it', () => {
+
+    it('keeps a statement between attributes on one line', async () => {
+        const out = await formatCompleteAspFile(
+            '<input type="text" <% If sel Then %>checked<% End If %> name="a">\n');
+        assert.ok(!/^<%/m.test(out), `the VBScript was dedented out of the tag:\n${out}`);
+        assert.ok(!/<%\n/.test(out), `the block was expanded inside a tag:\n${out}`);
+        assert.ok(/<% If sel Then %>/.test(out) && /<% End If %>/.test(out),
+            `the blocks should stay on one line each; got:\n${out}`);
+    });
+
+    it('keeps a statement inside an attribute value on one line', async () => {
+        const out = await formatCompleteAspFile('<input value="<% If a Then %>x<% End If %>">\n');
+        assert.ok(!/<%\n/.test(out), `the block was expanded inside an attribute:\n${out}`);
+        assert.ok(/value="<% If a Then %>x<% End If %>"/.test(out),
+            `the attribute value should be intact; got:\n${out}`);
+    });
+
+    it('does not break a tag that fits once the mask is the right size', async () => {
+        // 43 characters. Its two inline placeholders used to measure 37 each,
+        // so the masked line came to 99 and Prettier split the tag open.
+        const source = '<a href="/p?id=<%= id %>&n=<%= n %>">go</a>\n';
+        assert.ok(source.length - 1 < 80, 'the fixture must fit inside printWidth');
+        assert.strictEqual(await formatCompleteAspFile(source), source);
+    });
+
+    it('keeps a conditional attribute on its element', async () => {
+        const out = await formatCompleteAspFile('<td <% If hi Then %>class="hi"<% End If %>>cell</td>\n');
+        assert.ok(/<td <% If hi Then %> class="hi" <% End If %>>/.test(out),
+            `the tag should stay on one line; got:\n${out}`);
+    });
+
+    it('settles in one pass for every in-tag shape', async () => {
+        for (const source of [
+            '<input type="text" <% If sel Then %>checked<% End If %> name="a">\n',
+            '<input <% If a Then %>checked<% End If %>>\n',
+            '<input value="<% If a Then %>x<% End If %>">\n',
+            '<a href="/p?id=<%= id %>&n=<%= n %>">go</a>\n',
+            '<td <% If hi Then %>class="hi"<% End If %>>cell</td>\n',
+            '<input <% If a Then %>checked<% End If %> <% If b Then %>disabled<% End If %>>\n',
+        ]) {
+            const once  = await formatCompleteAspFile(source);
+            const twice = await formatCompleteAspFile(once);
+            assert.strictEqual(twice, once, `a second format changed:\n${once}\n--- became ---\n${twice}`);
+        }
+    });
+});

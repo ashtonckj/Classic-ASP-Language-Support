@@ -77,6 +77,15 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         const items = completions.entries
             // Internal projection variables must never surface to the user.
             .filter(e => !e.name.startsWith('_asp_') && e.name !== '_asp')
+            // A function that has no name yet — the moment after `function` is
+            // typed and before the name is — is offered by TypeScript as a
+            // global completion whose name is the empty string. Built into a
+            // CompletionItem it becomes an item with no label, which VS Code
+            // discards with "did IGNORE invalid completion item" in the log.
+            // Harmless, but it is one item of the list wasted on every keystroke
+            // while a function is being named, and the warning is noise that
+            // looks like a bug in this extension.
+            .filter(e => e.name !== '')
             .map(entry => {
             const item      = new vscode.CompletionItem(entry.name, tsKindToVsKind(entry.kind));
             item.sortText   = '0' + (entry.sortText ?? entry.name);
