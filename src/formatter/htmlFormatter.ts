@@ -658,8 +658,16 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             let respaced = prettifiedCode;
             for (const block of toSplit) {
                 const placeholder = `<!--${block.id}-->`;
-                const idx         = respaced.indexOf(placeholder);
-                if (idx === -1) { continue; }
+
+                // Re-asked against the text as it NOW stands, not against the
+                // list built before the loop. Two adjacent blocks —
+                // `<% End If %><% End If %>` — are both inline-placed to begin
+                // with, but splitting the first already pushes the second onto a
+                // line of its own, and prepending a second newline to it leaves
+                // a blank line behind.
+                if (!placeholderIsInlinePlaced(respaced, placeholder)) { continue; }
+
+                const idx = respaced.indexOf(placeholder);
 
                 // Add only the newlines that are missing. The placeholder
                 // already ends its line whenever nothing follows it, and a
