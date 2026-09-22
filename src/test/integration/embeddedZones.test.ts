@@ -1,6 +1,16 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
+// Close what the test opened. Each test here opens a document and never closed
+// it, so across a full run the editors accumulated -- by the time the later
+// suites ran there were dozens open at once, and the active editor is what every
+// command in this file acts through. Run on its own the suite passed every time;
+// run after the others it failed intermittently, always by the command appearing
+// to do nothing at all.
+teardown(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+});
+
 // A Classic ASP page is four languages in one file, and the editor has to pick
 // the right rules for wherever the caret is. VS Code does that from the grammar
 // contribution's `embeddedLanguages` map, which keys on the SCOPE NAMES the
