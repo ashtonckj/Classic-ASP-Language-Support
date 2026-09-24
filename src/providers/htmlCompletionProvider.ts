@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { HTML_TAGS, isSelfClosingTag } from '../constants/htmlTags';
+import { HTML_TAGS, isInlineTag, isSelfClosingTag } from '../constants/htmlTags';
 import { getAttributesForTag } from '../constants/htmlGlobals';
 import {
     getCurrentTagName,
@@ -23,7 +23,9 @@ function getTagCompletions(): vscode.CompletionItem[] {
         item.documentation = new vscode.MarkdownString(`HTML <${tag.tag}> element\n\n${tag.description}`);
         item.insertText = isSelfClosingTag(tag.tag)
             ? new vscode.SnippetString(`${tag.tag} $0/>`)
-            : new vscode.SnippetString(`${tag.tag}>\n\t$0\n</${tag.tag}>`);
+            : isInlineTag(tag.tag)
+                ? new vscode.SnippetString(`${tag.tag}>$0</${tag.tag}>`)
+                : new vscode.SnippetString(`${tag.tag}>\n\t$0\n</${tag.tag}>`);
         item.sortText = '2_' + tag.tag;
         return item;
     });

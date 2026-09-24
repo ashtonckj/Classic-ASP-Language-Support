@@ -157,3 +157,34 @@ suite('HTML tag auto-close (integration)', () => {
         );
     });
 });
+
+// Picking an inline tag from the completion list used to lay it out like a
+// block — <span>, an indented blank line, then </span> under it — in the middle
+// of a line of text. Inline tags now stay on the line; block tags still open up.
+suite('Tag completion lays tags out by kind (integration)', () => {
+
+    async function insertTextFor(tag: string): Promise<string | undefined> {
+        const doc = await vscode.workspace.openTextDocument({ language: 'asp', content: '<p>Some text <\n' });
+        await vscode.window.showTextDocument(doc);
+        const list = await vscode.commands.executeCommand<vscode.CompletionList>(
+            'vscode.executeCompletionItemProvider', doc.uri, new vscode.Position(0, 14), '<',
+        );
+        const item = list?.items.find(i => (typeof i.label === 'string' ? i.label : i.label.label) === tag
+            && i.insertText instanceof vscode.SnippetString);
+        return (item?.insertText as vscode.SnippetString | undefined)?.value;
+    }
+
+    test('an inline tag stays on one line', async () => {
+        assert.strictEqual(await insertTextFor('span'), 'span>$0</span>');
+        assert.strictEqual(await insertTextFor('a'), 'a>$0</a>');
+        assert.strictEqual(await insertTextFor('strong'), 'strong>$0</strong>');
+    });
+
+    test('a block tag still opens onto its own lines', async () => {
+        assert.strictEqual(await insertTextFor('div'), 'div>\n\t$0\n</div>');
+    });
+
+    test('a void tag is still self-closed', async () => {
+        assert.strictEqual(await insertTextFor('br'), 'br $0/>');
+    });
+});
