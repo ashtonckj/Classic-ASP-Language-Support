@@ -1,4 +1,18 @@
-import * as vscode from 'vscode';
+// No vscode import: the ASP colouring that uses this runs on a worker thread
+// (see utils/aspColouring.ts), where the vscode module does not exist. What it
+// needs from a document and from a token builder is these two shapes, which a
+// TextDocument and a SemanticTokensBuilder both already have.
+
+/** The lines extractSqlGroup reads. */
+export interface LineSource {
+    readonly lineCount: number;
+    lineAt(line: number): { readonly text: string };
+}
+
+/** Where emitSqlTokensForGroup writes its tokens. */
+export interface TokenSink {
+    push(line: number, char: number, length: number, tokenType: number, tokenModifiers: number): void;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Token-type index reference.
@@ -498,7 +512,7 @@ export interface SqlStringGroup {
 }
 
 export function extractSqlGroup(
-    document: vscode.TextDocument,
+    document: LineSource,
     startLine: number,
     startCol: number
 ): SqlStringGroup | null {
@@ -720,7 +734,7 @@ function isDatepartArgument(sql: string, wordStart: number): boolean {
 }
 
 export function emitSqlTokensForGroup(
-    builder: vscode.SemanticTokensBuilder,
+    builder: TokenSink,
     group: SqlStringGroup
 ): void {
     const { stitched, omLine, omCol } = group;
