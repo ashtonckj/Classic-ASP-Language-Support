@@ -31,7 +31,6 @@ import * as vscode from 'vscode';
 import * as ts     from 'typescript';
 import {
     buildVirtualJsContent,
-    getJsLanguageService,
     VIRTUAL_FILENAME,
 } from '../utils/jsUtils';
 import { getJsBlockRanges } from '../utils/zoneUtils';
@@ -398,12 +397,15 @@ export class JsDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
         if (jsRanges.length === 0 || token.isCancellationRequested) { return []; }
 
         const { virtualContent, preambleLength } = buildVirtualJsContent(fullText, 0);
-        const svc = getJsLanguageService();
-        svc.updateContent(virtualContent);
 
-        const program    = svc.getProgram();
-        const sourceFile = program?.getSourceFile(VIRTUAL_FILENAME);
-        if (!sourceFile || token.isCancellationRequested) { return []; }
+        // Only the syntax tree is needed — no types — so the script is parsed
+        // on its own, the way the language service parses it. Asking the
+        // service for its program instead rebuilt the program that hover and
+        // completion share, on every edit.
+        const sourceFile = ts.createSourceFile(
+            VIRTUAL_FILENAME, virtualContent, ts.ScriptTarget.ES2020, true, ts.ScriptKind.JS,
+        );
+        if (token.isCancellationRequested) { return []; }
 
         // The TS AST node positions are in virtual-file space.
         // We shift the JS range boundaries into virtual-file space too so that
