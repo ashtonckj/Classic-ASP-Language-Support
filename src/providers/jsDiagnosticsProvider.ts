@@ -19,7 +19,7 @@
  */
 
 import * as vscode from 'vscode';
-import { analyseEmbeddedJs } from '../utils/jsAnalysisClient';
+import { analyseEmbeddedJs } from '../utils/analysisClient';
 import { tsSeverityToVs } from '../utils/jsTsKinds';
 import { inRanges } from '../utils/zoneUtils';
 

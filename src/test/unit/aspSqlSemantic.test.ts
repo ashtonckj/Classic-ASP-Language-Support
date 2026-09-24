@@ -1,7 +1,10 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { AspSemanticTokensProvider } from '../../providers/aspSemanticProvider';
+import { colourAspPage } from '../../utils/aspColouring';
+import { colourAspPage as colourOnWorker, disposeAnalysisWorkers } from '../../utils/analysisClient';
 import { COMBINED_SEMANTIC_LEGEND } from '../../providers/jsSemanticProvider';
+import type { FileSymbols } from '../../utils/symbolParser';
 
 // SQL colouring follows a variable: once `sql` is seen holding a SELECT, later
 // fragments appended to it are coloured too. The passes that track which
@@ -12,41 +15,24 @@ import { COMBINED_SEMANTIC_LEGEND } from '../../providers/jsSemanticProvider';
 
 const TYPES = COMBINED_SEMANTIC_LEGEND.tokenTypes;
 
-function fakeDoc(text: string): vscode.TextDocument {
-    const lines = text.split('\n');
-    const starts: number[] = [];
-    let offset = 0;
-    for (const l of lines) { starts.push(offset); offset += l.length + 1; }
+const EMPTY_INCLUDES = { variables: [], constants: [], functions: [], comVariables: [], classes: [] };
 
-    return {
-        languageId: 'asp',
-        version: 1,
-        uri: { fsPath: 'C:\\site\\page.asp', scheme: 'file', toString: () => 'file:///page.asp' },
-        getText: () => text,
-        lineCount: lines.length,
-        lineAt: (n: number) => ({ text: lines[n] }),
-        offsetAt: (p: { line: number; character: number }) => starts[p.line] + p.character,
-        positionAt: (off: number) => {
-            let l = 0;
-            while (l + 1 < starts.length && starts[l + 1] <= off) { l++; }
-            return { line: l, character: off - starts[l] };
-        },
-    } as unknown as vscode.TextDocument;
+const PAGE_PATH = 'C:\\site\\page.asp';
+
+/** The page's tokens as [line, char, length, type, modifiers], straight from the colouring. */
+function tokensOf(text: string): number[][] {
+    const { tokens } = colourAspPage({ id: 1, text, docPath: PAGE_PATH, includeSymbols: EMPTY_INCLUDES });
+    const out: number[][] = [];
+    for (let i = 0; i + 4 < tokens.length; i += 5) { out.push(Array.from(tokens.subarray(i, i + 5))); }
+    return out;
 }
 
-const provider = new AspSemanticTokensProvider();
-
-/** The SQL tokens the provider emits, as `type:"text"` strings. */
+/** The SQL tokens the colouring emits, as `type:"text"` strings. */
 function sqlTokens(text: string): string[] {
-    const result = provider.provideDocumentSemanticTokens(
-        fakeDoc(text),
-        { isCancellationRequested: false } as vscode.CancellationToken,
-    ) as unknown as { tokens: { line: number; char: number; len: number; type: number }[] };
-
     const lines = text.split('\n');
-    return (result?.tokens ?? [])
-        .filter(t => String(TYPES[t.type]).startsWith('sql'))
-        .map(t => `${TYPES[t.type]}:${lines[t.line].substr(t.char, t.len)}`);
+    return tokensOf(text)
+        .filter(([, , , type]) => String(TYPES[type]).startsWith('sql'))
+        .map(([line, char, len, type]) => `${TYPES[type]}:${lines[line].substr(char, len)}`);
 }
 
 const ASSIGN = 'sql = "SELECT name FROM users"';
@@ -114,5 +100,67 @@ describe('SQL colouring stays off things that are not SQL', () => {
         const tokens = sqlTokens(`<%\n${ASSIGN}\n%>\n`);
         assert.ok(tokens.includes('sqlDml:SELECT'), `got ${JSON.stringify(tokens)}`);
         assert.ok(tokens.includes('sqlDml:FROM'), `got ${JSON.stringify(tokens)}`);
+    });
+});
+
+// The colouring runs on a worker thread; on the extension host it held up
+// typing and every other feature for a few hundred ms per edit on a large page.
+describe('ASP colouring on the worker thread', () => {
+    const PAGE = [
+        '<%',
+        'Dim total, sql',
+        'Const LIMIT = 10',
+        'Function Fetch(id)',
+        '  sql = "SELECT name FROM users WHERE id = " & id',
+        '  sql = sql & " ORDER BY name"',
+        '  Fetch = sql',
+        'End Function',
+        '%>',
+        '<p><%= Fetch(total) %> of <%= LIMIT %></p>',
+        '',
+    ].join('\n');
+
+    function fakeDoc(text: string): vscode.TextDocument {
+        return {
+            languageId: 'asp',
+            version: 1,
+            uri: { fsPath: PAGE_PATH, scheme: 'file', toString: () => 'file:///page.asp' },
+            getText: () => text,
+        } as unknown as vscode.TextDocument;
+    }
+
+    after(() => { disposeAnalysisWorkers(); });
+
+    it('gives the editor the tokens the colouring works out', async function () {
+        this.timeout(30000);
+
+        const provider = new AspSemanticTokensProvider();
+        const result = await provider.provideDocumentSemanticTokens(
+            fakeDoc(PAGE), { isCancellationRequested: false } as vscode.CancellationToken,
+        ) as unknown as { tokens: { line: number; char: number; len: number; type: number; mod: number }[] };
+
+        const fromEditor = result.tokens.map(t => [t.line, t.char, t.len, t.type, t.mod]);
+        assert.ok(fromEditor.length > 10, 'the page should have been coloured');
+        assert.deepStrictEqual(fromEditor, tokensOf(PAGE));
+    });
+
+    it('answers unchanged text and includes again without colouring it again', async function () {
+        this.timeout(30000);
+
+        const includes: FileSymbols = { variables: [], constants: [], functions: [], comVariables: [], classes: [] };
+        const first  = await colourOnWorker('again.asp', PAGE, PAGE_PATH, includes);
+        const second = await colourOnWorker('again.asp', PAGE, PAGE_PATH, includes);
+        assert.ok(first);
+        assert.strictEqual(second, first);
+
+        // New include symbols can change the colours even when the page has not.
+        const fromInclude: FileSymbols = { ...includes, functions: [{ name: 'total', kind: 'Function', params: '', paramNames: [], line: 0, endLine: 2, filePath: 'C:\\site\\lib.inc' }] };
+        const third = await colourOnWorker('again.asp', PAGE, PAGE_PATH, fromInclude);
+        assert.ok(third);
+        assert.notStrictEqual(third, first);
+    });
+
+    it('colours a CRLF page the same as an LF one', () => {
+        assert.deepStrictEqual(tokensOf(PAGE.replace(/\n/g, '\r\n')), tokensOf(PAGE));
     });
 });

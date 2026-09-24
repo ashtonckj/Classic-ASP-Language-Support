@@ -362,17 +362,55 @@ export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
 }
 
 /**
+ * The symbols a document's includes declare, without its own.
+ *
+ * For the ASP colouring, which runs on a worker thread and reads the page's own
+ * symbols there from the text it is sent. Collecting them here instead meant
+ * parsing the whole page on the extension host after every edit.
+ *
+ * Memoised like collectAllSymbols, so the same object comes back until the
+ * document or an include changes — which is how the colouring knows it can reuse
+ * its last answer.
+ */
+const _includeOnlyMemo = new Map<string, { version: number; epoch: number; symbols: FileSymbols }>();
+
+export function collectIncludeSymbols(document: vscode.TextDocument): FileSymbols {
+    if (!areIncludeSymbolsReady(document)) {
+        void preloadIncludeSymbols(document);
+    }
+
+    const memoKey = document.uri.toString();
+    const memo = _includeOnlyMemo.get(memoKey);
+    if (memo && memo.version === document.version && memo.epoch === _includeSymbolEpoch) {
+        return memo.symbols;
+    }
+
+    const symbols: FileSymbols = { variables: [], constants: [], functions: [], comVariables: [], classes: [] };
+    const visited = new Set<string>();
+    for (const includePath of includeRoots(document)) {
+        appendCachedIncludeSymbols(symbols, includePath, visited);
+    }
+
+    _includeOnlyMemo.set(memoKey, { version: document.version, epoch: _includeSymbolEpoch, symbols });
+    evictClosedDocuments();
+    return symbols;
+}
+
+/**
  * Drops memo entries for documents that are no longer open, so a long session
  * that visits hundreds of files does not hold every one of their symbol sets.
  * Only runs when there are more entries than open documents, which is only
  * just after something was closed.
  */
 function evictClosedDocuments(): void {
-    if (_combinedSymbolMemo.size <= vscode.workspace.textDocuments.length) { return; }
+    const openCount = vscode.workspace.textDocuments.length;
+    if (_combinedSymbolMemo.size <= openCount && _includeOnlyMemo.size <= openCount) { return; }
 
     const open = new Set(vscode.workspace.textDocuments.map(doc => doc.uri.toString()));
-    for (const key of _combinedSymbolMemo.keys()) {
-        if (!open.has(key)) { _combinedSymbolMemo.delete(key); }
+    for (const memo of [_combinedSymbolMemo, _includeOnlyMemo]) {
+        for (const key of memo.keys()) {
+            if (!open.has(key)) { memo.delete(key); }
+        }
     }
 }
 

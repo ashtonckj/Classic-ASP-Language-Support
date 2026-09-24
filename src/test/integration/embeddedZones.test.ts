@@ -210,3 +210,64 @@ suite('Zone-aware editing survives the embedded-language mapping (integration)',
         );
     });
 });
+
+// Both kinds of semantic colouring are worked out on worker threads — the
+// VBScript and SQL colouring in one, the JavaScript colouring in the other —
+// and come back merged as one set of tokens. This drives the real provider, so
+// it covers the workers starting from the packaged paths as well.
+suite('Semantic colouring comes back from the worker threads (integration)', () => {
+
+    const PAGE = [
+        '<%',                                                                        // 0
+        'Dim sql, userName',                                                         // 1
+        'userName = "bob"',                                                          // 2
+        'sql = "SELECT name FROM users WHERE id = 1 AND name = " & userName',        // 3
+        'Function Greet(who)',                                                       // 4
+        '  Greet = "Hi " & who',                                                     // 5
+        'End Function',                                                              // 6
+        '%>',                                                                        // 7
+        '<p><%= Greet(userName) %></p>',                                             // 8
+        '<script>',                                                                  // 9
+        '  function showTotal(total) { return total.toFixed(2); }',                 // 10
+        '</script>',                                                                 // 11
+        '',
+    ].join('\n');
+
+    /** Every token as `line:type:"text"`. Retries while the workers start up. */
+    async function tokensOf(doc: vscode.TextDocument): Promise<string[]> {
+        const legend = await vscode.commands.executeCommand<vscode.SemanticTokensLegend>(
+            'vscode.provideDocumentSemanticTokensLegend', doc.uri,
+        );
+        for (let attempt = 0; attempt < 40; attempt++) {
+            const tokens = await vscode.commands.executeCommand<vscode.SemanticTokens>(
+                'vscode.provideDocumentSemanticTokens', doc.uri,
+            );
+            const out: string[] = [];
+            let line = 0, char = 0;
+            const data = tokens?.data ?? new Uint32Array();
+            for (let i = 0; i + 4 < data.length; i += 5) {
+                if (data[i] > 0) { line += data[i]; char = data[i + 1]; } else { char += data[i + 1]; }
+                out.push(`${line}:${legend.tokenTypes[data[i + 3]]}:${doc.lineAt(line).text.substr(char, data[i + 2])}`);
+            }
+            if (out.some(t => t.startsWith('10:'))) { return out; }   // the JavaScript has arrived too
+            await sleep(250);
+        }
+        return [];
+    }
+
+    test('VBScript, SQL and JavaScript are all coloured, and the SQL warning is raised', async () => {
+        const doc = await vscode.workspace.openTextDocument({ language: 'asp', content: PAGE });
+        await vscode.window.showTextDocument(doc);
+
+        const tokens = await tokensOf(doc);
+        for (const expected of ['4:function:Greet', '4:parameter:who', '1:variable:userName', '3:sqlDml:SELECT', '3:sqlLogical:AND']) {
+            assert.ok(tokens.includes(expected), `missing ${expected}; got ${JSON.stringify(tokens)}`);
+        }
+        assert.ok(tokens.some(t => t === '10:function:showTotal'), `the JavaScript should be coloured too; got ${JSON.stringify(tokens)}`);
+
+        const warnings = vscode.languages.getDiagnostics(doc.uri).filter(d => d.source === 'ASP SQL');
+        assert.strictEqual(warnings.length, 1, `got ${JSON.stringify(warnings.map(w => w.message))}`);
+        assert.strictEqual(warnings[0].range.start.line, 3);
+        assert.ok(/'userName' is concatenated into SQL variable 'sql'/.test(warnings[0].message));
+    });
+});

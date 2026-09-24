@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as ts from 'typescript';
-import { analyseEmbeddedJs, disposeJsAnalysisWorker } from '../../utils/jsAnalysisClient';
+import { analyseEmbeddedJs, disposeAnalysisWorkers } from '../../utils/analysisClient';
 import { buildVirtualJsContent, getJsLanguageService } from '../../utils/jsUtils';
 import { getJsBlockRanges } from '../../utils/zoneUtils';
 
@@ -75,7 +75,7 @@ const CASES: Array<[string, string]> = [
 
 describe('embedded JS analysis — the worker agrees with the extension host', () => {
 
-    after(() => { disposeJsAnalysisWorker(); });
+    after(() => { disposeAnalysisWorkers(); });
 
     for (const [name, text] of CASES) {
         it(name, async function () {
@@ -111,7 +111,7 @@ describe('embedded JS analysis — the worker agrees with the extension host', (
 
 describe('embedded JS analysis — request handling', () => {
 
-    after(() => { disposeJsAnalysisWorker(); });
+    after(() => { disposeAnalysisWorkers(); });
 
     // The worker handles one job at a time and there is no point queueing work
     // for text the user has already typed past, so a request that arrives while
@@ -203,7 +203,7 @@ describe('embedded JS analysis — request handling', () => {
         const before = await analyseEmbeddedJs('page.asp', '<script>var a = 1;</script>');
         assert.ok(before);
 
-        disposeJsAnalysisWorker();
+        disposeAnalysisWorkers();
 
         const after = await analyseEmbeddedJs('page.asp', '<script>var a = 1;</script>');
         assert.ok(after, 'a call after dispose should spawn a new worker');
