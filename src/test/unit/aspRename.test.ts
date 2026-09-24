@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import {
     computeLocalRenameScope,
+    declarationLines,
     declaringFilesFor,
     findAllOccurrences,
     includeClosure,
@@ -378,5 +379,24 @@ describe('isClassMember', () => {
     it('is false for a name declared outside every Class, and for the Class itself', () => {
         assert.strictEqual(isClassMember(sym, 'total'), false);
         assert.strictEqual(isClassMember(sym, 'basket'), false);
+    });
+});
+
+describe('declarationLines', () => {
+    const sym: FileSymbols = {
+        variables: [
+            { name: 'total', line: 1, filePath: 'x.asp' },
+            { name: 'total', line: 3, filePath: 'x.asp', implicit: true },
+        ],
+        constants: [{ name: 'LIMIT', value: '5', line: 2, filePath: 'x.asp' }],
+        functions: [fn('Add', 4, 6, ['total'])],
+        comVariables: [],
+        classes: [],
+    };
+
+    it('lists Dim, Const, procedure and parameter lines, not a bare assignment', () => {
+        assert.deepStrictEqual([...declarationLines(sym, 'total')].sort(), [1, 4]);
+        assert.deepStrictEqual([...declarationLines(sym, 'limit')], [2]);
+        assert.deepStrictEqual([...declarationLines(sym, 'add')], [4]);
     });
 });

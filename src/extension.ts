@@ -27,7 +27,7 @@ import { IncludeDocumentLinkProvider, HtmlAttributeLinkProvider, HtmlAttributePa
 // ASP semantic provider must now use COMBINED_SEMANTIC_LEGEND — see note above.
 import { AspSemanticTokensProvider } from './providers/aspSemanticProvider';
 import { AspHoverProvider } from './providers/aspHoverProvider';
-import { AspRenameProvider } from './providers/aspRenameProvider';
+import { AspReferenceProvider, AspRenameProvider } from './providers/aspRenameProvider';
 import { addRegionHighlights } from './highlight';
 import { AspDocumentSymbolProvider } from './providers/aspDocumentSymbolProvider';
 import { JsDocumentSymbolProvider } from './providers/jsDocumentSymbolProvider';
@@ -269,6 +269,10 @@ export function activate(context: vscode.ExtensionContext) {
     // ── References and occurrence highlighting ────────────────────────────────
     // Without these VS Code matches the word as plain TEXT, so a `total` inside
     // a string or a comment highlights as though it were the variable.
+    const referenceProvider = vscode.languages.registerReferenceProvider(
+        'asp', new AspReferenceProvider()
+    );
+
     const jsReferenceProvider = vscode.languages.registerReferenceProvider(
         'asp', new JsReferenceProvider()
     );
@@ -493,6 +497,7 @@ export function activate(context: vscode.ExtensionContext) {
         htmlAttributePathProvider,
         definitionProvider,
         jsDefinitionProvider,
+        referenceProvider,
         jsReferenceProvider,
         jsDocumentHighlightProvider,
         renameProvider,

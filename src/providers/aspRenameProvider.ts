@@ -170,19 +170,6 @@ export function declaringFilesFor(sym: FileSymbols, nameLower: string): string[]
 }
 
 /**
- * True when `nameLower` is declared inside a Class — a member, reached as
- * `obj.name` from outside. Any other name written after a dot belongs to
- * something else: `total` is not `obj.total`, and a variable `count` is not a
- * Dictionary's `dict.Count`.
- */
-export function isClassMember(sym: FileSymbols, nameLower: string): boolean {
-    const inClass = (filePath: string, line: number) =>
-        sym.classes.some(c => c.filePath === filePath && c.line < line && line <= c.endLine);
-    return [...sym.functions, ...sym.variables, ...sym.constants]
-        .some(s => s.name.toLowerCase() === nameLower && inClass(s.filePath, s.line));
-}
-
-/**
  * A workspace-wide include graph, plus a map back to case-preserved paths.
  *
  * `openPath`/`openText` inject the current (possibly unsaved) buffer so an include
@@ -233,13 +220,175 @@ function buildWorkspaceIncludeGraph(openPath: string, openText: string): Include
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Where a symbol is used
+//
+// Rename and Find All References ask the same question, so they share one
+// answer: a local stays inside its own procedure, and a module-level name
+// reaches every file in its script scope except the procedures that shadow it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** One place a symbol is written; `declaration` marks where it is declared. */
+export interface SymbolLocation {
+    uri:         vscode.Uri;
+    range:       vscode.Range;
+    declaration: boolean;
+}
+
+/**
+ * The VBScript symbol under the caret, or why there is none. The word has to be
+ * code — not HTML, a string or a comment — and a name this page declares or
+ * includes.
+ */
+function symbolAt(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): { word: string; range: vscode.Range } | { reason: string } {
+    const range = document.getWordRangeAtPosition(position, /\w+/);
+    if (!range) { return { reason: 'No symbol found at cursor position.' }; }
+    const word = document.getText(range);
+
+    // getZone covers both <% %> blocks and <script language="vbscript"> blocks.
+    if (getZone(document.getText(), document.offsetAt(position)) !== 'asp') {
+        return { reason: 'Rename is only supported for VBScript symbols inside ASP blocks.' };
+    }
+    if (isInsideVbStringOrComment(document.lineAt(range.start.line).text, range.start.character)) {
+        return { reason: `"${word}" is inside a string or a comment, not code.` };
+    }
+    if (VBSCRIPT_KEYWORDS_SET.has(word.toLowerCase())) {
+        return { reason: `"${word}" is a VBScript keyword and cannot be renamed.` };
+    }
+    if (declaringFilesFor(collectAllSymbols(document), word.toLowerCase()).length === 0) {
+        return { reason: `"${word}" is not a recognised VBScript symbol.` };
+    }
+    return { word, range };
+}
+
+/**
+ * True when `nameLower` is declared inside a Class — a member, reached as
+ * `obj.name` from outside. Any other name written after a dot belongs to
+ * something else: `total` is not `obj.total`, and a variable `count` is not a
+ * Dictionary's `dict.Count`.
+ */
+export function isClassMember(sym: FileSymbols, nameLower: string): boolean {
+    const inClass = (filePath: string, line: number) =>
+        sym.classes.some(c => c.filePath === filePath && c.line < line && line <= c.endLine);
+    return [...sym.functions, ...sym.variables, ...sym.constants]
+        .some(s => s.name.toLowerCase() === nameLower && inClass(s.filePath, s.line));
+}
+
+/** The lines of one file that declare `nameLower`: Dim, Const, a procedure, its parameters, a Class. */
+export function declarationLines(sym: FileSymbols, nameLower: string): Set<number> {
+    const match = (name: string) => name.toLowerCase() === nameLower;
+    const lines = new Set<number>();
+    for (const f of sym.functions) {
+        if (match(f.name) || f.paramNames.some(match)) { lines.add(f.line); }
+    }
+    for (const c of sym.classes)   { if (match(c.name)) { lines.add(c.line); } }
+    for (const v of sym.variables) { if (!v.implicit && match(v.name)) { lines.add(v.line); } }
+    for (const c of sym.constants) { if (match(c.name)) { lines.add(c.line); } }
+    return lines;
+}
+
+/** The occurrences in one file that `keep` accepts, the first on a declaring line marked as the declaration. */
+function locationsIn(
+    uri: vscode.Uri,
+    text: string,
+    fileSymbols: FileSymbols,
+    name: string,
+    members: boolean,
+    keep: (line: number) => boolean,
+): SymbolLocation[] {
+    const declared  = declarationLines(fileSymbols, name.toLowerCase());
+    const locations: SymbolLocation[] = [];
+    let lastLine = -1;
+
+    for (const { line, character } of findAllOccurrences(text, name, { members })) {
+        if (!keep(line)) { continue; }
+        locations.push({
+            uri,
+            range:       new vscode.Range(line, character, line, character + name.length),
+            declaration: declared.has(line) && line !== lastLine,
+        });
+        lastLine = line;
+    }
+    return locations;
+}
+
+/** Every place the VBScript symbol at `position` is used, in every file that can see it. */
+export function findSymbolLocations(document: vscode.TextDocument, position: vscode.Position): SymbolLocation[] {
+    const found = symbolAt(document, position);
+    if ('reason' in found) { return []; }
+
+    const name      = found.word;
+    const nameLower = name.toLowerCase();
+    const fullText  = document.getText();
+    const docPath   = document.uri.fsPath;
+    const symbols   = collectAllSymbols(document);
+    const members   = isClassMember(symbols, nameLower);
+
+    // ── Scope-aware ───────────────────────────────────────────────────────────
+    // A local variable/parameter must NOT reach other functions or other files.
+    // If the caret is inside a Sub/Function/Property body and the symbol is local
+    // to it, only that body in THIS file counts.
+    const ownSymbols = extractSymbols(fullText, docPath);
+    const localScope = computeLocalRenameScope(ownSymbols, position.line, nameLower);
+    if (localScope) {
+        return locationsIn(document.uri, fullText, ownSymbols, name, members,
+            line => localScope.line <= line && line <= localScope.endLine);
+    }
+
+    // ── Script-scope-aware file set ───────────────────────────────────────────
+    // Only the files that share a script scope with the DECLARATION count. See
+    // includeClosure for why that is the include closure and not the workspace.
+    //
+    // This used to search the current document, its includes, AND every other
+    // .asp / .inc file found by walking the workspace folders. F2 on a common
+    // name — total, i, id, sql, conn, rs — silently rewrote that word in every
+    // unrelated page on the site, in one undo step the user could easily miss.
+    const declaringPaths = declaringFilesFor(symbols, nameLower);
+    const seeds = declaringPaths.length > 0 ? declaringPaths : [docPath];
+
+    const { edges, realPath } = buildWorkspaceIncludeGraph(docPath, fullText);
+
+    const scope = new Set<string>();
+    for (const seed of seeds) {
+        for (const key of includeClosure(edges, seed.toLowerCase())) { scope.add(key); }
+    }
+
+    const docKey = docPath.toLowerCase();
+    scope.add(docKey); // the caret's own file, even for an untracked path
+
+    const locations: SymbolLocation[] = [];
+    for (const key of scope) {
+        const fsPath = realPath.get(key) ?? key;
+        // Prefer the open buffer (unsaved edits) over disk so positions line up
+        // with what the user actually sees.
+        const text = key === docKey ? fullText : (readIncludeText(fsPath) ?? '');
+        if (!text) { continue; }
+
+        // A procedure that declares its own `name` — as a parameter or an
+        // explicit Dim/Const — holds a DIFFERENT variable, so its body is left
+        // out when the module-level one is asked about.
+        const fileSymbols = key === docKey ? ownSymbols : extractSymbols(text, fsPath);
+        const skip = shadowingBodies(fileSymbols, nameLower);
+
+        locations.push(...locationsIn(
+            key === docKey ? document.uri : vscode.Uri.file(fsPath), text, fileSymbols, name, members,
+            line => !skip.some(body => body.line <= line && line <= body.endLine),
+        ));
+    }
+    return locations;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AspRenameProvider
 //
-// Implements F2 rename for VBScript functions, subs, variables, constants, and
-// COM object variables — across the current file and all #include'd files.
+// Implements F2 rename for VBScript functions, subs, variables, constants,
+// classes and COM object variables — across the current file and all
+// #include'd files.
 //
 // prepareRename:    validates the word under the cursor is a renameable symbol.
-// provideRenameEdits: scans every relevant file and returns a WorkspaceEdit.
+// provideRenameEdits: rewrites every place findSymbolLocations finds.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class AspRenameProvider implements vscode.RenameProvider {
@@ -251,41 +400,9 @@ export class AspRenameProvider implements vscode.RenameProvider {
         document: vscode.TextDocument,
         position: vscode.Position
     ): vscode.ProviderResult<vscode.Range | { range: vscode.Range; placeholder: string }> {
-
-        const wordRange = document.getWordRangeAtPosition(position, /\w+/);
-        if (!wordRange) throw new Error('No symbol found at cursor position.');
-
-        const word = document.getText(wordRange);
-        const offset = document.offsetAt(position);
-        const fullText = document.getText();
-
-        // Only allow rename inside ASP blocks — renaming HTML tag names or CSS
-        // identifiers is not something this provider handles.
-        // getZone covers both <% %> blocks and <script language="vbscript"> blocks.
-        if (getZone(fullText, offset) !== 'asp') {
-            throw new Error('Rename is only supported for VBScript symbols inside ASP blocks.');
-        }
-
-        if (VBSCRIPT_KEYWORDS_SET.has(word.toLowerCase())) {
-            throw new Error(`"${word}" is a VBScript keyword and cannot be renamed.`);
-        }
-
-        // Make sure it actually matches a known user-defined symbol.
-        const symbols = collectAllSymbols(document);
-        const wordLower = word.toLowerCase();
-        const known =
-            symbols.functions.some((s) => s.name.toLowerCase() === wordLower) ||
-            symbols.variables.some((s) => s.name.toLowerCase() === wordLower) ||
-            symbols.constants.some((s) => s.name.toLowerCase() === wordLower) ||
-            symbols.comVariables.some(
-                (s) => s.name.toLowerCase() === wordLower,
-            );
-
-        if (!known) {
-            throw new Error(`"${word}" is not a recognised VBScript symbol.`);
-        }
-
-        return { range: wordRange, placeholder: word };
+        const found = symbolAt(document, position);
+        if ('reason' in found) { throw new Error(found.reason); }
+        return { range: found.range, placeholder: found.word };
     }
 
     // ── provideRenameEdits ────────────────────────────────────────────────────
@@ -299,11 +416,7 @@ export class AspRenameProvider implements vscode.RenameProvider {
 
         const wordRange = document.getWordRangeAtPosition(position, /\w+/);
         if (!wordRange) return null;
-
         const oldName = document.getText(wordRange);
-        const fullText = document.getText();
-        const docPath = document.uri.fsPath;
-        const edit = new vscode.WorkspaceEdit();
 
         // Validate the new name is a legal VBScript identifier.
         if (!/^[a-zA-Z_]\w*$/.test(newName)) {
@@ -319,89 +432,34 @@ export class AspRenameProvider implements vscode.RenameProvider {
             return null;
         }
 
-        // ── Scope-aware rename ────────────────────────────────────────────────
-        // A local variable/parameter must NOT be renamed across other functions
-        // or other files. If the caret is inside a Sub/Function/Property body and
-        // the symbol is local to it, restrict the edits to that body in THIS file.
-        const symbols    = collectAllSymbols(document);
-        const members    = isClassMember(symbols, oldName.toLowerCase());
-        const localScope = computeLocalRenameScope(
-            extractSymbols(fullText, docPath),
-            position.line,
-            oldName.toLowerCase(),
-        );
-        if (localScope) {
-            for (const { line, character } of findAllOccurrences(fullText, oldName, { members })) {
-                if (line < localScope.line || line > localScope.endLine) { continue; }
-                edit.replace(
-                    document.uri,
-                    new vscode.Range(
-                        new vscode.Position(line, character),
-                        new vscode.Position(line, character + oldName.length),
-                    ),
-                    newName,
-                );
-            }
-            return edit;
-        }
-
-        // ── Script-scope-aware file set ───────────────────────────────────────
-        // Only the files that share a script scope with the DECLARATION may be
-        // rewritten. See includeClosure for why that is the include closure and
-        // not the workspace.
-        //
-        // This used to search the current document, its includes, AND every other
-        // .asp / .inc file found by walking the workspace folders. F2 on a common
-        // name — total, i, id, sql, conn, rs — silently rewrote that word in every
-        // unrelated page on the site, in one undo step the user could easily miss.
-        const declaringPaths = declaringFilesFor(symbols, oldName.toLowerCase());
-        const seeds = declaringPaths.length > 0 ? declaringPaths : [docPath];
-
-        const { edges, realPath } = buildWorkspaceIncludeGraph(docPath, fullText);
-
-        const scope = new Set<string>();
-        for (const seed of seeds) {
-            for (const key of includeClosure(edges, seed.toLowerCase())) { scope.add(key); }
-        }
-
-        const docKey = docPath.toLowerCase();
-        scope.add(docKey); // the caret's own file, even for an untracked path
-
-        for (const key of scope) {
-            const fsPath = realPath.get(key) ?? key;
-            // Prefer the open buffer (unsaved edits) over disk so edit positions
-            // line up with what the user actually sees.
-            const text = key === docKey ? fullText : (readIncludeText(fsPath) ?? '');
-            if (!text) { continue; }
-
-            // The page's own uri, not one rebuilt from its path: an unsaved
-            // Untitled-1 has no file, and an edit aimed at file:///Untitled-1
-            // is refused, so nothing was renamed at all.
-            const fileUri = key === docKey ? document.uri : vscode.Uri.file(fsPath);
-
-            // A procedure that declares its own `oldName` — as a parameter or an
-            // explicit Dim/Const — holds a DIFFERENT variable, so its body must be
-            // left alone when renaming the module-level one.
-            const skip = shadowingBodies(extractSymbols(text, fsPath), oldName.toLowerCase());
-            const isShadowed = (line: number) =>
-                skip.some(body => body.line <= line && line <= body.endLine);
-
-            for (const { line, character } of findAllOccurrences(text, oldName, { members })) {
-                if (isShadowed(line)) { continue; }
-                edit.replace(
-                    fileUri,
-                    new vscode.Range(
-                        new vscode.Position(line, character),
-                        new vscode.Position(line, character + oldName.length),
-                    ),
-                    newName,
-                );
-            }
+        const edit = new vscode.WorkspaceEdit();
+        for (const location of findSymbolLocations(document, position)) {
+            edit.replace(location.uri, location.range, newName);
         }
 
         reportCrossFileRename(edit, oldName);
 
         return edit;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AspReferenceProvider
+//
+// Find All References (Shift+F12) for the same symbols, over the same scope.
+// Without it VS Code had nothing for VBScript, and the word under the caret
+// could only be searched for as text — strings, comments, other pages and all.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AspReferenceProvider implements vscode.ReferenceProvider {
+    provideReferences(
+        document: vscode.TextDocument,
+        position: vscode.Position,
+        context:  vscode.ReferenceContext,
+    ): vscode.Location[] {
+        return findSymbolLocations(document, position)
+            .filter(location => context.includeDeclaration || !location.declaration)
+            .map(location => new vscode.Location(location.uri, location.range));
     }
 }
 
