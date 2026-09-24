@@ -131,8 +131,13 @@ export function activate(context: vscode.ExtensionContext) {
             if (total > 0) {
                 vscode.window.showWarningMessage(
                     `Formatting skipped — ${total} structure issue${total === 1 ? '' : 's'} found. ` +
-                    `Fix the highlighted warnings first.`
-                );
+                    `Fix the highlighted warnings first.`,
+                    'Show Problems'
+                ).then(choice => {
+                    if (choice === 'Show Problems') {
+                        vscode.commands.executeCommand('workbench.actions.view.problems');
+                    }
+                });
                 return [];
             }
 
