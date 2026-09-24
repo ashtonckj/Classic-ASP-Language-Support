@@ -2,7 +2,12 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { globToRegExp, isAspFile, findAspFilesInFolder, AssociationRule } from '../../providers/aspWorkspaceSymbolProvider';
+import * as vscode from 'vscode';
+import * as stub from './_vscodeStub';
+import {
+    globToRegExp, isAspFile, findAspFilesInFolder, AssociationRule,
+    AspWorkspaceSymbolProvider, disposeWorkspaceIndex,
+} from '../../providers/aspWorkspaceSymbolProvider';
 
 // Workspace symbol search (Ctrl+T) used to find files by a hardcoded
 // /\.(asp|inc)$/i extension check, so a codebase that keeps its Classic ASP
@@ -126,5 +131,95 @@ describe('findAspFilesInFolder', () => {
 
         const found = findAspFilesInFolder(dir, dir, extensions, []);
         assert.deepStrictEqual(found.map(f => path.basename(f)), ['real.asp']);
+    });
+});
+
+// Ctrl+T asks on every keystroke typed into it. Each ask used to walk every
+// folder and stat every file: 90 ms a keystroke on a 2,000-file site. The folders
+// are walked once and a file watcher keeps the list current after that.
+describe('AspWorkspaceSymbolProvider — the workspace file index', () => {
+    const provider = new AspWorkspaceSymbolProvider();
+    const token    = { isCancellationRequested: false } as vscode.CancellationToken;
+    let dir: string;
+
+    const lib = (fn: string) => `<%\nFunction ${fn}(a)\n  ${fn} = a\nEnd Function\n%>\n`;
+    const names = async (query = '') =>
+        ((await provider.provideWorkspaceSymbols(query, token)) ?? []).map(s => s.name).sort();
+
+    beforeEach(() => {
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'asp-ws-index-'));
+        fs.writeFileSync(path.join(dir, 'one.asp'), lib('RenderOne'));
+        fs.mkdirSync(path.join(dir, 'lib'));
+        fs.writeFileSync(path.join(dir, 'lib', 'two.inc'), lib('RenderTwo'));
+        stub.workspace.workspaceFolders = [{ uri: { fsPath: dir } }];
+        disposeWorkspaceIndex();
+    });
+
+    afterEach(() => {
+        disposeWorkspaceIndex();
+        stub.workspace.workspaceFolders = undefined;
+        fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('finds the symbols of every ASP file in the workspace', async () => {
+        assert.deepStrictEqual(await names(), ['RenderOne', 'RenderTwo']);
+    });
+
+    it('answers the next keystroke from the index, without going back to the disk', async () => {
+        await names();
+        // Written with no watcher event, so only a fresh walk or read would see them.
+        fs.writeFileSync(path.join(dir, 'three.asp'), lib('RenderThree'));
+        fs.writeFileSync(path.join(dir, 'one.asp'), lib('RenamedOne'));
+
+        assert.deepStrictEqual(await names('render'), ['RenderOne', 'RenderTwo']);
+    });
+
+    it('adds a file the watcher reports as created', async () => {
+        await names();
+        const created = path.join(dir, 'lib', 'three.asp');
+        fs.writeFileSync(created, lib('RenderThree'));
+        stub.fireFileEvent('create', created);
+
+        assert.deepStrictEqual(await names(), ['RenderOne', 'RenderThree', 'RenderTwo']);
+    });
+
+    it('reads a file again once the watcher reports it changed', async () => {
+        await names();
+        const changed = path.join(dir, 'one.asp');
+        fs.writeFileSync(changed, lib('RenamedOne'));
+        stub.fireFileEvent('change', changed);
+
+        assert.deepStrictEqual(await names(), ['RenamedOne', 'RenderTwo']);
+    });
+
+    it('drops a deleted file, and the files of a deleted folder', async () => {
+        await names();
+        fs.rmSync(path.join(dir, 'one.asp'));
+        stub.fireFileEvent('delete', path.join(dir, 'one.asp'));
+        assert.deepStrictEqual(await names(), ['RenderTwo']);
+
+        fs.rmSync(path.join(dir, 'lib'), { recursive: true });
+        stub.fireFileEvent('delete', path.join(dir, 'lib'));
+        assert.deepStrictEqual(await names(), []);
+    });
+
+    it('picks up the files of a folder that arrives whole', async () => {
+        await names();
+        const folder = path.join(dir, 'copied');
+        fs.mkdirSync(folder);
+        fs.writeFileSync(path.join(folder, 'four.asp'), lib('RenderFour'));
+        stub.fireFileEvent('create', folder);
+
+        assert.deepStrictEqual(await names(), ['RenderFour', 'RenderOne', 'RenderTwo']);
+    });
+
+    it('ignores a file created inside node_modules', async () => {
+        await names();
+        fs.mkdirSync(path.join(dir, 'node_modules'));
+        const ignored = path.join(dir, 'node_modules', 'pkg.asp');
+        fs.writeFileSync(ignored, lib('FromPackage'));
+        stub.fireFileEvent('create', ignored);
+
+        assert.deepStrictEqual(await names(), ['RenderOne', 'RenderTwo']);
     });
 });

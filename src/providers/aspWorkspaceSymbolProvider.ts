@@ -100,24 +100,111 @@ export function findAspFilesInFolder(dir: string, root: string, extensions: stri
     return results;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Simple in-memory cache — invalidated on any file save so results stay fresh
-// without re-scanning on every keystroke.
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface CachedFileSymbols {
-    mtime:     number;
-    symbols:   vscode.SymbolInformation[];
+/** True for a path findAspFilesInFolder would never descend into: node_modules, or a dotfolder. */
+function isSkippedPath(relPath: string): boolean {
+    return relPath.split(/[\\/]/).some(part => part === 'node_modules' || part.startsWith('.'));
 }
 
-const _wsCache = new Map<string, CachedFileSymbols>();
+// ─────────────────────────────────────────────────────────────────────────────
+// Workspace file index
+//
+// Ctrl+T asks again on every keystroke typed into it, and each ask walked every
+// folder of the workspace and stat'ed every ASP file to see whether its cached
+// symbols were still current: 90 ms a keystroke on a 2,000-file site, all on
+// the extension host, and far worse on the network shares IIS sites often live
+// on. The folders are now walked once, and a file watcher keeps the list, and
+// each file's symbols, current from then on. A save in the editor also drops
+// the saved file's symbols (clearWorkspaceSymbolCache). Rename uses the list.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface FileIndex {
+    files:      Set<string>;
+    extensions: string[];
+    rules:      AssociationRule[];
+}
+
+let _index: FileIndex | undefined;
+const _wsCache = new Map<string, vscode.SymbolInformation[]>();
+const _indexDisposables: vscode.Disposable[] = [];
+
+function folderOf(fsPath: string): string | undefined {
+    return vscode.workspace.getWorkspaceFolder(vscode.Uri.file(fsPath))?.uri.fsPath;
+}
+
+function buildIndex(): FileIndex {
+    const extensions = getAspFileExtensions();
+    const rules      = getAspAssociationRules();
+    const files      = new Set<string>();
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+        const root = folder.uri.fsPath;
+        for (const file of findAspFilesInFolder(root, root, extensions, rules)) { files.add(file); }
+    }
+    watchWorkspace();
+    return { files, extensions, rules };
+}
+
+/** Every ASP file in the workspace folders — by extension, or through files.associations. */
+export function getWorkspaceAspFiles(): string[] {
+    _index ??= buildIndex();
+    return [..._index.files];
+}
+
+function watchWorkspace(): void {
+    if (_indexDisposables.length > 0) { return; }
+
+    const watcher = vscode.workspace.createFileSystemWatcher('**/*');
+    _indexDisposables.push(
+        watcher,
+        watcher.onDidCreate(uri => fileCreated(uri.fsPath)),
+        watcher.onDidDelete(uri => fileDeleted(uri.fsPath)),
+        watcher.onDidChange(uri => { _wsCache.delete(uri.fsPath); }),
+        vscode.workspace.onDidChangeWorkspaceFolders(() => { _index = undefined; _wsCache.clear(); }),
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('files.associations')) { _index = undefined; }
+        }),
+    );
+}
+
+function fileCreated(fsPath: string): void {
+    _wsCache.delete(fsPath);
+    const index = _index;
+    const root  = folderOf(fsPath);
+    if (!index || !root || isSkippedPath(path.relative(root, fsPath))) { return; }
+
+    let isDirectory: boolean;
+    try { isDirectory = fs.statSync(fsPath).isDirectory(); } catch { return; }
+
+    if (isDirectory) {
+        // A folder can arrive whole — a checkout, a copy — with files already in it.
+        for (const file of findAspFilesInFolder(fsPath, root, index.extensions, index.rules)) { index.files.add(file); }
+    } else if (isAspFile(fsPath, path.relative(root, fsPath), index.extensions, index.rules)) {
+        index.files.add(fsPath);
+    }
+}
+
+function fileDeleted(fsPath: string): void {
+    _wsCache.delete(fsPath);
+    const index = _index;
+    if (!index || index.files.delete(fsPath)) { return; }
+
+    // Not a file the index knows, so perhaps a folder: its files went with it.
+    const prefix = fsPath.endsWith(path.sep) ? fsPath : fsPath + path.sep;
+    for (const file of index.files) {
+        if (file.startsWith(prefix)) { index.files.delete(file); _wsCache.delete(file); }
+    }
+}
+
+/** Stops watching the workspace. Called from deactivate. */
+export function disposeWorkspaceIndex(): void {
+    for (const disposable of _indexDisposables) { disposable.dispose(); }
+    _indexDisposables.length = 0;
+    _index = undefined;
+    _wsCache.clear();
+}
 
 function getSymbolsForFile(filePath: string): vscode.SymbolInformation[] {
-    let mtime = 0;
-    try { mtime = fs.statSync(filePath).mtimeMs; } catch { return []; }
-
     const cached = _wsCache.get(filePath);
-    if (cached && cached.mtime === mtime) { return cached.symbols; }
+    if (cached) { return cached; }
 
     let text: string;
     try { text = fs.readFileSync(filePath, 'utf8'); }
@@ -167,7 +254,7 @@ function getSymbolsForFile(filePath: string): vscode.SymbolInformation[] {
         ));
     }
 
-    _wsCache.set(filePath, { mtime, symbols });
+    _wsCache.set(filePath, symbols);
     return symbols;
 }
 
@@ -187,22 +274,16 @@ export class AspWorkspaceSymbolProvider implements vscode.WorkspaceSymbolProvide
         _token: vscode.CancellationToken
     ): vscode.ProviderResult<vscode.SymbolInformation[]> {
 
-        const folders = vscode.workspace.workspaceFolders ?? [];
-        if (folders.length === 0) { return []; }
+        if ((vscode.workspace.workspaceFolders ?? []).length === 0) { return []; }
 
-        const extensions = getAspFileExtensions();
-        const rules       = getAspAssociationRules();
-        const queryLower  = query.toLowerCase();
+        const queryLower = query.toLowerCase();
         const results:   vscode.SymbolInformation[] = [];
 
-        for (const folder of folders) {
-            const files = findAspFilesInFolder(folder.uri.fsPath, folder.uri.fsPath, extensions, rules);
-            for (const filePath of files) {
-                for (const sym of getSymbolsForFile(filePath)) {
-                    // Empty query returns everything; otherwise filter by name prefix/substring
-                    if (!queryLower || sym.name.toLowerCase().includes(queryLower)) {
-                        results.push(sym);
-                    }
+        for (const filePath of getWorkspaceAspFiles()) {
+            for (const sym of getSymbolsForFile(filePath)) {
+                // Empty query returns everything; otherwise filter by name prefix/substring
+                if (!queryLower || sym.name.toLowerCase().includes(queryLower)) {
+                    results.push(sym);
                 }
             }
         }
