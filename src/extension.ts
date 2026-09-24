@@ -38,7 +38,7 @@ import { JsRenameProvider } from './providers/jsRenameProvider';
 import { disposeAnalysisWorkers } from './utils/analysisClient';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache, disposeWorkspaceIndex } from './providers/aspWorkspaceSymbolProvider';
 import { AspSignatureHelpProvider } from './providers/aspSignatureHelpProvider';
-import { computeLineEdits, resolveEol, toLf } from './utils/editUtils';
+import { computeLineEdits, computeRangeEdits, resolveEol, toLf } from './utils/editUtils';
 
 // Shared structure issue check used by both the formatter and the preview.
 //
@@ -158,6 +158,30 @@ export function activate(context: vscode.ExtensionContext) {
                 document,
             );
             return computeLineEdits(document, result.fullText, result.formatted, eol);
+        }
+    });
+
+    // ── Format Selection (Ctrl+K Ctrl+F) ──────────────────────────────────────
+    // What Format Document would do, kept to the selected lines; see
+    // computeRangeEdits for why the whole page is formatted to get it.
+    const rangeFormatter = vscode.languages.registerDocumentRangeFormattingEditProvider('asp', {
+        async provideDocumentRangeFormattingEdits(document: vscode.TextDocument, range: vscode.Range): Promise<vscode.TextEdit[]> {
+            const result = await formatForDocument(document);
+            if (!result) { return []; }
+
+            const eol = resolveEol(
+                vscode.workspace.getConfiguration('aspLanguageSupport.prettier')
+                    .get<string>('endOfLine', 'auto'),
+                document,
+            );
+            const edits = computeRangeEdits(document, result.fullText, result.formatted, eol, range);
+            if (!edits) {
+                vscode.window.showInformationMessage(
+                    'Formatting changes too much of this page to format just the selection — use Format Document.',
+                );
+                return [];
+            }
+            return edits;
         }
     });
 
@@ -480,6 +504,7 @@ export function activate(context: vscode.ExtensionContext) {
     //     cleaned up when the extension is deactivated.
     context.subscriptions.push(
         formatter,
+        rangeFormatter,
         previewFormatting,
         htmlCompletionProvider,
         aspCompletionProvider,

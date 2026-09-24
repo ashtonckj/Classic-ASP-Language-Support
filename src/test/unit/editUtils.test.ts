@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { computeLineEdits, documentEol, resolveEol, toLf } from '../../utils/editUtils';
+import { alignLines, computeLineEdits, computeRangeEdits, documentEol, resolveEol, toLf } from '../../utils/editUtils';
 
 // Minimal TextDocument stand-in: computeLineEdits only reads lineCount, lineAt,
 // and eol.
@@ -93,5 +93,71 @@ describe('computeLineEdits', () => {
         assert.strictEqual(edits.length, 1);
         assert.strictEqual(edits[0].range.start.line, 1);
         assert.strictEqual(edits[0].range.end.line, doc.lineCount - 1);
+    });
+});
+
+// Format Selection formats the whole page and keeps the changes that fall in
+// the selection. A line-by-line comparison cannot find them once formatting
+// adds or removes a line — every line after it would count as changed — so the
+// two texts are lined up first.
+describe('alignLines', () => {
+    it('pairs lines that only moved in their indentation, and reports them', () => {
+        assert.deepStrictEqual(
+            alignLines(['<%', 'If a Then', 'x = 1', 'End If', '%>'], ['<%', 'If a Then', '    x = 1', 'End If', '%>']),
+            [{ aStart: 2, aEnd: 3, bStart: 2, bEnd: 3 }],
+        );
+    });
+
+    it('lines up the rest after a line is removed', () => {
+        assert.deepStrictEqual(alignLines(['a', 'x', 'b', ' c'], ['a', 'b', 'c']), [
+            { aStart: 1, aEnd: 2, bStart: 1, bEnd: 1 },
+            { aStart: 3, aEnd: 4, bStart: 2, bEnd: 3 },
+        ]);
+    });
+
+    it('is empty for identical texts', () => {
+        assert.deepStrictEqual(alignLines(['a', 'b'], ['a', 'b']), []);
+    });
+});
+
+describe('computeRangeEdits', () => {
+    function formatRange(original: string, formatted: string, range: vscode.Range): string {
+        const edits = computeRangeEdits(fakeDoc(original), original, formatted, '\n', range)!;
+        const lines = original.split('\n');
+        const offsetOf = (p: vscode.Position) => lines.slice(0, p.line).reduce((n, l) => n + l.length + 1, 0) + p.character;
+        let text = original;
+        for (const edit of [...edits].reverse()) {
+            text = text.slice(0, offsetOf(edit.range.start)) + edit.newText + text.slice(offsetOf(edit.range.end));
+        }
+        return text;
+    }
+
+    const original  = '<%\nIf a Then\nx = 1\ny = 2\nEnd If\n%>';
+    const formatted = '<%\nIf a Then\n    x = 1\n    y = 2\nEnd If\n%>';
+
+    it('changes only the selected lines, indented as the whole page says', () => {
+        assert.strictEqual(
+            formatRange(original, formatted, new vscode.Range(2, 0, 2, 5)),
+            '<%\nIf a Then\n    x = 1\ny = 2\nEnd If\n%>',
+        );
+    });
+
+    it('does all of Format Document when everything is selected', () => {
+        assert.strictEqual(formatRange(original, formatted, new vscode.Range(0, 0, 5, 2)), formatted);
+    });
+
+    it('does not take in the line a selection ends at the start of', () => {
+        assert.strictEqual(
+            formatRange(original, formatted, new vscode.Range(2, 0, 3, 0)),
+            '<%\nIf a Then\n    x = 1\ny = 2\nEnd If\n%>',
+        );
+    });
+
+    it('leaves out a change that reaches past the selection', () => {
+        // Formatting joins lines 1 and 2; with only line 1 selected, taking that
+        // would rewrite line 2 as well.
+        const joined = formatRange('<%\nx = a\n+ b\n%>', '<%\nx = a + b\n%>', new vscode.Range(1, 0, 1, 5));
+        assert.strictEqual(joined, '<%\nx = a\n+ b\n%>');
+        assert.strictEqual(formatRange('<%\nx = a\n+ b\n%>', '<%\nx = a + b\n%>', new vscode.Range(1, 0, 2, 3)), '<%\nx = a + b\n%>');
     });
 });
