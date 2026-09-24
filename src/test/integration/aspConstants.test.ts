@@ -107,3 +107,48 @@ suite('Hover explains built-in constants and intrinsic objects (integration)', (
         assert.ok(text.includes('Response.Write') && !text.includes('ASP intrinsic object'), `got ${JSON.stringify(text)}`);
     });
 });
+
+// Parameter hints only knew the page's own functions, and a built-in's completion
+// said no more than "VBScript built-in function" — though hover already had a
+// full doc for most of them.
+suite('Built-in functions show parameter hints and docs (integration)', () => {
+
+    async function signatureAtEndOf(content: string, line: number): Promise<vscode.SignatureHelp | undefined> {
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+        const doc = await vscode.workspace.openTextDocument({ language: 'asp', content });
+        const editor = await vscode.window.showTextDocument(doc);
+        await sleep(300);
+        const position = new vscode.Position(line, editor.document.lineAt(line).text.length);
+        return vscode.commands.executeCommand<vscode.SignatureHelp>(
+            'vscode.executeSignatureHelpProvider', doc.uri, position,
+        );
+    }
+
+    test('a built-in shows its signature, on the argument being typed', async () => {
+        const help = await signatureAtEndOf('<%\nx = Mid(s, \n%>\n', 1);
+        assert.strictEqual(help?.signatures[0]?.label, 'Mid(string, start[, length])');
+        assert.strictEqual(help?.activeParameter, 1);
+        const start = help.signatures[0].parameters[1];
+        assert.deepStrictEqual(start.label, [12, 17]);
+        assert.ok(start.documentation, 'the parameter should say what it is');
+    });
+
+    test('a method of the same name on an object is not the built-in', async () => {
+        const help = await signatureAtEndOf('<%\nx = re.Replace(s, \n%>\n', 1);
+        assert.ok(!help?.signatures.length, `got ${JSON.stringify(help?.signatures[0]?.label)}`);
+    });
+
+    test("the page's own function wins over a built-in of the same name", async () => {
+        const help = await signatureAtEndOf('<%\nFunction Trim(a, b)\nEnd Function\nx = Trim(s, \n%>\n', 3);
+        assert.strictEqual(help?.signatures[0]?.label, 'Function Trim(a, b)');
+    });
+
+    test('the completion shows the signature and the full doc', async () => {
+        const items = await completionsAtEndOf('<%\nx = InS\n%>\n', 1);
+        const instr = items.find(item => labelOf(item) === 'InStr');
+        assert.ok(instr, 'InStr should be offered');
+        assert.strictEqual(instr.detail, 'InStr([start, ]string1, string2[, compare])');
+        const docText = (instr.documentation as vscode.MarkdownString).value;
+        assert.ok(docText.includes('case-insensitive'), `got ${JSON.stringify(docText)}`);
+    });
+});

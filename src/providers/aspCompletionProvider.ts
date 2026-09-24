@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import {
     ASP_OBJECTS, ASP_OBJECT_NAMES, VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS, VBSCRIPT_CONSTANTS,
+    BUILTIN_FUNCTION_DOCS, builtinSignature,
 } from '../constants/aspKeywords';
 import { getTextBeforeCursor, isInsideVbStringOrComment } from '../utils/documentHelper';
 import { areIncludeSymbolsReady, collectAllSymbols, preloadIncludeSymbols } from './includeProvider';
@@ -365,11 +366,13 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
     }
 
     // ── VBScript built-in function completions ────────────────────────────────
+    // The signature and doc are the ones hover and parameter hints show.
     private provideFunctionCompletions(): vscode.CompletionItem[] {
         return VBSCRIPT_FUNCTIONS.map(func => {
+            const doc  = BUILTIN_FUNCTION_DOCS[func.toLowerCase()];
             const item = new vscode.CompletionItem(func, vscode.CompletionItemKind.Function);
-            item.detail       = `VBScript function`;
-            item.documentation = new vscode.MarkdownString(`**${func}()** - VBScript built-in function`);
+            item.detail       = (doc && builtinSignature(doc)?.label) || 'VBScript function';
+            item.documentation = new vscode.MarkdownString(doc ?? `**${func}()** - VBScript built-in function`);
             item.insertText   = new vscode.SnippetString(`${func}($0)`);
             item.preselect    = false;
             item.sortText     = '0_' + func;

@@ -279,6 +279,159 @@ export const VBSCRIPT_FUNCTIONS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Built-in VBScript function docs — hover, completion and signature help
+// ─────────────────────────────────────────────────────────────────────────────
+export const BUILTIN_FUNCTION_DOCS: Record<string, string> = {
+    'abs':             '**Abs(number)** — Returns the absolute value of a number.',
+    'array':           '**Array(arglist)** — Returns a Variant containing an array.\n\n`arglist` — Comma-delimited list of values. If omitted, an empty array is created.',
+    'asc':             '**Asc(string)** — Returns the ANSI character code of the first character in a string.',
+    'ascb':            '**AscB(string)** — Returns the first byte of a string, as a number. For byte data such as `Request.BinaryRead` results; `Asc` is almost always the one to use on text.',
+    'ascw':            '**AscW(string)** — Returns the Unicode character code of the first character in a string. Unlike `Asc`, the result does not depend on the code page the server uses.',
+    'atn':             '**Atn(number)** — Returns the arctangent of a number (in radians).',
+    'cbool':           '**CBool(expression)** — Converts an expression to a Boolean.',
+    'cbyte':           '**CByte(expression)** — Converts an expression to a Byte.',
+    'ccur':            '**CCur(expression)** — Converts an expression to Currency.',
+    'cdate':           '**CDate(expression)** — Converts an expression to a Date.',
+    'cdbl':            '**CDbl(expression)** — Converts an expression to a Double.',
+    'chr':             '**Chr(charcode)** — Returns the character associated with an ANSI character code.',
+    'chrb':            '**ChrB(charcode)** — Returns a one-byte string for the byte value `charcode` (`0`–`255`). For building byte data; `Chr` is the one to use for text.',
+    'chrw':            '**ChrW(charcode)** — Returns the character for a Unicode character code, e.g. `ChrW(8364)` → `€`. Unlike `Chr`, it does not depend on the code page the server uses.',
+    'cint':            '**CInt(expression)** — Converts an expression to an Integer.',
+    'clng':            '**CLng(expression)** — Converts an expression to a Long.',
+    'cos':             '**Cos(number)** — Returns the cosine of an angle (in radians).',
+    'createobject':    '**CreateObject(servername.typename)** — Creates and returns a reference to an Automation object.',
+    'csng':            '**CSng(expression)** — Converts an expression to a Single.',
+    'cstr':            '**CStr(expression)** — Converts an expression to a String.',
+    'date':            '**Date()** — Returns the current system date.',
+    'dateadd':         '**DateAdd(interval, number, date)** — Returns a date with a specified time interval added.\n\n---\n\n| Parameter | Description |\n|---|---|\n| `interval` | `"yyyy"` year · `"q"` quarter · `"m"` month · `"y"` day of year · `"d"` day · `"w"` weekday · `"ww"` week · `"h"` hour · `"n"` minute · `"s"` second |\n| `number` | Intervals to add. Positive = future, negative = past |\n| `date` | The starting date |',
+    'datediff':        '**DateDiff(interval, date1, date2[, firstdayofweek[, firstweekofyear]])** — Returns the number of intervals between two dates.\n\n---\n\n| Parameter | Description |\n|---|---|\n| `interval` | Same values as `DateAdd` |\n| `date1` | The earlier date |\n| `date2` | The later date |\n| `firstdayofweek` | `1` → Sun (default) · `2` → Mon · `3` → Tue · `4` → Wed · `5` → Thu · `6` → Fri · `7` → Sat |\n| `firstweekofyear` | `1` → week with Jan 1 (default) · `2` → first week with 4+ days · `3` → first full week |',
+    'datepart':        '**DatePart(interval, date[, firstdayofweek[, firstweekofyear]])** — Returns the specified part of a given date.\n\n---\n\n| Parameter | Description |\n|---|---|\n| `interval` | Same values as `DateAdd` |\n| `date` | The date to evaluate |\n| `firstdayofweek` | `1` → Sun (default) · `2` → Mon · `3` → Tue · `4` → Wed · `5` → Thu · `6` → Fri · `7` → Sat |\n| `firstweekofyear` | `1` → week with Jan 1 (default) · `2` → first week with 4+ days · `3` → first full week |',
+    'dateserial':      '**DateSerial(year, month, day)** — Returns a Date variant for the specified year, month, and day.\n\n---\n\n| Parameter | Description |\n|---|---|\n| `year` | Four-digit year. Values 0–99 are treated as 1900–1999 |\n| `month` | `1`–`12`. Values outside this range roll over (e.g. `13` = Jan next year) |\n| `day` | `1`–`31`. Values outside this range roll over (e.g. `32` = 1st of next month) |',
+    'datevalue':       '**DateValue(date)** — Returns a Variant of subtype Date.',
+    'day':             '**Day(date)** — Returns a whole number (1–31) representing the day of the month.',
+    'escape':          '**Escape(charString)** — Returns the string with every character outside plain ASCII letters, digits and `@*_+-./` encoded as `%xx`, or `%uxxxx` above 255.\n\nNot the same as `Server.URLEncode`: a space becomes `%20`, not `+`. Decode with `Unescape`.',
+    'eval':            '**Eval(expression)** — Evaluates a string as a VBScript expression and returns the result.\n\nInside `Eval`, `=` compares rather than assigns: `Eval("x = 1")` returns `True` or `False`. To run statements, use `Execute`.\n\n**Security:** never pass it text that came from the request.',
+    'execute':         '**Execute(statement)** — Runs one or more VBScript statements given as a string, separated by `:` or line breaks, in the current scope.\n\n**Security:** never pass it text that came from the request.',
+    'executeglobal':   '**ExecuteGlobal(statement)** — Runs one or more VBScript statements given as a string in the global scope, so a `Function`, `Sub`, `Class` or variable it declares is visible to the whole page.\n\n**Security:** never pass it text that came from the request.',
+    'exp':             '**Exp(number)** — Returns e raised to a power.',
+    'filter':          '**Filter(InputStrings, Value[, Include[, Compare]])** — Returns a zero-based array of matched strings from an array.\n\n---\n\n| Parameter | Description |\n|---|---|\n| `InputStrings` | One-dimensional string array to search |\n| `Value` | The string to search for |\n| `Include` | `True` → return matches · `False` → return non-matches |\n| `Compare` | `0` → case-sensitive · `1` → case-insensitive |',
+    'fix':             '**Fix(number)** — Returns the integer portion of a number (truncates toward zero).',
+    'formatcurrency':  '**FormatCurrency(Expression[, NumDigitsAfterDecimal[, IncludeLeadingDigit[, UseParensForNegativeNumbers[, GroupDigits]]]])** — Returns a value formatted as currency using the system currency symbol.\n\n---\n\n| Parameter | Values |\n|---|---|\n| `NumDigitsAfterDecimal` | `-1` → system default |\n| `IncludeLeadingDigit` | `-1` → `$0.50` · `0` → `$.50` · `-2` → system default |\n| `UseParensForNegativeNumbers` | `-1` → `($1.00)` · `0` → `-$1.00` · `-2` → system default |\n| `GroupDigits` | `-1` → `$1,000.00` · `0` → `$1000.00` · `-2` → system default |',
+    'formatdatetime':  '**FormatDateTime(Date[, NamedFormat])** — Returns an expression formatted as a date or time.\n\n---\n\n| NamedFormat | Output |\n|---|---|\n| `0` → vbGeneralDate (default) | Date and/or time |\n| `1` → vbLongDate | e.g. `Monday, 1 January 2024` |\n| `2` → vbShortDate | e.g. `01/01/2024` |\n| `3` → vbLongTime | e.g. `12:00:00 AM` |\n| `4` → vbShortTime | e.g. `12:00` |',
+    'formatnumber':    '**FormatNumber(Expression[, NumDigitsAfterDecimal[, IncludeLeadingDigit[, UseParensForNegativeNumbers[, GroupDigits]]]])** — Returns an expression formatted as a number.\n\n---\n\n| Parameter | Values |\n|---|---|\n| `NumDigitsAfterDecimal` | `-1` → system default |\n| `IncludeLeadingDigit` | `-1` → `0.5` · `0` → `.5` · `-2` → system default |\n| `UseParensForNegativeNumbers` | `-1` → `(1.00)` · `0` → `-1.00` · `-2` → system default |\n| `GroupDigits` | `-1` → `1,000.00` · `0` → `1000.00` · `-2` → system default |',
+    'formatpercent':   '**FormatPercent(Expression[, NumDigitsAfterDecimal[, IncludeLeadingDigit[, UseParensForNegativeNumbers[, GroupDigits]]]])** — Returns an expression formatted as a percentage (multiplied by 100).\n\n---\n\n| Parameter | Values |\n|---|---|\n| `NumDigitsAfterDecimal` | `-1` → system default |\n| `IncludeLeadingDigit` | `-1` → `0.50%` · `0` → `.50%` · `-2` → system default |\n| `UseParensForNegativeNumbers` | `-1` → `(50.00%)` · `0` → `-50.00%` · `-2` → system default |\n| `GroupDigits` | `-1` → `1,000.00%` · `0` → `1000.00%` · `-2` → system default |',
+    'getlocale':       '**GetLocale()** — Returns the current locale ID (LCID), which decides how dates, numbers and currency are formatted and parsed, e.g. `1033` for en-US. See `SetLocale`, or `Session.LCID` for the ASP way.',
+    'getobject':       '**GetObject([pathname[, class]])** — Returns a reference to an Automation object.\n\n`pathname` — Full path of the file. Omit to use `class` alone.\n\n`class` — Object class e.g. `"Excel.Sheet"`. Required if `pathname` is omitted.',
+    'getref':          '**GetRef(procname)** — Returns a reference to the `Function` or `Sub` named by the string `procname`, to call later or hand on as a callback: `Set f = GetRef("Report") : f("x")`.',
+    'hex':             '**Hex(number)** — Returns a string representing the hexadecimal value of a number.',
+    'hour':            '**Hour(time)** — Returns a whole number (0–23) representing the hour of the day.',
+    'inputbox':        '**InputBox(prompt[, title[, default[, xpos[, ypos]]]])** — Displays a prompt dialog and returns the text entered.\n\n---\n\n| Parameter | Description |\n|---|---|\n| `prompt` | Message shown to the user |\n| `title` | Title bar text (defaults to app name) |\n| `default` | Pre-filled value. Empty if omitted |\n| `xpos` | Horizontal position in twips from screen left |\n| `ypos` | Vertical position in twips from screen top |',
+    'instr':           '**InStr([start, ]string1, string2[, compare])** — Returns the position of the first occurrence of `string2` in `string1`, or `0` if not found.\n\n`start` — Search start position (default `1`). Required if `compare` is specified.\n\n`compare` — `0` → case-sensitive · `1` → case-insensitive',
+    'instrb':          '**InStrB([start, ]string1, string2[, compare])** — Like `InStr`, but returns the BYTE position of `string2` in `string1` — for byte data. `start` is a byte position too.',
+    'instrrev':        '**InStrRev(string1, string2[, start[, compare]])** — Returns the position of the last occurrence of `string2` in `string1`, or `0` if not found.\n\n`start` — Start position counting from left. `-1` (default) = from last character.\n\n`compare` — `0` → case-sensitive · `1` → case-insensitive',
+    'int':             '**Int(number)** — Returns the integer portion of a number (rounds down).',
+    'isarray':         '**IsArray(varname)** — Returns True if the variable is an array.',
+    'isdate':          '**IsDate(expression)** — Returns True if the expression can be converted to a date.',
+    'isempty':         '**IsEmpty(expression)** — Returns True if the variable is uninitialized.',
+    'isnull':          '**IsNull(expression)** — Returns True if the expression is Null.',
+    'isnumeric':       '**IsNumeric(expression)** — Returns True if the expression can be evaluated as a number.',
+    'isobject':        '**IsObject(expression)** — Returns True if the expression references a valid object.',
+    'join':            '**Join(list[, delimiter])** — Returns a string by joining elements of an array.\n\n`delimiter` — Separator between elements. Default is a single space. Use `""` for no separator.',
+    'lbound':          '**LBound(arrayname[, dimension])** — Returns the smallest subscript for the given array dimension.\n\n`dimension` — `1` (default) = first dimension, `2` = second, etc.',
+    'lcase':           '**LCase(string)** — Returns a string converted to lowercase.',
+    'left':            '**Left(string, length)** — Returns a specified number of characters from the left of a string.',
+    'leftb':           '**LeftB(string, length)** — Like `Left`, but `length` counts bytes, not characters — for byte data.',
+    'len':             '**Len(string | varname)** — Returns the number of characters in a string, or bytes needed to store a variable.',
+    'lenb':            '**LenB(string)** — Returns the number of bytes in a string, rather than characters. A VBScript string is UTF-16, so this is usually twice `Len`.',
+    'loadpicture':     '**LoadPicture(picturename)** — Returns a picture object loaded from a file.\n\nOnly works in client-side VBScript; it is not available to an ASP page running on the server.',
+    'log':             '**Log(number)** — Returns the natural logarithm of a number.',
+    'ltrim':           '**LTrim(string)** — Returns a copy of a string without leading spaces.',
+    'mid':             '**Mid(string, start[, length])** — Returns characters from within a string.\n\n`start` — Position of the first character to return (`1` = first).\n\n`length` — Number of characters to return. If omitted, returns from `start` to end.',
+    'midb':            '**MidB(string, start[, length])** — Like `Mid`, but `start` and `length` count bytes, not characters — for byte data.',
+    'minute':          '**Minute(time)** — Returns a whole number (0–59) representing the minute of the hour.',
+    'month':           '**Month(date)** — Returns a whole number (1–12) representing the month of the year.',
+    'monthname':       '**MonthName(month[, abbreviate])** — Returns the name of the specified month.\n\n`abbreviate` — `True` → e.g. `"Jan"` · `False` (default) → e.g. `"January"`',
+    'msgbox':          '**MsgBox(prompt[, buttons[, title]])** — Displays a message dialog and returns the clicked button.\n\n---\n\n| Parameter | Description |\n|---|---|\n| `prompt` | Message shown to the user |\n| `buttons` | `0` → OK · `1` → OK+Cancel · `2` → Abort/Retry/Ignore · `3` → Yes/No/Cancel · `4` → Yes/No · `5` → Retry/Cancel. Add `16` critical · `32` question · `48` warning · `64` info |\n| `title` | Title bar text (defaults to app name) |\n\n**Returns:** `1` → OK · `2` → Cancel · `3` → Abort · `4` → Retry · `5` → Ignore · `6` → Yes · `7` → No',
+    'now':             '**Now()** — Returns the current system date and time.',
+    'oct':             '**Oct(number)** — Returns a string representing the octal value of a number.',
+    'replace':         '**Replace(expression, find, replacewith[, start[, count[, compare]]])** — Returns a string with occurrences of a substring replaced.\n\n---\n\n| Parameter | Description |\n|---|---|\n| `expression` | The source string |\n| `find` | Substring to search for |\n| `replacewith` | Substring to replace with |\n| `start` | Position to begin searching (default `1`). Note: result string always starts at this position |\n| `count` | Max replacements. `-1` (default) = replace all |\n| `compare` | `0` → case-sensitive · `1` → case-insensitive |',
+    'rgb':             '**RGB(red, green, blue)** — Returns a whole number representing an RGB colour value.',
+    'right':           '**Right(string, length)** — Returns a specified number of characters from the right of a string.',
+    'rightb':          '**RightB(string, length)** — Like `Right`, but `length` counts bytes, not characters — for byte data.',
+    'rnd':             '**Rnd([number])** — Returns a random Single between 0 and 1. Call `Randomize` first for a different sequence each run.\n\n`number` — `< 0` → same number for same seed · `> 0` or omitted → next in sequence · `= 0` → most recently generated number',
+    'round':           '**Round(expression[, numdecimalplaces])** — Returns a number rounded to a specified number of decimal places. Uses banker\'s rounding (rounds to even) on `.5`.\n\n`numdecimalplaces` — Decimal places to keep. `0` (default) = round to whole number.',
+    'rtrim':           '**RTrim(string)** — Returns a copy of a string without trailing spaces.',
+    'scriptengine':    '**ScriptEngine()** — Returns the name of the scripting language in use: `"VBScript"`.',
+    'scriptenginebuildversion':'**ScriptEngineBuildVersion()** — Returns the build number of the VBScript engine in use.',
+    'scriptenginemajorversion':'**ScriptEngineMajorVersion()** — Returns the major version of the VBScript engine in use, e.g. `5`.',
+    'scriptengineminorversion':'**ScriptEngineMinorVersion()** — Returns the minor version of the VBScript engine in use, e.g. `8`.',
+    'second':          '**Second(time)** — Returns a whole number (0–59) representing the second of the minute.',
+    'setlocale':       '**SetLocale(lcid)** — Sets the locale that decides how dates, numbers and currency are formatted and parsed, and returns the one it replaced.\n\n`lcid` — A locale ID such as `2057` (en-GB) or `1033` (en-US), or a tag like `"en-gb"`.\n\nIn ASP, `Session.LCID` does the same for the whole session.',
+    'sgn':             '**Sgn(number)** — Returns an integer indicating the sign of a number.',
+    'sin':             '**Sin(number)** — Returns the sine of an angle (in radians).',
+    'space':           '**Space(number)** — Returns a string of the specified number of spaces.',
+    'split':           '**Split(expression[, delimiter[, count[, compare]]])** — Returns a zero-based array of substrings split from a string.\n\n`delimiter` — Split separator. Default is a single space.\n\n`count` — Max substrings to return. `-1` (default) = all.\n\n`compare` — `0` → case-sensitive · `1` → case-insensitive',
+    'sqr':             '**Sqr(number)** — Returns the square root of a number.',
+    'strcomp':         '**StrComp(string1, string2[, compare])** — Returns a value indicating the result of a string comparison.\n\n`compare` — `0` → case-sensitive · `1` → case-insensitive\n\n**Returns:** `-1` → string1 < string2 · `0` → equal · `1` → string1 > string2 · `Null` → either string is Null',
+    'string':          '**String(number, character)** — Returns a character repeated a specified number of times.\n\n`character` — A character code (e.g. `42`) or string — only the first character is used.',
+    'strreverse':      '**StrReverse(string)** — Returns the reverse of a string.',
+    'tan':             '**Tan(number)** — Returns the tangent of an angle (in radians).',
+    'time':            '**Time()** — Returns the current system time.',
+    'timer':           '**Timer()** — Returns the number of seconds elapsed since midnight.',
+    'timeserial':      '**TimeSerial(hour, minute, second)** — Returns a Date variant for the specified time.\n\n`hour` · `minute` · `second` — Values outside their normal range roll over (e.g. hour `24` = midnight next day).',
+    'timevalue':       '**TimeValue(time)** — Returns a Variant of subtype Date containing the time.',
+    'trim':            '**Trim(string)** — Returns a copy of a string without leading or trailing spaces.',
+    'typename':        '**TypeName(varname)** — Returns a string describing the subtype of a variable.',
+    'ubound':          '**UBound(arrayname[, dimension])** — Returns the largest subscript for the given array dimension.\n\n`dimension` — `1` (default) = first dimension, `2` = second, etc.',
+    'ucase':           '**UCase(string)** — Returns a string converted to uppercase.',
+    'unescape':        '**Unescape(charString)** — Decodes a string encoded with `Escape`, turning `%xx` and `%uxxxx` back into characters.',
+    'vartype':         '**VarType(varname)** — Returns a value indicating the subtype of a variable.',
+    'weekday':         '**Weekday(date[, firstdayofweek])** — Returns a whole number representing the day of the week.\n\n`firstdayofweek` — `1` → Sun (default) · `2` → Mon · `3` → Tue · `4` → Wed · `5` → Thu · `6` → Fri · `7` → Sat\n\n**Returns:** `1`–`7` depending on the `firstdayofweek` setting.',
+    'weekdayname':     '**WeekdayName(weekday[, abbreviate[, firstdayofweek]])** — Returns the name of the specified day of the week.\n\n`abbreviate` — `True` → e.g. `"Mon"` · `False` (default) → e.g. `"Monday"`\n\n`firstdayofweek` — `1` → Sun (default) · `2` → Mon · through `7` → Sat',
+    'year':            '**Year(date)** — Returns a whole number representing the year.',
+};
+
+export interface BuiltinSignature {
+    /** `Mid(string, start[, length])` */
+    label: string;
+    /** Each parameter's name, where it sits in `label`, and its line of the doc if it has one. */
+    parameters: { name: string; range: [number, number]; doc?: string }[];
+    /** The doc after its bold heading. */
+    documentation: string;
+}
+
+/**
+ * A built-in function's signature, read from the bold heading its doc opens
+ * with — `**Mid(string, start[, length])** — …` — so each function is written
+ * up once, for hover, completion and parameter hints alike.
+ */
+export function builtinSignature(doc: string): BuiltinSignature | undefined {
+    const heading = /^\*\*([A-Za-z]\w*)\(([^)]*)\)\*\*\s*(?:—\s*)?/.exec(doc);
+    if (!heading) { return undefined; }
+
+    const label = `${heading[1]}(${heading[2]})`;
+    const documentation = doc.slice(heading[0].length);
+    const parameters: BuiltinSignature['parameters'] = [];
+
+    let searchFrom = heading[1].length + 1;
+    for (const piece of heading[2].split(',')) {
+        // `[start, ]string1` and `string2[, compare]` — the brackets only mark
+        // what is optional.
+        const name = piece.replace(/[[\]]/g, '').trim();
+        if (!name) { continue; }
+        const start = label.indexOf(name, searchFrom);
+        searchFrom  = start + name.length;
+
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const described = new RegExp('\\| `' + escaped + '` \\| ([^|\\n]+) \\|').exec(documentation)
+            ?? new RegExp('(?:^|\\n)`' + escaped + '` — ([^\\n]+)').exec(documentation);
+        parameters.push({ name, range: [start, start + name.length], doc: described?.[1].trim() });
+    }
+
+    return { label, parameters, documentation };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // VBScript's built-in constants.
 //
 // The grammar already colours these; this list is what makes them completable.

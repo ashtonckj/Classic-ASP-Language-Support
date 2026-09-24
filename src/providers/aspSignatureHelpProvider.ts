@@ -2,7 +2,8 @@
  * aspSignatureHelpProvider.ts
  *
  * Provides parameter hints (signature help) for user-defined VBScript
- * functions and subs when the user types `(` or `,` after a known function name.
+ * functions and subs, and for VBScript's built-in functions (Mid, InStr,
+ * Replace, …), when the user types `(` or `,` after a known function name.
  *
  * Shows the function signature and highlights the current parameter based on
  * how many commas appear before the cursor inside the argument list.
@@ -12,6 +13,23 @@ import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
 import { getZone } from '../utils/zoneUtils';
 import { aspCodeStartOnLine } from '../utils/documentHelper';
+import { BUILTIN_FUNCTION_DOCS, BuiltinSignature, builtinSignature } from '../constants/aspKeywords';
+
+/** Parameter hints for a built-in function, from its doc. */
+function builtinHelp(builtin: BuiltinSignature, activeParam: number): vscode.SignatureHelp {
+    const signature = new vscode.SignatureInformation(builtin.label, new vscode.MarkdownString(builtin.documentation));
+    signature.parameters = builtin.parameters.map(parameter =>
+        new vscode.ParameterInformation(
+            parameter.range,
+            parameter.doc ? new vscode.MarkdownString(parameter.doc) : undefined,
+        ));
+
+    const help           = new vscode.SignatureHelp();
+    help.signatures      = [signature];
+    help.activeSignature = 0;
+    help.activeParameter = Math.min(activeParam, Math.max(0, builtin.parameters.length - 1));
+    return help;
+}
 
 /**
  * Given the text before the cursor, find the call the cursor is inside and which
@@ -83,7 +101,15 @@ export class AspSignatureHelpProvider implements vscode.SignatureHelpProvider {
         const symbols  = collectAllSymbols(document);
 
         const fn = symbols.functions.find(f => f.name.toLowerCase() === funcName);
-        if (!fn) { return null; }
+        if (!fn) {
+            // A built-in, unless the page defines its own of that name. After a
+            // dot it is a member of something else — `re.Replace(` on a RegExp
+            // is not VBScript's Replace.
+            const afterDot = /\.\s*\w+\s*$/.test(beforeParen);
+            const doc      = afterDot ? undefined : BUILTIN_FUNCTION_DOCS[funcName];
+            const builtin  = doc ? builtinSignature(doc) : undefined;
+            return builtin ? builtinHelp(builtin, activeParam) : null;
+        }
 
         // Build the signature label  e.g.  "MyFunc(name, value, flag)"
         const paramNames  = fn.paramNames.length > 0 ? fn.paramNames : [];
