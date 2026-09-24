@@ -547,6 +547,13 @@ function leadingBlanks(line: string): string {
     return line.slice(0, i);
 }
 
+/** How many spaces and tabs `line` ends with. */
+function trailingBlankCount(line: string): number {
+    let i = line.length;
+    while (i > 0 && isBlank(line[i - 1])) { i--; }
+    return line.length - i;
+}
+
 /**
  * Where each needle first occurs in `text`, -1 when it does not. The needles
  * are placeholders, which come back from Prettier in the order they went in,
@@ -1090,6 +1097,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
                 // Every restore below replaces the spaces and tabs in front of
                 // the placeholder along with it.
+                const blanksBefore = textBeforeOnLine.slice(textBeforeOnLine.length - trailingBlankCount(textBeforeOnLine));
                 restored.dropEndWhile(isBlank);
 
                 if (isInlinePlacedHere && !aspSettings.aspTagsOnSameLine) {
@@ -1171,6 +1179,16 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                             : blockTagIndents[i] + line;
                     })
                     .join('\n');
+
+                // After other content — where aspTagsOnSameLine leaves it — the
+                // block stays where Prettier put it, with the space it had in
+                // front. The group's tag column belongs at the start of a line:
+                // mid-line it was a run of spaces, which the next format broke
+                // the line at.
+                if (hasContentBefore && !isInsideQuote) {
+                    restored.push(blanksBefore + indentedBlock.slice(leadingBlanks(indentedBlock).length));
+                    break;
+                }
 
                 restored.push(indentedBlock);
                 break;

@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import * as vscode from 'vscode';
 import { formatCompleteAspFile, insertImpliedTableEndTags } from '../../formatter/htmlFormatter';
 
 // Classic ASP tables routinely omit the optional </td> </tr> … end tags. Prettier
@@ -450,5 +451,30 @@ describe('formatCompleteAspFile — elements on separate lines stay apart', () =
             + '  <a href="delete.asp?confirm=yes&amp;return=list">Delete</a\n'
             + '  ><span class="sep">|</span>\n'
             + '</div>\n');
+    });
+});
+
+// With aspTagsOnSameLine a block after other content stays on that line, but
+// the indent a line starts with was pasted in front of it, so two blocks on
+// one line came out with a run of spaces between them — which the next format
+// broke the line at.
+describe('formatCompleteAspFile — aspTagsOnSameLine leaves a block where it is', () => {
+    const realGetConfiguration = vscode.workspace.getConfiguration;
+
+    before(() => {
+        (vscode.workspace as { getConfiguration: unknown }).getConfiguration = () => ({
+            get: (key: string, defaultValue?: unknown) => (key === 'aspTagsOnSameLine' ? true : defaultValue),
+        });
+    });
+
+    after(() => {
+        (vscode.workspace as { getConfiguration: unknown }).getConfiguration = realGetConfiguration;
+    });
+
+    it('keeps two blocks on one line together, and settles', async () => {
+        const once = await formatCompleteAspFile(
+            '<div>\n<% Select Case mode %><% Case 1 %>\n<p>one</p>\n<% End Select %>\n</div>\n');
+        assert.ok(once.includes('\n  <% Select Case mode %><% Case 1 %>\n'), `got:\n${once}`);
+        assert.strictEqual(await formatCompleteAspFile(once), once);
     });
 });
