@@ -165,6 +165,31 @@ describe('embedded JS analysis — request handling', () => {
         assert.strictEqual(x, y, 'both callers should get the one result');
     });
 
+    // The squiggles ask 750 ms after an edit. On a page the worker gets through
+    // faster than that, the colouring was already answered for the same text,
+    // and the page was type-checked a second time.
+    it('answers text it has just answered without analysing it again', async function () {
+        this.timeout(30000);
+
+        const text = '<script>var again = 1; again.toFixed();</script>';
+        const first  = await analyseEmbeddedJs('again.asp', text);
+        const second = await analyseEmbeddedJs('again.asp', text);
+
+        assert.ok(first);
+        assert.strictEqual(second, first, 'the remembered answer should be given, not a fresh analysis');
+    });
+
+    it('still analyses text that has changed since', async function () {
+        this.timeout(30000);
+
+        const first  = await analyseEmbeddedJs('changed.asp', '<script>var before = 1;</script>');
+        const second = await analyseEmbeddedJs('changed.asp', '<script>var after = 2;</script>');
+
+        assert.ok(first && second);
+        assert.notStrictEqual(second, first);
+        assert.notDeepStrictEqual(second.spans, first.spans);
+    });
+
     // Both callers are decoration paths. A failure has to cost one refresh of
     // the colours or the squiggles, never surface as an extension error.
     it('never rejects', async function () {
