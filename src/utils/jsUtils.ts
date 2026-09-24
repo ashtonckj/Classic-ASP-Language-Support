@@ -72,7 +72,7 @@
  */
 
 import * as path from 'path';
-import * as ts from 'typescript';
+import type * as ts from 'typescript';
 import { getJsBlockRanges } from './zoneUtils';
 import { ASP_DOM_TYPES } from './aspDomTypes.generated';
 
@@ -506,9 +506,18 @@ export function buildVirtualJsContent(content: string, offset: number): VirtualJ
 // ─────────────────────────────────────────────────────────────────────────────
 // Compiler options
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * TypeScript itself, loaded when the first JavaScript feature needs it rather
+ * than when this module is: it is by far the largest thing the extension
+ * carries (~190 ms to load), and a page with no <script> never needs it.
+ */
+function typescript(): typeof ts {
+    return require('typescript') as typeof ts;
+}
+
 function makeBrowserCompilerOptions(): ts.CompilerOptions {
     return {
-        target:  ts.ScriptTarget.ES2020,
+        target:  typescript().ScriptTarget.ES2020,
         lib:     ['lib.es2020.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts'],
         allowJs: true,
         checkJs: true,
@@ -593,6 +602,7 @@ export class JsLanguageService {
     private readonly _aspDomTypes:     string;
 
     constructor() {
+        const ts = typescript();
         this._compilerOptions = makeBrowserCompilerOptions();
         const libDir = path.dirname(ts.getDefaultLibFilePath(this._compilerOptions));
 
@@ -760,10 +770,10 @@ export class JsLanguageService {
         try {
             return this._service.getEncodedSemanticClassifications(
                 VIRTUAL_FILENAME, { start, length },
-                ts.SemanticClassificationFormat.TwentyTwenty
+                typescript().SemanticClassificationFormat.TwentyTwenty
             );
         } catch {
-            return { spans: [], endOfLineState: ts.EndOfLineState.None };
+            return { spans: [], endOfLineState: typescript().EndOfLineState.None };
         }
     }
 
