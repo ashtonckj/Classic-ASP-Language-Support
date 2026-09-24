@@ -31,9 +31,11 @@ export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
 
         const fullText = document.getText();
         const offset  = document.offsetAt(position);
-        const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset);
-
+        // Checked first: the projection is a copy of the whole page, and most
+        // requests come from outside a <script> block.
         if (getZone(fullText, offset) !== 'js') { return undefined; }
+
+        const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset);
         if (!isInScript || token.isCancellationRequested) { return undefined; }
 
         const svc = getJsLanguageService();
