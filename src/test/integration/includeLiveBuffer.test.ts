@@ -154,3 +154,30 @@ suite('Include symbols follow changes made on disk (integration)', () => {
         );
     });
 });
+
+// Symbols are memoised per document version. Keyed by URI, a page opened after
+// another was closed could reuse its entry: a new Untitled-1 takes the closed
+// one's name, and both start at version 1.
+suite("A new page does not inherit a closed page's symbols (integration)", () => {
+
+    async function labelsInNewPage(content: string, line: number): Promise<string[]> {
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+        const doc = await vscode.workspace.openTextDocument({ language: 'asp', content });
+        const editor = await vscode.window.showTextDocument(doc);
+        await sleep(300);
+        const position = new vscode.Position(line, editor.document.lineAt(line).text.length);
+        const list = await vscode.commands.executeCommand<vscode.CompletionList>(
+            'vscode.executeCompletionItemProvider', doc.uri, position,
+        );
+        return (list?.items ?? []).map(item => typeof item.label === 'string' ? item.label : item.label.label);
+    }
+
+    test('completion in the new page offers only its own functions', async () => {
+        const before = await labelsInNewPage('<%\nFunction ClosedPageOnly(a)\nEnd Function\nx = Clo\n%>\n', 3);
+        assert.ok(before.includes('ClosedPageOnly'), 'the first page should see its own function');
+
+        const after = await labelsInNewPage('<%\nFunction OpenPageOnly(a)\nEnd Function\nx = Op\n%>\n', 3);
+        assert.ok(after.includes('OpenPageOnly'), `the new page should see its own function; got ${JSON.stringify(after.slice(0, 25))}`);
+        assert.ok(!after.includes('ClosedPageOnly'), "the closed page's function must not be offered");
+    });
+});

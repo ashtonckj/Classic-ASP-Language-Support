@@ -331,16 +331,21 @@ function appendCachedIncludeSymbols(target: FileSymbols, fsPath: string, visited
  * pure waste.
  *
  * Callers treat the result as read-only; nothing mutates the returned arrays.
+ *
+ * Keyed by the document itself, not its URI: a file closed and opened again, or
+ * a new Untitled-1 after the last one was closed, starts over at version 1, and
+ * a URI key handed it the closed document's symbols. A closed document's entry
+ * goes when the document does.
  */
-const _combinedSymbolMemo = new Map<string, { version: number; epoch: number; symbols: FileSymbols }>();
+type SymbolMemo = WeakMap<vscode.TextDocument, { version: number; epoch: number; symbols: FileSymbols }>;
+const _combinedSymbolMemo: SymbolMemo = new WeakMap();
 
 export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
     if (!areIncludeSymbolsReady(document)) {
         void preloadIncludeSymbols(document);
     }
 
-    const memoKey = document.uri.toString();
-    const memo = _combinedSymbolMemo.get(memoKey);
+    const memo = _combinedSymbolMemo.get(document);
     if (memo && memo.version === document.version && memo.epoch === _includeSymbolEpoch) {
         return memo.symbols;
     }
@@ -352,12 +357,11 @@ export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
         appendCachedIncludeSymbols(combined, includePath, visited);
     }
 
-    _combinedSymbolMemo.set(memoKey, {
+    _combinedSymbolMemo.set(document, {
         version: document.version,
         epoch:   _includeSymbolEpoch,
         symbols: combined,
     });
-    evictClosedDocuments();
     return combined;
 }
 
@@ -372,15 +376,14 @@ export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
  * document or an include changes — which is how the colouring knows it can reuse
  * its last answer.
  */
-const _includeOnlyMemo = new Map<string, { version: number; epoch: number; symbols: FileSymbols }>();
+const _includeOnlyMemo: SymbolMemo = new WeakMap();
 
 export function collectIncludeSymbols(document: vscode.TextDocument): FileSymbols {
     if (!areIncludeSymbolsReady(document)) {
         void preloadIncludeSymbols(document);
     }
 
-    const memoKey = document.uri.toString();
-    const memo = _includeOnlyMemo.get(memoKey);
+    const memo = _includeOnlyMemo.get(document);
     if (memo && memo.version === document.version && memo.epoch === _includeSymbolEpoch) {
         return memo.symbols;
     }
@@ -391,28 +394,10 @@ export function collectIncludeSymbols(document: vscode.TextDocument): FileSymbol
         appendCachedIncludeSymbols(symbols, includePath, visited);
     }
 
-    _includeOnlyMemo.set(memoKey, { version: document.version, epoch: _includeSymbolEpoch, symbols });
-    evictClosedDocuments();
+    _includeOnlyMemo.set(document, { version: document.version, epoch: _includeSymbolEpoch, symbols });
     return symbols;
 }
 
-/**
- * Drops memo entries for documents that are no longer open, so a long session
- * that visits hundreds of files does not hold every one of their symbol sets.
- * Only runs when there are more entries than open documents, which is only
- * just after something was closed.
- */
-function evictClosedDocuments(): void {
-    const openCount = vscode.workspace.textDocuments.length;
-    if (_combinedSymbolMemo.size <= openCount && _includeOnlyMemo.size <= openCount) { return; }
-
-    const open = new Set(vscode.workspace.textDocuments.map(doc => doc.uri.toString()));
-    for (const memo of [_combinedSymbolMemo, _includeOnlyMemo]) {
-        for (const key of memo.keys()) {
-            if (!open.has(key)) { memo.delete(key); }
-        }
-    }
-}
 
 /**
  * Forgets one file's include symbols, because it was saved or changed on disk.
