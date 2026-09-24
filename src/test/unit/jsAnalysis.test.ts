@@ -3,7 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as ts from 'typescript';
 import { analyseEmbeddedJs, disposeJsAnalysisWorker } from '../../utils/jsAnalysisClient';
-import { buildVirtualJsContent, getJsLanguageService, getJsRanges } from '../../utils/jsUtils';
+import { buildVirtualJsContent, getJsLanguageService } from '../../utils/jsUtils';
+import { getJsBlockRanges } from '../../utils/zoneUtils';
 
 // The two always-on JavaScript features — type-aware colouring and the error
 // squiggles — are computed on a worker thread instead of the extension host,
@@ -27,7 +28,7 @@ interface Analysis {
 
 /** What the extension host itself would produce, with no worker involved. */
 function inProcess(text: string): Analysis {
-    const jsRanges = getJsRanges(text);
+    const jsRanges = getJsBlockRanges(text);
     if (jsRanges.length === 0) { return { jsRanges: [], preambleLength: 0, spans: [], diagnostics: [] }; }
 
     const { virtualContent, preambleLength } = buildVirtualJsContent(text, 0);

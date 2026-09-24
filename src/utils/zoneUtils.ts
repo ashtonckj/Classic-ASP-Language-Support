@@ -245,11 +245,6 @@ interface JsBlockInfo {
  *   • a quoted attribute value `"…"` / `'…'` — the `>` in `title="a > b"` is
  *     literal attribute text.
  * Returns -1 if no terminator is found (e.g. an unterminated ASP block).
- *
- * NOTE: this mirrors findTagClose() in jsUtils.ts, which the JS zone path
- * already uses. The CSS/zone path historically used a naive indexOf('>') and so
- * mis-detected these cases; both should ultimately share this one implementation
- * (plan Module 1).
  */
 export function findTagEnd(text: string, from: number): number {
     let i = from;

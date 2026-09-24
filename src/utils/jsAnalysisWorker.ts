@@ -23,7 +23,8 @@
 
 import { parentPort } from 'node:worker_threads';
 import * as ts from 'typescript';
-import { buildVirtualJsContent, getJsLanguageService, getJsRanges } from './jsUtils';
+import { buildVirtualJsContent, getJsLanguageService } from './jsUtils';
+import { getJsBlockRanges } from './zoneUtils';
 
 export interface JsAnalysisRequest {
     id:   number;
@@ -55,7 +56,7 @@ function analyse(request: JsAnalysisRequest): JsAnalysisResult {
         id: request.id, jsRanges: [], preambleLength: 0, spans: [], diagnostics: [],
     };
 
-    const jsRanges = getJsRanges(request.text);
+    const jsRanges = getJsBlockRanges(request.text);
     if (jsRanges.length === 0) { return empty; }
 
     const { virtualContent, preambleLength } = buildVirtualJsContent(request.text, 0);

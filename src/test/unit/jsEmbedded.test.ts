@@ -1,5 +1,9 @@
 import * as assert from 'assert';
-import { substituteAspBlock, cutAtStatementColon } from '../../utils/jsUtils';
+import {
+    buildVirtualJsContent, cutAtStatementColon, disposeJsLanguageService,
+    getJsLanguageService, substituteAspBlock,
+} from '../../utils/jsUtils';
+import { getJsBlockRanges } from '../../utils/zoneUtils';
 import { SUPPRESSED_CODES } from '../../providers/jsDiagnosticsProvider';
 
 // A Const value must keep a colon that lives inside a string (e.g. a URL) so it
@@ -46,4 +50,42 @@ describe('SUPPRESSED_CODES — real logic errors are not suppressed', () => {
             assert.ok(SUPPRESSED_CODES.has(code), `${code} should stay suppressed`);
         }
     });
+});
+
+// A <script> is raw text: the first `</script>` closes it, whatever the JS in
+// front of it looks like. The projection used to skip `//` as a line comment,
+// so a `//` inside a URL string made a one-line block such as
+// <script>location.href = "http://x";</script> miss its own close, and the
+// markup after it was type-checked as JavaScript — JSX errors on plain HTML.
+describe('a <script> block ends at its first </script>', () => {
+    after(() => { disposeJsLanguageService(); });
+
+    const markup = '\n<div class="box">Welcome back, <%= userName %></div>\n<p>Your total is below.</p>\n';
+
+    const cases: Record<string, string> = {
+        'a URL inside a string': '<script>location.href = "http://example.com/login.asp";</script>',
+        'a // comment':          '<script>init(); // loads the grid</script>',
+        'a /* */ comment':       '<script>init(); /* loads the grid */</script>',
+    };
+
+    for (const [name, script] of Object.entries(cases)) {
+        it(`after a one-line block containing ${name}`, () => {
+            const text = script + markup + '<script>var later = 1;</script>';
+
+            const [first] = getJsBlockRanges(text);
+            assert.strictEqual(first.end, text.indexOf('</script>'), 'the block closes on its own line');
+
+            const { virtualContent, preambleLength } = buildVirtualJsContent(text, 0);
+            const svc = getJsLanguageService();
+            svc.updateContent(virtualContent);
+
+            const markupStart = script.length;
+            const markupEnd   = script.length + markup.length;
+            const onMarkup = [...svc.getSyntacticDiagnostics(), ...svc.getSemanticDiagnostics()]
+                .filter(d => d.start !== undefined
+                    && d.start - preambleLength >= markupStart
+                    && d.start - preambleLength < markupEnd);
+            assert.deepStrictEqual(onMarkup.map(d => d.code), [], 'no JS diagnostics on the HTML');
+        });
+    }
 });

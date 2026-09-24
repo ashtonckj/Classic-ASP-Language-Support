@@ -4,8 +4,8 @@ import {
     buildVirtualJsContent,
     disposeJsLanguageService,
     getJsLanguageService,
-    getJsRanges,
 } from '../../utils/jsUtils';
+import { getJsBlockRanges } from '../../utils/zoneUtils';
 import { SUPPRESSED_CODES } from '../../providers/jsDiagnosticsProvider';
 
 // Classic ASP pages were written for Internet Explorer, but TypeScript's DOM
@@ -21,7 +21,7 @@ import { SUPPRESSED_CODES } from '../../providers/jsDiagnosticsProvider';
 /** The error codes the extension would actually show for one <script> body. */
 function shownCodes(scriptBody: string): number[] {
     const fullText = `<script>\n${scriptBody}\n</script>\n`;
-    const jsRanges = getJsRanges(fullText);
+    const jsRanges = getJsBlockRanges(fullText);
     if (jsRanges.length === 0) { return []; }
 
     const { virtualContent, preambleLength } = buildVirtualJsContent(fullText, 0);
