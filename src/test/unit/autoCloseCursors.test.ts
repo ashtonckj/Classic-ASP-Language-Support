@@ -2,8 +2,11 @@ import * as assert from 'assert';
 import {
     typedCharPositions,
     caretsAfterInserts,
+    insertedPairPositions,
+    shiftQuotePositions,
     type AutoInsertSite,
 } from '../../providers/aspIndentProvider';
+import * as vscode from 'vscode';
 
 // Auto-close used to read only contentChanges[0] and then assign a single
 // editor.selection, so typing `<div>` at three cursors closed one tag and
@@ -156,5 +159,57 @@ describe('caretsAfterInserts', () => {
             caretsAfterInserts([site(2, 4, '</table>'), site(2, 30, '</td>')]),
             [{ line: 2, character: 4 }, { line: 2, character: 38 }],
         );
+    });
+});
+
+// The VBScript quote guard sees VS Code's auto-closed `''` as change ranges in
+// PRE-edit coordinates, and has to find the closing quote after the edit —
+// and keep finding it while further edits land before it is removed.
+describe('insertedPairPositions', () => {
+    it('leaves a single pair where it was typed', () => {
+        assert.deepStrictEqual(insertedPairPositions([{ line: 3, character: 8 }]), [{ line: 3, character: 8 }]);
+    });
+
+    it('moves later pairs on the same line two columns per earlier pair', () => {
+        assert.deepStrictEqual(
+            insertedPairPositions([{ line: 1, character: 20 }, { line: 1, character: 4 }, { line: 2, character: 4 }]),
+            [{ line: 1, character: 4 }, { line: 1, character: 22 }, { line: 2, character: 4 }],
+        );
+    });
+});
+
+describe('shiftQuotePositions', () => {
+    const change = (line: number, from: number, to: number, text: string) => ({
+        range: new vscode.Range(new vscode.Position(line, from), new vscode.Position(line, to)),
+        text,
+    });
+
+    it('moves a quote right when text is typed before it', () => {
+        assert.deepStrictEqual(
+            shiftQuotePositions([{ line: 0, character: 9 }], [change(0, 9, 9, 'n')]),
+            [{ line: 0, character: 10 }],
+        );
+    });
+
+    it('leaves a quote alone when the edit is after it or on another line', () => {
+        const at = [{ line: 0, character: 9 }];
+        assert.deepStrictEqual(shiftQuotePositions(at, [change(0, 12, 12, 'x')]), at);
+        assert.deepStrictEqual(shiftQuotePositions(at, [change(1, 0, 0, 'x')]), at);
+    });
+
+    it('moves a quote left when text before it is deleted', () => {
+        assert.deepStrictEqual(
+            shiftQuotePositions([{ line: 0, character: 9 }], [change(0, 2, 5, '')]),
+            [{ line: 0, character: 6 }],
+        );
+    });
+
+    it('drops a quote the edit itself deletes', () => {
+        assert.deepStrictEqual(shiftQuotePositions([{ line: 0, character: 9 }], [change(0, 9, 10, '')]), []);
+    });
+
+    it('drops a quote when an edit adds or removes lines above or at it', () => {
+        const newline = { range: new vscode.Range(new vscode.Position(0, 3), new vscode.Position(0, 3)), text: '\n' };
+        assert.deepStrictEqual(shiftQuotePositions([{ line: 0, character: 9 }], [newline]), []);
     });
 });
