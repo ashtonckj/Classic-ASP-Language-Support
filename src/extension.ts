@@ -27,7 +27,7 @@ import { IncludeDocumentLinkProvider, HtmlAttributeLinkProvider, HtmlAttributePa
 // ASP semantic provider must now use COMBINED_SEMANTIC_LEGEND — see note above.
 import { AspSemanticTokensProvider } from './providers/aspSemanticProvider';
 import { AspHoverProvider } from './providers/aspHoverProvider';
-import { AspReferenceProvider, AspRenameProvider } from './providers/aspRenameProvider';
+import { AspReferenceProvider, AspRenameProvider, registerIncludeUpdatesOnRename } from './providers/aspRenameProvider';
 import { addRegionHighlights } from './highlight';
 import { AspDocumentSymbolProvider } from './providers/aspDocumentSymbolProvider';
 import { JsDocumentSymbolProvider } from './providers/jsDocumentSymbolProvider';
@@ -501,6 +501,7 @@ export function activate(context: vscode.ExtensionContext) {
         jsReferenceProvider,
         jsDocumentHighlightProvider,
         renameProvider,
+        registerIncludeUpdatesOnRename(),
         jsRenameProvider,
         documentSymbolProvider,
         jsDocumentSymbolProvider,
