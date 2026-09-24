@@ -284,6 +284,7 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
                         children: entry.children,
                         bufferVersion: openVersions.get(key),
                     });
+                    watchIncludeFolder(entry.filePath);
                 }
                 _includeSymbolEpoch++;
             }
@@ -375,11 +376,48 @@ function evictClosedDocuments(): void {
     }
 }
 
-/** Invalidates all worker-backed include symbols. In-flight stale results are ignored. */
-export function clearIncludeSymbolCache(): void {
+/**
+ * Forgets one file's include symbols, because it was saved or changed on disk.
+ *
+ * Only that file: saving a page used to throw away every include of every open
+ * page, and each of those then went back to the worker to be read and parsed
+ * again. A load already under way may have read the old text, so its results
+ * are ignored and whatever it covered is loaded again when next asked for.
+ */
+export function forgetIncludeFile(fsPath: string): void {
+    const key = fsPath.toLowerCase();
+    if (!_includeSymbolCache.has(key) && _includeLoadPromises.size === 0) { return; }
     _includeCacheGeneration++;
     _includeSymbolEpoch++;
-    _includeSymbolCache.clear();
+    _includeSymbolCache.delete(key);
+}
+
+// The folder of every cached include, watched without recursing into it. A save
+// in the editor is seen by onDidSaveTextDocument, but a change made anywhere
+// else — a git pull, another editor, a deploy script — is not, and the include
+// kept its old symbols until the window was reloaded. Watching these folders,
+// rather than the workspace, also covers includes outside the workspace.
+const _includeFolderWatchers = new Map<string, vscode.FileSystemWatcher>();
+
+function watchIncludeFolder(filePath: string): void {
+    const folder = path.dirname(filePath);
+    const key = folder.toLowerCase();
+    if (_includeFolderWatchers.has(key)) { return; }
+
+    const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(vscode.Uri.file(folder), '*'),
+    );
+    const forget = (uri: vscode.Uri) => forgetIncludeFile(uri.fsPath);
+    watcher.onDidChange(forget);
+    watcher.onDidCreate(forget);
+    watcher.onDidDelete(forget);
+    _includeFolderWatchers.set(key, watcher);
+}
+
+/** Stops watching include folders. Called from deactivate. */
+export function disposeIncludeWatchers(): void {
+    for (const watcher of _includeFolderWatchers.values()) { watcher.dispose(); }
+    _includeFolderWatchers.clear();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

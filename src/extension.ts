@@ -21,11 +21,7 @@ import { JsSignatureHelpProvider } from './providers/jsSignatureHelpProvider';
 import { JsSemanticTokensProvider, COMBINED_SEMANTIC_LEGEND } from './providers/jsSemanticProvider';
 import { registerJsDiagnostics } from './providers/jsDiagnosticsProvider';
 import { disposeJsLanguageService } from './utils/jsUtils';
-import {
-    clearIncludeSymbolCache,
-    IncludePathCompletionProvider,
-    preloadIncludeSymbols,
-} from './providers/includeProvider';
+import { disposeIncludeWatchers, forgetIncludeFile, IncludePathCompletionProvider, preloadIncludeSymbols } from './providers/includeProvider';
 import { AspDefinitionProvider } from './providers/aspDefinitionProvider';
 import { IncludeDocumentLinkProvider, HtmlAttributeLinkProvider, HtmlAttributePathCompletionProvider } from './providers/linkProvider';
 // ASP semantic provider must now use COMBINED_SEMANTIC_LEGEND — see note above.
@@ -310,7 +306,7 @@ export function activate(context: vscode.ExtensionContext) {
     const wsCacheInvalidator = vscode.workspace.onDidSaveTextDocument(doc => {
         if (doc.languageId === 'asp') {
             clearWorkspaceSymbolCache(doc.uri.fsPath);
-            clearIncludeSymbolCache();
+            forgetIncludeFile(doc.uri.fsPath);
         }
     });
 
@@ -497,4 +493,5 @@ export function activate(context: vscode.ExtensionContext) {
 export function deactivate(): void {
     disposeJsLanguageService();
     disposeJsAnalysisWorker();
+    disposeIncludeWatchers();
 }

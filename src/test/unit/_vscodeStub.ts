@@ -18,7 +18,16 @@ export const workspace = {
     workspaceFolders: undefined as { uri: { fsPath: string } }[] | undefined,
     // collectAllSymbols evicts its cache by walking the open documents.
     textDocuments: [] as unknown[],
+    // The include cache watches the folders of the includes it loads.
+    createFileSystemWatcher: () => {
+        const event = () => ({ dispose: () => { /* no-op */ } });
+        return { onDidChange: event, onDidCreate: event, onDidDelete: event, dispose: () => { /* no-op */ } };
+    },
 };
+
+export class RelativePattern {
+    constructor(public readonly base: unknown, public readonly pattern: string) {}
+}
 
 export const window = {
     showInformationMessage: () => Promise.resolve(undefined),
