@@ -629,11 +629,17 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     let countedTo  = 0;
     let pos        = 0;
 
+    // The next HTML comment and ASP block at or after `pos`, each searched for
+    // again only once `pos` has passed it — a page with no comments would
+    // otherwise be searched to its end once per block.
+    let comment = -2;
+    let block   = -2;
+
     while (pos < jsPreMasked.length) {
         // Page text up to the next HTML comment or ASP block goes through as is.
-        const comment = jsPreMasked.indexOf('<!--', pos);
-        const block   = jsPreMasked.indexOf('<%', pos);
-        const next    = comment === -1 ? block : block === -1 ? comment : Math.min(comment, block);
+        if (comment !== -1 && comment < pos) { comment = jsPreMasked.indexOf('<!--', pos); }
+        if (block   !== -1 && block   < pos) { block   = jsPreMasked.indexOf('<%', pos); }
+        const next = comment === -1 ? block : block === -1 ? comment : Math.min(comment, block);
         if (next === -1) { emit(jsPreMasked.slice(pos)); break; }
         emit(jsPreMasked.slice(pos, next));
         pos = next;
