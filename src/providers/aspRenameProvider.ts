@@ -170,6 +170,19 @@ export function declaringFilesFor(sym: FileSymbols, nameLower: string): string[]
 }
 
 /**
+ * True when `nameLower` is declared inside a Class — a member, reached as
+ * `obj.name` from outside. Any other name written after a dot belongs to
+ * something else: `total` is not `obj.total`, and a variable `count` is not a
+ * Dictionary's `dict.Count`.
+ */
+export function isClassMember(sym: FileSymbols, nameLower: string): boolean {
+    const inClass = (filePath: string, line: number) =>
+        sym.classes.some(c => c.filePath === filePath && c.line < line && line <= c.endLine);
+    return [...sym.functions, ...sym.variables, ...sym.constants]
+        .some(s => s.name.toLowerCase() === nameLower && inClass(s.filePath, s.line));
+}
+
+/**
  * A workspace-wide include graph, plus a map back to case-preserved paths.
  *
  * `openPath`/`openText` inject the current (possibly unsaved) buffer so an include
@@ -311,13 +324,14 @@ export class AspRenameProvider implements vscode.RenameProvider {
         // or other files. If the caret is inside a Sub/Function/Property body and
         // the symbol is local to it, restrict the edits to that body in THIS file.
         const symbols    = collectAllSymbols(document);
+        const members    = isClassMember(symbols, oldName.toLowerCase());
         const localScope = computeLocalRenameScope(
             extractSymbols(fullText, docPath),
             position.line,
             oldName.toLowerCase(),
         );
         if (localScope) {
-            for (const { line, character } of findAllOccurrences(fullText, oldName)) {
+            for (const { line, character } of findAllOccurrences(fullText, oldName, { members })) {
                 if (line < localScope.line || line > localScope.endLine) { continue; }
                 edit.replace(
                     document.uri,
@@ -369,7 +383,7 @@ export class AspRenameProvider implements vscode.RenameProvider {
             const isShadowed = (line: number) =>
                 skip.some(body => body.line <= line && line <= body.endLine);
 
-            for (const { line, character } of findAllOccurrences(text, oldName)) {
+            for (const { line, character } of findAllOccurrences(text, oldName, { members })) {
                 if (isShadowed(line)) { continue; }
                 edit.replace(
                     fileUri,
@@ -416,6 +430,7 @@ function reportCrossFileRename(edit: vscode.WorkspaceEdit, oldName: string): voi
 //   - sits inside an ASP block (<% ... %>)
 //   - is not inside a string literal ("...")
 //   - is not part of a VBScript comment (' ...)
+//   - is not a member written after a dot (`obj.total`), unless `members`
 //
 // VBScript is case-insensitive, so matching is case-insensitive.
 // Returns line + character positions (0-based) of every match start.
@@ -425,7 +440,8 @@ function reportCrossFileRename(edit: vscode.WorkspaceEdit, oldName: string): voi
 
 export function findAllOccurrences(
     text: string,
-    name: string
+    name: string,
+    { members = false }: { members?: boolean } = {},
 ): { line: number; character: number }[] {
 
     const results: { line: number; character: number }[] = [];
@@ -448,6 +464,10 @@ export function findAllOccurrences(
 
         // Must be VBScript — a <% %> block or a VBScript <script> body
         if (!vbsMap[offset]) continue;
+
+        // `obj.total` is a member of obj, and `.total` inside a With block
+        // one of the With object — neither is the variable `total`.
+        if (!members && text[offset - 1] === '.') continue;
 
         // Must not be inside a string literal or comment on the same line.
         // The check runs over the WHOLE physical line via isInsideVbStringOrComment,
