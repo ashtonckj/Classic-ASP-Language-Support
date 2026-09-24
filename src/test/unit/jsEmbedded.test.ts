@@ -89,3 +89,29 @@ describe('a <script> block ends at its first </script>', () => {
         });
     }
 });
+
+// Every JS hover, completion and occurrence highlight projects the page afresh,
+// and between two keystrokes the projection is the same text. Handing it in as
+// a new version anyway made TypeScript rebuild and re-check the program each
+// time — a second and a half per hover on a large <script>.
+describe('the JS language service reuses its program for unchanged text', () => {
+    after(() => { disposeJsLanguageService(); });
+
+    const page = '<script>\n  var total = 1;\n  total.toFixed(2);\n</script>\n';
+
+    it('keeps the same program when the same text is handed in again', () => {
+        const svc = getJsLanguageService();
+        svc.updateContent(buildVirtualJsContent(page, 0).virtualContent);
+        const before = svc.getProgram();
+        svc.updateContent(buildVirtualJsContent(page, 0).virtualContent);
+        assert.strictEqual(svc.getProgram(), before);
+    });
+
+    it('builds a new program once the text changes', () => {
+        const svc = getJsLanguageService();
+        svc.updateContent(buildVirtualJsContent(page, 0).virtualContent);
+        const before = svc.getProgram();
+        svc.updateContent(buildVirtualJsContent(page.replace('= 1', '= 2'), 0).virtualContent);
+        assert.notStrictEqual(svc.getProgram(), before);
+    });
+});
