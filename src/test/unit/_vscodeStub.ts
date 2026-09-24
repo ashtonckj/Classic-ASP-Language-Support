@@ -202,6 +202,30 @@ export const languages = {
     }),
 };
 
+// `with` only carries the fragment across, which is all the link provider sets.
+interface StubUri {
+    fsPath: string;
+    scheme: string;
+    fragment: string;
+    toString(): string;
+    with(change: { fragment?: string }): StubUri;
+}
+
+function stubUri(fsPath: string, fragment = ''): StubUri {
+    return {
+        fsPath,
+        scheme: 'file',
+        fragment,
+        toString: () => `file://${fsPath}${fragment ? '#' + fragment : ''}`,
+        with: change => stubUri(fsPath, change.fragment ?? fragment),
+    };
+}
+
 export const Uri = {
-    file: (p: string) => ({ fsPath: p, scheme: 'file', toString: () => `file://${p}` }),
+    file: (p: string) => stubUri(p),
 };
+
+export class DocumentLink {
+    public tooltip?: string;
+    constructor(public readonly range: Range, public readonly target?: StubUri) {}
+}
