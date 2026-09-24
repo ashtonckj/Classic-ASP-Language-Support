@@ -2,7 +2,8 @@
  * htmlLanguageFeatures.ts  (providers/)
  *
  * What VS Code's own HTML support gives a .html file, for the markup of a page:
- * hovers on tags and attributes. It is the same library —
+ * hovers on tags and attributes, and the values an attribute takes (`type="`,
+ * `target="`). It is the same library —
  * vscode-html-languageservice — run over the page with its ASP blanked out, so
  * a `<%= x %>` between two tags is space to it, not markup it cannot read.
  */
@@ -89,4 +90,36 @@ export class HtmlHoverProvider implements vscode.HoverProvider {
         if (!hover) { return undefined; }
         return new vscode.Hover(toMarkdown(hover.contents), hover.range ? toRange(hover.range) : undefined);
     }
+}
+
+// ── Attribute values ──────────────────────────────────────────────────────────
+
+/** The values the attribute at `position` takes — `text`, `checkbox`… after `type="`. */
+export function htmlAttributeValueCompletions(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): vscode.CompletionItem[] {
+    const page = parse(document);
+    return htmlService().doComplete(page.document, position, page.html).items.map(value => {
+        // LSP numbers its kinds from 1, VS Code from 0.
+        const item = new vscode.CompletionItem(value.label, value.kind ? value.kind - 1 : vscode.CompletionItemKind.Value);
+        const edit = value.textEdit;
+        if (edit && 'range' in edit) {
+            item.range      = toRange(edit.range);
+            item.insertText = edit.newText;
+        }
+        if (value.documentation) {
+            item.documentation = typeof value.documentation === 'string'
+                ? value.documentation
+                : toMarkdown(value.documentation);
+        }
+        item.sortText = value.sortText;
+        return item;
+    });
+}
+
+/** True when the HTML data lists values for this attribute, so picking it should show them. */
+export function attributeHasValues(tagName: string, attribute: string): boolean {
+    return htmlLanguageServiceModule().getDefaultHTMLDataProvider()
+        .provideValues(tagName.toLowerCase(), attribute.toLowerCase()).length > 0;
 }

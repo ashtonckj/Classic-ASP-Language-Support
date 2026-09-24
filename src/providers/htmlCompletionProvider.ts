@@ -7,6 +7,7 @@ import {
     isInsideTagForAttributes
 } from '../utils/documentHelper';
 import { getZone } from '../utils/zoneUtils';
+import { attributeHasValues, htmlAttributeValueCompletions } from './htmlLanguageFeatures';
 
 
 // ── Cached completion items — built once, reused on every keystroke ────────
@@ -45,6 +46,11 @@ function getAttributeCompletions(tagName: string): vscode.CompletionItem[] {
             ? new vscode.SnippetString(`${attr.name}$1="$2"`)
             : new vscode.SnippetString(`${attr.name}="$0"`);
         item.sortText = '2_' + attr.name;
+        // An attribute with a known set of values goes straight on to offer
+        // them, as it does in a .html file.
+        if (attributeHasValues(tagName, attr.name)) {
+            item.command = { command: 'editor.action.triggerSuggest', title: 'Suggest values' };
+        }
         return item;
     });
 
@@ -207,6 +213,11 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
         // ── Normal tag suggestions ────────────────────────────────────────────
         if (context.triggerCharacter === '<') { return getTagCompletions(); }
         if (textBefore.match(/<(\w+)$/))      { return getTagCompletions(); }
+
+        // ── Attribute values  e.g. type="|" → text, checkbox, … ───────────────
+        if (insideAttrValue && isInsideTagForAttributes(document, position)) {
+            return htmlAttributeValueCompletions(document, position);
+        }
 
         // ── Attribute suggestions ─────────────────────────────────────────────
         // Guard: insideAttrValue is computed above, before the closing-tag block.
