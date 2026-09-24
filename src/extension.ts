@@ -414,14 +414,18 @@ export function activate(context: vscode.ExtensionContext) {
         if (doc.languageId !== 'asp') return;
         if (e.selections.length !== 1 || !e.selections[0].isEmpty) return;
 
-        const offset      = doc.offsetAt(e.selections[0].active);
-        const content     = doc.getText();
+        // Only the text around the caret is read: this runs on every cursor
+        // move, and asking for the whole page made the editor copy all of it.
+        const caret       = e.selections[0].active;
+        const offset      = doc.offsetAt(caret);
         const searchStart = Math.max(0, offset - 200);
-        const match       = content.slice(searchStart, offset).match(/style\s*=\s*(["'])([\s\S]*)$/i);
+        const before      = doc.getText(new vscode.Range(doc.positionAt(searchStart), caret));
+        const match       = before.match(/style\s*=\s*(["'])([\s\S]*)$/i);
         if (!match) return;
 
         const valueStart = searchStart + match.index! + match[0].length - match[2].length;
-        if (content[offset] === match[1] && offset === valueStart) {
+        const next       = doc.getText(new vscode.Range(caret, doc.positionAt(offset + 1)));
+        if (next === match[1] && offset === valueStart) {
             clearTimeout(_styleTimeout);
             _styleTimeout = setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);
         }
