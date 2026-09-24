@@ -103,6 +103,29 @@ describe('SQL colouring stays off things that are not SQL', () => {
     });
 });
 
+// A query handed to a method is not the value assigned: `n` below holds a
+// count, so `conn` next to it is not being concatenated into SQL.
+describe('SQL warnings on a query passed to a method', () => {
+    const warningsOf = (text: string) =>
+        colourAspPage({ id: 1, text, docPath: PAGE_PATH, includeSymbols: EMPTY_INCLUDES }).warnings.map(w => w.message);
+    const CONN = 'Set conn = Server.CreateObject("ADODB.Connection")';
+
+    it('says nothing about what a method returns', () => {
+        assert.deepStrictEqual(warningsOf(`<%\n${CONN}\nn = conn.Execute("SELECT COUNT(*) FROM Orders")(0)\n%>\n`), []);
+        assert.deepStrictEqual(warningsOf(`<%\n${CONN}\nrs = conn.Execute("SELECT * FROM Orders")\n%>\n`), []);
+    });
+
+    it('still colours the query', () => {
+        const tokens = sqlTokens(`<%\n${CONN}\nn = conn.Execute("SELECT COUNT(*) FROM Orders")(0)\n%>\n`);
+        assert.ok(tokens.includes('sqlDml:SELECT') && tokens.includes('sqlDml:FROM'), `got ${JSON.stringify(tokens)}`);
+    });
+
+    it('still treats a query changed by Replace as SQL', () => {
+        const page = `<%\nDim id, sql\nsql = Replace("SELECT a FROM b WHERE id = {0}", "{0}", id)\nsql = sql & id\n%>\n`;
+        assert.ok(warningsOf(page).some(m => m.includes("'id' is concatenated into SQL variable 'sql'")), JSON.stringify(warningsOf(page)));
+    });
+});
+
 // The colouring runs on a worker thread; on the extension host it held up
 // typing and every other feature for a few hundred ms per edit on a large page.
 describe('ASP colouring on the worker thread', () => {
