@@ -90,6 +90,34 @@ describe('applyKeywordCase — numeric / date literals', () => {
     });
 });
 
+// A minus after a keyword that expects an expression is a sign, not a
+// subtraction, and belongs against its operand.
+describe('applyKeywordCase — unary minus', () => {
+    const cases: Array<[string, string]> = [
+        ['For i = 10 To 1 Step -1', 'For i = 10 To 1 Step -1'],
+        ['For i = -5 To -1',        'For i = -5 To -1'],
+        ['Case -1',                 'Case -1'],
+        ['If a And -b > 0 Then',    'If a And -b > 0 Then'],
+        ['x = y Mod -2',            'x = y Mod -2'],
+        ['If -x > 0 Then',          'If -x > 0 Then'],
+    ];
+    for (const [source, expected] of cases) {
+        it(`leaves ${JSON.stringify(source)} as a sign`, () => {
+            assert.strictEqual(applyKeywordCase(source, 'PascalCase'), expected);
+        });
+    }
+
+    it('mends the spaced sign older versions wrote', () => {
+        assert.strictEqual(applyKeywordCase('For i = 10 To 1 Step - 1', 'PascalCase'), 'For i = 10 To 1 Step -1');
+    });
+
+    it('still spaces a binary minus', () => {
+        assert.strictEqual(applyKeywordCase('x = a-1', 'PascalCase'), 'x = a - 1');
+        assert.strictEqual(applyKeywordCase('x = (a)-b', 'PascalCase'), 'x = (a) - b');
+        assert.strictEqual(applyKeywordCase('x = total-1', 'PascalCase'), 'x = total - 1');
+    });
+});
+
 // F5 — legacy REM comments must be treated as comments, not code.
 describe('applyKeywordCase — REM comments', () => {
     it('does not keyword-case a full-line REM comment', () => {

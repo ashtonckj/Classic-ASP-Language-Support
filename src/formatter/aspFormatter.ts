@@ -967,6 +967,12 @@ function splitOpaque(code: string): Array<{ text: string; opaque: boolean }> {
     return parts;
 }
 
+/** Keywords that are followed by an expression, so a `-` after one is a sign. */
+const UNARY_MINUS_AFTER = new Set([
+    'step', 'to', 'case', 'if', 'then', 'else', 'elseif', 'while', 'until',
+    'and', 'or', 'not', 'xor', 'eqv', 'imp', 'mod', 'is',
+]);
+
 function formatOperators(code: string): string {
     return splitOpaque(code).map(part =>
         part.opaque ? part.text : formatOperatorsInText(part.text)
@@ -1003,9 +1009,14 @@ function formatOperatorsInText(text: string): string {
     r = r.replace(/\s*\+\s*/g, ' + ');
 
     // ── Binary - only (not unary) ───────────────────────────────────────────
-    // A binary minus is preceded by: word char, digit, `)`, `]`, `_`.
-    // We require at least one optional space on each side, then replace.
-    r = r.replace(/([\w\d\)_\]])\s*-\s*/g, '$1 - ');
+    // A binary minus is preceded by an operand: a word char, digit, `)`, `]`
+    // or `_`. A keyword that expects an expression is not an operand, so the
+    // minus after it is unary and stays against its operand — `Step -1`,
+    // `Case -1`, `And -b`. That also mends the `Step - 1` older versions wrote.
+    r = r.replace(/([\w\d\)_\]])\s*-\s*/g, (_m, before: string, offset: number) => {
+        const word = /\w*$/.exec(r.slice(0, offset + 1))![0].toLowerCase();
+        return UNARY_MINUS_AFTER.has(word) ? `${before} -` : `${before} - `;
+    });
 
     // ── * / \ ^ & ─────────────────────────────────────────────────────────────
     // `\` is integer division and `^` is exponentiation — both always binary.
