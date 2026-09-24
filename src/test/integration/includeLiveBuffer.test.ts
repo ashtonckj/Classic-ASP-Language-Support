@@ -1,6 +1,8 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import * as os from 'os';
+import * as path from 'path';
 
 // Include files are parsed by a worker thread, which has no vscode API and so
 // can only read what is on disk. Left at that, an unsaved edit to an include was
@@ -30,10 +32,10 @@ const LIB_ON_DISK = [
     '',
 ].join('\n');
 
-function page(): string {
+function page(libName = LIB_NAME): string {
     return [
         '<%@ LANGUAGE="VBSCRIPT" %>',
-        `<!--#include file="${LIB_NAME}"-->`,
+        `<!--#include file="${libName}"-->`,
         '<%',
         '  Dim result',
         '  result = 1',
@@ -107,6 +109,48 @@ suite('Include symbols follow the editor buffer (integration)', () => {
         assert.ok(
             (await labelsInPage(pageDoc)).includes('SavedOnlyFunction'),
             'the previously saved function should still be offered',
+        );
+    });
+});
+
+// A change made outside the editor — a git pull, another editor — fires no
+// save, so the include kept its old symbols until the window was reloaded.
+suite('Include symbols follow changes made on disk (integration)', () => {
+
+    const EXT_LIB_NAME = `asp-disk-lib-${process.pid}.asp`;
+    const extLibPath   = path.join(os.tmpdir(), EXT_LIB_NAME);
+    const extPagePath  = path.join(os.tmpdir(), `asp-disk-page-${process.pid}.asp`);
+    const lib = (fn: string) => `<%\nFunction ${fn}(a)\n  ${fn} = a\nEnd Function\n%>\n`;
+
+    suiteSetup(() => {
+        fs.writeFileSync(extLibPath, lib('BeforeGitPull'));
+        fs.writeFileSync(extPagePath, page(EXT_LIB_NAME));
+    });
+
+    suiteTeardown(async () => {
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+        for (const file of [extLibPath, extPagePath]) {
+            try { fs.unlinkSync(file); } catch { /* already gone */ }
+        }
+    });
+
+    test('a function written to an include on disk is offered without any save', async () => {
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+
+        const pageDoc = await vscode.workspace.openTextDocument(vscode.Uri.file(extPagePath));
+        await vscode.window.showTextDocument(pageDoc);
+        assert.ok(await waitForLabel(pageDoc, 'BeforeGitPull'), 'the include\'s function should be offered');
+
+        // Straight to disk, as a git pull would: the include is never opened.
+        fs.writeFileSync(extLibPath, lib('AfterGitPull'));
+
+        assert.ok(
+            await waitForLabel(pageDoc, 'AfterGitPull', 10000),
+            'the function now on disk should be offered',
+        );
+        assert.ok(
+            !(await labelsInPage(pageDoc)).includes('BeforeGitPull'),
+            'the function that is gone from the file should no longer be offered',
         );
     });
 });

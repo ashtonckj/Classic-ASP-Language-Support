@@ -406,9 +406,29 @@ export interface BlockPair {
 // getMatchedBlockPairs (ranges for what's RIGHT) so the two can never disagree
 // about how a file's blocks nest.
 
-function scanBlocks(document: vscode.TextDocument): { diagnostics: vscode.Diagnostic[]; pairs: BlockPair[] } {
-    const fullText = document.getText();
+type BlockScan = { diagnostics: vscode.Diagnostic[]; pairs: BlockPair[] };
 
+// The squiggles and the matching-keyword highlight both ask after every edit,
+// about the same text, and each used to scan the whole document for it. The
+// last scan of each of the most recent documents is kept for the other to use.
+const MAX_REMEMBERED_SCANS = 8;
+const _lastScan = new Map<string, { text: string; scan: BlockScan }>();
+
+function scanBlocks(document: vscode.TextDocument): BlockScan {
+    const fullText = document.getText();
+    const key      = document.uri?.toString() ?? '';
+
+    const last = _lastScan.get(key);
+    if (last?.text === fullText) { return last.scan; }
+
+    const scan = scanBlocksIn(document, fullText);
+    _lastScan.delete(key);
+    _lastScan.set(key, { text: fullText, scan });
+    if (_lastScan.size > MAX_REMEMBERED_SCANS) { _lastScan.delete(_lastScan.keys().next().value!); }
+    return scan;
+}
+
+function scanBlocksIn(document: vscode.TextDocument, fullText: string): BlockScan {
     // One linear scan, then binary-search lookups. Asking getZone per line
     // rescanned the whole document each time: on a 12,000-line page this
     // function alone took ~36s, and it runs behind both the block diagnostics

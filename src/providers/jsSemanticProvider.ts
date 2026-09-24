@@ -28,7 +28,7 @@
  */
 
 import * as vscode from 'vscode';
-import { analyseEmbeddedJs } from '../utils/jsAnalysisClient';
+import { analyseEmbeddedJs } from '../utils/analysisClient';
 import { inRanges } from '../utils/zoneUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────

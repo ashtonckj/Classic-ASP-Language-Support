@@ -1,11 +1,10 @@
 import * as vscode from 'vscode';
-import { getCSSLanguageService, CompletionItemKind as LsKind, InsertTextFormat } from 'vscode-css-languageservice';
-import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc } from '../utils/cssUtils';
+import type { CompletionItemKind as LsKind } from 'vscode-css-languageservice';
+import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, cssLanguageService, cssLanguageServiceModule } from '../utils/cssUtils';
 import { getZone } from '../utils/zoneUtils';
 
-const cssService = getCSSLanguageService();
-
 function mapKind(lsKind: LsKind | undefined): vscode.CompletionItemKind {
+    const { CompletionItemKind: LsKind } = cssLanguageServiceModule();
     switch (lsKind) {
         case LsKind.Text:          return vscode.CompletionItemKind.Text;
         case LsKind.Method:        return vscode.CompletionItemKind.Method;
@@ -63,7 +62,7 @@ function convertItems(lsItems: any[]): vscode.CompletionItem[] {
 
         const insertText = getInsertText(item);
         if (insertText) {
-            vsItem.insertText = item.insertTextFormat === InsertTextFormat.Snippet
+            vsItem.insertText = item.insertTextFormat === cssLanguageServiceModule().InsertTextFormat.Snippet
                 ? new vscode.SnippetString(insertText)
                 : insertText;
         }
@@ -99,10 +98,10 @@ export class CssCompletionProvider implements vscode.CompletionItemProvider {
                     inlineCtx.valueEnd
                 );
 
-                const stylesheet = cssService.parseStylesheet(lsDoc);
+                const stylesheet = cssLanguageService().parseStylesheet(lsDoc);
                 // Use the wrapped offset so the CSS service knows where we are inside the fake "* { ... }" ruleset
                 const lsPosition = lsDoc.positionAt(inlineCtx.wrappedOffset);
-                const lsItems = cssService.doComplete(lsDoc, lsPosition, stylesheet).items;
+                const lsItems = cssLanguageService().doComplete(lsDoc, lsPosition, stylesheet).items;
 
                 // For inline styles, filter out suggestions that only make sense inside a full stylesheet (e.g. @media, selectors)
                 const filtered = lsItems.filter(item => {
@@ -120,9 +119,9 @@ export class CssCompletionProvider implements vscode.CompletionItemProvider {
         const lsDoc = buildCssDoc(document.uri.toString(), fullText, document.version, offset);
         if (!lsDoc) return [];
 
-        const stylesheet = cssService.parseStylesheet(lsDoc);
+        const stylesheet = cssLanguageService().parseStylesheet(lsDoc);
         const lsPosition = lsDoc.positionAt(offset);
-        const lsItems = cssService.doComplete(lsDoc, lsPosition, stylesheet).items;
+        const lsItems = cssLanguageService().doComplete(lsDoc, lsPosition, stylesheet).items;
 
         return convertItems(lsItems);
     }

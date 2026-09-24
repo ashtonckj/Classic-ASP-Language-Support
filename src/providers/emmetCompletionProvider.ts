@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { doComplete, VSCodeEmmetConfig } from '@vscode/emmet-helper';
+import type { VSCodeEmmetConfig } from '@vscode/emmet-helper';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
 import { getZone } from '../utils/zoneUtils';
 
@@ -110,6 +110,8 @@ export class EmmetCompletionProvider implements vscode.CompletionItemProvider {
             document.uri.toString(), syntax, document.version, document.getText(),
         );
 
+        // Loaded on the first completion rather than when the extension starts.
+        const { doComplete } = require('@vscode/emmet-helper') as typeof import('@vscode/emmet-helper');
         const list = doComplete(
             lsDocument, { line: position.line, character: position.character }, syntax, config,
         );

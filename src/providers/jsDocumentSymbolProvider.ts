@@ -28,19 +28,23 @@
  */
 
 import * as vscode from 'vscode';
-import * as ts     from 'typescript';
+import type * as TS from 'typescript';
 import {
     buildVirtualJsContent,
-    getJsLanguageService,
     VIRTUAL_FILENAME,
 } from '../utils/jsUtils';
 import { getJsBlockRanges } from '../utils/zoneUtils';
+
+// TypeScript, loaded by provideDocumentSymbols on the first page that has a
+// <script> block rather than when this module is: a page without one has no
+// JavaScript to outline, and TypeScript takes ~190 ms to load.
+let ts!: typeof TS;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function formatParams(node: ts.FunctionLike): string {
+function formatParams(node: TS.FunctionLike): string {
     return node.parameters.map(p => p.name.getText()).join(', ');
 }
 
@@ -98,9 +102,9 @@ function pushIfNamed(
 //   .then(result => …)            → "then(result) callback"
 // ─────────────────────────────────────────────────────────────────────────────
 function callbackLabel(
-    call:      ts.CallExpression,
+    call:      TS.CallExpression,
     cbArgIdx:  number,
-    sourceFile: ts.SourceFile,
+    sourceFile: TS.SourceFile,
 ): { callee: string; hint: string } {
     const expr = call.expression;
     let callee = 'callback';
@@ -136,9 +140,9 @@ function callbackLabel(
 // ─────────────────────────────────────────────────────────────────────────────
 
 function walkNode(
-    node:           ts.Node,
+    node:           TS.Node,
     document:       vscode.TextDocument,
-    sourceFile:     ts.SourceFile,
+    sourceFile:     TS.SourceFile,
     rangeStart:     number,   // virtual-file-space JS range start
     rangeEnd:       number,   // virtual-file-space JS range end
     depth:          number,
@@ -185,7 +189,7 @@ function walkNode(
         for (const member of node.members) {
             if (ts.isMethodDeclaration(member) && member.name) {
                 const mSym = makeSymbol(
-                    document, (member.name as ts.Identifier).text,
+                    document, (member.name as TS.Identifier).text,
                     `(${formatParams(member)})`,
                     vscode.SymbolKind.Method,
                     member.getStart(sourceFile), member.getEnd(),
@@ -211,7 +215,7 @@ function walkNode(
                 if (cSym) { sym.children.push(cSym); }
             } else if (ts.isPropertyDeclaration(member) && member.name) {
                 const pSym = makeSymbol(
-                    document, (member.name as ts.Identifier).text, '',
+                    document, (member.name as TS.Identifier).text, '',
                     vscode.SymbolKind.Property,
                     member.getStart(sourceFile), member.getEnd(),
                     member.name.getStart(sourceFile),
@@ -299,9 +303,9 @@ function walkNode(
 }
 
 function walkCallChain(
-    expr:           ts.Expression,
+    expr:           TS.Expression,
     document:       vscode.TextDocument,
-    sourceFile:     ts.SourceFile,
+    sourceFile:     TS.SourceFile,
     rangeStart:     number,
     rangeEnd:       number,
     depth:          number,
@@ -364,8 +368,8 @@ function walkCallChain(
 
 function collectSymbols(
     document:       vscode.TextDocument,
-    sourceFile:     ts.SourceFile,
-    nodes:          ts.NodeArray<ts.Statement>,
+    sourceFile:     TS.SourceFile,
+    nodes:          TS.NodeArray<TS.Statement>,
     rangeStart:     number,
     rangeEnd:       number,
     preambleLength: number,
@@ -397,13 +401,18 @@ export class JsDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
         const jsRanges = getJsBlockRanges(fullText);
         if (jsRanges.length === 0 || token.isCancellationRequested) { return []; }
 
-        const { virtualContent, preambleLength } = buildVirtualJsContent(fullText, 0);
-        const svc = getJsLanguageService();
-        svc.updateContent(virtualContent);
+        ts ??= require('typescript') as typeof TS;
 
-        const program    = svc.getProgram();
-        const sourceFile = program?.getSourceFile(VIRTUAL_FILENAME);
-        if (!sourceFile || token.isCancellationRequested) { return []; }
+        const { virtualContent, preambleLength } = buildVirtualJsContent(fullText, 0);
+
+        // Only the syntax tree is needed — no types — so the script is parsed
+        // on its own, the way the language service parses it. Asking the
+        // service for its program instead rebuilt the program that hover and
+        // completion share, on every edit.
+        const sourceFile = ts.createSourceFile(
+            VIRTUAL_FILENAME, virtualContent, ts.ScriptTarget.ES2020, true, ts.ScriptKind.JS,
+        );
+        if (token.isCancellationRequested) { return []; }
 
         // The TS AST node positions are in virtual-file space.
         // We shift the JS range boundaries into virtual-file space too so that

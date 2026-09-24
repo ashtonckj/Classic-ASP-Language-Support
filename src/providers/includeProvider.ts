@@ -284,6 +284,7 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
                         children: entry.children,
                         bufferVersion: openVersions.get(key),
                     });
+                    watchIncludeFolder(entry.filePath);
                 }
                 _includeSymbolEpoch++;
             }
@@ -361,25 +362,100 @@ export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
 }
 
 /**
+ * The symbols a document's includes declare, without its own.
+ *
+ * For the ASP colouring, which runs on a worker thread and reads the page's own
+ * symbols there from the text it is sent. Collecting them here instead meant
+ * parsing the whole page on the extension host after every edit.
+ *
+ * Memoised like collectAllSymbols, so the same object comes back until the
+ * document or an include changes — which is how the colouring knows it can reuse
+ * its last answer.
+ */
+const _includeOnlyMemo = new Map<string, { version: number; epoch: number; symbols: FileSymbols }>();
+
+export function collectIncludeSymbols(document: vscode.TextDocument): FileSymbols {
+    if (!areIncludeSymbolsReady(document)) {
+        void preloadIncludeSymbols(document);
+    }
+
+    const memoKey = document.uri.toString();
+    const memo = _includeOnlyMemo.get(memoKey);
+    if (memo && memo.version === document.version && memo.epoch === _includeSymbolEpoch) {
+        return memo.symbols;
+    }
+
+    const symbols: FileSymbols = { variables: [], constants: [], functions: [], comVariables: [], classes: [] };
+    const visited = new Set<string>();
+    for (const includePath of includeRoots(document)) {
+        appendCachedIncludeSymbols(symbols, includePath, visited);
+    }
+
+    _includeOnlyMemo.set(memoKey, { version: document.version, epoch: _includeSymbolEpoch, symbols });
+    evictClosedDocuments();
+    return symbols;
+}
+
+/**
  * Drops memo entries for documents that are no longer open, so a long session
  * that visits hundreds of files does not hold every one of their symbol sets.
  * Only runs when there are more entries than open documents, which is only
  * just after something was closed.
  */
 function evictClosedDocuments(): void {
-    if (_combinedSymbolMemo.size <= vscode.workspace.textDocuments.length) { return; }
+    const openCount = vscode.workspace.textDocuments.length;
+    if (_combinedSymbolMemo.size <= openCount && _includeOnlyMemo.size <= openCount) { return; }
 
     const open = new Set(vscode.workspace.textDocuments.map(doc => doc.uri.toString()));
-    for (const key of _combinedSymbolMemo.keys()) {
-        if (!open.has(key)) { _combinedSymbolMemo.delete(key); }
+    for (const memo of [_combinedSymbolMemo, _includeOnlyMemo]) {
+        for (const key of memo.keys()) {
+            if (!open.has(key)) { memo.delete(key); }
+        }
     }
 }
 
-/** Invalidates all worker-backed include symbols. In-flight stale results are ignored. */
-export function clearIncludeSymbolCache(): void {
+/**
+ * Forgets one file's include symbols, because it was saved or changed on disk.
+ *
+ * Only that file: saving a page used to throw away every include of every open
+ * page, and each of those then went back to the worker to be read and parsed
+ * again. A load already under way may have read the old text, so its results
+ * are ignored and whatever it covered is loaded again when next asked for.
+ */
+export function forgetIncludeFile(fsPath: string): void {
+    const key = fsPath.toLowerCase();
+    if (!_includeSymbolCache.has(key) && _includeLoadPromises.size === 0) { return; }
     _includeCacheGeneration++;
     _includeSymbolEpoch++;
-    _includeSymbolCache.clear();
+    _includeSymbolCache.delete(key);
+}
+
+// The folder of every cached include, watched without recursing into it. A save
+// in the editor is seen by onDidSaveTextDocument, but a change made anywhere
+// else — a git pull, another editor, a deploy script — is not, and the include
+// kept its old symbols until the window was reloaded. Watching these folders,
+// rather than the workspace, also covers includes outside the workspace.
+const _includeFolderWatchers = new Map<string, vscode.FileSystemWatcher>();
+
+function watchIncludeFolder(filePath: string): void {
+    const folder = path.dirname(filePath);
+    const key = folder.toLowerCase();
+    if (_includeFolderWatchers.has(key)) { return; }
+
+    const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(vscode.Uri.file(folder), '*'),
+    );
+    const forget = (uri: vscode.Uri) => forgetIncludeFile(uri.fsPath);
+    watcher.onDidChange(forget);
+    watcher.onDidCreate(forget);
+    watcher.onDidDelete(forget);
+    _includeFolderWatchers.set(key, watcher);
+}
+
+/** Stops watching include folders. Called from deactivate. */
+export function disposeIncludeWatchers(): void {
+    for (const watcher of _includeFolderWatchers.values()) { watcher.dispose(); }
+    _includeFolderWatchers.clear();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

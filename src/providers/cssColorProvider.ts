@@ -26,13 +26,11 @@
  */
 
 import * as vscode from 'vscode';
-import { getCSSLanguageService, Stylesheet } from 'vscode-css-languageservice';
+import type { Stylesheet } from 'vscode-css-languageservice';
 import type { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-import { buildCssDoc, buildInlineCssDoc, getInlineStyleContext } from '../utils/cssUtils';
+import { buildCssDoc, buildInlineCssDoc, cssLanguageService, getInlineStyleContext } from '../utils/cssUtils';
 import { getParsedCssBlocks, pageOffset } from '../utils/cssPageStylesheet';
 import { getCssBlockRanges } from '../utils/zoneUtils';
-
-const cssService = getCSSLanguageService();
 
 /** The wrapper buildInlineCssDoc puts in front of an inline declaration list. */
 const INLINE_PREFIX = '* {  ';
@@ -64,21 +62,22 @@ function inlineStyleValues(content: string): Array<{ valueStart: number; valueEn
 /**
  * Colours in one virtual CSS document, with each position shifted back into the
  * page by `toPageOffset`.
+ *
+ * `pageLength` is passed in rather than read from the document: this runs once
+ * per <style> block and once per style="" attribute, and each read made the
+ * editor hand back the entire page, 2,000 times on a page with 2,000 of them.
  */
 function colorsIn(
     document:     vscode.TextDocument,
     cssDoc:       LsTextDocument,
+    pageLength:   number,
     toPageOffset: (virtualOffset: number) => number,
     stylesheet?:  Stylesheet,
 ): vscode.ColorInformation[] {
-    const parsed = stylesheet ?? cssService.parseStylesheet(cssDoc);
+    const parsed = stylesheet ?? cssLanguageService().parseStylesheet(cssDoc);
     const found: vscode.ColorInformation[] = [];
 
-    // Hoisted: this was inside the loop, so a page whose <style> holds 2,000
-    // colours asked the editor to hand back the entire document 2,000 times.
-    const pageLength = document.getText().length;
-
-    for (const info of cssService.findDocumentColors(cssDoc, parsed)) {
+    for (const info of cssLanguageService().findDocumentColors(cssDoc, parsed)) {
         const start = toPageOffset(cssDoc.offsetAt(info.range.start));
         const end   = toPageOffset(cssDoc.offsetAt(info.range.end));
         if (start < 0 || end > pageLength || end <= start) { continue; }
@@ -109,7 +108,7 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
         for (const block of getParsedCssBlocks(uri, content, version, getCssBlockRanges(content))) {
             if (token.isCancellationRequested) { return undefined; }
             colors.push(...colorsIn(
-                document, block.cssDoc,
+                document, block.cssDoc, content.length,
                 offset => pageOffset(block, offset),
                 block.stylesheet,
             ));
@@ -119,7 +118,7 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
             if (token.isCancellationRequested) { return undefined; }
             const cssDoc = buildInlineCssDoc(uri, content, version, value.valueStart, value.valueEnd);
             colors.push(...colorsIn(
-                document, cssDoc,
+                document, cssDoc, content.length,
                 offset => value.valueStart + offset - INLINE_PREFIX.length,
             ));
         }
@@ -157,8 +156,8 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
         }
         if (!cssDoc || token.isCancellationRequested) { return undefined; }
 
-        const stylesheet = cssService.parseStylesheet(cssDoc);
-        const presentations = cssService.getColorPresentations(
+        const stylesheet = cssLanguageService().parseStylesheet(cssDoc);
+        const presentations = cssLanguageService().getColorPresentations(
             cssDoc, stylesheet,
             { red: color.red, green: color.green, blue: color.blue, alpha: color.alpha },
             {

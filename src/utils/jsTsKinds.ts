@@ -10,12 +10,14 @@
  */
 
 import * as vscode from 'vscode';
-import * as ts from 'typescript';
+import type * as ts from 'typescript';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ts.ScriptElementKind → vscode.CompletionItemKind
 // ─────────────────────────────────────────────────────────────────────────────
 export function tsKindToVsKind(kind: string): vscode.CompletionItemKind {
+    // Only JavaScript completion calls this, and it has TypeScript loaded already.
+    const ts = require('typescript') as typeof import('typescript');
     switch (kind) {
         case ts.ScriptElementKind.functionElement:
         case ts.ScriptElementKind.localFunctionElement:
@@ -61,11 +63,15 @@ export function tsKindToVsKind(kind: string): vscode.CompletionItemKind {
 // ts.DiagnosticCategory → vscode.DiagnosticSeverity
 // ─────────────────────────────────────────────────────────────────────────────
 export function tsSeverityToVs(category: ts.DiagnosticCategory): vscode.DiagnosticSeverity {
+    // TypeScript's own DiagnosticCategory numbers, part of its public API. The
+    // squiggles get only these plain numbers back from the worker thread, and
+    // naming them through the enum loaded all of TypeScript onto the extension
+    // host to read four constants.
     switch (category) {
-        case ts.DiagnosticCategory.Error:      return vscode.DiagnosticSeverity.Error;
-        case ts.DiagnosticCategory.Warning:    return vscode.DiagnosticSeverity.Warning;
-        case ts.DiagnosticCategory.Suggestion: return vscode.DiagnosticSeverity.Hint;
-        case ts.DiagnosticCategory.Message:    return vscode.DiagnosticSeverity.Information;
-        default:                               return vscode.DiagnosticSeverity.Warning;
+        case 1 /* Error */:      return vscode.DiagnosticSeverity.Error;
+        case 0 /* Warning */:    return vscode.DiagnosticSeverity.Warning;
+        case 2 /* Suggestion */: return vscode.DiagnosticSeverity.Hint;
+        case 3 /* Message */:    return vscode.DiagnosticSeverity.Information;
+        default:                 return vscode.DiagnosticSeverity.Warning;
     }
 }

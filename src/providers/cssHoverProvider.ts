@@ -1,9 +1,6 @@
 import * as vscode from 'vscode';
-import { getCSSLanguageService } from 'vscode-css-languageservice';
-import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc } from '../utils/cssUtils';
+import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, cssLanguageService } from '../utils/cssUtils';
 import { getZone } from '../utils/zoneUtils';
-
-const cssService = getCSSLanguageService();
 
 export class CssHoverProvider implements vscode.HoverProvider {
     provideHover(
@@ -26,9 +23,9 @@ export class CssHoverProvider implements vscode.HoverProvider {
                     inlineCtx.valueStart,
                     inlineCtx.valueEnd
                 );
-                const stylesheet = cssService.parseStylesheet(lsDoc);
+                const stylesheet = cssLanguageService().parseStylesheet(lsDoc);
                 const lsPosition = lsDoc.positionAt(inlineCtx.wrappedOffset);
-                const hover      = cssService.doHover(lsDoc, lsPosition, stylesheet);
+                const hover      = cssLanguageService().doHover(lsDoc, lsPosition, stylesheet);
                 if (!hover) return null;
                 return new vscode.Hover(lsHoverToMarkdown(hover.contents));
             }
@@ -39,9 +36,9 @@ export class CssHoverProvider implements vscode.HoverProvider {
         const lsDoc = buildCssDoc(document.uri.toString(), fullText, document.version, offset);
         if (!lsDoc) return null;
 
-        const stylesheet = cssService.parseStylesheet(lsDoc);
+        const stylesheet = cssLanguageService().parseStylesheet(lsDoc);
         const lsPosition = lsDoc.positionAt(offset);
-        const hover      = cssService.doHover(lsDoc, lsPosition, stylesheet);
+        const hover      = cssLanguageService().doHover(lsDoc, lsPosition, stylesheet);
         if (!hover) return null;
 
         return new vscode.Hover(lsHoverToMarkdown(hover.contents));

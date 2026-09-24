@@ -18,7 +18,41 @@ export const workspace = {
     workspaceFolders: undefined as { uri: { fsPath: string } }[] | undefined,
     // collectAllSymbols evicts its cache by walking the open documents.
     textDocuments: [] as unknown[],
+    // The include cache and the Ctrl+T file index watch for file changes; a test
+    // plays events to them with fireFileEvent.
+    createFileSystemWatcher: () => ({
+        onDidCreate: listen('create'),
+        onDidChange: listen('change'),
+        onDidDelete: listen('delete'),
+        dispose: () => { /* no-op */ },
+    }),
+    onDidChangeWorkspaceFolders: () => ({ dispose: () => { /* no-op */ } }),
+    onDidChangeConfiguration:    () => ({ dispose: () => { /* no-op */ } }),
+    getWorkspaceFolder: (uri: { fsPath: string }) =>
+        workspace.workspaceFolders?.find(folder => uri.fsPath.startsWith(folder.uri.fsPath)),
 };
+
+type FileEvent = 'create' | 'change' | 'delete';
+const fileListeners: Record<FileEvent, Array<(uri: StubUri) => void>> = { create: [], change: [], delete: [] };
+
+function listen(kind: FileEvent) {
+    return (listener: (uri: StubUri) => void) => {
+        fileListeners[kind].push(listener);
+        return { dispose: () => { fileListeners[kind] = fileListeners[kind].filter(l => l !== listener); } };
+    };
+}
+
+/** Tells every file watcher the code under test created that `fsPath` was created, changed or deleted. */
+export function fireFileEvent(kind: FileEvent, fsPath: string): void {
+    for (const listener of fileListeners[kind]) { listener(stubUri(fsPath)); }
+}
+
+// getAspFileExtensions reads the extension's own manifest; with none, it falls back.
+export const extensions = { getExtension: () => undefined };
+
+export class RelativePattern {
+    constructor(public readonly base: unknown, public readonly pattern: string) {}
+}
 
 export const window = {
     showInformationMessage: () => Promise.resolve(undefined),
@@ -138,6 +172,15 @@ export class ColorPresentation {
 
 export class Location {
     constructor(public readonly uri: unknown, public readonly range: Range) {}
+}
+
+export class SymbolInformation {
+    constructor(
+        public readonly name: string,
+        public readonly kind: number,
+        public readonly containerName: string,
+        public readonly location: Location,
+    ) {}
 }
 
 export const DocumentHighlightKind = { Text: 0, Read: 1, Write: 2 };

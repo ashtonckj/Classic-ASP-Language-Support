@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as ts from 'typescript';
-import { analyseEmbeddedJs, disposeJsAnalysisWorker } from '../../utils/jsAnalysisClient';
+import { analyseEmbeddedJs, disposeAnalysisWorkers } from '../../utils/analysisClient';
 import { buildVirtualJsContent, getJsLanguageService } from '../../utils/jsUtils';
 import { getJsBlockRanges } from '../../utils/zoneUtils';
 
@@ -75,7 +75,7 @@ const CASES: Array<[string, string]> = [
 
 describe('embedded JS analysis — the worker agrees with the extension host', () => {
 
-    after(() => { disposeJsAnalysisWorker(); });
+    after(() => { disposeAnalysisWorkers(); });
 
     for (const [name, text] of CASES) {
         it(name, async function () {
@@ -111,7 +111,7 @@ describe('embedded JS analysis — the worker agrees with the extension host', (
 
 describe('embedded JS analysis — request handling', () => {
 
-    after(() => { disposeJsAnalysisWorker(); });
+    after(() => { disposeAnalysisWorkers(); });
 
     // The worker handles one job at a time and there is no point queueing work
     // for text the user has already typed past, so a request that arrives while
@@ -165,6 +165,31 @@ describe('embedded JS analysis — request handling', () => {
         assert.strictEqual(x, y, 'both callers should get the one result');
     });
 
+    // The squiggles ask 750 ms after an edit. On a page the worker gets through
+    // faster than that, the colouring was already answered for the same text,
+    // and the page was type-checked a second time.
+    it('answers text it has just answered without analysing it again', async function () {
+        this.timeout(30000);
+
+        const text = '<script>var again = 1; again.toFixed();</script>';
+        const first  = await analyseEmbeddedJs('again.asp', text);
+        const second = await analyseEmbeddedJs('again.asp', text);
+
+        assert.ok(first);
+        assert.strictEqual(second, first, 'the remembered answer should be given, not a fresh analysis');
+    });
+
+    it('still analyses text that has changed since', async function () {
+        this.timeout(30000);
+
+        const first  = await analyseEmbeddedJs('changed.asp', '<script>var before = 1;</script>');
+        const second = await analyseEmbeddedJs('changed.asp', '<script>var after = 2;</script>');
+
+        assert.ok(first && second);
+        assert.notStrictEqual(second, first);
+        assert.notDeepStrictEqual(second.spans, first.spans);
+    });
+
     // Both callers are decoration paths. A failure has to cost one refresh of
     // the colours or the squiggles, never surface as an extension error.
     it('never rejects', async function () {
@@ -178,7 +203,7 @@ describe('embedded JS analysis — request handling', () => {
         const before = await analyseEmbeddedJs('page.asp', '<script>var a = 1;</script>');
         assert.ok(before);
 
-        disposeJsAnalysisWorker();
+        disposeAnalysisWorkers();
 
         const after = await analyseEmbeddedJs('page.asp', '<script>var a = 1;</script>');
         assert.ok(after, 'a call after dispose should spawn a new worker');

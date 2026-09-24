@@ -4,8 +4,26 @@
  * getZone() in zoneUtils.ts; this module only extracts/rewrites the CSS content.
  */
 
+import type * as CssLs from 'vscode-css-languageservice';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
 import { findNextRealTag, findTagEnd, findClosingTag } from './zoneUtils';
+
+let _cssLs:      typeof CssLs | undefined;
+let _cssService: CssLs.LanguageService | undefined;
+
+/**
+ * The CSS language service library, loaded on first use rather than when the
+ * extension starts: it takes ~140 ms to load, and a page with no CSS in it never
+ * needs it.
+ */
+export function cssLanguageServiceModule(): typeof CssLs {
+    return (_cssLs ??= require('vscode-css-languageservice') as typeof CssLs);
+}
+
+/** The one CSS language service every CSS feature shares. Each used to create its own as it loaded. */
+export function cssLanguageService(): CssLs.LanguageService {
+    return (_cssService ??= cssLanguageServiceModule().getCSSLanguageService());
+}
 
 /**
  * Replaces ASP expressions (<%...%>) in CSS content with syntactically valid

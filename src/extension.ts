@@ -21,11 +21,7 @@ import { JsSignatureHelpProvider } from './providers/jsSignatureHelpProvider';
 import { JsSemanticTokensProvider, COMBINED_SEMANTIC_LEGEND } from './providers/jsSemanticProvider';
 import { registerJsDiagnostics } from './providers/jsDiagnosticsProvider';
 import { disposeJsLanguageService } from './utils/jsUtils';
-import {
-    clearIncludeSymbolCache,
-    IncludePathCompletionProvider,
-    preloadIncludeSymbols,
-} from './providers/includeProvider';
+import { disposeIncludeWatchers, forgetIncludeFile, IncludePathCompletionProvider, preloadIncludeSymbols } from './providers/includeProvider';
 import { AspDefinitionProvider } from './providers/aspDefinitionProvider';
 import { IncludeDocumentLinkProvider, HtmlAttributeLinkProvider, HtmlAttributePathCompletionProvider } from './providers/linkProvider';
 // ASP semantic provider must now use COMBINED_SEMANTIC_LEGEND — see note above.
@@ -39,8 +35,8 @@ import { JsCodeActionProvider } from './providers/jsCodeActionProvider';
 import { JsDefinitionProvider } from './providers/jsDefinitionProvider';
 import { JsReferenceProvider, JsDocumentHighlightProvider } from './providers/jsReferenceProvider';
 import { JsRenameProvider } from './providers/jsRenameProvider';
-import { disposeJsAnalysisWorker } from './utils/jsAnalysisClient';
-import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache } from './providers/aspWorkspaceSymbolProvider';
+import { disposeAnalysisWorkers } from './utils/analysisClient';
+import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache, disposeWorkspaceIndex } from './providers/aspWorkspaceSymbolProvider';
 import { AspSignatureHelpProvider } from './providers/aspSignatureHelpProvider';
 import { computeLineEdits, resolveEol, toLf } from './utils/editUtils';
 
@@ -310,7 +306,7 @@ export function activate(context: vscode.ExtensionContext) {
     const wsCacheInvalidator = vscode.workspace.onDidSaveTextDocument(doc => {
         if (doc.languageId === 'asp') {
             clearWorkspaceSymbolCache(doc.uri.fsPath);
-            clearIncludeSymbolCache();
+            forgetIncludeFile(doc.uri.fsPath);
         }
     });
 
@@ -418,14 +414,18 @@ export function activate(context: vscode.ExtensionContext) {
         if (doc.languageId !== 'asp') return;
         if (e.selections.length !== 1 || !e.selections[0].isEmpty) return;
 
-        const offset      = doc.offsetAt(e.selections[0].active);
-        const content     = doc.getText();
+        // Only the text around the caret is read: this runs on every cursor
+        // move, and asking for the whole page made the editor copy all of it.
+        const caret       = e.selections[0].active;
+        const offset      = doc.offsetAt(caret);
         const searchStart = Math.max(0, offset - 200);
-        const match       = content.slice(searchStart, offset).match(/style\s*=\s*(["'])([\s\S]*)$/i);
+        const before      = doc.getText(new vscode.Range(doc.positionAt(searchStart), caret));
+        const match       = before.match(/style\s*=\s*(["'])([\s\S]*)$/i);
         if (!match) return;
 
         const valueStart = searchStart + match.index! + match[0].length - match[2].length;
-        if (content[offset] === match[1] && offset === valueStart) {
+        const next       = doc.getText(new vscode.Range(caret, doc.positionAt(offset + 1)));
+        if (next === match[1] && offset === valueStart) {
             clearTimeout(_styleTimeout);
             _styleTimeout = setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);
         }
@@ -496,5 +496,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate(): void {
     disposeJsLanguageService();
-    disposeJsAnalysisWorker();
+    disposeAnalysisWorkers();
+    disposeIncludeWatchers();
+    disposeWorkspaceIndex();
 }

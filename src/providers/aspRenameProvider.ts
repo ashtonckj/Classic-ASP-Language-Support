@@ -1,11 +1,10 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import { collectAllSymbols, resolveDirectIncludes, readIncludeText } from './includeProvider';
+import { getWorkspaceAspFiles } from './aspWorkspaceSymbolProvider';
 import { extractSymbols, FileSymbols } from '../utils/symbolParser';
 import { getZone, getVbScriptBlockRanges } from '../utils/zoneUtils';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import { isInsideVbStringOrComment } from '../utils/documentHelper';
-import path from 'path';
 
 // ── Scope analysis for rename ────────────────────────────────────────────────
 
@@ -202,15 +201,11 @@ function buildWorkspaceIncludeGraph(openPath: string, openText: string): Include
     // The open buffer first, so its edges win over the copy on disk.
     add(openPath, openText);
 
-    for (const folder of vscode.workspace.workspaceFolders ?? []) {
-        try {
-            for (const fsPath of findAspFiles(folder.uri.fsPath)) {
-                if (fsPath.toLowerCase() === openKey) { continue; }
-                add(fsPath, readIncludeText(fsPath) ?? '');
-            }
-        } catch {
-            /* skip unreadable folders */
-        }
+    // The same list Ctrl+T searches, so a page kept in a .html file through
+    // files.associations is part of the graph too.
+    for (const fsPath of getWorkspaceAspFiles()) {
+        if (fsPath.toLowerCase() === openKey) { continue; }
+        add(fsPath, readIncludeText(fsPath) ?? '');
     }
 
     // An include that resolved outside the workspace folders is still part of the
@@ -391,33 +386,6 @@ export class AspRenameProvider implements vscode.RenameProvider {
 
         return edit;
     }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// findAspFiles
-// Recursively walks a directory and returns all .asp and .inc file paths.
-// Skips node_modules and hidden directories for performance.
-// ─────────────────────────────────────────────────────────────────────────────
-
-function findAspFiles(dir: string): string[] {
-    const results: string[] = [];
-    let entries: fs.Dirent[];
-    try {
-        entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-        return results;
-    }
-
-    for (const entry of entries) {
-        if (entry.name.startsWith('.') || entry.name === 'node_modules') { continue; }
-        const fullPath = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-            results.push(...findAspFiles(fullPath));
-        } else if (entry.isFile() && /\.(asp|inc)$/i.test(entry.name)) {
-            results.push(fullPath);
-        }
-    }
-    return results;
 }
 
 /**

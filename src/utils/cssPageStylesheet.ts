@@ -26,11 +26,9 @@
  * one. Comparing the string costs a fraction of the parse it protects.
  */
 
-import { getCSSLanguageService, Stylesheet } from 'vscode-css-languageservice';
+import type { Stylesheet } from 'vscode-css-languageservice';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-import { buildCssBodyDoc } from './cssUtils';
-
-const cssService = getCSSLanguageService();
+import { buildCssBodyDoc, cssLanguageService } from './cssUtils';
 
 export interface ParsedCssBlock {
     /** Where this block's body sits in the page. */
@@ -58,7 +56,7 @@ export function getParsedCssBlocks(
 
     const blocks: ParsedCssBlock[] = ranges.map(range => {
         const cssDoc = buildCssBodyDoc(uri, content, version, range);
-        return { range, cssDoc, stylesheet: cssService.parseStylesheet(cssDoc) };
+        return { range, cssDoc, stylesheet: cssLanguageService().parseStylesheet(cssDoc) };
     });
 
     _cached = blocks;
