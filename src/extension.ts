@@ -27,7 +27,7 @@ import { IncludeDocumentLinkProvider, HtmlAttributeLinkProvider, HtmlAttributePa
 // ASP semantic provider must now use COMBINED_SEMANTIC_LEGEND — see note above.
 import { AspSemanticTokensProvider } from './providers/aspSemanticProvider';
 import { AspHoverProvider } from './providers/aspHoverProvider';
-import { HtmlHoverProvider } from './providers/htmlLanguageFeatures';
+import { HtmlHoverProvider, HtmlLinkedEditingProvider } from './providers/htmlLanguageFeatures';
 import { AspReferenceProvider, AspRenameProvider, registerIncludeUpdatesOnRename } from './providers/aspRenameProvider';
 import { addRegionHighlights } from './highlight';
 import { AspDocumentSymbolProvider } from './providers/aspDocumentSymbolProvider';
@@ -447,6 +447,13 @@ export function activate(context: vscode.ExtensionContext) {
         'asp', new HtmlHoverProvider()
     );
 
+    // ── Linked editing of a tag pair ──────────────────────────────────────────
+    // VS Code's own feature, as in a .html file: it runs only when the user
+    // turns on editor.linkedEditing or uses Start Linked Editing.
+    const htmlLinkedEditingProvider = vscode.languages.registerLinkedEditingRangeProvider(
+        'asp', new HtmlLinkedEditingProvider()
+    );
+
     // ── Key handlers ──────────────────────────────────────────────────────────
     registerAutoClosingTag(context);
     registerEnterKeyHandler(context);
@@ -516,6 +523,7 @@ export function activate(context: vscode.ExtensionContext) {
         cssCompletionProvider,
         cssHoverProvider,
         htmlHoverProvider,
+        htmlLinkedEditingProvider,
         cssColorProvider,
         jsCompletionProvider,
         emmetCompletionProvider,

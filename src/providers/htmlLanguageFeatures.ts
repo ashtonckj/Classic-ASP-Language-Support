@@ -2,8 +2,8 @@
  * htmlLanguageFeatures.ts  (providers/)
  *
  * What VS Code's own HTML support gives a .html file, for the markup of a page:
- * hovers on tags and attributes, and the values an attribute takes (`type="`,
- * `target="`). It is the same library —
+ * hovers on tags and attributes, the values an attribute takes (`type="`,
+ * `target="`), and linked editing of a tag pair. It is the same library —
  * vscode-html-languageservice — run over the page with its ASP blanked out, so
  * a `<%= x %>` between two tags is space to it, not markup it cannot read.
  */
@@ -11,7 +11,8 @@
 import * as vscode from 'vscode';
 import type * as HtmlLs from 'vscode-html-languageservice';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-import { getZone } from '../utils/zoneUtils';
+import { getAspBlockRanges, getZone } from '../utils/zoneUtils';
+import { branchEvents, classifyLine } from './aspStructureDiagnosticsProvider';
 
 let _htmlLs:  typeof HtmlLs | undefined;
 let _service: HtmlLs.LanguageService | undefined;
@@ -122,4 +123,54 @@ export function htmlAttributeValueCompletions(
 export function attributeHasValues(tagName: string, attribute: string): boolean {
     return htmlLanguageServiceModule().getDefaultHTMLDataProvider()
         .provideValues(tagName.toLowerCase(), attribute.toLowerCase()).length > 0;
+}
+
+// ── Linked editing ────────────────────────────────────────────────────────────
+
+/**
+ * True when the VBScript between two offsets opens nothing it does not close,
+ * and has no ElseIf / Else / Case of a block that started outside.
+ *
+ * A tag pair that has code like that between it is not one pair at all:
+ * `<% If a Then %><div class="x"><% Else %><div class="y"><% End If %>…</div>`
+ * has two start tags for the one end tag, and renaming either one with the end
+ * tag would leave the other branch unmatched.
+ */
+export function vbScriptBalancedBetween(text: string, from: number, to: number): boolean {
+    let depth = 0;
+    for (const block of getAspBlockRanges(text)) {
+        if (block.start < from || block.end > to) { continue; }
+        const code = text.slice(block.start + 2, block.end - 2);
+        if (/^\s*[=@]/.test(code)) { continue; } // an output expression or a directive
+
+        for (const line of code.split(/\r?\n/)) {
+            if (depth === 0 && branchEvents(line).some(event => event.type === 'branch')) { return false; }
+            for (const action of classifyLine(line)) {
+                depth += action.type === 'open' ? 1 : -1;
+                if (depth < 0) { return false; }
+            }
+        }
+    }
+    return depth === 0;
+}
+
+/**
+ * Editing a tag name edits its partner too, when `editor.linkedEditing` is on
+ * or after Start Linked Editing (Ctrl+Shift+F2) — the same VS Code feature a
+ * .html file has, off unless the user turns it on.
+ */
+export class HtmlLinkedEditingProvider implements vscode.LinkedEditingRangeProvider {
+    provideLinkedEditingRanges(document: vscode.TextDocument, position: vscode.Position): vscode.LinkedEditingRanges | undefined {
+        if (!inMarkup(document, position)) { return undefined; }
+
+        const page   = parse(document);
+        const ranges = htmlService().findLinkedEditingRanges(page.document, position, page.html);
+        if (!ranges || ranges.length !== 2) { return undefined; }
+
+        const [first, second] = ranges.map(toRange).sort((a, b) => document.offsetAt(a.start) - document.offsetAt(b.start));
+        if (!vbScriptBalancedBetween(document.getText(), document.offsetAt(first.end), document.offsetAt(second.start))) {
+            return undefined;
+        }
+        return new vscode.LinkedEditingRanges([first, second]);
+    }
 }
