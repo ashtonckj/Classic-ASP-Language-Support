@@ -931,10 +931,25 @@ function splitOpaque(code: string): Array<{ text: string; opaque: boolean }> {
             }
         }
 
+        const prevCh = i > 0 ? code[i - 1] : '';
+
+        // A number with an exponent — 1.5E-3, 2E+10, .5E-2 — is one literal, sign
+        // and all. Spaced as an operator it became `1.5E - 3`, and `1.5E` is not a
+        // number, so the page failed to compile.
+        const startsNumber = /[0-9]/.test(ch) || (ch === '.' && /[0-9]/.test(code[i + 1] ?? ''));
+        if (startsNumber && !/[\w.]/.test(prevCh)) {
+            const m = /^(?:\d+\.?\d*|\.\d+)[eE][+-]?\d+/.exec(code.slice(i));
+            if (m) {
+                flush();
+                parts.push({ text: m[0], opaque: true });
+                i += m[0].length;
+                continue;
+            }
+        }
+
         // Decimal literal with a trailing & Long-type suffix (e.g. 100&). Keep the
         // & attached so it isn't spaced as a concatenation operator (100 &). Only
         // matched at a token start so a concatenation like `100 & x` is untouched.
-        const prevCh = i > 0 ? code[i - 1] : '';
         if (/[0-9]/.test(ch) && !/[\w.]/.test(prevCh)) {
             const m = /^\d+&/.exec(code.slice(i));
             if (m) {

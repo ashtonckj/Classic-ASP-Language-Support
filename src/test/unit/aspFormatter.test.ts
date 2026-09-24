@@ -78,6 +78,16 @@ describe('applyKeywordCase — numeric / date literals', () => {
     it('does not space a trailing & Long-type suffix (100&)', () => {
         assert.strictEqual(applyKeywordCase('z = 100&', 'PascalCase'), 'z = 100&');
     });
+
+    // `1.5E - 3` leaves `1.5E`, which is not a number, so the page stopped compiling.
+    it('keeps the sign of an exponent inside the number', () => {
+        assert.strictEqual(applyKeywordCase('x = 1.5E-3', 'PascalCase'), 'x = 1.5E-3');
+        assert.strictEqual(applyKeywordCase('x = 2e+10 * .5E-2', 'PascalCase'), 'x = 2e+10 * .5E-2');
+    });
+
+    it('still spaces a minus after an identifier that merely ends in E', () => {
+        assert.strictEqual(applyKeywordCase('x = rate1E-3', 'PascalCase'), 'x = rate1E - 3');
+    });
 });
 
 // F5 — legacy REM comments must be treated as comments, not code.
