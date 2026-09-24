@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { branchEvents, classifyLine, extractAspStatementCode, findMissingIncludes, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
+import { branchEvents, classifyLine, extractAspStatementCode, findMissingIncludes, findMissingSet, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -307,5 +307,72 @@ describe('findMissingIncludes', () => {
         const text = '<!--#include file="a.asp"--><!--#include file="a.asp"-->';
         const found = findMissingIncludes(text, page, site);
         assert.deepStrictEqual(found.map(f => f.start), [19, 47]);
+    });
+});
+
+// An object can only be assigned with Set. Without it VBScript tries to copy
+// the object's default value, and for the objects flagged here that fails when
+// the page runs — `rs = conn.Execute(sql)` is the classic one.
+describe('findMissingSet', () => {
+    const types = new Map([
+        ['conn', 'adodb.connection'],
+        ['rs', 'adodb.recordset'],
+        ['fso', 'scripting.filesystemobject'],
+        ['xml', 'msxml2.domdocument'],
+    ]);
+    const targets = (text: string) => findMissingSet(text, types).map(found => text.slice(found.start, found.end));
+
+    it('flags a Recordset assigned without Set, on the name', () => {
+        assert.deepStrictEqual(targets('<%\nrs = conn.Execute(sql)\n%>'), ['rs']);
+        assert.deepStrictEqual(targets('<%\nSet rs = conn.Execute(sql)\n%>'), []);
+    });
+
+    it('flags CreateObject, Server.CreateObject and New', () => {
+        assert.deepStrictEqual(targets('<% conn = Server.CreateObject("ADODB.Connection") %>'), ['conn']);
+        assert.deepStrictEqual(targets('<% x = 1 : d = CreateObject("Scripting.Dictionary") %>'), ['d']);
+        assert.deepStrictEqual(targets('<%\no = New Basket\nLet p = New Basket\n%>'), ['o', 'p']);
+    });
+
+    it('flags a function returning an object through its name', () => {
+        const text = '<%\nFunction GetConn()\n  GetConn = Server.CreateObject("ADODB.Connection")\nEnd Function\n%>';
+        assert.deepStrictEqual(targets(text), ['GetConn']);
+    });
+
+    it('flags other methods whose result has no value to copy', () => {
+        assert.deepStrictEqual(targets('<%\nts = fso.OpenTextFile(Server.MapPath("/x"), 1)\n%>'), ['ts']);
+        assert.deepStrictEqual(targets('<%\nnode = xml.selectSingleNode("//a")\n%>'), ['node']);
+        assert.deepStrictEqual(targets('<%\nr2 = rs.NextRecordset\n%>'), ['r2']);
+    });
+
+    it('leaves a value read out of an object alone', () => {
+        assert.deepStrictEqual(targets('<%\nn = conn.Execute("SELECT COUNT(*) FROM t")(0)\n%>'), []);
+        assert.deepStrictEqual(targets('<%\nv = rs("name")\nw = rs.Fields("name")\n%>'), []);
+        assert.deepStrictEqual(targets('<%\nx = CreateObject("a") & "b"\n%>'), []);
+    });
+
+    it('leaves an object whose default value is the point alone', () => {
+        // A Folder's default is its Path.
+        assert.deepStrictEqual(targets('<%\np = fso.GetFolder(".")\n%>'), []);
+    });
+
+    it('leaves a method on a variable of unknown type alone', () => {
+        assert.deepStrictEqual(targets('<%\nrs = db.Execute(sql)\n%>'), []);
+    });
+
+    it('ignores comments, strings, comparisons, output expressions and markup', () => {
+        assert.deepStrictEqual(targets("<%\n' rs = conn.Execute(sql)\nREM rs = conn.Execute(sql)\n%>"), []);
+        assert.deepStrictEqual(targets('<%\nx = "rs = conn.Execute(sql)"\n%>'), []);
+        assert.deepStrictEqual(targets('<%\nIf rs = conn.Execute(sql) Then\n%>'), []);
+        assert.deepStrictEqual(targets('<%= x = CreateObject("a") %>'), []);
+        assert.deepStrictEqual(targets('<p>rs = conn.Execute(sql)</p>\n<script>\nrs = conn.Execute(sql)\n</script>'), []);
+    });
+
+    it('reads a server-side VBScript <script> block', () => {
+        assert.deepStrictEqual(targets('<script runat="server" language="vbscript">\nrs = conn.Execute(sql)\n</script>'), ['rs']);
+    });
+
+    it('measures offsets over CRLF lines and several blocks on one line', () => {
+        assert.deepStrictEqual(targets('<%\r\nrs = conn.Execute(sql)\r\n%>'), ['rs']);
+        assert.deepStrictEqual(targets('<% x = 1 %><% rs = conn.Execute(sql) %>'), ['rs']);
     });
 });
