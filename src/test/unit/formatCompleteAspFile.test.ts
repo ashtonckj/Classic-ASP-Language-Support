@@ -420,3 +420,19 @@ describe('formatCompleteAspFile — an event handler survives being wrapped', ()
         assert.strictEqual(twice, once);
     });
 });
+
+// A placeholder's number is part of its length, and Prettier lays a line out by
+// its length. The numbers used to run on for the whole session, so a page
+// formatted after enough others wrapped differently from the same page before.
+describe('formatCompleteAspFile — the same page always formats the same', () => {
+    it('gives the same result after a large page has been formatted', async function () {
+        this.timeout(20000);
+        const page = '<div>\n  <p>Order <%=x%> of <%=y%> shipped to <%=z%> on <%=d%> by courier <%=c%> ok</p>\n</div>\n';
+
+        const before = await formatCompleteAspFile(page);
+        await formatCompleteAspFile('<p>' + '<%=a%> '.repeat(10000) + '</p>\n');
+        const after = await formatCompleteAspFile(page);
+
+        assert.strictEqual(after, before);
+    });
+});

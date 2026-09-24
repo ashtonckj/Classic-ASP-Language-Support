@@ -122,7 +122,9 @@ function tokenCollisions(source: string, prefix: string): Map<string, number> {
     return longest;
 }
 
-// Module-level counter keeps IDs unique across calls in the same millisecond.
+// Numbers the placeholders of one format, from 0 each time — see
+// formatCompleteAspFile. Ids stay unique because they also carry a timestamp and
+// a random part; the number is what goes into a token's width.
 let _placeholderCounter = 0;
 
 // ─── JS event attribute masking ───────────────────────────────────────────
@@ -562,6 +564,14 @@ function findInOrder(text: string, needles: readonly string[]): number[] {
 }
 
 export async function formatCompleteAspFile(code: string): Promise<string> {
+    // A token's number is part of its length, and Prettier lays a line out by
+    // its length. Counting on across the whole session meant the same page
+    // wrapped differently once enough formats had gone before it — a page that
+    // no longer settled, and format-on-save that moved lines back and forth.
+    // Every placeholder is allocated before the first await, so a format that
+    // starts while another awaits Prettier cannot disturb it.
+    _placeholderCounter = 0;
+
     if (hasUnclosedAspTags(code)) {
         vscode.window.showWarningMessage(
             'Formatting skipped — unclosed <% or stray %> detected. Fix the ASP tag mismatch first.'
