@@ -50,7 +50,7 @@ async function getDiagnosticsForDocument(document: vscode.TextDocument): Promise
     // Type-checking the whole script block is the most expensive thing this
     // extension does, so it happens on a worker thread rather than on the
     // extension host — see jsAnalysisWorker.ts.
-    const analysis = await analyseEmbeddedJs(fullText);
+    const analysis = await analyseEmbeddedJs(document.uri.toString(), fullText);
     if (!analysis || analysis.jsRanges.length === 0) { return []; }
 
     const { jsRanges, preambleLength } = analysis;
@@ -66,7 +66,7 @@ async function getDiagnosticsForDocument(document: vscode.TextDocument): Promise
         // Guard against diagnostics that fall inside the preamble itself.
         if (docStart < 0) { continue; }
 
-        // `end` in getJsRanges is the offset of `<` in `</script>`, which is a
+        // `end` in getJsBlockRanges is the offset of `<` in `</script>`, which is a
         // valid position for a token that abuts the closing tag, so the test is
         // inclusive at both ends.
         if (!inRanges(jsRanges, docStart, false)) { continue; }

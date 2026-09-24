@@ -3,7 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as ts from 'typescript';
 import { analyseEmbeddedJs, disposeJsAnalysisWorker } from '../../utils/jsAnalysisClient';
-import { buildVirtualJsContent, getJsLanguageService, getJsRanges } from '../../utils/jsUtils';
+import { buildVirtualJsContent, getJsLanguageService } from '../../utils/jsUtils';
+import { getJsBlockRanges } from '../../utils/zoneUtils';
 
 // The two always-on JavaScript features — type-aware colouring and the error
 // squiggles — are computed on a worker thread instead of the extension host,
@@ -27,7 +28,7 @@ interface Analysis {
 
 /** What the extension host itself would produce, with no worker involved. */
 function inProcess(text: string): Analysis {
-    const jsRanges = getJsRanges(text);
+    const jsRanges = getJsBlockRanges(text);
     if (jsRanges.length === 0) { return { jsRanges: [], preambleLength: 0, spans: [], diagnostics: [] }; }
 
     const { virtualContent, preambleLength } = buildVirtualJsContent(text, 0);
@@ -81,7 +82,7 @@ describe('embedded JS analysis — the worker agrees with the extension host', (
             this.timeout(30000);
 
             const expected = inProcess(text);
-            const actual   = await analyseEmbeddedJs(text);
+            const actual   = await analyseEmbeddedJs('page.asp', text);
 
             assert.ok(actual, 'the worker returned no analysis');
             assert.deepStrictEqual(actual.jsRanges, expected.jsRanges, 'script ranges');
@@ -99,7 +100,7 @@ describe('embedded JS analysis — the worker agrees with the extension host', (
 
         const text     = fs.readFileSync(file, 'utf8');
         const expected = inProcess(text);
-        const actual   = await analyseEmbeddedJs(text);
+        const actual   = await analyseEmbeddedJs('page.asp', text);
 
         assert.ok(actual);
         assert.ok(expected.spans.length > 30000, 'fixture should be large enough to be worth the check');
@@ -114,14 +115,15 @@ describe('embedded JS analysis — request handling', () => {
 
     // The worker handles one job at a time and there is no point queueing work
     // for text the user has already typed past, so a request that arrives while
-    // another is waiting replaces it. The displaced caller is answered with
-    // undefined rather than a stale result or a rejection.
+    // another for the same document is waiting replaces it. The displaced
+    // caller is answered with undefined rather than a stale result or a
+    // rejection.
     it('drops a superseded request instead of queueing it', async function () {
         this.timeout(30000);
 
-        const first  = analyseEmbeddedJs('<script>var one = 1;</script>');
-        const second = analyseEmbeddedJs('<script>var two = 2;</script>');
-        const third  = analyseEmbeddedJs('<script>var three = 3; three.toFixed();</script>');
+        const first  = analyseEmbeddedJs('page.asp', '<script>var one = 1;</script>');
+        const second = analyseEmbeddedJs('page.asp', '<script>var two = 2;</script>');
+        const third  = analyseEmbeddedJs('page.asp', '<script>var three = 3; three.toFixed();</script>');
 
         const [a, b, c] = await Promise.all([first, second, third]);
 
@@ -133,22 +135,52 @@ describe('embedded JS analysis — request handling', () => {
         assert.ok(a === undefined || a.jsRanges.length === 1);
     });
 
+    // Newest-wins is per document. With one slot for the whole window, two
+    // visible pages knocked each other's requests out, and the loser lost its
+    // colouring and had its squiggles cleared until it was next edited.
+    it('answers every document when several ask at once', async function () {
+        this.timeout(30000);
+
+        const results = await Promise.all([
+            analyseEmbeddedJs('busy.asp', '<script>var busy = 1;</script>'),
+            analyseEmbeddedJs('a.asp',    '<script>var a = 1;</script>'),
+            analyseEmbeddedJs('b.asp',    '<script>var b = 2;</script>'),
+        ]);
+
+        for (const result of results) { assert.ok(result, 'every document should be answered'); }
+    });
+
+    // Colouring and squiggles both ask about a document after an edit. The
+    // second request for the same text shares the first one's answer.
+    it('analyses the same text once for two callers', async function () {
+        this.timeout(30000);
+
+        const text = '<script>var shared = 1;</script>';
+        const [x, y] = await Promise.all([
+            analyseEmbeddedJs('page.asp', text),
+            analyseEmbeddedJs('page.asp', text),
+        ]);
+
+        assert.ok(x);
+        assert.strictEqual(x, y, 'both callers should get the one result');
+    });
+
     // Both callers are decoration paths. A failure has to cost one refresh of
     // the colours or the squiggles, never surface as an extension error.
     it('never rejects', async function () {
         this.timeout(30000);
-        await assert.doesNotReject(() => analyseEmbeddedJs('<script>function ( ( ( </script>'));
+        await assert.doesNotReject(() => analyseEmbeddedJs('page.asp', '<script>function ( ( ( </script>'));
     });
 
     it('starts a fresh worker after being disposed', async function () {
         this.timeout(30000);
 
-        const before = await analyseEmbeddedJs('<script>var a = 1;</script>');
+        const before = await analyseEmbeddedJs('page.asp', '<script>var a = 1;</script>');
         assert.ok(before);
 
         disposeJsAnalysisWorker();
 
-        const after = await analyseEmbeddedJs('<script>var a = 1;</script>');
+        const after = await analyseEmbeddedJs('page.asp', '<script>var a = 1;</script>');
         assert.ok(after, 'a call after dispose should spawn a new worker');
         assert.deepStrictEqual(after.spans, before.spans);
     });

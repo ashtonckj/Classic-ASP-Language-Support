@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { classifyLine, extractAspStatementCode, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
+import { branchEvents, classifyLine, extractAspStatementCode, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
 
 function kinds(actions: Array<{ type: string; kind: string }>): string[] {
     return actions.map(a => `${a.type}:${a.kind}`);
@@ -182,5 +182,41 @@ describe('classifyLine — real keywords still classified', () => {
 
     it('does not treat On Error Resume Next as a For closer', () => {
         assert.deepStrictEqual(classifyLine('On Error Resume Next'), []);
+    });
+});
+
+// The HTML structure check reads the tags in each branch of an If or Select
+// Case as alternatives, and finds the branches through these events.
+describe('branchEvents', () => {
+    const events = (code: string) => branchEvents(code).map(e => `${e.type}:${e.block}`);
+
+    it('reads If / ElseIf / Else / End If', () => {
+        assert.deepStrictEqual(events('If a = 1 Then'), ['open:if']);
+        assert.deepStrictEqual(events('ElseIf a = 2 Then'), ['branch:if']);
+        assert.deepStrictEqual(events('Else'), ['branch:if']);
+        assert.deepStrictEqual(events('End If'), ['close:if']);
+    });
+
+    it('reads Select Case / Case / Case Else / End Select', () => {
+        assert.deepStrictEqual(events('Select Case mode'), ['open:select']);
+        assert.deepStrictEqual(events('Case 1, 2'), ['branch:select']);
+        assert.deepStrictEqual(events('Case Else'), ['branch:select']);
+        assert.deepStrictEqual(events('End Select'), ['close:select']);
+    });
+
+    it('gives a single-line If nothing', () => {
+        assert.deepStrictEqual(events('If a Then b = 1 Else b = 2'), []);
+    });
+
+    it('reads every statement of a multi-line block in order', () => {
+        assert.deepStrictEqual(events('x = 1\nIf a Then\n  y = 2\nElse : z = 3'), ['open:if', 'branch:if']);
+    });
+
+    it('ignores keywords in strings and comments', () => {
+        assert.deepStrictEqual(events('msg = "End If" \' If a Then'), []);
+    });
+
+    it('reads an If whose condition runs over a line continuation', () => {
+        assert.deepStrictEqual(events('If a And _\n   b Then'), ['open:if']);
     });
 });

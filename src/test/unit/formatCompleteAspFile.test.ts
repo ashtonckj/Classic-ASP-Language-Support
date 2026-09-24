@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import * as vscode from 'vscode';
 import { formatCompleteAspFile, insertImpliedTableEndTags } from '../../formatter/htmlFormatter';
 
 // Classic ASP tables routinely omit the optional </td> </tr> … end tags. Prettier
@@ -392,5 +393,133 @@ describe('formatCompleteAspFile — ASP inside an HTML tag stays inside it', () 
             const twice = await formatCompleteAspFile(once);
             assert.strictEqual(twice, once, `a second format changed:\n${once}\n--- became ---\n${twice}`);
         }
+    });
+});
+
+// Prettier formats an on* value as JavaScript, and once the attribute is too long
+// for printWidth it moves the value onto a line of its own. The masked value was
+// then never found again, and the page's event handler came back as the mask
+// token itself — JSEVT4_mufcrirn — with the JavaScript gone.
+describe('formatCompleteAspFile — an event handler survives being wrapped', () => {
+    const depth = 30;
+    const open  = '<div class="level">\n'.repeat(depth);
+    const close = '</div>\n'.repeat(depth);
+    const handler = "saveRecord('<%= recordId %>'); return false;";
+    const page = open
+        + '<button type="button" class="btn btn-primary" title="Save the record" onclick="' + handler + '">Save</button>\n'
+        + close;
+
+    it('keeps the handler, not the mask token', async () => {
+        const out = await formatCompleteAspFile(page);
+        assert.ok(!/JSEVT\d/.test(out), `a mask token was left behind:\n${out}`);
+        assert.ok(out.includes('onclick="' + handler + '"'), `the handler must come back whole:\n${out}`);
+    });
+
+    it('settles in one pass', async () => {
+        const once  = await formatCompleteAspFile(page);
+        const twice = await formatCompleteAspFile(once);
+        assert.strictEqual(twice, once);
+    });
+});
+
+// A placeholder's number is part of its length, and Prettier lays a line out by
+// its length. The numbers used to run on for the whole session, so a page
+// formatted after enough others wrapped differently from the same page before.
+describe('formatCompleteAspFile — the same page always formats the same', () => {
+    it('gives the same result after a large page has been formatted', async function () {
+        this.timeout(20000);
+        const page = '<div>\n  <p>Order <%=x%> of <%=y%> shipped to <%=z%> on <%=d%> by courier <%=c%> ok</p>\n</div>\n';
+
+        const before = await formatCompleteAspFile(page);
+        await formatCompleteAspFile('<p>' + '<%=a%> '.repeat(10000) + '</p>\n');
+        const after = await formatCompleteAspFile(page);
+
+        assert.strictEqual(after, before);
+    });
+});
+
+// The tidy-up for a <textarea> whose tags Prettier had broken ran on every
+// element, so two links Prettier kept on separate lines were joined into one
+// and the space the browser showed between them was lost.
+describe('formatCompleteAspFile — elements on separate lines stay apart', () => {
+    it('lays two links out as a .html file would', async () => {
+        const out = await formatCompleteAspFile(
+            '<div>\n<a href="edit.asp">Edit</a>\n<a href="delete.asp?confirm=yes&amp;return=list">Delete</a><span class="sep">|</span>\n</div>\n');
+        assert.strictEqual(out,
+            '<div>\n'
+            + '  <a href="edit.asp">Edit</a>\n'
+            + '  <a href="delete.asp?confirm=yes&amp;return=list">Delete</a\n'
+            + '  ><span class="sep">|</span>\n'
+            + '</div>\n');
+    });
+});
+
+// With aspTagsOnSameLine a block after other content stays on that line, but
+// the indent a line starts with was pasted in front of it, so two blocks on
+// one line came out with a run of spaces between them — which the next format
+// broke the line at.
+describe('formatCompleteAspFile — aspTagsOnSameLine leaves a block where it is', () => {
+    const realGetConfiguration = vscode.workspace.getConfiguration;
+
+    before(() => {
+        (vscode.workspace as { getConfiguration: unknown }).getConfiguration = () => ({
+            get: (key: string, defaultValue?: unknown) => (key === 'aspTagsOnSameLine' ? true : defaultValue),
+        });
+    });
+
+    after(() => {
+        (vscode.workspace as { getConfiguration: unknown }).getConfiguration = realGetConfiguration;
+    });
+
+    it('keeps two blocks on one line together, and settles', async () => {
+        const once = await formatCompleteAspFile(
+            '<div>\n<% Select Case mode %><% Case 1 %>\n<p>one</p>\n<% End Select %>\n</div>\n');
+        assert.ok(once.includes('\n  <% Select Case mode %><% Case 1 %>\n'), `got:\n${once}`);
+        assert.strictEqual(await formatCompleteAspFile(once), once);
+    });
+});
+
+// Each branch of an If opening its own copy of a wrapper is valid ASP, but
+// read top to bottom it is two <div>s and one </div>: Prettier nested the
+// second inside the first and added a </div> of its own. The tags only one
+// branch runs are hidden from Prettier and put back afterwards.
+describe('formatCompleteAspFile — a tag each branch of an If opens', () => {
+    const settlesInOnePass = async (source: string) => {
+        const once  = await formatCompleteAspFile(source);
+        const twice = await formatCompleteAspFile(once);
+        assert.strictEqual(twice, once, `a second format changed the file:\n${once}\n--- became ---\n${twice}`);
+        return once;
+    };
+    const count = (text: string, tag: string) => text.split(tag).length - 1;
+
+    it('keeps the one </div>, with each branch\'s <div> at the same indent', async () => {
+        const out = await settlesInOnePass(
+            '<% If isAdmin Then %>\n<div class="admin">\n<% Else %>\n<div class="user">\n<% End If %>\n<p>content</p>\n</div>\n');
+        assert.strictEqual(out,
+            '<%\nIf isAdmin Then\n%>\n<div class="admin">\n<%\nElse\n%>\n<div class="user">\n<%\nEnd If\n%>\n'
+            + '  <p>content</p>\n</div>\n');
+    });
+
+    it('keeps a closing tag in each branch', async () => {
+        const source = '<div class="wrap">\n<p>x</p>\n<% If a Then %>\n</div>\n<% Else %>\n</div>\n<% End If %>\n';
+        const out = await settlesInOnePass(source);
+        assert.notStrictEqual(out, source, 'the page should have been formatted');
+        assert.strictEqual(count(out, '</div>'), 2, out);
+        assert.ok(out.includes('\n  <p>x</p>\n'), `the content should be indented inside the <div>:\n${out}`);
+    });
+
+    it('keeps each Case\'s <form> in a Select Case', async () => {
+        const out = await settlesInOnePass(
+            '<% Select Case mode %>\n<% Case 1 %>\n<form action="a.asp">\n<% Case Else %>\n<form action="b.asp">\n'
+            + '<% End Select %>\n<input>\n</form>\n');
+        assert.strictEqual(count(out, '<form'), 2, out);
+        assert.strictEqual(count(out, '</form>'), 1, out);
+        assert.ok(/^<form action="b\.asp">$/m.test(out), `the second <form> belongs at the first one's indent:\n${out}`);
+    });
+
+    it('keeps a closing tag whose opening tag Response.Write writes', async () => {
+        const out = await settlesInOnePass('<% Response.Write "<table class=""grid"">" %>\n<tr><td>x</td></tr>\n</table>\n');
+        assert.strictEqual(count(out, '</table>'), 1, out);
+        assert.ok(out.includes('\n  <td>x</td>\n'), `the row should have been formatted:\n${out}`);
     });
 });

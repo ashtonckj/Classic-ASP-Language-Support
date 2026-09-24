@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { formatCompleteAspFile } from './formatter/htmlFormatter';
 import { HtmlCompletionProvider } from './providers/htmlCompletionProvider';
-import { registerAutoClosingTag, registerEnterKeyHandler, registerTabKeyHandler, registerSmartQuoteHandler, registerLineContinuationGuard } from './providers/aspIndentProvider';
+import { registerAutoClosingTag, registerEnterKeyHandler, registerTabKeyHandler, registerVbScriptQuoteGuard, registerLineContinuationGuard } from './providers/aspIndentProvider';
 import { AspCompletionProvider } from './providers/aspCompletionProvider';
 import { CssCompletionProvider } from './providers/cssCompletionProvider';
 import { EmmetCompletionProvider } from './providers/emmetCompletionProvider';
@@ -131,8 +131,13 @@ export function activate(context: vscode.ExtensionContext) {
             if (total > 0) {
                 vscode.window.showWarningMessage(
                     `Formatting skipped — ${total} structure issue${total === 1 ? '' : 's'} found. ` +
-                    `Fix the highlighted warnings first.`
-                );
+                    `Fix the highlighted warnings first.`,
+                    'Show Problems'
+                ).then(choice => {
+                    if (choice === 'Show Problems') {
+                        vscode.commands.executeCommand('workbench.actions.view.problems');
+                    }
+                });
                 return [];
             }
 
@@ -402,7 +407,7 @@ export function activate(context: vscode.ExtensionContext) {
     registerAutoClosingTag(context);
     registerEnterKeyHandler(context);
     registerTabKeyHandler(context);
-    registerSmartQuoteHandler(context);
+    registerVbScriptQuoteGuard(context);
     registerLineContinuationGuard(context);
     registerAspBlockMatch(context);
 

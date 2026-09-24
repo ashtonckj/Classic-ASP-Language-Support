@@ -6,11 +6,18 @@
  *
  * Two rules shape it:
  *
- *   • One job at a time, newest wins. The worker is synchronous inside, so a
- *     queue would only let a backlog build up while the user keeps typing, and
- *     every result but the last would be thrown away on arrival anyway. A
- *     request that arrives while the worker is busy replaces whatever was
- *     waiting, and the displaced caller is answered with undefined.
+ *   • One job at a time, newest wins — per document. The worker is synchronous
+ *     inside, so queueing every keystroke would only build a backlog whose
+ *     results are thrown away on arrival. A request replaces whatever was
+ *     waiting for the SAME document, and the displaced caller is answered with
+ *     undefined. It never displaces another document's request: with one slot
+ *     for the whole window, two visible pages (or a session restored with
+ *     several open) knocked each other out, and the loser lost its colouring
+ *     and had its squiggles cleared until it was next edited.
+ *
+ *   • The same text is analysed once. Colouring and squiggles both ask about
+ *     the document after an edit; a second request for text already waiting
+ *     or being analysed shares that answer instead of displacing it.
  *
  *   • Never reject. Both callers are decoration paths — colouring and
  *     squiggles. A worker that dies must cost a refresh, not surface an
@@ -36,14 +43,21 @@ type Resolver = (result: JsAnalysisResult | undefined) => void;
 let _worker: Worker | undefined;
 let _nextId = 1;
 let _failures = 0;
-let _inFlight: { id: number; resolve: Resolver } | undefined;
-let _queued: { text: string; resolve: Resolver } | undefined;
+interface Job { text: string; resolvers: Resolver[]; }
+
+let _inFlight: (Job & { id: number; key: string }) | undefined;
+// Waiting jobs, at most one per document, in the order they were asked for.
+const _queued = new Map<string, Job>();
+
+function answer(job: Job | undefined, result: JsAnalysisResult | undefined): void {
+    for (const resolve of job?.resolvers ?? []) { resolve(result); }
+}
 
 function failAllPending(): void {
-    _inFlight?.resolve(undefined);
+    answer(_inFlight, undefined);
     _inFlight = undefined;
-    _queued?.resolve(undefined);
-    _queued = undefined;
+    for (const job of _queued.values()) { answer(job, undefined); }
+    _queued.clear();
 }
 
 function teardown(): void {
@@ -67,8 +81,7 @@ function ensureWorker(): Worker | undefined {
 
             // A reply for anything but the current request is a leftover from a
             // worker that was replaced; ignore it.
-            if (pending && pending.id === result.id) { pending.resolve(result); }
-            else { pending?.resolve(undefined); }
+            answer(pending, pending && pending.id === result.id ? result : undefined);
 
             send();
         });
@@ -86,38 +99,52 @@ function ensureWorker(): Worker | undefined {
     }
 }
 
-/** Posts the queued request, if the worker is free and there is one waiting. */
+/** Posts the oldest waiting job, if the worker is free and there is one. */
 function send(): void {
-    if (_inFlight || !_queued) { return; }
+    if (_inFlight || _queued.size === 0) { return; }
 
     const worker = ensureWorker();
     if (!worker) { failAllPending(); return; }
 
-    const { text, resolve } = _queued;
-    _queued = undefined;
+    const [key, job] = _queued.entries().next().value!;
+    _queued.delete(key);
 
     const id = _nextId++;
-    _inFlight = { id, resolve };
+    _inFlight = { ...job, id, key };
     try {
-        worker.postMessage({ id, text });
+        worker.postMessage({ id, text: job.text });
     } catch {
         _inFlight = undefined;
-        resolve(undefined);
+        answer(job, undefined);
         teardown();
     }
 }
 
 /**
  * Classification spans and diagnostics for the JavaScript embedded in `text`,
- * or undefined when the request was superseded by a newer one or the worker
- * could not answer. Offsets in the result are in virtual-file space; subtract
- * `preambleLength` to get document offsets.
+ * the current text of the document `key` (its URI), or undefined when a newer
+ * request for that document superseded this one or the worker could not answer.
+ * Offsets in the result are in virtual-file space; subtract `preambleLength`
+ * to get document offsets.
  */
-export function analyseEmbeddedJs(text: string): Promise<JsAnalysisResult | undefined> {
+export function analyseEmbeddedJs(key: string, text: string): Promise<JsAnalysisResult | undefined> {
     return new Promise<JsAnalysisResult | undefined>(resolve => {
-        // Newest wins: whatever was waiting is already out of date.
-        _queued?.resolve(undefined);
-        _queued = { text, resolve };
+        if (_inFlight?.key === key && _inFlight.text === text) {
+            _inFlight.resolvers.push(resolve);
+            return;
+        }
+
+        const waiting = _queued.get(key);
+        if (waiting?.text === text) {
+            waiting.resolvers.push(resolve);
+            return;
+        }
+
+        // Newest wins for this document: what was waiting is already out of
+        // date. It moves to the back, behind any other document's request.
+        answer(waiting, undefined);
+        _queued.delete(key);
+        _queued.set(key, { text, resolvers: [resolve] });
         send();
     });
 }

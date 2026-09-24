@@ -4,8 +4,8 @@ import {
     collectCrossFrameNames,
     disposeJsLanguageService,
     getJsLanguageService,
-    getJsRanges,
 } from '../../utils/jsUtils';
+import { getJsBlockRanges } from '../../utils/zoneUtils';
 import { SUPPRESSED_CODES } from '../../providers/jsDiagnosticsProvider';
 
 // A Classic ASP modal reaching back into the page that opened it —
@@ -21,7 +21,7 @@ after(() => { disposeJsLanguageService(); });
 
 const namesIn = (scriptBody: string): string[] => {
     const fullText = `<script>\n${scriptBody}\n</script>\n`;
-    return [...collectCrossFrameNames(fullText, getJsRanges(fullText))].sort();
+    return [...collectCrossFrameNames(fullText, getJsBlockRanges(fullText))].sort();
 };
 
 describe('collectCrossFrameNames', () => {
@@ -74,14 +74,14 @@ describe('collectCrossFrameNames', () => {
 
     it('ignores frame calls written outside a script block', () => {
         const html = '<p>parent.NotCode()</p>\n<% x = "top.AlsoNotCode()" %>\n';
-        assert.deepStrictEqual([...collectCrossFrameNames(html, getJsRanges(html))], []);
+        assert.deepStrictEqual([...collectCrossFrameNames(html, getJsBlockRanges(html))], []);
     });
 });
 
 /** The error codes the extension would actually show for one <script> body. */
 function shownCodes(scriptBody: string): number[] {
     const fullText = `<script>\n${scriptBody}\n</script>\n`;
-    const jsRanges = getJsRanges(fullText);
+    const jsRanges = getJsBlockRanges(fullText);
     if (jsRanges.length === 0) { return []; }
 
     const { virtualContent, preambleLength } = buildVirtualJsContent(fullText, 0);

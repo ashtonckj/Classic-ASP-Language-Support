@@ -931,10 +931,25 @@ function splitOpaque(code: string): Array<{ text: string; opaque: boolean }> {
             }
         }
 
+        const prevCh = i > 0 ? code[i - 1] : '';
+
+        // A number with an exponent — 1.5E-3, 2E+10, .5E-2 — is one literal, sign
+        // and all. Spaced as an operator it became `1.5E - 3`, and `1.5E` is not a
+        // number, so the page failed to compile.
+        const startsNumber = /[0-9]/.test(ch) || (ch === '.' && /[0-9]/.test(code[i + 1] ?? ''));
+        if (startsNumber && !/[\w.]/.test(prevCh)) {
+            const m = /^(?:\d+\.?\d*|\.\d+)[eE][+-]?\d+/.exec(code.slice(i));
+            if (m) {
+                flush();
+                parts.push({ text: m[0], opaque: true });
+                i += m[0].length;
+                continue;
+            }
+        }
+
         // Decimal literal with a trailing & Long-type suffix (e.g. 100&). Keep the
         // & attached so it isn't spaced as a concatenation operator (100 &). Only
         // matched at a token start so a concatenation like `100 & x` is untouched.
-        const prevCh = i > 0 ? code[i - 1] : '';
         if (/[0-9]/.test(ch) && !/[\w.]/.test(prevCh)) {
             const m = /^\d+&/.exec(code.slice(i));
             if (m) {
@@ -951,6 +966,12 @@ function splitOpaque(code: string): Array<{ text: string; opaque: boolean }> {
     flush();
     return parts;
 }
+
+/** Keywords that are followed by an expression, so a `-` after one is a sign. */
+const UNARY_MINUS_AFTER = new Set([
+    'step', 'to', 'case', 'if', 'then', 'else', 'elseif', 'while', 'until',
+    'and', 'or', 'not', 'xor', 'eqv', 'imp', 'mod', 'is',
+]);
 
 function formatOperators(code: string): string {
     return splitOpaque(code).map(part =>
@@ -988,9 +1009,14 @@ function formatOperatorsInText(text: string): string {
     r = r.replace(/\s*\+\s*/g, ' + ');
 
     // ── Binary - only (not unary) ───────────────────────────────────────────
-    // A binary minus is preceded by: word char, digit, `)`, `]`, `_`.
-    // We require at least one optional space on each side, then replace.
-    r = r.replace(/([\w\d\)_\]])\s*-\s*/g, '$1 - ');
+    // A binary minus is preceded by an operand: a word char, digit, `)`, `]`
+    // or `_`. A keyword that expects an expression is not an operand, so the
+    // minus after it is unary and stays against its operand — `Step -1`,
+    // `Case -1`, `And -b`. That also mends the `Step - 1` older versions wrote.
+    r = r.replace(/([\w\d\)_\]])\s*-\s*/g, (_m, before: string, offset: number) => {
+        const word = /\w*$/.exec(r.slice(0, offset + 1))![0].toLowerCase();
+        return UNARY_MINUS_AFTER.has(word) ? `${before} -` : `${before} - `;
+    });
 
     // ── * / \ ^ & ─────────────────────────────────────────────────────────────
     // `\` is integer division and `^` is exponentiation — both always binary.

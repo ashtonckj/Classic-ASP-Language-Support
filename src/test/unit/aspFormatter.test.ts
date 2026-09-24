@@ -78,6 +78,44 @@ describe('applyKeywordCase — numeric / date literals', () => {
     it('does not space a trailing & Long-type suffix (100&)', () => {
         assert.strictEqual(applyKeywordCase('z = 100&', 'PascalCase'), 'z = 100&');
     });
+
+    // `1.5E - 3` leaves `1.5E`, which is not a number, so the page stopped compiling.
+    it('keeps the sign of an exponent inside the number', () => {
+        assert.strictEqual(applyKeywordCase('x = 1.5E-3', 'PascalCase'), 'x = 1.5E-3');
+        assert.strictEqual(applyKeywordCase('x = 2e+10 * .5E-2', 'PascalCase'), 'x = 2e+10 * .5E-2');
+    });
+
+    it('still spaces a minus after an identifier that merely ends in E', () => {
+        assert.strictEqual(applyKeywordCase('x = rate1E-3', 'PascalCase'), 'x = rate1E - 3');
+    });
+});
+
+// A minus after a keyword that expects an expression is a sign, not a
+// subtraction, and belongs against its operand.
+describe('applyKeywordCase — unary minus', () => {
+    const cases: Array<[string, string]> = [
+        ['For i = 10 To 1 Step -1', 'For i = 10 To 1 Step -1'],
+        ['For i = -5 To -1',        'For i = -5 To -1'],
+        ['Case -1',                 'Case -1'],
+        ['If a And -b > 0 Then',    'If a And -b > 0 Then'],
+        ['x = y Mod -2',            'x = y Mod -2'],
+        ['If -x > 0 Then',          'If -x > 0 Then'],
+    ];
+    for (const [source, expected] of cases) {
+        it(`leaves ${JSON.stringify(source)} as a sign`, () => {
+            assert.strictEqual(applyKeywordCase(source, 'PascalCase'), expected);
+        });
+    }
+
+    it('mends the spaced sign older versions wrote', () => {
+        assert.strictEqual(applyKeywordCase('For i = 10 To 1 Step - 1', 'PascalCase'), 'For i = 10 To 1 Step -1');
+    });
+
+    it('still spaces a binary minus', () => {
+        assert.strictEqual(applyKeywordCase('x = a-1', 'PascalCase'), 'x = a - 1');
+        assert.strictEqual(applyKeywordCase('x = (a)-b', 'PascalCase'), 'x = (a) - b');
+        assert.strictEqual(applyKeywordCase('x = total-1', 'PascalCase'), 'x = total - 1');
+    });
 });
 
 // F5 — legacy REM comments must be treated as comments, not code.

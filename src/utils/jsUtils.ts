@@ -73,7 +73,7 @@
 
 import * as path from 'path';
 import * as ts from 'typescript';
-import { findNextRealTag } from './zoneUtils';
+import { getJsBlockRanges } from './zoneUtils';
 import { ASP_DOM_TYPES } from './aspDomTypes.generated';
 
 export const VIRTUAL_FILENAME    = 'asp-embedded.js';
@@ -120,201 +120,6 @@ function sanitizeToIdentifier(raw: string): string {
         .replace(/[^A-Za-z0-9_]+/g, '_')
         .replace(/^_+|_+$/g, '');
     return sanitized || 'expr';
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// getJsRanges
-//
-// Returns the character offsets of every JavaScript <script> block in `content`.
-// `start` is the index of the first character after `>`, `end` is the index of
-// the `<` that begins `</script>` — so JS content is `content.slice(start, end)`.
-//
-// Blocks with a non-JS `type` attribute (e.g. `type="text/html"`) and blocks
-// with `language="vbscript"` are excluded.
-//
-// Uses findNextRealTag (from zoneUtils) for both the opening <script> and the
-// closing </script> search, so tags inside HTML comments (<!-- ... -->), ASP
-// blocks (<% ... %>), and VBScript strings are all correctly ignored.
-//
-// Shared by jsDiagnosticsProvider, jsSemanticProvider, jsDocumentSymbolProvider,
-// and jsCompletionProvider to avoid duplicating the same logic in each file.
-// ─────────────────────────────────────────────────────────────────────────────
-export function getJsRanges(content: string): Array<{ start: number; end: number }> {
-    const ranges: Array<{ start: number; end: number }> = [];
-    let searchFrom = 0;
-
-    while (true) {
-        // Find the next real <script opening tag — skips HTML comments, ASP
-        // blocks, VBScript strings, and attribute values in sibling tags.
-        const scriptOpen = findNextRealTag(content, '<script', searchFrom);
-        if (scriptOpen === -1) { break; }
-
-        // Find the closing `>` of the opening tag, skipping any ASP blocks
-        // embedded in the attribute list (e.g. <script src="<%=url%>">).
-        const scriptTagEnd = findTagClose(content, scriptOpen + 7);
-        if (scriptTagEnd === -1) { break; }
-
-        // Inspect attributes to decide whether this is a JS block.
-        const rawAttrs  = content.slice(scriptOpen + 7, scriptTagEnd);
-        const cleanAttrs = rawAttrs.replace(/<%[\s\S]*?%>/g, m => ' '.repeat(m.length));
-
-        const typeMatch = cleanAttrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
-        if (typeMatch && !/javascript|module/i.test(typeMatch[1])) {
-            searchFrom = scriptTagEnd + 1;
-            continue;
-        }
-        if (/\blanguage\s*=\s*["']vbscript["']/i.test(cleanAttrs)) {
-            searchFrom = scriptTagEnd + 1;
-            continue;
-        }
-
-        const tagEnd = scriptTagEnd + 1; // first character of script body
-
-        // Find the matching </script> using findScriptClose — a JS-aware
-        // scanner that skips over JS strings, comments, and ASP blocks so that
-        // operators like `<` and `>` inside `for` loops or comparisons cannot
-        // be misread as HTML tag delimiters (which would cause the real
-        // </script> to be incorrectly skipped as if it were inside an
-        // attribute list of a sibling tag).
-        const scriptClose = findScriptClose(content, tagEnd);
-        const end = scriptClose === -1 ? content.length : scriptClose;
-
-        ranges.push({ start: tagEnd, end });
-        searchFrom = scriptClose === -1 ? content.length : scriptClose + 9; // '</script>'.length
-    }
-
-    return ranges;
-}
-
-/**
- * Find the index of the closing `>` of an opening HTML tag, starting at
- * `from`.  Skips over:
- *   • Embedded ASP blocks  (`<%...%>`) — a `>` inside `<%=fn()%>` is not the
- *     end of the tag.
- *   • Quoted attribute values (`"..."` / `'...'`) — a `>` inside
- *     `onclick="a > b"` does not close the tag.
- */
-function findTagClose(content: string, from: number): number {
-    let i = from;
-    let inString = false;
-    let stringQuote = '';
-
-    while (i < content.length) {
-        const ch = content[i];
-
-        // ASP blocks first — `<%` opens a server block regardless of HTML
-        // attribute quoting, and the first `%>` closes it. Must precede the
-        // attribute-string handling below, otherwise an attribute's opening quote
-        // (src="<%= … %>") swallows the `<%` and a `>` emitted inside the ASP
-        // expression is mistaken for the tag end. (Mirrors findTagEnd in zoneUtils.)
-        if (ch === '<' && content[i + 1] === '%') {
-            const aspEnd = content.indexOf('%>', i + 2);
-            if (aspEnd === -1) { return -1; }
-            i = aspEnd + 2;
-            continue;
-        }
-        if (inString) {
-            if (ch === stringQuote) {
-                inString = false;
-                stringQuote = '';
-            }
-            i++;
-            continue;
-        }
-        if (ch === '"' || ch === "'") {
-            inString = true;
-            stringQuote = ch;
-            i++;
-            continue;
-        }
-        if (ch === '>') { return i; }
-        i++;
-    }
-    return -1;
-}
-
-/**
- * Starting at `start` (the opening `/`), skip past a JS line comment
- * (`// ...` to EOL).  Returns the index of the newline character (or
- * end-of-string) so the caller can stay on that character.
- */
-function skipJsLineComment(text: string, start: number): number {
-    const nl = text.indexOf('\n', start);
-    return nl === -1 ? text.length : nl;
-}
-
-/**
- * Starting at `start` (the opening `/`), skip past a JS block comment
- * (`/* ... *\/`).  Returns the index after `*\/`, or end-of-string.
- */
-function skipJsBlockComment(text: string, start: number): number {
-    const end = text.indexOf('*/', start + 2);
-    return end === -1 ? text.length : end + 2;
-}
-
-/**
- * Scan `text` from `from` for the next real `</script>` closing tag, skipping
- * over content that cannot legally contain a tag boundary:
- *   • JS line comments     // ...
- *   • JS block comments    /* ... *\/
- *   • JS strings           "..." / '...' / `...`
- *   • ASP blocks           <% ... %>
- *   • HTML comments        <!-- ... -->
- *
- * This prevents JS operators like `<` and `>` (e.g. in `for` loops or
- * comparisons) from being misread as HTML tag delimiters, which would cause
- * `findNextRealTag` to enter `inHtmlTag` mode and then skip the real
- * `</script>` as though it were inside an attribute list.
- *
- * Returns the index of the `<` in `</script>`, or -1 if not found.
- */
-function findScriptClose(text: string, from: number): number {
-    let i = from;
-
-    while (i < text.length) {
-        const ch = text[i];
-
-        // JS line comment
-        if (ch === '/' && text[i + 1] === '/') {
-            i = skipJsLineComment(text, i + 2);
-            continue;
-        }
-
-        // JS block comment
-        if (ch === '/' && text[i + 1] === '*') {
-            i = skipJsBlockComment(text, i);
-            continue;
-        }
-
-        // NOTE: JS strings are deliberately NOT skipped here. Per the HTML spec a
-        // <script> is raw text — a literal "</script>" inside a JS string really
-        // does close the element (authors must write "<\/script>" to avoid it).
-        // getZone/findClosingTag already follow that rule; skipping strings here
-        // made getJsRanges disagree with getZone about where the script ends.
-
-        // ASP block
-        if (ch === '<' && text[i + 1] === '%') {
-            const aspEnd = text.indexOf('%>', i + 2);
-            i = aspEnd === -1 ? text.length : aspEnd + 2;
-            continue;
-        }
-
-        // HTML comment
-        if (ch === '<' && text.startsWith('!--', i + 1)) {
-            const end = text.indexOf('-->', i + 4);
-            i = end === -1 ? text.length : end + 3;
-            continue;
-        }
-
-        // The real </script> close tag
-        if (text.slice(i, i + 9).toLowerCase() === '</script>') {
-            return i;
-        }
-
-        i++;
-    }
-
-    return -1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -545,7 +350,7 @@ export function collectCrossFrameNames(
 /**
  * Builds the preamble and the expression-sentinel map for the virtual file.
  * @param content   Raw ASP source text.
- * @param jsRanges  Pre-computed JS script ranges (from getJsRanges).
+ * @param jsRanges  Pre-computed JS script ranges (from getJsBlockRanges).
  */
 function buildPreamble(
     content: string,
@@ -653,7 +458,7 @@ export function substituteAspBlock(asp: string, sentinel: string | undefined): s
 // buildVirtualJsContent — public entry point
 // ─────────────────────────────────────────────────────────────────────────────
 export function buildVirtualJsContent(content: string, offset: number): VirtualJsResult {
-    const jsRanges = getJsRanges(content);
+    const jsRanges = getJsBlockRanges(content);
     const isInScript = jsRanges.some(r => offset >= r.start && offset <= r.end);
 
     // ── Pass 1: build preamble + sentinel map ────────────────────────────────
@@ -843,6 +648,12 @@ export class JsLanguageService {
     }
 
     updateContent(content: string): void {
+        // A new version makes TypeScript rebuild and re-check the program on its
+        // next query. Every hover, completion and occurrence highlight projects
+        // the page afresh, and between two keystrokes the projection is the same
+        // text — bumping regardless re-checked a large <script> on every mouse
+        // rest and every cursor move (635 ms a hover on 8,000 lines, 39 ms without).
+        if (content === this._content) { return; }
         this._content = content;
         this._version++;
     }

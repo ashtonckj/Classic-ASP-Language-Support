@@ -20,9 +20,6 @@
  *   • Call-expression callbacks          forEach(cb), addEventListener('x', cb)
  *     Named as "<callee>(<arg-label>) callback" to mirror VS Code HTML behaviour
  *
- * FIX: now uses the shared getJsRanges() from jsUtils instead of a local
- * regex so that ASP-in-attribute handling is consistent with all other providers.
- *
  * FIX: preambleLength is now subtracted from every TS AST node position before
  * it is handed to document.positionAt / makeSymbol. The TS AST is built from
  * the virtual content (preamble + body), so all node offsets are in virtual-file
@@ -35,9 +32,9 @@ import * as ts     from 'typescript';
 import {
     buildVirtualJsContent,
     getJsLanguageService,
-    getJsRanges,
     VIRTUAL_FILENAME,
 } from '../utils/jsUtils';
+import { getJsBlockRanges } from '../utils/zoneUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -395,9 +392,9 @@ export class JsDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
 
         const fullText = document.getText();
 
-        // FIX: use shared getJsRanges() instead of a local regex — this ensures
-        // consistent ASP-in-attribute handling across all providers.
-        const jsRanges = getJsRanges(fullText);
+        // The same block scan getZone uses, so the Outline and the rest of the
+        // extension agree about where every <script> ends.
+        const jsRanges = getJsBlockRanges(fullText);
         if (jsRanges.length === 0 || token.isCancellationRequested) { return []; }
 
         const { virtualContent, preambleLength } = buildVirtualJsContent(fullText, 0);
