@@ -185,6 +185,38 @@ describe('classifyLine — real keywords still classified', () => {
     });
 });
 
+// The squiggles and the matching-keyword highlight both ask about the document
+// after every edit; the second asks about the text the first just scanned.
+describe('scanAspStructure / getMatchedBlockPairs — one scan per text', () => {
+    function doc(uri: string, text: string): vscode.TextDocument {
+        const lines = text.split('\n');
+        const lineOffsets: number[] = [];
+        let acc = 0;
+        for (const l of lines) { lineOffsets.push(acc); acc += l.length + 1; }
+        return {
+            uri:       { toString: () => uri },
+            getText:   () => text,
+            lineCount: lines.length,
+            lineAt:    (i: number) => ({ text: lines[i] }),
+            offsetAt:  (pos: vscode.Position) => lineOffsets[pos.line] + pos.character,
+        } as unknown as vscode.TextDocument;
+    }
+
+    it('gives the second caller the scan the first one made', () => {
+        const page = doc('file:///shared.asp', '<%\nIf x Then\n  y = 1\nEnd If\n%>');
+        const first = getMatchedBlockPairs(page);
+        assert.strictEqual(getMatchedBlockPairs(page), first);
+    });
+
+    it('scans again once the text has changed', () => {
+        const before = doc('file:///edited.asp', '<%\nIf x Then\n  y = 1\nEnd If\n%>');
+        const after  = doc('file:///edited.asp', '<%\nIf x Then\n  y = 1\n%>');
+        assert.strictEqual(scanAspStructure(before).length, 0);
+        assert.strictEqual(scanAspStructure(after).length, 1, 'the missing End If should be reported');
+        assert.strictEqual(getMatchedBlockPairs(after).length, 0);
+    });
+});
+
 // The HTML structure check reads the tags in each branch of an If or Select
 // Case as alternatives, and finds the branches through these events.
 describe('branchEvents', () => {
