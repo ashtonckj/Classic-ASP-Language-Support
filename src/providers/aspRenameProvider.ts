@@ -374,7 +374,10 @@ export class AspRenameProvider implements vscode.RenameProvider {
             const text = key === docKey ? fullText : (readIncludeText(fsPath) ?? '');
             if (!text) { continue; }
 
-            const fileUri = vscode.Uri.file(fsPath);
+            // The page's own uri, not one rebuilt from its path: an unsaved
+            // Untitled-1 has no file, and an edit aimed at file:///Untitled-1
+            // is refused, so nothing was renamed at all.
+            const fileUri = key === docKey ? document.uri : vscode.Uri.file(fsPath);
 
             // A procedure that declares its own `oldName` — as a parameter or an
             // explicit Dim/Const — holds a DIFFERENT variable, so its body must be
