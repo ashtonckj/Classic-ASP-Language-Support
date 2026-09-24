@@ -26,13 +26,11 @@
  */
 
 import * as vscode from 'vscode';
-import { getCSSLanguageService, Stylesheet } from 'vscode-css-languageservice';
+import type { Stylesheet } from 'vscode-css-languageservice';
 import type { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-import { buildCssDoc, buildInlineCssDoc, getInlineStyleContext } from '../utils/cssUtils';
+import { buildCssDoc, buildInlineCssDoc, cssLanguageService, getInlineStyleContext } from '../utils/cssUtils';
 import { getParsedCssBlocks, pageOffset } from '../utils/cssPageStylesheet';
 import { getCssBlockRanges } from '../utils/zoneUtils';
-
-const cssService = getCSSLanguageService();
 
 /** The wrapper buildInlineCssDoc puts in front of an inline declaration list. */
 const INLINE_PREFIX = '* {  ';
@@ -76,10 +74,10 @@ function colorsIn(
     toPageOffset: (virtualOffset: number) => number,
     stylesheet?:  Stylesheet,
 ): vscode.ColorInformation[] {
-    const parsed = stylesheet ?? cssService.parseStylesheet(cssDoc);
+    const parsed = stylesheet ?? cssLanguageService().parseStylesheet(cssDoc);
     const found: vscode.ColorInformation[] = [];
 
-    for (const info of cssService.findDocumentColors(cssDoc, parsed)) {
+    for (const info of cssLanguageService().findDocumentColors(cssDoc, parsed)) {
         const start = toPageOffset(cssDoc.offsetAt(info.range.start));
         const end   = toPageOffset(cssDoc.offsetAt(info.range.end));
         if (start < 0 || end > pageLength || end <= start) { continue; }
@@ -158,8 +156,8 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
         }
         if (!cssDoc || token.isCancellationRequested) { return undefined; }
 
-        const stylesheet = cssService.parseStylesheet(cssDoc);
-        const presentations = cssService.getColorPresentations(
+        const stylesheet = cssLanguageService().parseStylesheet(cssDoc);
+        const presentations = cssLanguageService().getColorPresentations(
             cssDoc, stylesheet,
             { red: color.red, green: color.green, blue: color.blue, alpha: color.alpha },
             {

@@ -5,14 +5,13 @@
  */
 
 import * as vscode from 'vscode';
-import { getCSSLanguageService, DiagnosticSeverity as LsSeverity } from 'vscode-css-languageservice';
-import { getInlineStyleContext, buildInlineCssDoc } from '../utils/cssUtils';
+import type { DiagnosticSeverity as LsSeverity } from 'vscode-css-languageservice';
+import { getInlineStyleContext, buildInlineCssDoc, cssLanguageService, cssLanguageServiceModule } from '../utils/cssUtils';
 import { getParsedCssBlocks, pagePosition } from '../utils/cssPageStylesheet';
 import { createZoneResolver, findNextRealTag, findTagEnd, findClosingTag } from '../utils/zoneUtils';
 
-const cssService = getCSSLanguageService();
-
 function mapSeverity(severity: LsSeverity | undefined): vscode.DiagnosticSeverity {
+    const { DiagnosticSeverity: LsSeverity } = cssLanguageServiceModule();
     switch (severity) {
         case LsSeverity.Error:       return vscode.DiagnosticSeverity.Error;
         case LsSeverity.Warning:     return vscode.DiagnosticSeverity.Warning;
@@ -105,7 +104,7 @@ function validateDocument(
     for (const block of getParsedCssBlocks(document.uri.toString(), fullText, document.version, blockRanges)) {
         const blockStart = document.positionAt(block.range.start);
 
-        for (const d of cssService.doValidation(block.cssDoc, block.stylesheet)) {
+        for (const d of cssLanguageService().doValidation(block.cssDoc, block.stylesheet)) {
             const s = pagePosition(blockStart, d.range.start);
             const e = pagePosition(blockStart, d.range.end);
 
@@ -174,8 +173,8 @@ function validateDocument(
                 inlineCtx.valueStart,
                 inlineCtx.valueEnd
             );
-            const stylesheet   = cssService.parseStylesheet(lsDoc);
-            const lsDiagnostics = cssService.doValidation(lsDoc, stylesheet);
+            const stylesheet   = cssLanguageService().parseStylesheet(lsDoc);
+            const lsDiagnostics = cssLanguageService().doValidation(lsDoc, stylesheet);
 
             for (const d of lsDiagnostics) {
                 // Remap positions from the virtual "* { ... }" doc back to the real line.
