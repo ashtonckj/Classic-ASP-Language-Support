@@ -1,6 +1,9 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { branchEvents, classifyLine, extractAspStatementCode, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
+import { branchEvents, classifyLine, extractAspStatementCode, findMissingIncludes, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 function kinds(actions: Array<{ type: string; kind: string }>): string[] {
     return actions.map(a => `${a.type}:${a.kind}`);
@@ -250,5 +253,59 @@ describe('branchEvents', () => {
 
     it('reads an If whose condition runs over a line continuation', () => {
         assert.deepStrictEqual(events('If a And _\n   b Then'), ['open:if']);
+    });
+});
+
+// IIS will not run a page whose #include names a file that is not there
+// (ASP 0126), so the path is flagged where it is written.
+describe('findMissingIncludes', () => {
+    const site = fs.mkdtempSync(path.join(os.tmpdir(), 'asp-includes-'));
+    const page = path.join(site, 'admin', 'page.asp');
+    before(() => {
+        fs.mkdirSync(path.join(site, 'admin', 'lib'), { recursive: true });
+        fs.mkdirSync(path.join(site, 'inc'));
+        fs.writeFileSync(path.join(site, 'admin', 'lib', 'db.asp'), '');
+        fs.writeFileSync(path.join(site, 'inc', 'header.asp'), '');
+    });
+    after(() => fs.rmSync(site, { recursive: true, force: true }));
+
+    it('says nothing when every include is there', () => {
+        const text = '<!--#include file="lib/db.asp"-->\n<!--#include virtual="/inc/header.asp"-->';
+        assert.deepStrictEqual(findMissingIncludes(text, page, site), []);
+    });
+
+    it('flags a file include that is not there, on its path', () => {
+        const text = '<p>\n<!-- #include file="lib/dbx.asp" -->';
+        const [found, ...rest] = findMissingIncludes(text, page, site);
+        assert.deepStrictEqual(rest, []);
+        assert.strictEqual(text.slice(found.start, found.end), 'lib/dbx.asp');
+        assert.ok(found.message.includes(path.join(site, 'admin', 'lib', 'dbx.asp')), found.message);
+        assert.ok(found.message.includes('ASP 0126'), found.message);
+    });
+
+    it('resolves a file include from the page, not the site root', () => {
+        const [found] = findMissingIncludes('<!--#include file="inc/header.asp"-->', page, site);
+        assert.ok(found, 'inc/ is beside the site root, not beside the page');
+    });
+
+    it('flags a virtual include from the site root, and says where that is', () => {
+        const [found] = findMissingIncludes('<!--#include virtual="/inc/footer.asp"-->', page, site);
+        assert.ok(found.message.includes(path.join(site, 'inc', 'footer.asp')), found.message);
+        assert.ok(found.message.includes('aspLanguageSupport.virtualRoot'), found.message);
+    });
+
+    it('leaves a virtual include alone when the site root is not known', () => {
+        assert.deepStrictEqual(findMissingIncludes('<!--#include virtual="/inc/footer.asp"-->', page, undefined), []);
+        assert.strictEqual(findMissingIncludes('<!--#include file="nope.asp"-->', page, undefined).length, 1);
+    });
+
+    it('flags a path that names a folder', () => {
+        assert.strictEqual(findMissingIncludes('<!--#include file="lib"-->', page, site).length, 1);
+    });
+
+    it('points at the right one when the same path is written twice', () => {
+        const text = '<!--#include file="a.asp"--><!--#include file="a.asp"-->';
+        const found = findMissingIncludes(text, page, site);
+        assert.deepStrictEqual(found.map(f => f.start), [19, 47]);
     });
 });

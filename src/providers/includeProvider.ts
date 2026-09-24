@@ -21,6 +21,15 @@ import type { IncludeWorkerEntry } from './includeSymbolWorker';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function getVirtualRoot(documentPath: string): string {
+    return configuredVirtualRoot() ?? path.dirname(documentPath);
+}
+
+/**
+ * The virtual root from steps 1 and 2 only — undefined when neither the setting
+ * nor an open folder says where the site starts, and the document's own folder
+ * is just a guess.
+ */
+export function configuredVirtualRoot(): string | undefined {
     const config      = vscode.workspace.getConfiguration('aspLanguageSupport');
     const userSetting = config.get<string>('virtualRoot', '').trim();
 
@@ -32,8 +41,7 @@ export function getVirtualRoot(documentPath: string): string {
         return expanded;
     }
 
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-        ?? path.dirname(documentPath);
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
 
 // Tracks whether we have already shown the virtual root hint in this session

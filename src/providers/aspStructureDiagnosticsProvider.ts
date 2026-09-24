@@ -29,7 +29,10 @@
  */
 
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { createZoneResolver } from '../utils/zoneUtils';
+import { parseIncludeDirectives, resolveIncludeDirective } from '../utils/includeDirectives';
+import { configuredVirtualRoot } from './includeProvider';
 
 // ── Block descriptor ──────────────────────────────────────────────────────────
 
@@ -642,6 +645,68 @@ export function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] 
     return diagnostics;
 }
 
+// ── Include files that are not there ──────────────────────────────────────────
+
+/** An #include whose file does not exist: where its path is written, and why. */
+export interface MissingInclude {
+    start:   number;
+    end:     number;
+    message: string;
+}
+
+function isFile(fsPath: string): boolean {
+    try { return fs.statSync(fsPath).isFile(); } catch { return false; }
+}
+
+/**
+ * Every #include whose file does not exist, resolved the way the include links
+ * and symbols resolve it. IIS will not run a page with one — "Include file not
+ * found" (ASP 0126) — so a typo in the path stops the whole page, not just the
+ * part the include was for.
+ *
+ * `virtualRoot` is undefined when nothing says where the site starts (no
+ * setting, no folder open). A `virtual="/…"` path is then left alone rather
+ * than reported missing from a folder that was only a guess.
+ */
+export function findMissingIncludes(
+    text: string,
+    documentPath: string,
+    virtualRoot: string | undefined,
+): MissingInclude[] {
+    const missing: MissingInclude[] = [];
+    for (const directive of parseIncludeDirectives(text)) {
+        if (directive.type === 'virtual' && virtualRoot === undefined) { continue; }
+
+        const fullPath = resolveIncludeDirective(directive, documentPath, virtualRoot ?? '');
+        if (isFile(fullPath)) { continue; }
+
+        const start = text.indexOf(directive.raw, directive.index);
+        const where = directive.type === 'virtual'
+            ? ` A virtual path starts at the site root, ${virtualRoot} — set "aspLanguageSupport.virtualRoot" if yours is somewhere else.`
+            : '';
+        missing.push({
+            start,
+            end: start + directive.raw.length,
+            message: `Include file not found: ${fullPath}. IIS will not run this page (ASP 0126).${where}`,
+        });
+    }
+    return missing;
+}
+
+/** Missing-include warnings for a saved page; an untitled one has no folder to look in. */
+export function scanIncludes(document: vscode.TextDocument): vscode.Diagnostic[] {
+    if (document.uri.scheme !== 'file') { return []; }
+    return findMissingIncludes(document.getText(), document.uri.fsPath, configuredVirtualRoot())
+        .map(found => Object.assign(
+            new vscode.Diagnostic(
+                new vscode.Range(document.positionAt(found.start), document.positionAt(found.end)),
+                found.message,
+                vscode.DiagnosticSeverity.Warning,
+            ),
+            { source: 'Classic ASP (includes)' },
+        ));
+}
+
 // ── Registration ──────────────────────────────────────────────────────────────
 
 export function registerAspStructureDiagnostics(
@@ -649,11 +714,23 @@ export function registerAspStructureDiagnostics(
 ): vscode.DiagnosticCollection {
 
     const collection = vscode.languages.createDiagnosticCollection('classic-asp-vbscript-structure');
-    context.subscriptions.push(collection);
+    // Its own collection: a missing include is worth knowing about, but it is
+    // not a structure problem, so it must not stop Format Document — which
+    // refuses to run while the structure collection has anything in it.
+    const includeCollection = vscode.languages.createDiagnosticCollection('classic-asp-includes');
+    context.subscriptions.push(collection, includeCollection);
 
     // Per-document debounce timers, keyed by URI, so editing one open .asp file
     // never cancels another file's pending scan (a single shared timer did).
     const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    function scanNow(document: vscode.TextDocument): void {
+        collection.set(document.uri, [
+            ...scanAspTags(document),
+            ...scanAspStructure(document),
+        ]);
+        includeCollection.set(document.uri, scanIncludes(document));
+    }
 
     function schedule(document: vscode.TextDocument): void {
         if (document.languageId !== 'asp') { return; }
@@ -662,21 +739,21 @@ export function registerAspStructureDiagnostics(
         if (existing) { clearTimeout(existing); }
         debounceTimers.set(key, setTimeout(() => {
             debounceTimers.delete(key);
-            collection.set(document.uri, [
-                ...scanAspTags(document),
-                ...scanAspStructure(document),
-            ]);
+            scanNow(document);
         }, 1500));
+    }
+
+    // An include can appear or go without the page being edited — created,
+    // deleted or renamed in the Explorer, or a different site root set.
+    function recheckIncludes(): void {
+        for (const doc of vscode.workspace.textDocuments) {
+            if (doc.languageId === 'asp') { includeCollection.set(doc.uri, scanIncludes(doc)); }
+        }
     }
 
     // Run immediately on already-open documents
     for (const doc of vscode.workspace.textDocuments) {
-        if (doc.languageId === 'asp') {
-            collection.set(doc.uri, [
-                ...scanAspTags(doc),
-                ...scanAspStructure(doc),
-            ]);
-        }
+        if (doc.languageId === 'asp') { scanNow(doc); }
     }
 
     context.subscriptions.push(
@@ -687,6 +764,21 @@ export function registerAspStructureDiagnostics(
             const existing = debounceTimers.get(key);
             if (existing) { clearTimeout(existing); debounceTimers.delete(key); }
             collection.delete(doc.uri);
+            includeCollection.delete(doc.uri);
+        }),
+        vscode.workspace.onDidCreateFiles(recheckIncludes),
+        vscode.workspace.onDidDeleteFiles(recheckIncludes),
+        vscode.workspace.onDidRenameFiles(recheckIncludes),
+        vscode.workspace.onDidChangeWorkspaceFolders(recheckIncludes),
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('aspLanguageSupport.virtualRoot')) { recheckIncludes(); }
+        }),
+        // Anything done outside VS Code (a git checkout, a build step) raises
+        // none of the above; coming back to the page picks it up.
+        vscode.window.onDidChangeActiveTextEditor(editor => {
+            if (editor?.document.languageId === 'asp') {
+                includeCollection.set(editor.document.uri, scanIncludes(editor.document));
+            }
         }),
     );
 
