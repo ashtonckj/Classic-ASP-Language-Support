@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../utils/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
-import { ASP_MEMBER_DOCS } from '../constants/aspKeywords';
+import { ASP_MEMBER_DOCS, ASP_OBJECTS, AspObjectDef, VBSCRIPT_CONSTANTS } from '../constants/aspKeywords';
 import { getZone } from '../utils/zoneUtils';
 import { aspCodeStartOnLine, isInsideVbString } from '../utils/documentHelper';
 import * as path from 'path';
@@ -188,6 +188,16 @@ const THREE_WORD_COMPOUNDS: Record<string, string> = {
 // • Script context (<script>):  symbol/COM hovers only, no keyword docs.
 // • HTML context:               no hovers (except HTML link guard already applied).
 // ─────────────────────────────────────────────────────────────────────────────
+/** An intrinsic object's hover: what it is for, and its members by kind. */
+function describeAspObject(object: AspObjectDef): string {
+    const sections: string[] = [`**${object.name}** — ASP intrinsic object\n\n${object.description}.`];
+    for (const [kind, heading] of [['method', 'Methods'], ['property', 'Properties'], ['collection', 'Collections']] as const) {
+        const names = object.members.filter(member => member.kind === kind).map(member => `\`${member.name}\``);
+        if (names.length > 0) { sections.push(`**${heading}:** ${names.join(', ')}`); }
+    }
+    return sections.join('\n\n');
+}
+
 export class AspHoverProvider implements vscode.HoverProvider {
 
     provideHover(
@@ -317,7 +327,25 @@ export class AspHoverProvider implements vscode.HoverProvider {
             );
         }
 
-        // ── 6. Built-in VBScript function hover ─────────────────────────────────
+        // ── 6. Intrinsic object — Response, Request, Server, Session, … ─────────
+        // Always in scope and never declared, so never among the symbols above.
+        // After a dot the word is a member of something else (`obj.Response`).
+        const aspObject = charBeforeWord === '.'
+            ? undefined
+            : ASP_OBJECTS.find(object => object.name.toLowerCase() === wordKey);
+        if (aspObject) {
+            return new vscode.Hover(new vscode.MarkdownString(describeAspObject(aspObject)));
+        }
+
+        // ── 7. Built-in VBScript constant — vbCrLf, vbTextCompare, … ────────────
+        const vbConstant = VBSCRIPT_CONSTANTS.find(constant => constant.name.toLowerCase() === wordKey);
+        if (vbConstant) {
+            return new vscode.Hover(
+                new vscode.MarkdownString(`**${vbConstant.name}** — VBScript constant\n\n${vbConstant.doc}`)
+            );
+        }
+
+        // ── 8. Built-in VBScript function hover ─────────────────────────────────
         // Show docs for built-in functions like Split(), InStr(), DateDiff(), etc.
         if (BUILTIN_FUNCTION_DOCS[wordKey]) {
             return new vscode.Hover(new vscode.MarkdownString(BUILTIN_FUNCTION_DOCS[wordKey]));
