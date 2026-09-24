@@ -1184,9 +1184,10 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     // accidentally matched inside a reconstructed ASP expression.
     let restoredCode = restoreJsEventAttrs(restored.toString(), jsAttrMasks);
 
-    // ── Step 6: Fix broken whitespace-sensitive tags (e.g. <textarea>) ───────
-    // When ASPINLINE tokens are long, Prettier wraps the closing `>` of the
-    // opening tag onto its own line, and separately breaks the closing tag:
+    // ── Step 6: Fix broken whitespace-sensitive tags (<textarea>, <pre>) ─────
+    // When the expression inside is long, Prettier can wrap the closing `>`
+    // of the opening tag onto its own line, and separately break the closing
+    // tag:
     //
     //   <textarea ...attrs...>
     //   <%= val %></textarea
@@ -1201,12 +1202,14 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     // Pattern:
     //   (>)           — the closing > of the opening tag (already on its own line or inline)
     //   \n[ \t]*      — newline + any indentation Prettier added before the content
-    //   ([^\n]+?)     — the inline content (single line, non-greedy)
-    //   (<\/\w+)      — start of the closing tag (e.g. </textarea)
+    //   (...)         — the inline content (single line, non-greedy), with no tag
+    //                   in it, so the `>` is the textarea's own and not that of
+    //                   an element on the line above
+    //   (<\/...)      — start of the closing tag
     //   \n[ \t]*      — newline + whitespace before the stray >
     //   (>)           — the stray > that closes the closing tag
     restoredCode = restoredCode.replace(
-        /(>)\n[ \t]*([^\n]+?)(<\/\w+)\n[ \t]*(>)/g,
+        /(>)\n[ \t]*((?:(?!<\/?[a-zA-Z])[^\n])+?)(<\/(?:textarea|pre))\n[ \t]*(>)/gi,
         '$1$2$3$4'
     );
 

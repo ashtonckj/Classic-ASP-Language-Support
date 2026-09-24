@@ -436,3 +436,19 @@ describe('formatCompleteAspFile — the same page always formats the same', () =
         assert.strictEqual(after, before);
     });
 });
+
+// The tidy-up for a <textarea> whose tags Prettier had broken ran on every
+// element, so two links Prettier kept on separate lines were joined into one
+// and the space the browser showed between them was lost.
+describe('formatCompleteAspFile — elements on separate lines stay apart', () => {
+    it('lays two links out as a .html file would', async () => {
+        const out = await formatCompleteAspFile(
+            '<div>\n<a href="edit.asp">Edit</a>\n<a href="delete.asp?confirm=yes&amp;return=list">Delete</a><span class="sep">|</span>\n</div>\n');
+        assert.strictEqual(out,
+            '<div>\n'
+            + '  <a href="edit.asp">Edit</a>\n'
+            + '  <a href="delete.asp?confirm=yes&amp;return=list">Delete</a\n'
+            + '  ><span class="sep">|</span>\n'
+            + '</div>\n');
+    });
+});
