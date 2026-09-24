@@ -449,7 +449,9 @@ export function activate(context: vscode.ExtensionContext) {
 
     // ── Linked editing of a tag pair ──────────────────────────────────────────
     // VS Code's own feature, as in a .html file: it runs only when the user
-    // turns on editor.linkedEditing or uses Start Linked Editing.
+    // turns on editor.linkedEditing. Start Linked Editing (Ctrl+Shift+F2)
+    // without the setting marks the pair but does not mirror the typing, in a
+    // .html file too.
     const htmlLinkedEditingProvider = vscode.languages.registerLinkedEditingRangeProvider(
         'asp', new HtmlLinkedEditingProvider()
     );

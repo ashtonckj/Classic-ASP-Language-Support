@@ -65,7 +65,7 @@
 - **Rename symbol** — `F2` on a VBScript variable, constant, Sub or Function; locals stay inside their own body, globals are renamed across the include graph, and a member like `obj.total` is left alone
 - **Update #include paths** — rename or move a file in VS Code and it offers to fix every `#include` that pointed at it
 - **Parameter hints** — signature help for VBScript's built-in functions (`Mid`, `InStr`, `Replace`…), your own Subs and Functions, and JavaScript in `<script>` blocks
-- **Linked editing** — with `editor.linkedEditing` on, or after `Ctrl + Shift + F2`, editing a tag name edits its closing tag too, ASP between them or not
+- **Linked editing** — with `editor.linkedEditing` on, editing a tag name edits its closing tag too, ASP between them or not
 - **Outline & breadcrumbs** — Subs, Functions, Classes and Consts (plus JavaScript functions) in the Outline view and `Ctrl + Shift + O`
 - **Workspace symbol search** — `Ctrl + T` finds VBScript symbols across every `.asp` / `.inc` in the workspace
 - **Document links** — `Ctrl + Click` navigation on `#include` paths and local file attributes, including root-relative (`/images/logo.gif`) ones

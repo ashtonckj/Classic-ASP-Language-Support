@@ -156,8 +156,7 @@ export function vbScriptBalancedBetween(text: string, from: number, to: number):
 
 /**
  * Editing a tag name edits its partner too, when `editor.linkedEditing` is on
- * or after Start Linked Editing (Ctrl+Shift+F2) — the same VS Code feature a
- * .html file has, off unless the user turns it on.
+ * — the same VS Code feature a .html file has, off unless the user turns it on.
  */
 export class HtmlLinkedEditingProvider implements vscode.LinkedEditingRangeProvider {
     provideLinkedEditingRanges(document: vscode.TextDocument, position: vscode.Position): vscode.LinkedEditingRanges | undefined {
