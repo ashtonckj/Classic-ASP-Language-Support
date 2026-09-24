@@ -313,3 +313,28 @@ describe('shadowingBodies', () => {
         assert.deepStrictEqual(shadowingBodies(sym, 'total'), []);
     });
 });
+
+// Every occurrence used to recount its line from the top of the file, so F2 on
+// a common name took seconds on a large page — 6.8s for 14,000 lines.
+describe('findAllOccurrences — large files', () => {
+    const lines: string[] = ['<%', 'Dim total'];
+    for (let i = 0; i < 12000; i++) { lines.push(i % 3 === 0 ? 'total = total + ' + i : 'x = ' + i); }
+    lines.push('%>');
+    const text = lines.join('\r\n');
+
+    it('reports the right line and column for every occurrence', () => {
+        const found = findAllOccurrences(text, 'total');
+        assert.strictEqual(found.length, 1 + 2 * 4000);
+        for (const { line, character } of found) {
+            assert.strictEqual(lines[line].slice(character, character + 5), 'total', `line ${line} col ${character}`);
+        }
+    });
+
+    it('stays fast', () => {
+        const started = Date.now();
+        findAllOccurrences(text, 'total');
+        const elapsed = Date.now() - started;
+        // Deliberately loose, so it measures the algorithm rather than the machine.
+        assert.ok(elapsed < 500, `expected well under 500ms, took ${elapsed}ms`);
+    });
+});

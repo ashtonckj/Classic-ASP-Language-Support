@@ -469,6 +469,11 @@ export function findAllOccurrences(
     // isInsideAspBlock() in a loop (which would be O(n²)).
     const vbsMap = buildVbScriptMap(text);
 
+    // Matches arrive in document order, so the line number is carried forward
+    // rather than recounted from the top of the file for every one of them.
+    let lineNumber = 0;
+    let countedTo  = 0;
+
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(text)) !== null) {
         const offset = match.index;
@@ -490,8 +495,8 @@ export function findAllOccurrences(
 
         if (isInsideVbStringOrComment(lineText, colInLine)) continue;
 
-        // Compute line number from offset for constructing vscode.Position
-        const lineNumber = countNewlines(text, offset);
+        lineNumber += countNewlines(text, countedTo, offset);
+        countedTo   = offset;
         results.push({ line: lineNumber, character: colInLine });
     }
 
@@ -550,13 +555,13 @@ function buildVbScriptMap(text: string): Uint8Array {
 }
 
 /**
- * Counts the number of newline characters before `offset` in `text`.
- * Equivalent to the 0-based line number of that offset.
- * Avoiding document.positionAt() lets us work on raw strings from fs.readFileSync.
+ * Counts the newline characters in `text` from `from` up to (not including)
+ * `to`. Working on the raw string rather than document.positionAt() is what
+ * lets this run over files read straight from disk.
  */
-function countNewlines(text: string, offset: number): number {
+function countNewlines(text: string, from: number, to: number): number {
     let count = 0;
-    for (let i = 0; i < offset; i++) {
+    for (let i = from; i < to; i++) {
         if (text[i] === '\n') count++;
     }
     return count;
