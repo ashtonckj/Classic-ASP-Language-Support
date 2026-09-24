@@ -94,20 +94,26 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             return s;
         };
 
+        // Several passes below ask for the same lines, so each line is masked once
+        // per run and kept.
+        const vbScriptLines: (string | undefined)[] = [];
         const vbScriptOnLine = (li: number): string => {
+            const known = vbScriptLines[li];
+            if (known !== undefined) { return known; }
+
             // A line with no ASP characters at all masks to nothing but spaces,
             // and every caller then discards it on a .trim() check. Building that
             // character by character was the single biggest cost in this provider:
             // a page whose bulk is one large <script> block pays it per line, per
             // pass. Same value, produced in one step.
-            if (lineHasAsp[li] === 0) { return SPACES(lineTextCache[li].length); }
+            if (lineHasAsp[li] === 0) { return (vbScriptLines[li] = SPACES(lineTextCache[li].length)); }
             const text = lineTextCache[li];
             const base = lineOffsetCache[li];
             let out = '';
             for (let c = 0; c < text.length; c++) {
                 out += inAsp(base + c) ? text[c] : ' ';
             }
-            return out.replace(/<%[=@]?/g, m => ' '.repeat(m.length));
+            return (vbScriptLines[li] = out.replace(/<%[=@]?/g, m => ' '.repeat(m.length)));
         };
 
         // Build fast lookup sets/maps from collected symbols.
@@ -236,9 +242,11 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
             const varName = am[1].toLowerCase();
             const rhs     = am[2].trim();
 
-            // Cache escaped varName for self-append check
-            const escapedVar = varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const isSelfAppend = new RegExp('^\\b' + escapedVar + '\\b\\s*&', 'i').test(rhs);
+            // `sql = sql & …`. The name is a plain identifier, so comparing the
+            // leading word does what a regex built from it did, without
+            // compiling a new one for every assignment on the page.
+            const leadingWord  = /^(\w+)\s*&/.exec(rhs);
+            const isSelfAppend = leadingWord !== null && leadingWord[1].toLowerCase() === varName;
 
             const quoteCol = lineText.indexOf('"', lineText.indexOf(am[1]));
             let stitchedValue = '';
