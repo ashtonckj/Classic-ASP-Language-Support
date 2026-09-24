@@ -27,6 +27,7 @@ import { IncludeDocumentLinkProvider, HtmlAttributeLinkProvider, HtmlAttributePa
 // ASP semantic provider must now use COMBINED_SEMANTIC_LEGEND — see note above.
 import { AspSemanticTokensProvider } from './providers/aspSemanticProvider';
 import { AspHoverProvider } from './providers/aspHoverProvider';
+import { HtmlHoverProvider } from './providers/htmlLanguageFeatures';
 import { AspReferenceProvider, AspRenameProvider, registerIncludeUpdatesOnRename } from './providers/aspRenameProvider';
 import { addRegionHighlights } from './highlight';
 import { AspDocumentSymbolProvider } from './providers/aspDocumentSymbolProvider';
@@ -442,6 +443,10 @@ export function activate(context: vscode.ExtensionContext) {
         'asp', new JsHoverProvider()
     );
 
+    const htmlHoverProvider = vscode.languages.registerHoverProvider(
+        'asp', new HtmlHoverProvider()
+    );
+
     // ── Key handlers ──────────────────────────────────────────────────────────
     registerAutoClosingTag(context);
     registerEnterKeyHandler(context);
@@ -510,6 +515,7 @@ export function activate(context: vscode.ExtensionContext) {
         aspCompletionProvider,
         cssCompletionProvider,
         cssHoverProvider,
+        htmlHoverProvider,
         cssColorProvider,
         jsCompletionProvider,
         emmetCompletionProvider,
