@@ -48,6 +48,7 @@
 - **VBScript** — smart indentation across all control structures and multi-block `<% %>` regions
 - **HTML/CSS/JS** — formatted by Prettier, fully configurable
 - **Keyword casing** — your choice of `PascalCase`, `UPPERCASE`, or `lowercase`
+- **Preview Formatting** — run *Classic ASP: Preview Formatting* from the Command Palette to see what Format Document would change, side by side, without applying it
 
 ### 💡 IntelliSense & Auto-Completion
 - **Context-aware** — correct suggestions whether you're in ASP, CSS, JS, or HTML
@@ -169,7 +170,6 @@
 | `aspLanguageSupport.htmlIndentMode` | `continuation` | Where `<%` and `%>` sit: `continuation` — at the indent of the surrounding HTML; `flat` — at column 0. The VBScript inside is indented the same either way |
 | `aspLanguageSupport.virtualRoot` | *(empty)* | Absolute path to your IIS application root, used to resolve `#include virtual="..."` and root-relative `href`/`src`. Empty = the workspace folder root |
 | `aspLanguageSupport.defaultIncludes` | *(empty)* | Files always added to IntelliSense, hover, and Go to Definition for every document, even without an `#include` for them. For libraries pulled in through a shared bootstrap page at runtime. Resolved like `#include virtual="..."` |
-| `aspLanguageSupport.formatPreview` | `false` | Debug: `Alt + Shift + F` opens a diff preview instead of applying the format |
 
 ### Prettier (HTML/CSS/JS)
 

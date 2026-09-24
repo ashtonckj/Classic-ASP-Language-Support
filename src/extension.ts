@@ -121,46 +121,61 @@ export function activate(context: vscode.ExtensionContext) {
     const aspStructureCollection  = registerAspStructureDiagnostics(context);
 
     // ── Formatter ─────────────────────────────────────────────────────────────
+    // The page as it is and as formatting would leave it — or undefined, with
+    // the user told why, when a structure problem means it cannot be formatted.
+    // Both are LF-normalised, so a CRLF-saved file is not reported as "every line
+    // changed"; the edits are written back with the line ending resolveEol picks.
+    async function formatForDocument(
+        document: vscode.TextDocument,
+    ): Promise<{ fullText: string; formatted: string } | undefined> {
+        const total = getStructureIssueCount(document, htmlStructureCollection, aspStructureCollection);
+        if (total > 0) {
+            vscode.window.showWarningMessage(
+                `Formatting skipped — ${total} structure issue${total === 1 ? '' : 's'} found. ` +
+                `Fix the highlighted warnings first.`,
+                'Show Problems'
+            ).then(choice => {
+                if (choice === 'Show Problems') {
+                    vscode.commands.executeCommand('workbench.actions.view.problems');
+                }
+            });
+            return undefined;
+        }
+
+        const fullText  = toLf(document.getText());
+        const formatted = toLf(await formatCompleteAspFile(fullText));
+        return { fullText, formatted };
+    }
+
     const formatter = vscode.languages.registerDocumentFormattingEditProvider('asp', {
         async provideDocumentFormattingEdits(document: vscode.TextDocument): Promise<vscode.TextEdit[]> {
-            const total = getStructureIssueCount(document, htmlStructureCollection, aspStructureCollection);
-            if (total > 0) {
-                vscode.window.showWarningMessage(
-                    `Formatting skipped — ${total} structure issue${total === 1 ? '' : 's'} found. ` +
-                    `Fix the highlighted warnings first.`,
-                    'Show Problems'
-                ).then(choice => {
-                    if (choice === 'Show Problems') {
-                        vscode.commands.executeCommand('workbench.actions.view.problems');
-                    }
-                });
-                return [];
-            }
+            const result = await formatForDocument(document);
+            if (!result) { return []; }
 
-            // Format on LF-normalised text and diff against the same, so a
-            // CRLF-saved file is not reported as "every line changed"; the edits
-            // are then written back with the line ending resolveEol picks.
-            const fullText  = toLf(document.getText());
-            const formatted = toLf(await formatCompleteAspFile(fullText));
-
-            const config = vscode.workspace.getConfiguration('aspLanguageSupport');
-            const eol    = resolveEol(
+            const eol = resolveEol(
                 vscode.workspace.getConfiguration('aspLanguageSupport.prettier')
                     .get<string>('endOfLine', 'auto'),
                 document,
             );
-
-            if (config.get<boolean>('formatPreview', false)) {
-                if (formatted === fullText) {
-                    vscode.window.showInformationMessage('No formatting changes — file is already formatted.');
-                    return [];
-                }
-                await openFormattingPreview(context, document, formatted);
-                return [];
-            }
-
-            return computeLineEdits(document, fullText, formatted, eol);
+            return computeLineEdits(document, result.fullText, result.formatted, eol);
         }
+    });
+
+    // ── Classic ASP: Preview Formatting ───────────────────────────────────────
+    // A diff of what Format Document would change, with nothing applied. This
+    // was the formatPreview setting, which turned Format Document itself into a
+    // preview until the setting was switched off again.
+    const previewFormatting = vscode.commands.registerCommand('aspLanguageSupport.previewFormatting', async () => {
+        const document = vscode.window.activeTextEditor?.document;
+        if (!document || document.languageId !== 'asp') { return; }
+
+        const result = await formatForDocument(document);
+        if (!result) { return; }
+        if (result.formatted === result.fullText) {
+            vscode.window.showInformationMessage('No formatting changes — file is already formatted.');
+            return;
+        }
+        await openFormattingPreview(context, document, result.formatted);
     });
 
     // ── Completion providers ──────────────────────────────────────────────────
@@ -461,6 +476,7 @@ export function activate(context: vscode.ExtensionContext) {
     //     cleaned up when the extension is deactivated.
     context.subscriptions.push(
         formatter,
+        previewFormatting,
         htmlCompletionProvider,
         aspCompletionProvider,
         cssCompletionProvider,
