@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as prettier from 'prettier';
 import { formatSingleAspBlock, getAspSettings, delimitersAtColumnZero } from './aspFormatter';
 import { findNextRealTag, findTagEnd, findClosingTag } from '../utils/zoneUtils';
+import { analyseHtmlStructure } from '../providers/htmlStructureDiagnosticsProvider';
 
 // ─── Prettier settings ─────────────────────────────────────────────────────
 
@@ -61,6 +62,14 @@ interface AspBlock {
     kind:       AspBlockKind;
     /** The exact string emitted in place of the block, for kinds that need one. */
     token?:     string;
+}
+
+/** A tag kept out of Prettier's sight behind `<!--id-->` — see analyseHtmlStructure. */
+interface HiddenTagPlaceholder {
+    id:     string;
+    text:   string;
+    /** Levels shallower than where Prettier lays the placeholder out. */
+    dedent: number;
 }
 
 /** `<%= … %>` — Response.Write in expression form, so its output is page text. */
@@ -611,6 +620,15 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     const masked    = new TextBuilder();
     const context   = new EmittedContext();
 
+    // Tags Prettier must not see: one branch's copy of a tag another branch of
+    // the same If opens or closes, or a tag whose partner VBScript writes. Read
+    // top to bottom they look unbalanced, and Prettier re-nests the page around
+    // them or appends a closing tag of its own. Each is hidden behind a comment
+    // and put back afterwards, the indent it belongs at included.
+    const hidden = analyseHtmlStructure(jsPreMasked).hidden;
+    const hiddenTags: HiddenTagPlaceholder[] = [];
+    let   nextHidden = 0;
+
     // The current line of the masked text: its leading blanks, and its trailing
     // run of blanks (the whole line while it is nothing but blanks).
     let lineLeading     = '';
@@ -653,13 +671,26 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     let block   = -2;
 
     while (pos < jsPreMasked.length) {
-        // Page text up to the next HTML comment or ASP block goes through as is.
+        // Page text up to the next HTML comment, ASP block or hidden tag goes
+        // through as is.
         if (comment !== -1 && comment < pos) { comment = jsPreMasked.indexOf('<!--', pos); }
         if (block   !== -1 && block   < pos) { block   = jsPreMasked.indexOf('<%', pos); }
-        const next = comment === -1 ? block : block === -1 ? comment : Math.min(comment, block);
-        if (next === -1) { emit(jsPreMasked.slice(pos)); break; }
+        while (nextHidden < hidden.length && hidden[nextHidden].start < pos) { nextHidden++; }
+        const tag  = nextHidden < hidden.length ? hidden[nextHidden].start : -1;
+        const next = [comment, block, tag].filter(at => at !== -1).reduce((a, b) => Math.min(a, b), Infinity);
+        if (next === Infinity) { emit(jsPreMasked.slice(pos)); break; }
         emit(jsPreMasked.slice(pos, next));
         pos = next;
+
+        // ── A hidden tag ───────────────────────────────────────────────────
+        if (next === tag) {
+            const { end, dedent } = hidden[nextHidden++];
+            const id = `ASPTAG${hiddenTags.length}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+            hiddenTags.push({ id, text: jsPreMasked.slice(pos, end), dedent });
+            emit(`<!--${id}-->`);
+            pos = end;
+            continue;
+        }
 
         // ── HTML comment: copied through its first `-->` ───────────────────
         if (next === comment) {
@@ -836,9 +867,18 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     //
     // The second run only happens when there is something to move.
     if (!aspSettings.aspTagsOnSameLine) {
-        const at = findInOrder(prettifiedCode, normalBlocks.map(commentFor));
-        const toSplit = normalBlocks
-            .map((block, i) => ({ placeholder: commentFor(block), at: at[i] }))
+        // A hidden tag is a structural element — a div, a form, a table — so it
+        // gets a line of its own too, rather than being left after a `%>`.
+        const placeholders = [
+            ...normalBlocks.map(commentFor),
+            ...hiddenTags.map(tag => `<!--${tag.id}-->`),
+        ];
+        const at = [
+            ...findInOrder(prettifiedCode, normalBlocks.map(commentFor)),
+            ...findInOrder(prettifiedCode, hiddenTags.map(tag => `<!--${tag.id}-->`)),
+        ];
+        const toSplit = placeholders
+            .map((placeholder, i) => ({ placeholder, at: at[i] }))
             .filter(({ at }) => at !== -1
                 && isInlinePlaced(prettifiedCode.slice(prettifiedCode.lastIndexOf('\n', at - 1) + 1, at)))
             .sort((a, b) => a.at - b.at);
@@ -900,6 +940,15 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             );
             return code;
         }
+    }
+
+    const hiddenAt = findInOrder(prettifiedCode, hiddenTags.map(tag => `<!--${tag.id}-->`));
+    if (hiddenAt.includes(-1)) {
+        vscode.window.showWarningMessage(
+            'Formatting skipped — Prettier removed a tag that an If, a Select Case or a Response.Write ' +
+            'opens or closes. The page was left as it was.'
+        );
+        return code;
     }
 
     // Where each block's placeholder is — for a statement block, the whole
@@ -990,15 +1039,44 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     // before it on that line — exactly as the old one-replace-per-block loop saw
     // it, without rebuilding the whole page once per block.
 
-    const order = aspBlocks
-        .map((block, i) => ({ block, i, at: placeholderAt[i] }))
-        .filter(({ at }) => at !== -1)
-        .sort((a, b) => a.at - b.at);
+    type RestoreItem =
+        | { block: AspBlock; i: number; at: number }
+        | { tag: HiddenTagPlaceholder; at: number };
 
+    const order: RestoreItem[] = [
+        ...aspBlocks
+            .map((block, i) => ({ block, i, at: placeholderAt[i] }))
+            .filter(({ at }) => at !== -1),
+        ...hiddenTags.map((tag, t) => ({ tag, at: hiddenAt[t] })),
+    ].sort((a, b) => a.at - b.at);
+
+    const indentUnit = prettierSettings.useTabs ? '\t' : ' '.repeat(prettierSettings.tabWidth);
     const restored = new TextBuilder();
     let scan = 0;
 
-    for (const { block, i, at } of order) {
+    for (const item of order) {
+        if ('tag' in item) {
+            restored.push(prettifiedCode.slice(scan, item.at));
+            scan = item.at + `<!--${item.tag.id}-->`.length;
+
+            // On a line of its own, the tag goes at the indent it belongs at —
+            // not the one Prettier gave its placeholder, inside the element the
+            // first branch opened.
+            const line = restored.currentLine();
+            if (!line.text.split('').every(isBlank)) { restored.push(item.tag.text); continue; }
+
+            let indent = line.text;
+            if (item.tag.dedent > 0) {
+                indent = indent.slice(0, Math.max(0, indent.length - indentUnit.length * item.tag.dedent));
+            } else if (item.tag.dedent < 0) {
+                indent += indentUnit.repeat(-item.tag.dedent);
+            }
+            restored.dropEnd(line.text.length);
+            restored.push(indent + item.tag.text);
+            continue;
+        }
+
+        const { block, i, at } = item;
         const formatted = formattedBlocks[i];
         restored.push(prettifiedCode.slice(scan, at));
 

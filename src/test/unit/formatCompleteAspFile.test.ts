@@ -478,3 +478,48 @@ describe('formatCompleteAspFile — aspTagsOnSameLine leaves a block where it is
         assert.strictEqual(await formatCompleteAspFile(once), once);
     });
 });
+
+// Each branch of an If opening its own copy of a wrapper is valid ASP, but
+// read top to bottom it is two <div>s and one </div>: Prettier nested the
+// second inside the first and added a </div> of its own. The tags only one
+// branch runs are hidden from Prettier and put back afterwards.
+describe('formatCompleteAspFile — a tag each branch of an If opens', () => {
+    const settlesInOnePass = async (source: string) => {
+        const once  = await formatCompleteAspFile(source);
+        const twice = await formatCompleteAspFile(once);
+        assert.strictEqual(twice, once, `a second format changed the file:\n${once}\n--- became ---\n${twice}`);
+        return once;
+    };
+    const count = (text: string, tag: string) => text.split(tag).length - 1;
+
+    it('keeps the one </div>, with each branch\'s <div> at the same indent', async () => {
+        const out = await settlesInOnePass(
+            '<% If isAdmin Then %>\n<div class="admin">\n<% Else %>\n<div class="user">\n<% End If %>\n<p>content</p>\n</div>\n');
+        assert.strictEqual(out,
+            '<%\nIf isAdmin Then\n%>\n<div class="admin">\n<%\nElse\n%>\n<div class="user">\n<%\nEnd If\n%>\n'
+            + '  <p>content</p>\n</div>\n');
+    });
+
+    it('keeps a closing tag in each branch', async () => {
+        const source = '<div class="wrap">\n<p>x</p>\n<% If a Then %>\n</div>\n<% Else %>\n</div>\n<% End If %>\n';
+        const out = await settlesInOnePass(source);
+        assert.notStrictEqual(out, source, 'the page should have been formatted');
+        assert.strictEqual(count(out, '</div>'), 2, out);
+        assert.ok(out.includes('\n  <p>x</p>\n'), `the content should be indented inside the <div>:\n${out}`);
+    });
+
+    it('keeps each Case\'s <form> in a Select Case', async () => {
+        const out = await settlesInOnePass(
+            '<% Select Case mode %>\n<% Case 1 %>\n<form action="a.asp">\n<% Case Else %>\n<form action="b.asp">\n'
+            + '<% End Select %>\n<input>\n</form>\n');
+        assert.strictEqual(count(out, '<form'), 2, out);
+        assert.strictEqual(count(out, '</form>'), 1, out);
+        assert.ok(/^<form action="b\.asp">$/m.test(out), `the second <form> belongs at the first one's indent:\n${out}`);
+    });
+
+    it('keeps a closing tag whose opening tag Response.Write writes', async () => {
+        const out = await settlesInOnePass('<% Response.Write "<table class=""grid"">" %>\n<tr><td>x</td></tr>\n</table>\n');
+        assert.strictEqual(count(out, '</table>'), 1, out);
+        assert.ok(out.includes('\n  <td>x</td>\n'), `the row should have been formatted:\n${out}`);
+    });
+});

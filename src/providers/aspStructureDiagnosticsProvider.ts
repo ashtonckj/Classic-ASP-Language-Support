@@ -353,6 +353,43 @@ function classifyStatement(segment: string, raw: string, actions: LineAction[]):
     return;
 }
 
+// ── If / Select Case branches ─────────────────────────────────────────────────
+
+/** One step of If / Select Case structure: a block opening, a new branch, or its end. */
+export interface BranchEvent {
+    type:  'open' | 'branch' | 'close';
+    block: 'if' | 'select';
+}
+
+/**
+ * The If / Select Case structure the code of one ASP block carries, in order —
+ * which it opens, which it continues with another branch (ElseIf, Else, Case),
+ * and which it closes. A single-line `If … Then <statement>` carries none.
+ *
+ * The HTML structure check reads the tags written in the branches of an If as
+ * alternatives, not as one after another, and this is how it finds them.
+ */
+export function branchEvents(code: string): BranchEvent[] {
+    const events: BranchEvent[] = [];
+
+    for (const logical of joinContinuationLines(code.split(/\r?\n/))) {
+        for (const segment of removeStrings(logical.text).split(':')) {
+            const lower = segment.toLowerCase().replace(/\.\w+/g, ' ').trim();
+            if (!lower) { continue; }
+
+            if      (/^end\s+if\b/.test(lower))              { events.push({ type: 'close',  block: 'if' }); }
+            else if (/^end\s+select\b/.test(lower))          { events.push({ type: 'close',  block: 'select' }); }
+            else if (/^else(if\b|\s|$)/.test(lower))         { events.push({ type: 'branch', block: 'if' }); }
+            else if (/^case\b/.test(lower))                  { events.push({ type: 'branch', block: 'select' }); }
+            else if (/\bselect\s+case\b/.test(lower))        { events.push({ type: 'open',   block: 'select' }); }
+            else if (/\bif\b.*\bthen\b\s+\S/.test(lower))    { /* single-line If */ }
+            else if (/\bif\b.*\bthen\b/.test(lower))         { events.push({ type: 'open',   block: 'if' }); }
+        }
+    }
+
+    return events;
+}
+
 // ── Matched block pairs ────────────────────────────────────────────────────────
 // A successfully matched opener/closer (the "good" case the diagnostics above
 // never report). Used to highlight the keyword matching the one under the
