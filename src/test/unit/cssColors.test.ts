@@ -152,6 +152,22 @@ describe('Colour swatches inside a style="" attribute', () => {
     });
 });
 
+// The editor builds the whole page string for every getText() call. Reading it
+// once per style="" attribute took a page with 2,000 of them from 42 ms to 332.
+describe('Colour swatches read the page once', () => {
+    it('asks for the text once however many style attributes there are', () => {
+        const text = '<p style="color: #ff0000">a</p>\n'.repeat(50) + '<style>.a { color: #00ff00; }</style>\n';
+        const doc  = fakeDoc(text);
+        let reads  = 0;
+        (doc as { getText: () => string }).getText = () => { reads++; return text; };
+
+        const out = provider.provideDocumentColors(doc, NOT_CANCELLED) as vscode.ColorInformation[];
+
+        assert.strictEqual(out.length, 51);
+        assert.strictEqual(reads, 1);
+    });
+});
+
 describe('The colour picker offers CSS notations', () => {
     it('offers a replacement that overwrites exactly the old colour', () => {
         const text = '<style>\n.a { color: #ff0000; }\n</style>\n';

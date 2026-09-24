@@ -64,19 +64,20 @@ function inlineStyleValues(content: string): Array<{ valueStart: number; valueEn
 /**
  * Colours in one virtual CSS document, with each position shifted back into the
  * page by `toPageOffset`.
+ *
+ * `pageLength` is passed in rather than read from the document: this runs once
+ * per <style> block and once per style="" attribute, and each read made the
+ * editor hand back the entire page, 2,000 times on a page with 2,000 of them.
  */
 function colorsIn(
     document:     vscode.TextDocument,
     cssDoc:       LsTextDocument,
+    pageLength:   number,
     toPageOffset: (virtualOffset: number) => number,
     stylesheet?:  Stylesheet,
 ): vscode.ColorInformation[] {
     const parsed = stylesheet ?? cssService.parseStylesheet(cssDoc);
     const found: vscode.ColorInformation[] = [];
-
-    // Hoisted: this was inside the loop, so a page whose <style> holds 2,000
-    // colours asked the editor to hand back the entire document 2,000 times.
-    const pageLength = document.getText().length;
 
     for (const info of cssService.findDocumentColors(cssDoc, parsed)) {
         const start = toPageOffset(cssDoc.offsetAt(info.range.start));
@@ -109,7 +110,7 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
         for (const block of getParsedCssBlocks(uri, content, version, getCssBlockRanges(content))) {
             if (token.isCancellationRequested) { return undefined; }
             colors.push(...colorsIn(
-                document, block.cssDoc,
+                document, block.cssDoc, content.length,
                 offset => pageOffset(block, offset),
                 block.stylesheet,
             ));
@@ -119,7 +120,7 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
             if (token.isCancellationRequested) { return undefined; }
             const cssDoc = buildInlineCssDoc(uri, content, version, value.valueStart, value.valueEnd);
             colors.push(...colorsIn(
-                document, cssDoc,
+                document, cssDoc, content.length,
                 offset => value.valueStart + offset - INLINE_PREFIX.length,
             ));
         }
