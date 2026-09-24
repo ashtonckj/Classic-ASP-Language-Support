@@ -159,7 +159,12 @@ function restoreJsEventAttrs(code: string, masks: JsAttrMask[]): string {
     // One pass for every mask. Prettier may have changed the surrounding quote
     // style, so either is matched; the function replacement keeps `$`-sequences
     // in the original value (e.g. $&, $$) literal.
-    return code.replace(/["'](JSEVT\d+_[0-9a-z]+)["']/g, (whole, token: string) => {
+    //
+    // Prettier formats an on* value as JavaScript, and a line too long for
+    // printWidth gets its value moved onto a line of its own —
+    // `onclick="\n  JSEVT4_x\n"`. Without the whitespace allowed here that token
+    // was never restored, and the page's event handler was replaced by it.
+    return code.replace(/["']\s*(JSEVT\d+_[0-9a-z]+)\s*["']/g, (whole, token: string) => {
         const mask = byToken.get(token);
         return mask ? `${mask.quote}${mask.original}${mask.quote}` : whole;
     });

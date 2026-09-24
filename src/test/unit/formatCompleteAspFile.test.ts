@@ -394,3 +394,29 @@ describe('formatCompleteAspFile — ASP inside an HTML tag stays inside it', () 
         }
     });
 });
+
+// Prettier formats an on* value as JavaScript, and once the attribute is too long
+// for printWidth it moves the value onto a line of its own. The masked value was
+// then never found again, and the page's event handler came back as the mask
+// token itself — JSEVT4_mufcrirn — with the JavaScript gone.
+describe('formatCompleteAspFile — an event handler survives being wrapped', () => {
+    const depth = 30;
+    const open  = '<div class="level">\n'.repeat(depth);
+    const close = '</div>\n'.repeat(depth);
+    const handler = "saveRecord('<%= recordId %>'); return false;";
+    const page = open
+        + '<button type="button" class="btn btn-primary" title="Save the record" onclick="' + handler + '">Save</button>\n'
+        + close;
+
+    it('keeps the handler, not the mask token', async () => {
+        const out = await formatCompleteAspFile(page);
+        assert.ok(!/JSEVT\d/.test(out), `a mask token was left behind:\n${out}`);
+        assert.ok(out.includes('onclick="' + handler + '"'), `the handler must come back whole:\n${out}`);
+    });
+
+    it('settles in one pass', async () => {
+        const once  = await formatCompleteAspFile(page);
+        const twice = await formatCompleteAspFile(once);
+        assert.strictEqual(twice, once);
+    });
+});
