@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import * as prettier from 'prettier';
+import type * as prettier from 'prettier';
 import { formatSingleAspBlock, getAspSettings, delimitersAtColumnZero } from './aspFormatter';
 import { findNextRealTag, findTagEnd, findClosingTag } from '../utils/zoneUtils';
 import { analyseHtmlStructure } from '../providers/htmlStructureDiagnosticsProvider';
@@ -810,6 +810,10 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         htmlWhitespaceSensitivity: prettierSettings.htmlWhitespaceSensitivity as any,
     };
 
+    // Loaded on the first format rather than when the extension starts: nothing
+    // else needs it, and loading it added ~40 ms to every window's startup.
+    const { format } = require('prettier') as typeof prettier;
+
     let prettifiedCode: string;
     try {
         prettifiedCode = await vscode.window.withProgress(
@@ -818,7 +822,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                 title:     'Classic ASP: Formatting…',
                 cancellable: false,
             },
-            () => prettier.format(maskedCode, prettierOptions)
+            () => format(maskedCode, prettierOptions)
         );
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -916,7 +920,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
             respaced.push(prettifiedCode.slice(scan));
 
             try {
-                prettifiedCode = await prettier.format(respaced.toString(), prettierOptions);
+                prettifiedCode = await format(respaced.toString(), prettierOptions);
             } catch {
                 // Keep the first result: a layout that needs a second format is
                 // far better than refusing to format at all.
