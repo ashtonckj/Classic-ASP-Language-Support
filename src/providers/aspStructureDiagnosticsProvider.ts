@@ -33,6 +33,7 @@ import * as fs from 'fs';
 import { createZoneResolver } from '../utils/zoneUtils';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../utils/includeDirectives';
 import { callIsWholeExpression } from '../utils/symbolParser';
+import { isRemAt, vbStatementsOnLine } from '../utils/documentHelper';
 import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
 import { areIncludeSymbolsReady, collectAllSymbols, configuredVirtualRoot, preloadIncludeSymbols } from './includeProvider';
 
@@ -51,15 +52,6 @@ type BlockKind =
     | 'function' | 'sub' | 'select' | 'class' | 'property';
 
 // ── Strip string literals from a line ─────────────────────────────────────────
-
-// True when line[i..] begins a legacy `REM` comment: the word REM at a statement
-// boundary (start of line, or right after a `:` separator). The boundary check
-// avoids matching identifiers that merely contain "rem" (e.g. `remainder`).
-function isRemAt(line: string, i: number): boolean {
-    const ch = line[i];
-    if (ch !== 'r' && ch !== 'R') { return false; }
-    return /^rem\b/i.test(line.slice(i)) && /(^|:)\s*$/.test(line.slice(0, i));
-}
 
 function removeStrings(line: string): string {
     let result = '';
@@ -730,62 +722,6 @@ export interface MissingSet {
 }
 
 /**
- * The VBScript statements on one line, each with its offset in the line: the
- * code inside `<% %>` (or all of it, inside a block or a server-side script),
- * split at `:` and cut at a comment. `<%= %>` is an output expression, not a
- * statement, so it is skipped.
- */
-function statementsOnLine(line: string, startsInAsp: boolean): { text: string; col: number }[] {
-    const statements: { text: string; col: number }[] = [];
-    let inAsp     = startsInAsp;
-    let output    = false;
-    let inString  = false;
-    let comment   = false;
-    let start     = 0;
-
-    const flush = (end: number) => {
-        if (inAsp && !output && end > start) { statements.push({ text: line.slice(start, end), col: start }); }
-    };
-
-    for (let i = 0; i < line.length; i++) {
-        // ASP ends a block at the first %>, even one inside a string.
-        if (inAsp && line.startsWith('%>', i)) {
-            if (!comment) { flush(i); }
-            inAsp = false; output = false; inString = false; comment = false;
-            i++;
-            continue;
-        }
-        if (!inAsp) {
-            if (line.startsWith('<%', i)) {
-                inAsp  = true;
-                output = /^<%\s*=/.test(line.slice(i));
-                start  = i + 2;
-                i++;
-            }
-            continue;
-        }
-        if (comment) { continue; }
-
-        const ch = line[i];
-        if (inString) {
-            if (ch === '"') {
-                if (line[i + 1] === '"') { i++; } else { inString = false; }
-            }
-        } else if (ch === '"') {
-            inString = true;
-        } else if (ch === "'" || isRemAt(line, i)) {
-            flush(i);
-            comment = true;
-        } else if (ch === ':') {
-            flush(i);
-            start = i + 1;
-        }
-    }
-    if (!comment) { flush(line.length); }
-    return statements;
-}
-
-/**
  * Every `x = …` whose right-hand side is certainly an object, which VBScript
  * only assigns with `Set x = …`: `CreateObject(…)`, `Server.CreateObject(…)`,
  * `GetObject(…)`, `New SomeClass`, and a method on a variable of known type
@@ -803,7 +739,7 @@ export function findMissingSet(text: string, comTypes: Map<string, string>): Mis
     for (const line of text.split('\n')) {
         const startsInAsp = zones.zoneAt(lineStart) === 'asp' && !line.trimStart().startsWith('<%');
         if (startsInAsp || line.includes('<%')) {
-            for (const statement of statementsOnLine(line, startsInAsp)) {
+            for (const statement of vbStatementsOnLine(line, startsInAsp)) {
                 const assignment = /^(\s*(?:Let\s+)?)([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*=\s*(\S.*?)\s*$/i.exec(statement.text);
                 if (!assignment) { continue; }
 
