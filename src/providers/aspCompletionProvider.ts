@@ -3,10 +3,11 @@ import {
     ASP_OBJECTS, ASP_OBJECT_NAMES, VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS, VBSCRIPT_CONSTANTS,
     BUILTIN_FUNCTION_DOCS, builtinSignature,
 } from '../constants/aspKeywords';
-import { getTextBeforeCursor, isInsideVbStringOrComment } from '../utils/documentHelper';
+import { getTextBeforeCursor, isInsideVbStringOrComment, vbStatementsOnLine } from '../utils/documentHelper';
 import { areIncludeSymbolsReady, collectAllSymbols, preloadIncludeSymbols } from './includeProvider';
-import { COM_TYPE_MAP } from '../constants/comObjects';
-import { getZone } from '../utils/zoneUtils';
+import { COM_METHOD_RETURN_TYPES, COM_TYPE_MAP } from '../constants/comObjects';
+import { createZoneResolver, getZone } from '../utils/zoneUtils';
+import { callIsWholeExpression } from '../utils/symbolParser';
 import * as path from 'path';
 
 
@@ -21,6 +22,47 @@ function buildComVarMap(includeComVars: { name: string; progId: string }[]): Map
         }
     }
     return map;
+}
+
+/**
+ * The object of the `With` block that `line` sits in, as written — `rs`,
+ * `Server.CreateObject("ADODB.Recordset")` — or undefined outside one.
+ *
+ * Reads the statements before `character` on the line, then the lines above,
+ * counting nested With … End With. Stops at the start or end of a procedure or
+ * class, which a With block cannot reach across.
+ */
+export function enclosingWithObject(text: string, line: number, character: number): string | undefined {
+    const lines = text.split('\n');
+    const zones = createZoneResolver(text);
+    let lineStart = 0;
+    const starts = lines.map(l => { const at = lineStart; lineStart += l.length + 1; return at; });
+
+    let depth = 0;
+    for (let li = line; li >= 0; li--) {
+        const raw = li === line ? lines[li].slice(0, character) : lines[li];
+        const startsInAsp = zones.zoneAt(starts[li]) === 'asp' && !raw.trimStart().startsWith('<%');
+        if (!startsInAsp && !raw.includes('<%')) { continue; }
+
+        const statements = vbStatementsOnLine(raw, startsInAsp).map(st => st.text.trim());
+        // On the caret's own line the last statement is the one being typed.
+        if (li === line) { statements.pop(); }
+
+        for (const code of statements.reverse()) {
+            if (/^End\s+With\b/i.test(code)) { depth++; continue; }
+            const opened = /^With\s+(.+)$/i.exec(code);
+            if (opened) {
+                if (depth === 0) { return opened[1].trim(); }
+                depth--;
+                continue;
+            }
+            if (/^(?:(?:Public|Private)\s+)?(?:Default\s+)?(?:Sub|Function|Property|Class)\b/i.test(code) ||
+                /^End\s+(?:Sub|Function|Property|Class)\b/i.test(code)) {
+                return undefined;
+            }
+        }
+    }
+    return undefined;
 }
 
 export class AspCompletionProvider implements vscode.CompletionItemProvider {
@@ -89,29 +131,39 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         const allSymbols = collectAllSymbols(document);
         const comVarMap  = buildComVarMap(allSymbols.comVariables);
 
-        // ── 1. Object member access  e.g. "rs."  or "rs.EO" ─────────────────
+        // ── 1. A member of the With object  e.g. "  .EO" inside With rs ───────
+        // A dot with no name before it. Only a member can follow it, so outside
+        // a With block — or in one whose object is unknown — there is nothing to
+        // offer; the keyword and function list is never right here.
+        const withDot = /(?:^|[^\w)\].])\.(\w*)$/.exec(lineText);
+        if (withDot && !/^\d/.test(withDot[1])) {
+            const object = enclosingWithObject(fullText, position.line, position.character);
+            return object ? this.provideWithMembers(object, comVarMap) : [];
+        }
+
+        // ── 2. Object member access  e.g. "rs."  or "rs.EO" ─────────────────
         // Matches:  word.  OR  word.partialword  (both need member completions)
         const dotAccessMatch = lineText.match(/\b(\w+)\.(\w*)$/);
         if (dotAccessMatch) {
             const varName    = dotAccessMatch[1];
 
-            // 1a. Built-in ASP objects (Response, Request, etc.). Driven by the
+            // 2a. Built-in ASP objects (Response, Request, etc.). Driven by the
             // object list rather than a literal, so adding one there is enough.
             if (ASP_OBJECT_NAMES.has(varName.toLowerCase())) {
                 return this.provideMethodCompletions(varName);
             }
 
-            // 1b. User variable with a known COM type (rs., conn., dict., etc.)
+            // 2b. User variable with a known COM type (rs., conn., dict., etc.)
             const progId = comVarMap.get(varName.toLowerCase());
             if (progId && COM_TYPE_MAP[progId]) {
                 return this.provideComObjectMembers(varName, progId);
             }
 
-            // 1c. Unknown object — return empty so keywords don't pollute
+            // 2c. Unknown object — return empty so keywords don't pollute
             return [];
         }
 
-        // ── 2. Normal ASP context completions ────────────────────────────────
+        // ── 3. Normal ASP context completions ────────────────────────────────
 
         // Don't expand "If/Sub/Function" snippets when the user typed "End ..."
         // Detect 'End <keyword>' so we don't re-expand block snippets after End
@@ -122,7 +174,7 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         completions.push(...this.provideFunctionCompletions());
         completions.push(...this.provideConstantCompletions());
 
-        // ── 3. User-defined symbols (current doc + include files) ─────────────
+        // ── 4. User-defined symbols (current doc + include files) ─────────────
 
         // Variables (Dim)
         // Skip any Dim'd variable that also has a Set CreateObject entry —
@@ -275,6 +327,33 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
     }
 
     // ── Members of a known COM object variable (rs., conn., dict., etc.) ─────
+    /**
+     * The members of a With block's object: a variable, the same way `rs.`
+     * resolves it; an object created right there; or a method on a variable
+     * that returns a known type, like `With conn.Execute(sql)`.
+     */
+    private provideWithMembers(object: string, comVarMap: Map<string, string>): vscode.CompletionItem[] {
+        if (/^[A-Za-z_]\w*$/.test(object)) {
+            if (ASP_OBJECT_NAMES.has(object.toLowerCase())) { return this.provideMethodCompletions(object); }
+            const progId = comVarMap.get(object.toLowerCase());
+            return progId && COM_TYPE_MAP[progId] ? this.provideComObjectMembers(object, progId) : [];
+        }
+
+        const created = /^(?:Server\s*\.\s*)?CreateObject\s*\(\s*"([^"]+)"\s*\)$/i.exec(object);
+        if (created) {
+            const progId = created[1].toLowerCase();
+            return COM_TYPE_MAP[progId] ? this.provideComObjectMembers(COM_TYPE_MAP[progId].label, progId) : [];
+        }
+
+        const call = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*(\(|$)/.exec(object);
+        if (call && (call[3] === '' || callIsWholeExpression(object, call[0].length - 1))) {
+            const source = comVarMap.get(call[1].toLowerCase());
+            const result = source && COM_METHOD_RETURN_TYPES[`${source}.${call[2].toLowerCase()}`];
+            if (result && COM_TYPE_MAP[result]) { return this.provideComObjectMembers(COM_TYPE_MAP[result].label, result); }
+        }
+        return [];
+    }
+
     private provideComObjectMembers(varName: string, progId: string): vscode.CompletionItem[] {
         const typeDef = COM_TYPE_MAP[progId];
         if (!typeDef) return [];
