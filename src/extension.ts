@@ -360,6 +360,7 @@ export function activate(context: vscode.ExtensionContext) {
     // and colours are always consistent.
     const aspSemanticProviderInstance = new AspSemanticTokensProvider();
     const jsSemanticProviderInstance  = new JsSemanticTokensProvider();
+    context.subscriptions.push(aspSemanticProviderInstance);
 
     // Decode delta-encoded SemanticTokens data back to absolute positions.
     function decodeSemanticTokenData(data: Uint32Array): Array<[number, number, number, number, number]> {

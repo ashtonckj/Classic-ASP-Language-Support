@@ -16,7 +16,7 @@ export const workspace = {
     }),
     // Mutable so a test can stand in a workspace root (getVirtualRoot reads it).
     workspaceFolders: undefined as { uri: { fsPath: string } }[] | undefined,
-    // collectAllSymbols evicts its cache by walking the open documents.
+    // The open documents: includes are read from here when they are unsaved.
     textDocuments: [] as unknown[],
     // The include cache and the Ctrl+T file index watch for file changes; a test
     // plays events to them with fireFileEvent.
@@ -28,6 +28,7 @@ export const workspace = {
     }),
     onDidChangeWorkspaceFolders: () => ({ dispose: () => { /* no-op */ } }),
     onDidChangeConfiguration:    () => ({ dispose: () => { /* no-op */ } }),
+    onDidCloseTextDocument:      () => ({ dispose: () => { /* no-op */ } }),
     getWorkspaceFolder: (uri: { fsPath: string }) =>
         workspace.workspaceFolders?.find(folder => uri.fsPath.startsWith(folder.uri.fsPath)),
 };

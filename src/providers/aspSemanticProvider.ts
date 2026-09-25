@@ -20,12 +20,17 @@ import { COMBINED_SEMANTIC_LEGEND } from './jsSemanticProvider';
 export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensProvider {
 
     private readonly _diagnostics: vscode.DiagnosticCollection;
+    private readonly _onClose: vscode.Disposable;
 
     constructor() {
         this._diagnostics = vscode.languages.createDiagnosticCollection('asp-sql-vars');
+        // A closed page's warnings stayed in the Problems panel until the window
+        // was reloaded; every other diagnostic here is dropped on close.
+        this._onClose = vscode.workspace.onDidCloseTextDocument(doc => this._diagnostics.delete(doc.uri));
     }
 
     dispose(): void {
+        this._onClose.dispose();
         this._diagnostics.dispose();
     }
 
