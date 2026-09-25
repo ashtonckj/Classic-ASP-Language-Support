@@ -139,7 +139,7 @@ export function isSql(text: string): boolean {
     // Guard: a colon that follows a word and is NOT immediately followed by a digit
     // (time like 7:30), ( or / means this is an error/label string, not SQL.
     // Real SQL strings never contain word: patterns outside of string literals.
-    // e.g. "Delete from OT_Authorise failed: " — the trailing colon gives it away.
+    // e.g. "Delete from Orders failed: " — the trailing colon gives it away.
     if (/\w\s*:(?!\s*[\d/()])/.test(textNoStrings)) { return false; }
 
     const fromMatch = textNoStrings.match(/\bFROM\s+(\w+)/i);
@@ -165,13 +165,13 @@ export function isSql(text: string): boolean {
 // ─────────────────────────────────────────────────────────────────────────────
 // SQL expression fragment detection — for strings that are pure SQL expressions
 // (SUBSTRING, CHARINDEX, CAST, etc.) with no SELECT/FROM verb.
-// Used to detect variables like anpQRAssort = "LTRIM(RTRIM(SUBSTRING(...)))"
+// Used to detect variables like nameExpr = "LTRIM(RTRIM(SUBSTRING(...)))"
 // that get embedded as fragments into a larger SQL string.
 // ─────────────────────────────────────────────────────────────────────────────
 const SQL_EXPR_FUNCTIONS = /\b(SUBSTRING|CHARINDEX|PATINDEX|LEN|LTRIM|RTRIM|TRIM|UPPER|LOWER|REPLACE|STUFF|LEFT|RIGHT|REVERSE|CAST|CONVERT|ISNULL|COALESCE|NULLIF|IIF|CHOOSE|DATEADD|DATEDIFF|DATEPART|DATENAME|GETDATE|GETUTCDATE|FORMAT|TRY_CAST|TRY_CONVERT|COUNT|SUM|AVG|MAX|MIN|ROW_NUMBER|RANK|DENSE_RANK|ABS|CEILING|FLOOR|ROUND|POWER|SQRT|YEAR|MONTH|DAY|HOUR|MINUTE|SECOND)\s*\(/i;
 
 // Returns true for strings that are SQL expressions (function calls) even
-// without a SELECT/FROM verb — e.g. "LTRIM(RTRIM(SUBSTRING(QRCode, ...)))"
+// without a SELECT/FROM verb — e.g. "LTRIM(RTRIM(SUBSTRING(Code, ...)))"
 export function isSqlExpression(text: string): boolean {
     // Must start with a SQL function call (possibly with leading whitespace)
     if (!SQL_EXPR_FUNCTIONS.test(text)) { return false; }

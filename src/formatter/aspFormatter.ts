@@ -289,7 +289,7 @@ function formatMultiLineAspBlock(
 
             if (!startsWithString) {
                 // If we have a valid align column from the first line of the
-                // continuation (e.g. anpSub = "(SELECT " & _  → col 9), use it
+                // continuation (e.g. subQuery = "(SELECT " & _  → col 11), use it
                 // for variable lines too so they align with string lines.
                 formattedLines.push(
                     continuationIndent(continuationAlignCol, baseLevel, aspIndentLevel, settings) + trimmed);

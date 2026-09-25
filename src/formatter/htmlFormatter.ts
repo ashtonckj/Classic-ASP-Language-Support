@@ -718,7 +718,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                 // HTML line.  We scan from the later of: the start of the
                 // current line, or the opening <% tag itself, so that a JS
                 // single-quote that precedes the ASP block on the same line
-                // (e.g.  '<%= cmpy %>'  ) cannot trip the comment check.
+                // (e.g.  '<%= code %>'  ) cannot trip the comment check.
                 const lineBegin      = jsPreMasked.lastIndexOf('\n', end - 1) + 1;
                 const aspContentStart = pos + 2; // first char after <%
                 const scanFrom       = Math.max(lineBegin, aspContentStart);

@@ -146,11 +146,11 @@ stmt = "Something went wrong, please try again."   ' <-- should show warning squ
 ' Using it in sql3b must NOT produce a warning.
 
 Dim sql3b
-sql3b = BuildCategoryCTE(gpCode, gpDate) & _
+sql3b = BuildCategoryCTE(filterCode, filterDate) & _
     "SELECT a.*, b.StockQty " & _
     "FROM [SampleDb].[dbo].[CategoryTree] a " & _
     "LEFT JOIN [SampleDb].[dbo].[StockLevels] b " & _
-    "    ON b.CategoryId = " & gpId & " AND b.VariantCode = a.ChildCode " & _
+    "    ON b.CategoryId = " & filterId & " AND b.VariantCode = a.ChildCode " & _
     "ORDER BY a.SortOrder"
 
 Function BuildCategoryCTE(code, refDate)
@@ -177,7 +177,7 @@ End Function
 
 Dim filteredSql
 filteredSql = "SELECT a.RecordId, a.Label FROM [SampleDb].[dbo].[Records] a " & _
-              GetStatusFilter(gpStatus) & _
+              GetStatusFilter(filterStatus) & _
               " ORDER BY a.Label"
 
 Function GetStatusFilter(statusVal)
@@ -188,7 +188,7 @@ End Function
 ' Strings inside NOT coloured as SQL. Warning expected on the call site.
 
 Dim warnSql
-warnSql = "SELECT * FROM [SampleDb].[dbo].[Records] WHERE " & BuildLabel(gpParam)
+warnSql = "SELECT * FROM [SampleDb].[dbo].[Records] WHERE " & BuildLabel(filterParam)
 
 Function BuildLabel(param)
     BuildLabel = "Display: " & param
@@ -214,22 +214,22 @@ Dim whereFilters
 whereFilters = "WHERE EXISTS (SELECT 1 FROM [SampleDb].[dbo].[CategoryLinks] c " & _
                "WHERE c.ParentId = a.ParentId " & _
                "AND c.ChildCode = a.RootCode " & _
-               "AND c.Region = '" & Replace(gpRegion, "'", "''") & "') "
+               "AND c.Region = '" & Replace(filterRegion, "'", "''") & "') "
 
-If gpRegion <> "" Then
-    whereFilters = whereFilters & "AND a.Region = '" & Replace(gpRegion, "'", "''") & "' "
+If filterRegion <> "" Then
+    whereFilters = whereFilters & "AND a.Region = '" & Replace(filterRegion, "'", "''") & "' "
 End If
 
-If Not gpIncludeArchived Then
+If Not includeArchived Then
     whereFilters = whereFilters & "AND a.IsArchived = 0 "
 End If
 
 Dim mainSql
-mainSql = BuildCategoryCTE(gpCode, gpDate) & _
+mainSql = BuildCategoryCTE(filterCode, filterDate) & _
     "SELECT a.*, b.StockQty " & _
     "FROM [SampleDb].[dbo].[CategoryTree] a " & _
     "LEFT JOIN [SampleDb].[dbo].[StockLevels] b " & _
-    "    ON b.CategoryId = " & gpId & " AND b.VariantCode = a.ChildCode " & _
+    "    ON b.CategoryId = " & filterId & " AND b.VariantCode = a.ChildCode " & _
     whereFilters & " " & _
     "ORDER BY a.SortOrder"
 
@@ -249,23 +249,23 @@ mergeSql = "MERGE [SampleDb].[dbo].[StockLevels] AS tgt " & _
 mergeSql = _
     "MERGE [SampleDb].[dbo].[StockLevels] AS tgt " & _
     "USING (SELECT " & _
-        svVariantId & " AS VariantId, " & _
-        "'" & svWarehouse & "' AS Warehouse, " & _
-        "'" & svBatchRef & "' AS BatchRef " & _
+        newVariantId & " AS VariantId, " & _
+        "'" & newWarehouse & "' AS Warehouse, " & _
+        "'" & newBatchRef & "' AS BatchRef " & _
     ") AS src " & _
     "ON tgt.VariantId = src.VariantId " & _
         "AND tgt.Warehouse = src.Warehouse " & _
         "AND tgt.BatchRef = src.BatchRef " & _
     "WHEN MATCHED THEN UPDATE SET " & _
-        "tgt.Description = '" & svDesc & "', " & _
-        "tgt.StockQty = " & svQty & " " & _
+        "tgt.Description = '" & newDesc & "', " & _
+        "tgt.StockQty = " & newQty & " " & _
     "WHEN NOT MATCHED THEN INSERT " & _
     "(VariantId, Warehouse, BatchRef, Description, StockQty) VALUES (" & _
-        svVariantId & ", " & _
-        "'" & svWarehouse & "', " & _
-        "'" & svBatchRef & "', " & _
-        "'" & svDesc & "', " & _
-        svQty & _
+        newVariantId & ", " & _
+        "'" & newWarehouse & "', " & _
+        "'" & newBatchRef & "', " & _
+        "'" & newDesc & "', " & _
+        newQty & _
     ");"
 
 ' MERGE bare-word tables (no brackets)
