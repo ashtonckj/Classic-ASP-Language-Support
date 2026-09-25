@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { hasNonEmptySelection, overlapWithSelections } from '../../highlight';
+import { affectsRegionHighlight, editorsToPaint, hasNonEmptySelection, overlapWithSelections } from '../../highlight';
 
 // Reported upstream: a TextEditorDecorationType's backgroundColor paints on the
 // same layer as the text, above VS Code's own selection highlight, so a
@@ -143,5 +143,32 @@ describe('overlapWithSelections — bracket-sized ranges', () => {
         const bracket = range(0, 5, 0, 7); // "%>"
         const selection = range(0, 0, 0, 20);
         assert.deepStrictEqual(overlapWithSelections(bracket, [selection]), [bracket]);
+    });
+});
+
+// The region colours were rebuilt on every settings change and painted on the
+// focused editor only, whatever its language.
+describe('affectsRegionHighlight', () => {
+    const change = (...touched: string[]) => ({
+        affectsConfiguration: (section: string) => touched.some(t => t === section || t.startsWith(section + '.')),
+    });
+
+    it('is true for the on/off switch and each colour', () => {
+        assert.strictEqual(affectsRegionHighlight(change('aspLanguageSupport.highlightAspRegions')), true);
+        assert.strictEqual(affectsRegionHighlight(change('aspLanguageSupport.codeBlockDarkColor')), true);
+    });
+
+    it('is false for any other setting, this extension\'s included', () => {
+        assert.strictEqual(affectsRegionHighlight(change('editor.fontSize')), false);
+        assert.strictEqual(affectsRegionHighlight(change('aspLanguageSupport.keywordCase')), false);
+    });
+});
+
+describe('editorsToPaint', () => {
+    const editor = (languageId: string) => ({ document: { languageId } });
+
+    it('takes every Classic ASP editor on screen and nothing else', () => {
+        const left = editor('asp'), right = editor('asp'), notes = editor('markdown');
+        assert.deepStrictEqual(editorsToPaint([left, notes, right]), [left, right]);
     });
 });
