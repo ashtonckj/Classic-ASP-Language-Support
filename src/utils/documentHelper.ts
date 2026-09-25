@@ -212,14 +212,6 @@ export function isInsideVbStringOrComment(lineText: string, col: number): boolea
     return inStr;
 }
 
-/**
- * Returns the word at the cursor position, or an empty string if there is none.
- */
-export function getWordAtPosition(document: vscode.TextDocument, position: vscode.Position): string {
-    const range = document.getWordRangeAtPosition(position);
-    return range ? document.getText(range) : '';
-}
-
 // True when line[i..] begins a legacy `REM` comment: the word REM at a statement
 // boundary (start of line, or right after a `:` separator). The boundary check
 // avoids matching identifiers that merely contain "rem" (e.g. `remainder`).
@@ -227,6 +219,26 @@ export function isRemAt(line: string, i: number): boolean {
     const ch = line[i];
     if (ch !== 'r' && ch !== 'R') { return false; }
     return /^rem\b/i.test(line.slice(i)) && /(^|:)\s*$/.test(line.slice(0, i));
+}
+
+/**
+ * A line of VBScript with its string literals and its comment taken out, so
+ * what is left is code: a keyword inside "…" or after ' (or REM) cannot be
+ * mistaken for one that is really there.
+ */
+export function removeStrings(line: string): string {
+    let result = '';
+    let inStr  = false;
+    for (let i = 0; i < line.length; i++) {
+        if (line[i] === '"') {
+            if (inStr && i + 1 < line.length && line[i + 1] === '"') { i++; continue; } // "" is an escaped quote
+            inStr = !inStr;
+        } else if (!inStr) {
+            if (line[i] === "'" || isRemAt(line, i)) { break; }
+            result += line[i];
+        }
+    }
+    return result;
 }
 
 /**

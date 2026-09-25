@@ -73,7 +73,8 @@
 
 import * as path from 'path';
 import type * as ts from 'typescript';
-import { getJsBlockRanges } from './zoneUtils';
+import { getJsBlockRanges, getZone } from './zoneUtils';
+import { parseConstDeclarators } from './symbolParser';
 import { ASP_DOM_TYPES } from './aspDomTypes.generated';
 
 export const VIRTUAL_FILENAME    = 'asp-embedded.js';
@@ -215,14 +216,16 @@ function collectVbsConsts(content: string): Map<string, string> {
         // statement-separating `:` that is OUTSIDE a string, so a URL literal like
         // "http://x" keeps its `:` (and is typed `string`) instead of being
         // truncated to "http (which fell back to `any`).
-        const constRegex = /^\s*Const\s+([A-Za-z_]\w*)\s*=\s*(.+)$/gim;
+        const constRegex = /^\s*(?:Public\s+|Private\s+)?Const\s+(.+)$/gim;
         let c: RegExpExecArray | null;
         while ((c = constRegex.exec(block)) !== null) {
-            const name = c[1];
-            const key = name.toLowerCase();
-            if (seen.has(key)) { continue; }
-            seen.add(key);
-            consts.set(name, inferVbsConstType(cutAtStatementColon(c[2])));
+            // `Const A = 1, B = "x"` declares both.
+            for (const { name, value } of parseConstDeclarators(cutAtStatementColon(c[1]))) {
+                const key = name.toLowerCase();
+                if (seen.has(key)) { continue; }
+                seen.add(key);
+                consts.set(name, inferVbsConstType(value));
+            }
         }
     }
 
@@ -794,6 +797,32 @@ export function getJsLanguageService(): JsLanguageService {
         }
     }
     return _service;
+}
+
+/** The JS service with the virtual file for a caret in a <script> block loaded. */
+export interface JsQuery {
+    svc:            JsLanguageService;
+    /** The virtual file, for reading the characters around the caret. */
+    virtualContent: string;
+    /** The caret as an offset in the virtual file. */
+    virtualOffset:  number;
+    preambleLength: number;
+}
+
+/**
+ * What every JavaScript feature does first: check the offset is in a
+ * <script> block, build the virtual file around it, and load that into the
+ * language service. Undefined when the offset is not JavaScript.
+ */
+export function prepareJsQuery(fullText: string, offset: number): JsQuery | undefined {
+    if (getZone(fullText, offset) !== 'js') { return undefined; }
+
+    const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset);
+    if (!isInScript) { return undefined; }
+
+    const svc = getJsLanguageService();
+    svc.updateContent(virtualContent);
+    return { svc, virtualContent, virtualOffset: offset + preambleLength, preambleLength };
 }
 
 export function disposeJsLanguageService(): void {

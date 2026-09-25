@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { formatCompleteAspFile } from './formatter/htmlFormatter';
+import { disposeFormatterDebugChannel, formatCompleteAspFile } from './formatter/htmlFormatter';
 import { HtmlCompletionProvider } from './providers/htmlCompletionProvider';
 import { registerAutoClosingTag, registerEnterKeyHandler, registerTabKeyHandler, registerVbScriptQuoteGuard, registerLineContinuationGuard } from './providers/aspIndentProvider';
 import { AspCompletionProvider } from './providers/aspCompletionProvider';
@@ -14,17 +14,14 @@ import { registerAspBlockMatch } from './providers/aspBlockMatchProvider';
 import { JsCompletionProvider } from './providers/jsCompletionProvider';
 import { JsHoverProvider } from './providers/jsHoverProvider';
 import { JsSignatureHelpProvider } from './providers/jsSignatureHelpProvider';
-// Import the JS semantic provider alongside the COMBINED legend.
-// aspSemanticProvider.ts must also import COMBINED_SEMANTIC_LEGEND from here
-// (or from jsSemanticProvider.ts directly) instead of declaring its own legend,
-// so both providers use identical type-index mappings.
+// One legend for the JS, VBScript and SQL colouring: VS Code reads every
+// provider's token numbers through the first legend registered.
 import { JsSemanticTokensProvider, COMBINED_SEMANTIC_LEGEND } from './providers/jsSemanticProvider';
 import { registerJsDiagnostics } from './providers/jsDiagnosticsProvider';
 import { disposeJsLanguageService } from './utils/jsUtils';
 import { disposeIncludeWatchers, forgetIncludeFile, IncludePathCompletionProvider, preloadIncludeSymbols } from './providers/includeProvider';
 import { AspDefinitionProvider } from './providers/aspDefinitionProvider';
 import { IncludeDocumentLinkProvider, HtmlAttributeLinkProvider, HtmlAttributePathCompletionProvider } from './providers/linkProvider';
-// ASP semantic provider must now use COMBINED_SEMANTIC_LEGEND — see note above.
 import { AspSemanticTokensProvider } from './providers/aspSemanticProvider';
 import { AspHoverProvider } from './providers/aspHoverProvider';
 import { HtmlHoverProvider, HtmlLinkedEditingProvider } from './providers/htmlLanguageFeatures';
@@ -363,6 +360,7 @@ export function activate(context: vscode.ExtensionContext) {
     // and colours are always consistent.
     const aspSemanticProviderInstance = new AspSemanticTokensProvider();
     const jsSemanticProviderInstance  = new JsSemanticTokensProvider();
+    context.subscriptions.push(aspSemanticProviderInstance);
 
     // Decode delta-encoded SemanticTokens data back to absolute positions.
     function decodeSemanticTokenData(data: Uint32Array): Array<[number, number, number, number, number]> {
@@ -562,4 +560,5 @@ export function deactivate(): void {
     disposeAnalysisWorkers();
     disposeIncludeWatchers();
     disposeWorkspaceIndex();
+    disposeFormatterDebugChannel();
 }

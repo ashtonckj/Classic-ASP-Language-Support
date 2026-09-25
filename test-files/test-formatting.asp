@@ -497,15 +497,15 @@ on error goto 0
 
 ' BEFORE: everything flat, wrong casing, no spacing
 ' if showResults and validationError="" then
-' stmt="SELECT th.Process, td.Cavity FROM [ProductionDb].[dbo].[FPY_hdr] th WHERE th.Cmpy='"&cmpy&"'"
+' stmt="SELECT o.Status, o.Total FROM [SampleDb].[dbo].[Orders] o WHERE o.Region='"&region&"'"
 ' rs.Open stmt,conn
 ' if rs.EOF then
 ' response.write "No records."
 ' else
 ' while not rs.EOF
-' processVal="-"
-' if not isNull(rs("Process")) then processVal=rs("Process")
-' response.write processVal
+' statusVal="-"
+' if not isNull(rs("Status")) then statusVal=rs("Status")
+' response.write statusVal
 ' rs.MoveNext
 ' wend
 ' end if
@@ -515,15 +515,15 @@ on error goto 0
 ' end if
 
 if showResults and validationError="" then
-stmt="SELECT th.Process, td.Cavity FROM [ProductionDb].[dbo].[FPY_hdr] th WHERE th.Cmpy='"&cmpy&"'"
+stmt="SELECT o.Status, o.Total FROM [SampleDb].[dbo].[Orders] o WHERE o.Region='"&region&"'"
 rs.Open stmt,conn
 if rs.EOF then
 response.write "No records."
 else
 while not rs.EOF
-processVal="-"
-if not isNull(rs("Process")) then processVal=rs("Process")
-response.write processVal
+statusVal="-"
+if not isNull(rs("Status")) then statusVal=rs("Status")
+response.write statusVal
 rs.MoveNext
 wend
 end if

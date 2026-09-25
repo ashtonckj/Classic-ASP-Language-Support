@@ -13,8 +13,7 @@
  */
 
 import * as vscode from 'vscode';
-import { buildVirtualJsContent, getJsLanguageService, toDocumentSpan } from '../utils/jsUtils';
-import { getZone } from '../utils/zoneUtils';
+import { prepareJsQuery, toDocumentSpan } from '../utils/jsUtils';
 
 export class JsDefinitionProvider implements vscode.DefinitionProvider {
 
@@ -24,19 +23,11 @@ export class JsDefinitionProvider implements vscode.DefinitionProvider {
         token:    vscode.CancellationToken,
     ): vscode.ProviderResult<vscode.Location[]> {
 
-        const fullText = document.getText();
-        const offset   = document.offsetAt(position);
+        const query = prepareJsQuery(document.getText(), document.offsetAt(position));
+        if (!query || token.isCancellationRequested) { return undefined; }
+        const { svc, virtualOffset, preambleLength } = query;
 
-        if (getZone(fullText, offset) !== 'js') { return undefined; }
-
-        const { virtualContent, isInScript, preambleLength } =
-            buildVirtualJsContent(fullText, offset);
-        if (!isInScript || token.isCancellationRequested) { return undefined; }
-
-        const svc = getJsLanguageService();
-        svc.updateContent(virtualContent);
-
-        const definitions = svc.getDefinitions(offset + preambleLength);
+        const definitions = svc.getDefinitions(virtualOffset);
         if (!definitions.length || token.isCancellationRequested) { return undefined; }
 
         const locations: vscode.Location[] = [];

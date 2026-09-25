@@ -3,6 +3,7 @@ import type * as prettier from 'prettier';
 import { formatSingleAspBlock, getAspSettings, delimitersAtColumnZero } from './aspFormatter';
 import { findNextRealTag, findTagEnd, findClosingTag } from '../utils/zoneUtils';
 import { analyseHtmlStructure } from '../providers/htmlStructureDiagnosticsProvider';
+import { VOID_ELEMENTS } from '../constants/htmlTags';
 
 // ─── Prettier settings ─────────────────────────────────────────────────────
 
@@ -135,6 +136,19 @@ function tokenCollisions(source: string, prefix: string): Map<string, number> {
 // formatCompleteAspFile. Ids stay unique because they also carry a timestamp and
 // a random part; the number is what goes into a token's width.
 let _placeholderCounter = 0;
+
+// Created the first time Prettier fails, then reused: making a new one each
+// time left another "ASP Formatter Debug" entry in the Output list per failure.
+let _debugChannel: vscode.OutputChannel | undefined;
+
+export function disposeFormatterDebugChannel(): void {
+    _debugChannel?.dispose();
+    _debugChannel = undefined;
+}
+
+// A closing tag for a void element — `</br>`, `</img>` — which HTML has no
+// such thing as.
+const VOID_CLOSING_TAG_RE = new RegExp(`</(${[...VOID_ELEMENTS].join('|')})\\s*>`, 'gi');
 
 // ─── JS event attribute masking ───────────────────────────────────────────
 
@@ -718,7 +732,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
                 // HTML line.  We scan from the later of: the start of the
                 // current line, or the opening <% tag itself, so that a JS
                 // single-quote that precedes the ASP block on the same line
-                // (e.g.  '<%= cmpy %>'  ) cannot trip the comment check.
+                // (e.g.  '<%= code %>'  ) cannot trip the comment check.
                 const lineBegin      = jsPreMasked.lastIndexOf('\n', end - 1) + 1;
                 const aspContentStart = pos + 2; // first char after <%
                 const scanFrom       = Math.max(lineBegin, aspContentStart);
@@ -787,7 +801,6 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     // placeholder here and is preserved — the previous raw-text strip silently
     // deleted it. Real HTML void closers are still removed; the structure
     // diagnostic continues to flag them for the user to fix.
-    const VOID_CLOSING_TAG_RE = /<\/(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\s*>/gi;
     maskedCode = maskedCode.replace(VOID_CLOSING_TAG_RE, '');
 
     // Insert implied </td> </tr> … closers so Prettier doesn't mis-nest tables
@@ -830,7 +843,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         const location  = lineMatch ? ` (line ${lineMatch[1]}, col ${lineMatch[2]})` : '';
 
         // ── Debug: log the masked code so we can see what Prettier choked on ──
-        const channel = vscode.window.createOutputChannel('ASP Formatter Debug');
+        const channel = (_debugChannel ??= vscode.window.createOutputChannel('ASP Formatter Debug'));
         channel.clear();
         channel.appendLine('=== Prettier parse error' + location + ' ===');
         channel.appendLine('Error: ' + msg);

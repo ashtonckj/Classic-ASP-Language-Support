@@ -87,10 +87,3 @@ export function pagePosition(
 export function pageOffset(block: ParsedCssBlock, offset: number): number {
     return block.range.start + offset;
 }
-
-/** Drops the cached parse. Exported for tests. */
-export function clearParsedCssBlocksCache(): void {
-    _cacheKey = undefined;
-    _cacheContent = undefined;
-    _cached = undefined;
-}

@@ -61,47 +61,69 @@ export function hasNonEmptySelection(selections: readonly { isEmpty: boolean }[]
     return selections.some(selection => !selection.isEmpty);
 }
 
+const REGION_SETTINGS = [
+    'aspLanguageSupport.highlightAspRegions',
+    'aspLanguageSupport.bracketLightColor',
+    'aspLanguageSupport.bracketDarkColor',
+    'aspLanguageSupport.codeBlockLightColor',
+    'aspLanguageSupport.codeBlockDarkColor',
+];
+
+/**
+ * True when a settings change touches the region colours or switches them on
+ * or off. Every settings change, of any kind, used to throw away and rebuild
+ * the decoration types.
+ */
+export function affectsRegionHighlight(event: { affectsConfiguration(section: string): boolean }): boolean {
+    return REGION_SETTINGS.some(setting => event.affectsConfiguration(setting));
+}
+
+/**
+ * The editors the region colours go on: every Classic ASP page on screen. It
+ * used to be the focused editor only — whatever its language — so with the
+ * editor split the other page stayed unpainted until it was clicked.
+ */
+export function editorsToPaint<T extends { document: { languageId: string } }>(editors: readonly T[]): T[] {
+    return editors.filter(editor => editor.document.languageId === 'asp');
+}
+
 export function addRegionHighlights(context: vscode.ExtensionContext) {
-    // Declare all variables at the top of the function
     let timeout: NodeJS.Timeout | null = null;
-    let bracketDecorationType: vscode.TextEditorDecorationType;
-    let codeBlockDecorationType: vscode.TextEditorDecorationType;
+    let bracketDecorationType: vscode.TextEditorDecorationType | undefined;
+    let codeBlockDecorationType: vscode.TextEditorDecorationType | undefined;
     // Painted on top of the ASP tint, over exactly the part of a region a
     // selection covers, using the theme's own selection colour — see
     // overlapWithSelections for why this layers over the tint rather than
     // replacing it.
-    let selectionOverlayDecorationType: vscode.TextEditorDecorationType;
+    let selectionOverlayDecorationType: vscode.TextEditorDecorationType | undefined;
     let configurationDidChange = false;
 
-    // The last regions a real document scan produced. Selection changes fire
-    // far more often than the document does — continuously while dragging —
-    // so toggling visibility replays these cached ranges rather than rescanning.
-    let lastBrackets: vscode.Range[] = [];
-    let lastBlocks: vscode.Range[] = [];
+    // The regions a scan last found in each document. Selection changes fire
+    // far more often than the document does — continuously while dragging — so
+    // they replay these rather than rescanning, and a second editor on the same
+    // page reuses them.
+    const regionCache = new WeakMap<vscode.TextDocument, { version: number; brackets: vscode.Range[]; blocks: vscode.Range[] }>();
 
-    let activeEditor = vscode.window.activeTextEditor;
-    if (activeEditor) triggerUpdateDecorations();
+    const aspEditors = () => editorsToPaint(vscode.window.visibleTextEditors);
 
-    vscode.window.onDidChangeActiveTextEditor((editor) => {
-        activeEditor = editor;
-        if (editor) triggerUpdateDecorations();
-    }, null, context.subscriptions);
+    triggerUpdateDecorations();
+
+    vscode.window.onDidChangeVisibleTextEditors(() => triggerUpdateDecorations(), null, context.subscriptions);
 
     // Re-checks the cached regions against the new selection state, and clears
     // the overlay the moment every selection collapses back to a caret.
     vscode.window.onDidChangeTextEditorSelection((event) => {
-        if (activeEditor && event.textEditor === activeEditor) {
-            applyDecorations();
-        }
+        applyDecorations(event.textEditor);
     }, null, context.subscriptions);
 
-    vscode.workspace.onDidChangeConfiguration(() => {
+    vscode.workspace.onDidChangeConfiguration((event) => {
+        if (!affectsRegionHighlight(event)) { return; }
         configurationDidChange = true;
         triggerUpdateDecorations();
     }, null, context.subscriptions);
 
     vscode.workspace.onDidChangeTextDocument((event) => {
-        if (activeEditor && event.document === activeEditor.document) {
+        if (event.document.languageId === 'asp' && vscode.window.visibleTextEditors.some(e => e.document === event.document)) {
             triggerUpdateDecorations();
         }
     }, null, context.subscriptions);
@@ -131,31 +153,32 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
     }
 
     /**
-     * Paints the last computed regions in full — the ASP tint is never removed
+     * Paints an editor's cached regions in full — the ASP tint is never removed
      * by a selection — then adds the selection-coloured overlay on top of
      * whatever part of those regions a selection actually covers. Cheap enough
      * to run on every selection-change event, since it never rescans the
      * document and the overlap check only visits the (typically small) list of
      * cached regions, not the whole file.
      */
-    function applyDecorations() {
-        if (!activeEditor || !bracketDecorationType || !codeBlockDecorationType
-            || !selectionOverlayDecorationType) { return; }
+    function applyDecorations(editor: vscode.TextEditor) {
+        if (!bracketDecorationType || !codeBlockDecorationType || !selectionOverlayDecorationType) { return; }
+        const regions = regionCache.get(editor.document);
+        if (!regions) { return; }
 
-        activeEditor.setDecorations(bracketDecorationType, lastBrackets);
-        activeEditor.setDecorations(codeBlockDecorationType, lastBlocks);
+        editor.setDecorations(bracketDecorationType, regions.brackets);
+        editor.setDecorations(codeBlockDecorationType, regions.blocks);
 
-        const selections = activeEditor.selections.filter(s => !s.isEmpty);
+        const selections = editor.selections.filter(s => !s.isEmpty);
         if (selections.length === 0) {
-            activeEditor.setDecorations(selectionOverlayDecorationType, []);
+            editor.setDecorations(selectionOverlayDecorationType, []);
             return;
         }
 
         const overlay: vscode.Range[] = [];
-        for (const range of [...lastBrackets, ...lastBlocks]) {
+        for (const range of [...regions.brackets, ...regions.blocks]) {
             overlay.push(...toVsRanges(overlapWithSelections(range, selections)));
         }
-        activeEditor.setDecorations(selectionOverlayDecorationType, overlay);
+        editor.setDecorations(selectionOverlayDecorationType, overlay);
     }
 
     function setDecorationTypes(config: vscode.WorkspaceConfiguration) {
@@ -176,58 +199,49 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
     }
 
     function updateDecorations() {
-        if (!activeEditor) return;
-
         const config = vscode.workspace.getConfiguration("aspLanguageSupport");
         const highlightAspRegions = config.get<boolean>("highlightAspRegions", true);
 
-        // Create our decoration types
-        if (!bracketDecorationType || !codeBlockDecorationType || !selectionOverlayDecorationType) {
-            setDecorationTypes(config);
-        }
-
         // Only a settings change needs new decoration types (the colours are baked
-        // into them). This used to fire on `!highlightAspRegions` too, so with the
-        // feature switched OFF both types were disposed and recreated on every
-        // update tick — once per keystroke, for a feature that is not running.
+        // into them). Disposing a type clears it from every editor, so the pages
+        // on screen are all repainted below.
         if (configurationDidChange) {
             bracketDecorationType?.dispose();
             codeBlockDecorationType?.dispose();
             selectionOverlayDecorationType?.dispose();
-            setDecorationTypes(config);
-
+            bracketDecorationType = undefined;
             configurationDidChange = false;
         }
-
-        // Switching the feature off must actively clear what is already painted.
-        if (!highlightAspRegions) {
-            lastBrackets = [];
-            lastBlocks   = [];
-            activeEditor.setDecorations(bracketDecorationType, []);
-            activeEditor.setDecorations(codeBlockDecorationType, []);
-            activeEditor.setDecorations(selectionOverlayDecorationType, []);
-            return;
+        if (!bracketDecorationType || !codeBlockDecorationType || !selectionOverlayDecorationType) {
+            setDecorationTypes(config);
         }
 
-        const regions = getAspRegions(activeEditor.document);
+        for (const editor of aspEditors()) {
+            // Switching the feature off must actively clear what is already painted.
+            if (!highlightAspRegions) {
+                regionCache.delete(editor.document);
+                editor.setDecorations(bracketDecorationType!, []);
+                editor.setDecorations(codeBlockDecorationType!, []);
+                editor.setDecorations(selectionOverlayDecorationType!, []);
+                continue;
+            }
 
-        const blocks: vscode.Range[] = [];
-        const brackets: vscode.Range[] = [];
-
-        for (const region of regions) {
-            brackets.push(region.openingBracket);
-            blocks.push(region.codeBlock);
-            brackets.push(region.closingBracket);
+            // Always stored, even when empty — keeping the previous scan left the
+            // old tint painted over whatever text had shifted into those lines
+            // when the last <% %> block was deleted.
+            const document = editor.document;
+            const cached = regionCache.get(document);
+            if (!cached || cached.version !== document.version) {
+                const brackets: vscode.Range[] = [];
+                const blocks: vscode.Range[] = [];
+                for (const region of getAspRegions(document)) {
+                    brackets.push(region.openingBracket);
+                    blocks.push(region.codeBlock);
+                    brackets.push(region.closingBracket);
+                }
+                regionCache.set(document, { version: document.version, brackets, blocks });
+            }
+            applyDecorations(editor);
         }
-
-        // Cached so a later selection change can recheck the overlay without
-        // rescanning the document. Always assigned, even when empty — returning
-        // early on an empty region list left the PREVIOUS run's tint painted
-        // over whatever text had shifted into those lines — delete the last
-        // <% %> block and the highlight stayed behind until the editor was
-        // switched away and back.
-        lastBrackets = brackets;
-        lastBlocks   = blocks;
-        applyDecorations();
     }
 }

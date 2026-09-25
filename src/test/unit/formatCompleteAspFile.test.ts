@@ -523,3 +523,22 @@ describe('formatCompleteAspFile — a tag each branch of an If opens', () => {
         assert.ok(out.includes('\n  <td>x</td>\n'), `the row should have been formatted:\n${out}`);
     });
 });
+
+// Each Prettier failure used to create a new "ASP Formatter Debug" channel, so
+// the Output list gained another entry of the same name every time.
+describe('the formatter debug channel', () => {
+    it('is created once and reused when Prettier fails again', async () => {
+        const window = vscode.window as unknown as { createOutputChannel: (name: string) => unknown };
+        const original = window.createOutputChannel;
+        let created = 0;
+        window.createOutputChannel = name => { created++; return original(name); };
+        try {
+            const broken = '<div></span>\n';
+            assert.strictEqual(await formatCompleteAspFile(broken), broken, 'a page Prettier cannot parse is left as it is');
+            assert.strictEqual(await formatCompleteAspFile(broken), broken);
+            assert.ok(created <= 1, `made ${created} channels`);
+        } finally {
+            window.createOutputChannel = original;
+        }
+    });
+});

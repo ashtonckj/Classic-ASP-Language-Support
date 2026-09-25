@@ -266,7 +266,7 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
 
     const SQL_FRAGMENT_STARTERS = /^\s*(WHERE|ORDER\s+BY|GROUP\s+BY|HAVING|JOIN\b|LEFT\s+JOIN|RIGHT\s+JOIN|INNER\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|UNION(\s+ALL)?|WHEN\s+(MATCHED|NOT\s+MATCHED))\s+(?:[@\[a-zA-Z_]|\d)/i;
     // AND/OR/SET fragments: require an identifier then a comparison operator or SQL keyword.
-    // This prevents plain English like "OR shift", "Set status to approved", "AND the employee"
+    // This prevents plain English like "OR later", "Set status to approved", "AND the rest"
     // from being mistaken for SQL clause fragments.
     const AND_OR_SET_FRAGMENT = /^\s*(AND|OR|SET)\s+(?:[@\[a-zA-Z_][\w\]]*)\s*(?:[=<>!]|\s+(?:IS|LIKE|IN|BETWEEN|NOT)\b)/i;
     // ON fragments: require identifier = or identifier. (dot notation) pattern.
@@ -304,8 +304,8 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
         const lineText = vbScriptOnLine(li);
         if (!lineText.trim()) { continue; }
 
-        const trimmedForComment733 = lineText.trimStart();
-        if (trimmedForComment733.startsWith("'") || /^rem\s/i.test(trimmedForComment733)) { continue; }
+        const unindented = lineText.trimStart();
+        if (unindented.startsWith("'") || /^rem\s/i.test(unindented)) { continue; }
 
         let stripped = lineText.replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
         const cpIdx = stripped.indexOf("'");
@@ -347,7 +347,7 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
             }
         } else {
             // No string literal on the assignment line itself — the RHS may be:
-            //   (a) a function call like BuildBOMCTE(...) & _  (has & before _)
+            //   (a) a function call like BuildTreeCTE(...) & _  (has & before _)
             //   (b) a plain line continuation: dataStmt = _    (just = then _)
             // Both patterns continue on the next line(s) with string literals.
             const rhsTrimmed = lineText.trimEnd();
@@ -428,11 +428,11 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
     }
 
     // ── Sub-pass 2b: SQL expression fragment promotion ───────────────────────
-    // Variables like anpQRAssort = "LTRIM(RTRIM(SUBSTRING(...)))" hold pure
+    // Variables like nameExpr = "LTRIM(RTRIM(SUBSTRING(...)))" hold pure
     // SQL expressions that get embedded into confirmed SQL variables via gaps:
-    //   anpSub = "(SELECT " & anpQRAssort & " AS Assortment, " & _
-    //            anpQRMix & ...
-    // anpQRAssort appears on a CONTINUATION line with no '=', so a simple
+    //   subQuery = "(SELECT " & nameExpr & " AS Name, " & _
+    //              codeExpr & ...
+    // nameExpr appears on a CONTINUATION line with no '=', so a simple
     // per-line assignPattern check misses it entirely.
     //
     // Fix: scan continuation groups as a unit. When a line opens a SQL var
@@ -539,8 +539,8 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
             const lineText = lineTextCache[li];
 
             // Skip VBScript comment lines entirely — don't analyse them for return values
-            const trimmedForComment846 = lineText.trimStart();
-            if (trimmedForComment846.startsWith("'") || /^rem\s/i.test(trimmedForComment846)) { continue; }
+            const unindented = lineText.trimStart();
+            if (unindented.startsWith("'") || /^rem\s/i.test(unindented)) { continue; }
 
             // Strip string literals and comments for structural matching
             let stripped = lineText.replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
@@ -552,7 +552,7 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
 
             // Found a return assignment — check if it contains a string literal.
             // When quoteCol === -1 the return line uses a line continuation (_ at end)
-            // with the actual string on the next line e.g. BuildBOMCTE = _ / "WITH BOM..."
+            // with the actual string on the next line e.g. BuildTreeCTE = _ / "WITH Tree..."
             // Walk continuation lines to find the first quote, same as Pass A does.
             let quoteCol = lineText.indexOf('"');
             let quoteLi  = li;
@@ -637,8 +637,8 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
                 const lineText = vbScriptOnLine(li);
                 if (!lineText.trim()) { continue; }
 
-                const trimmedForComment918 = lineText.trimStart();
-                if (trimmedForComment918.startsWith("'") || /^rem\s/i.test(trimmedForComment918)) { continue; }
+                const unindented = lineText.trimStart();
+                if (unindented.startsWith("'") || /^rem\s/i.test(unindented)) { continue; }
 
                 let stripped3 = lineText.replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
                 const cp3 = stripped3.indexOf("'");
@@ -701,8 +701,8 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
         const lineText = vbScriptOnLine(li);
         if (!lineText.trim()) { continue; }
 
-        const trimmedForComment988 = lineText.trimStart();
-        if (trimmedForComment988.startsWith("'") || /^rem\s/i.test(trimmedForComment988)) { continue; }
+        const unindented = lineText.trimStart();
+        if (unindented.startsWith("'") || /^rem\s/i.test(unindented)) { continue; }
 
         // Strip string literals — replace with a sentinel char (§) so we can
         // distinguish "there was a string here" from pure whitespace gaps.
@@ -883,8 +883,8 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
         // midpoint happened to land in trailing HTML.
         if (!lineText.includes('<%') && !inAsp(lineOffset)) { continue; }
 
-        const trimmedForComment1173 = lineText.trimStart();
-        if (trimmedForComment1173.startsWith("'") || /^rem\s/i.test(trimmedForComment1173)) { continue; }
+        const unindented = lineText.trimStart();
+        if (unindented.startsWith("'") || /^rem\s/i.test(unindented)) { continue; }
 
         let lineIsSqlAppend = false;
         if (sqlVarPattern !== null) {

@@ -23,8 +23,7 @@
  */
 
 import * as vscode from 'vscode';
-import { buildVirtualJsContent, getJsLanguageService, toDocumentSpan } from '../utils/jsUtils';
-import { getZone } from '../utils/zoneUtils';
+import { prepareJsQuery, toDocumentSpan } from '../utils/jsUtils';
 
 /** The diagnostic source jsDiagnosticsProvider stamps on everything it reports. */
 const JS_DIAGNOSTIC_SOURCE = 'Classic ASP (JS)';
@@ -47,18 +46,12 @@ export class JsCodeActionProvider implements vscode.CodeActionProvider {
         )];
         if (!errorCodes.length) { return undefined; }
 
-        const fullText = document.getText();
-        const start    = document.offsetAt(range.start);
-        const end      = document.offsetAt(range.end);
+        const start = document.offsetAt(range.start);
+        const end   = document.offsetAt(range.end);
 
-        if (getZone(fullText, start) !== 'js') { return undefined; }
-
-        const { virtualContent, isInScript, preambleLength } =
-            buildVirtualJsContent(fullText, start);
-        if (!isInScript || token.isCancellationRequested) { return undefined; }
-
-        const svc = getJsLanguageService();
-        svc.updateContent(virtualContent);
+        const query = prepareJsQuery(document.getText(), start);
+        if (!query || token.isCancellationRequested) { return undefined; }
+        const { svc, preambleLength } = query;
 
         const fixes = svc.getCodeFixes(
             start + preambleLength, end + preambleLength, errorCodes,

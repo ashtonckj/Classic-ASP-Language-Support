@@ -4,13 +4,9 @@
  * Shows parameter hints (signature help) when the user types "(" or ","
  * inside a function call in a <script> block.
  *
- * Fixes vs previous version:
- *   • si.documentation and paramDoc are now wrapped in MarkdownString so
- *     JSDoc formatting (backticks, links, bold) renders correctly in the
- *     signature help tooltip — previously they were plain strings.
- *   • FIX: preambleLength is now applied — cursor offset is shifted INTO
- *     the virtual file before the TS query so signature help fires at the
- *     correct position when a preamble is present.
+ * The docs are MarkdownStrings, so JSDoc formatting (backticks, links, bold)
+ * renders. TypeScript answers in the virtual file, which starts with a
+ * preamble, so the caret offset goes in shifted by preambleLength.
  *
  * Registered in extension.ts alongside AspSignatureHelpProvider so the two
  * never conflict — AspSignatureHelpProvider only fires inside ASP zones and
@@ -18,8 +14,7 @@
  */
 
 import * as vscode from 'vscode';
-import { buildVirtualJsContent, getJsLanguageService } from '../utils/jsUtils';
-import { getZone } from '../utils/zoneUtils';
+import { prepareJsQuery } from '../utils/jsUtils';
 
 export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
 
@@ -29,20 +24,10 @@ export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
         token:    vscode.CancellationToken
     ): vscode.ProviderResult<vscode.SignatureHelp> {
 
-        const fullText = document.getText();
-        const offset  = document.offsetAt(position);
-        // Checked first: the projection is a copy of the whole page, and most
-        // requests come from outside a <script> block.
-        if (getZone(fullText, offset) !== 'js') { return undefined; }
+        const query = prepareJsQuery(document.getText(), document.offsetAt(position));
+        if (!query || token.isCancellationRequested) { return undefined; }
 
-        const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset);
-        if (!isInScript || token.isCancellationRequested) { return undefined; }
-
-        const svc = getJsLanguageService();
-        svc.updateContent(virtualContent);
-
-        // FIX: shift cursor offset into virtual-file space (add preambleLength)
-        const items = svc.getSignatureHelp(offset + preambleLength);
+        const items = query.svc.getSignatureHelp(query.virtualOffset);
         if (!items || token.isCancellationRequested) { return undefined; }
 
         const help            = new vscode.SignatureHelp();
