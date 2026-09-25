@@ -26,9 +26,8 @@
  */
 
 import * as vscode from 'vscode';
-import { buildVirtualJsContent, getJsLanguageService } from '../utils/jsUtils';
+import { getJsLanguageService, prepareJsQuery } from '../utils/jsUtils';
 import { tsKindToVsKind } from '../utils/jsTsKinds';
-import { getZone } from '../utils/zoneUtils';
 
 interface ItemData {
     name:    string;
@@ -52,27 +51,17 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         context:  vscode.CompletionContext,
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
-        const fullText = document.getText();
-        const offset  = document.offsetAt(position);
-        // Checked first: the projection is a copy of the whole page, and most
-        // requests come from outside a <script> block.
-        if (getZone(fullText, offset) !== 'js') { return undefined; }
-
-        const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset);
-        if (!isInScript || token.isCancellationRequested) { return undefined; }
+        const query = prepareJsQuery(document.getText(), document.offsetAt(position));
+        if (!query || token.isCancellationRequested) { return undefined; }
+        const { svc, virtualContent, virtualOffset } = query;
 
         // ── Determine trigger character ──────────────────────────────────────
         const explicitTrigger = context.triggerCharacter;
         // The character before the caret, read from the virtual content at the
         // preamble-shifted position.
-        const virtualOffset   = offset + preambleLength;
         const prevChar        = virtualOffset > 0 ? virtualContent[virtualOffset - 1] : '';
         const triggerChar     = explicitTrigger ?? (prevChar === '.' ? '.' : undefined);
 
-        const svc = getJsLanguageService();
-        svc.updateContent(virtualContent);
-
-        // Shift offset into virtual-file space
         const completions = svc.getCompletions(virtualOffset, triggerChar);
         if (!completions || token.isCancellationRequested) { return undefined; }
 

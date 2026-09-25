@@ -25,32 +25,10 @@
  */
 
 import * as vscode from 'vscode';
-import {
-    buildVirtualJsContent, getJsLanguageService, toDocumentSpan, VIRTUAL_FILENAME,
-} from '../utils/jsUtils';
-import { getZone } from '../utils/zoneUtils';
+import { JsQuery, prepareJsQuery, toDocumentSpan, VIRTUAL_FILENAME } from '../utils/jsUtils';
 
-interface Ready {
-    svc:            ReturnType<typeof getJsLanguageService>;
-    virtualOffset:  number;
-    preambleLength: number;
-}
-
-function prepare(
-    document: vscode.TextDocument,
-    position: vscode.Position,
-): Ready | undefined {
-    const fullText = document.getText();
-    const offset   = document.offsetAt(position);
-    if (getZone(fullText, offset) !== 'js') { return undefined; }
-
-    const { virtualContent, isInScript, preambleLength } =
-        buildVirtualJsContent(fullText, offset);
-    if (!isInScript) { return undefined; }
-
-    const svc = getJsLanguageService();
-    svc.updateContent(virtualContent);
-    return { svc, virtualOffset: offset + preambleLength, preambleLength };
+function prepare(document: vscode.TextDocument, position: vscode.Position): JsQuery | undefined {
+    return prepareJsQuery(document.getText(), document.offsetAt(position));
 }
 
 export class JsRenameProvider implements vscode.RenameProvider {

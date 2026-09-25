@@ -73,7 +73,7 @@
 
 import * as path from 'path';
 import type * as ts from 'typescript';
-import { getJsBlockRanges } from './zoneUtils';
+import { getJsBlockRanges, getZone } from './zoneUtils';
 import { ASP_DOM_TYPES } from './aspDomTypes.generated';
 
 export const VIRTUAL_FILENAME    = 'asp-embedded.js';
@@ -794,6 +794,32 @@ export function getJsLanguageService(): JsLanguageService {
         }
     }
     return _service;
+}
+
+/** The JS service with the virtual file for a caret in a <script> block loaded. */
+export interface JsQuery {
+    svc:            JsLanguageService;
+    /** The virtual file, for reading the characters around the caret. */
+    virtualContent: string;
+    /** The caret as an offset in the virtual file. */
+    virtualOffset:  number;
+    preambleLength: number;
+}
+
+/**
+ * What every JavaScript feature does first: check the offset is in a
+ * <script> block, build the virtual file around it, and load that into the
+ * language service. Undefined when the offset is not JavaScript.
+ */
+export function prepareJsQuery(fullText: string, offset: number): JsQuery | undefined {
+    if (getZone(fullText, offset) !== 'js') { return undefined; }
+
+    const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset);
+    if (!isInScript) { return undefined; }
+
+    const svc = getJsLanguageService();
+    svc.updateContent(virtualContent);
+    return { svc, virtualContent, virtualOffset: offset + preambleLength, preambleLength };
 }
 
 export function disposeJsLanguageService(): void {

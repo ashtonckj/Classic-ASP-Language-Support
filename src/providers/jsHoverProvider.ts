@@ -11,8 +11,7 @@
  */
 
 import * as vscode from 'vscode';
-import { buildVirtualJsContent, getJsLanguageService } from '../utils/jsUtils';
-import { getZone } from '../utils/zoneUtils';
+import { prepareJsQuery } from '../utils/jsUtils';
 
 export class JsHoverProvider implements vscode.HoverProvider {
 
@@ -22,20 +21,11 @@ export class JsHoverProvider implements vscode.HoverProvider {
         token:    vscode.CancellationToken
     ): vscode.ProviderResult<vscode.Hover> {
 
-        const fullText = document.getText();
-        const offset  = document.offsetAt(position);
-        // Checked first: the projection is a copy of the whole page, and most
-        // requests come from outside a <script> block.
-        if (getZone(fullText, offset) !== 'js') { return undefined; }
+        const query = prepareJsQuery(document.getText(), document.offsetAt(position));
+        if (!query || token.isCancellationRequested) { return undefined; }
+        const { svc, virtualOffset, preambleLength } = query;
 
-        const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset);
-        if (!isInScript || token.isCancellationRequested) { return undefined; }
-
-        const svc = getJsLanguageService();
-        svc.updateContent(virtualContent);
-
-        // The virtual file starts with the preamble.
-        const info = svc.getQuickInfo(offset + preambleLength);
+        const info = svc.getQuickInfo(virtualOffset);
         if (!info || token.isCancellationRequested) { return undefined; }
 
         const displayText = info.displayParts?.map(p => p.text).join('') ?? '';

@@ -14,8 +14,7 @@
  */
 
 import * as vscode from 'vscode';
-import { buildVirtualJsContent, getJsLanguageService } from '../utils/jsUtils';
-import { getZone } from '../utils/zoneUtils';
+import { prepareJsQuery } from '../utils/jsUtils';
 
 export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
 
@@ -25,20 +24,10 @@ export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
         token:    vscode.CancellationToken
     ): vscode.ProviderResult<vscode.SignatureHelp> {
 
-        const fullText = document.getText();
-        const offset  = document.offsetAt(position);
-        // Checked first: the projection is a copy of the whole page, and most
-        // requests come from outside a <script> block.
-        if (getZone(fullText, offset) !== 'js') { return undefined; }
+        const query = prepareJsQuery(document.getText(), document.offsetAt(position));
+        if (!query || token.isCancellationRequested) { return undefined; }
 
-        const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset);
-        if (!isInScript || token.isCancellationRequested) { return undefined; }
-
-        const svc = getJsLanguageService();
-        svc.updateContent(virtualContent);
-
-        // The virtual file starts with the preamble.
-        const items = svc.getSignatureHelp(offset + preambleLength);
+        const items = query.svc.getSignatureHelp(query.virtualOffset);
         if (!items || token.isCancellationRequested) { return undefined; }
 
         const help            = new vscode.SignatureHelp();

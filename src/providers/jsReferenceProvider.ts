@@ -14,22 +14,11 @@
  */
 
 import * as vscode from 'vscode';
-import { buildVirtualJsContent, getJsLanguageService, toDocumentSpan } from '../utils/jsUtils';
-import { getZone } from '../utils/zoneUtils';
+import { prepareJsQuery, toDocumentSpan } from '../utils/jsUtils';
 
-/** Shared setup: returns the service positioned on `position`, or undefined. */
+/** The service positioned on `position`, or undefined outside a <script> block. */
 function prepare(document: vscode.TextDocument, position: vscode.Position) {
-    const fullText = document.getText();
-    const offset   = document.offsetAt(position);
-    if (getZone(fullText, offset) !== 'js') { return undefined; }
-
-    const { virtualContent, isInScript, preambleLength } =
-        buildVirtualJsContent(fullText, offset);
-    if (!isInScript) { return undefined; }
-
-    const svc = getJsLanguageService();
-    svc.updateContent(virtualContent);
-    return { svc, virtualOffset: offset + preambleLength, preambleLength };
+    return prepareJsQuery(document.getText(), document.offsetAt(position));
 }
 
 export class JsReferenceProvider implements vscode.ReferenceProvider {
