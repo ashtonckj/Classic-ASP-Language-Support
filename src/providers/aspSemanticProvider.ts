@@ -6,7 +6,6 @@ import { colourAspPage, SqlWarning } from '../utils/analysisClient';
 // one identical legend. VS Code maps token indices through whichever legend is
 // registered first; using a different legend here would corrupt all colours.
 import { COMBINED_SEMANTIC_LEGEND } from './jsSemanticProvider';
-export { COMBINED_SEMANTIC_LEGEND as ASP_SEMANTIC_LEGEND } from './jsSemanticProvider';
 
 /**
  * The VBScript and SQL colouring, and the SQL warnings.

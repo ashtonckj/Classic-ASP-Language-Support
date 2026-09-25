@@ -212,14 +212,6 @@ export function isInsideVbStringOrComment(lineText: string, col: number): boolea
     return inStr;
 }
 
-/**
- * Returns the word at the cursor position, or an empty string if there is none.
- */
-export function getWordAtPosition(document: vscode.TextDocument, position: vscode.Position): string {
-    const range = document.getWordRangeAtPosition(position);
-    return range ? document.getText(range) : '';
-}
-
 // True when line[i..] begins a legacy `REM` comment: the word REM at a statement
 // boundary (start of line, or right after a `:` separator). The boundary check
 // avoids matching identifiers that merely contain "rem" (e.g. `remainder`).

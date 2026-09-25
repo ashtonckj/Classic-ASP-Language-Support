@@ -57,8 +57,6 @@ export const COMBINED_SEMANTIC_LEGEND = new vscode.SemanticTokensLegend(
     [...TOKEN_MODIFIERS]
 );
 
-export const JS_SEMANTIC_LEGEND = COMBINED_SEMANTIC_LEGEND;
-
 // ─────────────────────────────────────────────────────────────────────────────
 // TwentyTwenty token type constants (1-indexed wire values)
 // ─────────────────────────────────────────────────────────────────────────────
