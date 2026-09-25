@@ -1,21 +1,13 @@
 /**
  * jsHoverProvider.ts  (providers/)
  *
- * Hover info for symbols inside <script> blocks.
+ * Hover info for symbols inside <script> blocks, laid out like VS Code's own
+ * JavaScript hover: the signature in a typescript code block, then the docs.
+ * Node.js declarations never show up, because jsUtils leaves out @types/node.
  *
- * Fixes vs previous version:
- *   • Documentation is now rendered as a proper MarkdownString matching
- *     VS Code's built-in JS hover format:
- *       ```typescript
- *       (method) console.log(...): void
- *       ```
- *       Plain text documentation paragraph.
- *   • Strips Node.js-specific content by virtue of jsUtils now blocking
- *     @types/node via types:[]
- *   • FIX: preambleLength is now applied — offset is shifted INTO the virtual
- *     file before the TS query, and the returned textSpan is shifted BACK before
- *     being converted to a VS Code Range. Without this, the hover highlight and
- *     tooltip appeared at the wrong position whenever the preamble was non-empty.
+ * TypeScript answers in the virtual file, which starts with a preamble, so the
+ * caret offset goes in shifted by preambleLength and the span comes back
+ * shifted the other way before it becomes a Range.
  */
 
 import * as vscode from 'vscode';
@@ -42,7 +34,7 @@ export class JsHoverProvider implements vscode.HoverProvider {
         const svc = getJsLanguageService();
         svc.updateContent(virtualContent);
 
-        // FIX: shift cursor offset into virtual-file space (add preambleLength)
+        // The virtual file starts with the preamble.
         const info = svc.getQuickInfo(offset + preambleLength);
         if (!info || token.isCancellationRequested) { return undefined; }
 
@@ -69,7 +61,7 @@ export class JsHoverProvider implements vscode.HoverProvider {
 
         let range: vscode.Range | undefined;
         if (info.textSpan) {
-            // FIX: shift span positions BACK from virtual-file space (subtract preambleLength)
+            // Back out of the virtual file, past the preamble.
             const spanStart = info.textSpan.start - preambleLength;
             const spanEnd   = spanStart + info.textSpan.length;
             if (spanStart >= 0) {

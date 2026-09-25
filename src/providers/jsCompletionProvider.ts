@@ -63,8 +63,8 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
 
         // ── Determine trigger character ──────────────────────────────────────
         const explicitTrigger = context.triggerCharacter;
-        // FIX: prevChar must be looked up in the virtual content at the
-        // preamble-shifted position so string/comment state is correct.
+        // The character before the caret, read from the virtual content at the
+        // preamble-shifted position.
         const virtualOffset   = offset + preambleLength;
         const prevChar        = virtualOffset > 0 ? virtualContent[virtualOffset - 1] : '';
         const triggerChar     = explicitTrigger ?? (prevChar === '.' ? '.' : undefined);

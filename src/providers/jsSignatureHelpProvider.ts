@@ -4,13 +4,9 @@
  * Shows parameter hints (signature help) when the user types "(" or ","
  * inside a function call in a <script> block.
  *
- * Fixes vs previous version:
- *   • si.documentation and paramDoc are now wrapped in MarkdownString so
- *     JSDoc formatting (backticks, links, bold) renders correctly in the
- *     signature help tooltip — previously they were plain strings.
- *   • FIX: preambleLength is now applied — cursor offset is shifted INTO
- *     the virtual file before the TS query so signature help fires at the
- *     correct position when a preamble is present.
+ * The docs are MarkdownStrings, so JSDoc formatting (backticks, links, bold)
+ * renders. TypeScript answers in the virtual file, which starts with a
+ * preamble, so the caret offset goes in shifted by preambleLength.
  *
  * Registered in extension.ts alongside AspSignatureHelpProvider so the two
  * never conflict — AspSignatureHelpProvider only fires inside ASP zones and
@@ -41,7 +37,7 @@ export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
         const svc = getJsLanguageService();
         svc.updateContent(virtualContent);
 
-        // FIX: shift cursor offset into virtual-file space (add preambleLength)
+        // The virtual file starts with the preamble.
         const items = svc.getSignatureHelp(offset + preambleLength);
         if (!items || token.isCancellationRequested) { return undefined; }
 

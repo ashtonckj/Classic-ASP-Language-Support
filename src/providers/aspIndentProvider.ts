@@ -251,7 +251,7 @@ function findMatchingOpenerIndent(
             }
         } else {
             // Fast path — plain line with no continuation involved. Strip a trailing
-            // ' comment so `If b Then   ' note` still matches the If opener (N1).
+            // ' comment so `If b Then   ' note` still matches the If opener.
             text = stripTrailingComment(rawLine).trim();
             startLine = i;
         }

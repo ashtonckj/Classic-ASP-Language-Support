@@ -16,10 +16,9 @@
  *   modifiers  = encoded & 0xFF (bit flags: declaration=1, defaultLibrary=16, …)
  *   'member' in the TS source corresponds to 'method' in VS Code's token types.
  *
- * FIX: preambleLength is now subtracted from every token offset before the
- * JS-range membership test and before calling document.positionAt. Previously,
- * all semantic tokens were painted at positions shifted forward by the preamble
- * size, miscolouring completely wrong regions of the editor.
+ * Token offsets are in the virtual file, which starts with a preamble, so
+ * preambleLength comes off each one before the JS-range test and before
+ * document.positionAt.
  *
  * The classification runs on a worker thread (jsAnalysisWorker.ts); this file
  * only decodes what comes back. VS Code re-requests these tokens after every
@@ -186,9 +185,9 @@ export class JsSemanticTokensProvider implements vscode.DocumentSemanticTokensPr
             const length        = spans[i + 1];
             const encoded       = spans[i + 2];
 
-            // FIX: convert virtual-file offset → document offset by subtracting preambleLength.
-            // Tokens that fall inside the preamble itself (virtualOffset < preambleLength) are
-            // preamble-generated declarations — skip them, they have no counterpart in the source.
+            // From the virtual file's offsets to the page's. A token inside the
+            // preamble itself is one of its generated declarations, with nothing
+            // on the page to colour.
             const docOffset = virtualOffset - preambleLength;
             if (docOffset < 0) { continue; }
 
@@ -201,7 +200,6 @@ export class JsSemanticTokensProvider implements vscode.DocumentSemanticTokensPr
             const { typeIdx, modBits } = decode(encoded);
             if (typeIdx === -1) { continue; }
 
-            // FIX: use docOffset (document space) for positionAt, not the virtual offset.
             const pos = document.positionAt(docOffset);
             builder.push(pos.line, pos.character, length, typeIdx, modBits);
         }
