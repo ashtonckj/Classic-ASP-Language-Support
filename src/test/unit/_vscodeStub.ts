@@ -86,7 +86,18 @@ export class Position {
 }
 
 export class Range {
-    constructor(public readonly start: Position, public readonly end: Position) {}
+    public readonly start: Position;
+    public readonly end: Position;
+    // Both of VS Code's forms: two positions, or four numbers.
+    constructor(start: Position | number, end: Position | number, endLine?: number, endCharacter?: number) {
+        if (typeof start === 'number') {
+            this.start = new Position(start, end as number);
+            this.end   = new Position(endLine as number, endCharacter as number);
+        } else {
+            this.start = start;
+            this.end   = end as Position;
+        }
+    }
 }
 
 export const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Hint: 3 };

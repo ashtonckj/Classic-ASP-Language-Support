@@ -1,6 +1,9 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { branchEvents, classifyLine, extractAspStatementCode, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
+import { branchEvents, classifyLine, extractAspStatementCode, findMissingIncludes, findMissingSet, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 function kinds(actions: Array<{ type: string; kind: string }>): string[] {
     return actions.map(a => `${a.type}:${a.kind}`);
@@ -250,5 +253,126 @@ describe('branchEvents', () => {
 
     it('reads an If whose condition runs over a line continuation', () => {
         assert.deepStrictEqual(events('If a And _\n   b Then'), ['open:if']);
+    });
+});
+
+// IIS will not run a page whose #include names a file that is not there
+// (ASP 0126), so the path is flagged where it is written.
+describe('findMissingIncludes', () => {
+    const site = fs.mkdtempSync(path.join(os.tmpdir(), 'asp-includes-'));
+    const page = path.join(site, 'admin', 'page.asp');
+    before(() => {
+        fs.mkdirSync(path.join(site, 'admin', 'lib'), { recursive: true });
+        fs.mkdirSync(path.join(site, 'inc'));
+        fs.writeFileSync(path.join(site, 'admin', 'lib', 'db.asp'), '');
+        fs.writeFileSync(path.join(site, 'inc', 'header.asp'), '');
+    });
+    after(() => fs.rmSync(site, { recursive: true, force: true }));
+
+    it('says nothing when every include is there', () => {
+        const text = '<!--#include file="lib/db.asp"-->\n<!--#include virtual="/inc/header.asp"-->';
+        assert.deepStrictEqual(findMissingIncludes(text, page, site), []);
+    });
+
+    it('flags a file include that is not there, on its path', () => {
+        const text = '<p>\n<!-- #include file="lib/dbx.asp" -->';
+        const [found, ...rest] = findMissingIncludes(text, page, site);
+        assert.deepStrictEqual(rest, []);
+        assert.strictEqual(text.slice(found.start, found.end), 'lib/dbx.asp');
+        assert.ok(found.message.includes(path.join(site, 'admin', 'lib', 'dbx.asp')), found.message);
+        assert.ok(found.message.includes('ASP 0126'), found.message);
+    });
+
+    it('resolves a file include from the page, not the site root', () => {
+        const [found] = findMissingIncludes('<!--#include file="inc/header.asp"-->', page, site);
+        assert.ok(found, 'inc/ is beside the site root, not beside the page');
+    });
+
+    it('flags a virtual include from the site root, and says where that is', () => {
+        const [found] = findMissingIncludes('<!--#include virtual="/inc/footer.asp"-->', page, site);
+        assert.ok(found.message.includes(path.join(site, 'inc', 'footer.asp')), found.message);
+        assert.ok(found.message.includes('aspLanguageSupport.virtualRoot'), found.message);
+    });
+
+    it('leaves a virtual include alone when the site root is not known', () => {
+        assert.deepStrictEqual(findMissingIncludes('<!--#include virtual="/inc/footer.asp"-->', page, undefined), []);
+        assert.strictEqual(findMissingIncludes('<!--#include file="nope.asp"-->', page, undefined).length, 1);
+    });
+
+    it('flags a path that names a folder', () => {
+        assert.strictEqual(findMissingIncludes('<!--#include file="lib"-->', page, site).length, 1);
+    });
+
+    it('points at the right one when the same path is written twice', () => {
+        const text = '<!--#include file="a.asp"--><!--#include file="a.asp"-->';
+        const found = findMissingIncludes(text, page, site);
+        assert.deepStrictEqual(found.map(f => f.start), [19, 47]);
+    });
+});
+
+// An object can only be assigned with Set. Without it VBScript tries to copy
+// the object's default value, and for the objects flagged here that fails when
+// the page runs — `rs = conn.Execute(sql)` is the classic one.
+describe('findMissingSet', () => {
+    const types = new Map([
+        ['conn', 'adodb.connection'],
+        ['rs', 'adodb.recordset'],
+        ['fso', 'scripting.filesystemobject'],
+        ['xml', 'msxml2.domdocument'],
+    ]);
+    const targets = (text: string) => findMissingSet(text, types).map(found => text.slice(found.start, found.end));
+
+    it('flags a Recordset assigned without Set, on the name', () => {
+        assert.deepStrictEqual(targets('<%\nrs = conn.Execute(sql)\n%>'), ['rs']);
+        assert.deepStrictEqual(targets('<%\nSet rs = conn.Execute(sql)\n%>'), []);
+    });
+
+    it('flags CreateObject, Server.CreateObject and New', () => {
+        assert.deepStrictEqual(targets('<% conn = Server.CreateObject("ADODB.Connection") %>'), ['conn']);
+        assert.deepStrictEqual(targets('<% x = 1 : d = CreateObject("Scripting.Dictionary") %>'), ['d']);
+        assert.deepStrictEqual(targets('<%\no = New Basket\nLet p = New Basket\n%>'), ['o', 'p']);
+    });
+
+    it('flags a function returning an object through its name', () => {
+        const text = '<%\nFunction GetConn()\n  GetConn = Server.CreateObject("ADODB.Connection")\nEnd Function\n%>';
+        assert.deepStrictEqual(targets(text), ['GetConn']);
+    });
+
+    it('flags other methods whose result has no value to copy', () => {
+        assert.deepStrictEqual(targets('<%\nts = fso.OpenTextFile(Server.MapPath("/x"), 1)\n%>'), ['ts']);
+        assert.deepStrictEqual(targets('<%\nnode = xml.selectSingleNode("//a")\n%>'), ['node']);
+        assert.deepStrictEqual(targets('<%\nr2 = rs.NextRecordset\n%>'), ['r2']);
+    });
+
+    it('leaves a value read out of an object alone', () => {
+        assert.deepStrictEqual(targets('<%\nn = conn.Execute("SELECT COUNT(*) FROM t")(0)\n%>'), []);
+        assert.deepStrictEqual(targets('<%\nv = rs("name")\nw = rs.Fields("name")\n%>'), []);
+        assert.deepStrictEqual(targets('<%\nx = CreateObject("a") & "b"\n%>'), []);
+    });
+
+    it('leaves an object whose default value is the point alone', () => {
+        // A Folder's default is its Path.
+        assert.deepStrictEqual(targets('<%\np = fso.GetFolder(".")\n%>'), []);
+    });
+
+    it('leaves a method on a variable of unknown type alone', () => {
+        assert.deepStrictEqual(targets('<%\nrs = db.Execute(sql)\n%>'), []);
+    });
+
+    it('ignores comments, strings, comparisons, output expressions and markup', () => {
+        assert.deepStrictEqual(targets("<%\n' rs = conn.Execute(sql)\nREM rs = conn.Execute(sql)\n%>"), []);
+        assert.deepStrictEqual(targets('<%\nx = "rs = conn.Execute(sql)"\n%>'), []);
+        assert.deepStrictEqual(targets('<%\nIf rs = conn.Execute(sql) Then\n%>'), []);
+        assert.deepStrictEqual(targets('<%= x = CreateObject("a") %>'), []);
+        assert.deepStrictEqual(targets('<p>rs = conn.Execute(sql)</p>\n<script>\nrs = conn.Execute(sql)\n</script>'), []);
+    });
+
+    it('reads a server-side VBScript <script> block', () => {
+        assert.deepStrictEqual(targets('<script runat="server" language="vbscript">\nrs = conn.Execute(sql)\n</script>'), ['rs']);
+    });
+
+    it('measures offsets over CRLF lines and several blocks on one line', () => {
+        assert.deepStrictEqual(targets('<%\r\nrs = conn.Execute(sql)\r\n%>'), ['rs']);
+        assert.deepStrictEqual(targets('<% x = 1 %><% rs = conn.Execute(sql) %>'), ['rs']);
     });
 });

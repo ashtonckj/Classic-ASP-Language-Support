@@ -279,6 +279,21 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
         isSelfAppend:  boolean;
         stitchedValue: string;
     }
+
+    /**
+     * True when `col` lies in the arguments of a method called on an object —
+     * `conn.Execute(…)`, `Request.Form(…)`. `code` has its strings blanked, so
+     * a bracket inside one cannot count. A built-in like `Replace(…)` is not a
+     * method: what it returns is its argument, changed.
+     */
+    function isInsideMemberCall(code: string, col: number): boolean {
+        const calls: boolean[] = [];
+        for (let i = 0; i < col; i++) {
+            if (code[i] === '(') { calls.push(/[\w)]\s*\.\s*[A-Za-z_]\w*\s*$/.test(code.slice(0, i))); }
+            else if (code[i] === ')') { calls.pop(); }
+        }
+        return calls.includes(true);
+    }
     const assignmentMap    = new Map<string, VarAssignment[]>();
     const assignPattern    = /^\s*([a-zA-Z_]\w*)\s*=\s*(.+)$/;
     const processedAssignLines = new Set<number>();
@@ -310,6 +325,11 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
 
         const quoteCol = lineText.indexOf('"', lineText.indexOf(am[1]));
         let stitchedValue = '';
+
+        // `n = conn.Execute("SELECT COUNT(*) …")(0)` assigns what the call
+        // returns, not the string handed to it, so it does not make n a SQL
+        // variable — nor `x = Request.Form("sql")`.
+        if (quoteCol !== -1 && isInsideMemberCall(stripped, quoteCol)) { continue; }
 
         if (quoteCol !== -1) {
             const group = extractSqlGroup(lineSource, li, quoteCol);

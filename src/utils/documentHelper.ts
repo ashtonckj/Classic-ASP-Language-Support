@@ -219,3 +219,68 @@ export function getWordAtPosition(document: vscode.TextDocument, position: vscod
     const range = document.getWordRangeAtPosition(position);
     return range ? document.getText(range) : '';
 }
+
+// True when line[i..] begins a legacy `REM` comment: the word REM at a statement
+// boundary (start of line, or right after a `:` separator). The boundary check
+// avoids matching identifiers that merely contain "rem" (e.g. `remainder`).
+export function isRemAt(line: string, i: number): boolean {
+    const ch = line[i];
+    if (ch !== 'r' && ch !== 'R') { return false; }
+    return /^rem\b/i.test(line.slice(i)) && /(^|:)\s*$/.test(line.slice(0, i));
+}
+
+/**
+ * The VBScript statements on one line, each with its offset in the line: the
+ * code inside `<% %>` (or all of it, inside a block or a server-side script),
+ * split at `:` and cut at a comment. `<%= %>` is an output expression, not a
+ * statement, so it is skipped.
+ */
+export function vbStatementsOnLine(line: string, startsInAsp: boolean): { text: string; col: number }[] {
+    const statements: { text: string; col: number }[] = [];
+    let inAsp     = startsInAsp;
+    let output    = false;
+    let inString  = false;
+    let comment   = false;
+    let start     = 0;
+
+    const flush = (end: number) => {
+        if (inAsp && !output && end > start) { statements.push({ text: line.slice(start, end), col: start }); }
+    };
+
+    for (let i = 0; i < line.length; i++) {
+        // ASP ends a block at the first %>, even one inside a string.
+        if (inAsp && line.startsWith('%>', i)) {
+            if (!comment) { flush(i); }
+            inAsp = false; output = false; inString = false; comment = false;
+            i++;
+            continue;
+        }
+        if (!inAsp) {
+            if (line.startsWith('<%', i)) {
+                inAsp  = true;
+                output = /^<%\s*=/.test(line.slice(i));
+                start  = i + 2;
+                i++;
+            }
+            continue;
+        }
+        if (comment) { continue; }
+
+        const ch = line[i];
+        if (inString) {
+            if (ch === '"') {
+                if (line[i + 1] === '"') { i++; } else { inString = false; }
+            }
+        } else if (ch === '"') {
+            inString = true;
+        } else if (ch === "'" || isRemAt(line, i)) {
+            flush(i);
+            comment = true;
+        } else if (ch === ':') {
+            flush(i);
+            start = i + 1;
+        }
+    }
+    if (!comment) { flush(line.length); }
+    return statements;
+}

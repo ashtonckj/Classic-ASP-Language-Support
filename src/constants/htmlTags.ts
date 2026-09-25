@@ -145,3 +145,16 @@ export function isSelfClosingTag(tagName: string): boolean {
     const tag = HTML_TAGS.find(t => t.tag.toLowerCase() === tagName.toLowerCase());
     return tag?.selfClosing === true;
 }
+
+// Phrasing elements that sit inside a line of text, so completing one keeps it on
+// that line: <span>$0</span>, not <span>, an indented blank line, and </span>
+// under it. The same list the indent provider treats as inline.
+const INLINE_TAGS = new Set([
+    'a', 'abbr', 'b', 'bdi', 'bdo', 'cite', 'code', 'data', 'dfn', 'em', 'i', 'kbd',
+    'mark', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'small', 'span', 'strong', 'sub',
+    'sup', 'time', 'u', 'var',
+]);
+
+export function isInlineTag(tagName: string): boolean {
+    return INLINE_TAGS.has(tagName.toLowerCase());
+}

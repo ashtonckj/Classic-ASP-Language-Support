@@ -48,18 +48,24 @@
 - **VBScript** — smart indentation across all control structures and multi-block `<% %>` regions
 - **HTML/CSS/JS** — formatted by Prettier, fully configurable
 - **Keyword casing** — your choice of `PascalCase`, `UPPERCASE`, or `lowercase`
+- **Format Selection** — `Ctrl + K Ctrl + F` formats just the selected lines, exactly as Format Document would format them
+- **Preview Formatting** — run *Classic ASP: Preview Formatting* from the Command Palette to see what Format Document would change, side by side, without applying it
 
 ### 💡 IntelliSense & Auto-Completion
 - **Context-aware** — correct suggestions whether you're in ASP, CSS, JS, or HTML
-- **COM object tracking** — type `rs.` after `Set rs = Server.CreateObject("ADODB.Recordset")` to see all methods and properties
+- **COM object tracking** — type `rs.` after `Set rs = Server.CreateObject("ADODB.Recordset")` to see all methods and properties, or just `.` inside `With rs … End With`
+- **HTML attribute values** — inside `type=""`, `target=""` and the like, the values the attribute takes, as in a `.html` file
 - **Cross-file IntelliSense** — variables and functions from `#include`'d files appear in suggestions automatically
 - **File paths** — live browsing inside `#include` and `href`/`src`/`action` attributes
 
 ### 🔍 Hover, Definition & Navigation
-- **Hover docs** — inline documentation for keywords, functions, COM members, and CSS properties
+- **Hover docs** — inline documentation for keywords, functions, constants like `vbCrLf`, `Response` and the other ASP objects, COM members, HTML tags and attributes, and CSS properties
 - **Go to definition** — `F12` across the current file and all included files
-- **Rename symbol** — `F2` on a VBScript variable, constant, Sub or Function; locals stay inside their own body, globals are renamed across the include graph
-- **Parameter hints** — signature help for your own Subs and Functions, and for JavaScript in `<script>` blocks
+- **Find All References** — `Shift + F12` on a VBScript name, over the same scope rename uses
+- **Rename symbol** — `F2` on a VBScript variable, constant, Sub or Function; locals stay inside their own body, globals are renamed across the include graph, and a member like `obj.total` is left alone
+- **Update #include paths** — rename or move a file in VS Code and it offers to fix every `#include` that pointed at it
+- **Parameter hints** — signature help for VBScript's built-in functions (`Mid`, `InStr`, `Replace`…), your own Subs and Functions, and JavaScript in `<script>` blocks
+- **Linked editing** — with `editor.linkedEditing` on, editing a tag name edits its closing tag too, ASP between them or not
 - **Outline & breadcrumbs** — Subs, Functions, Classes and Consts (plus JavaScript functions) in the Outline view and `Ctrl + Shift + O`
 - **Workspace symbol search** — `Ctrl + T` finds VBScript symbols across every `.asp` / `.inc` in the workspace
 - **Document links** — `Ctrl + Click` navigation on `#include` paths and local file attributes, including root-relative (`/images/logo.gif`) ones
@@ -72,6 +78,8 @@
 ### 🔴 Diagnostics
 - **HTML** — mismatched structural tags flagged with orange squiggles
 - **VBScript** — unmatched control blocks (`If/End If`, `Sub/End Sub`, `For/Next`, etc.) and unbalanced `<% %>` tags
+- **Missing Set** — an object assigned without `Set`, like `rs = conn.Execute(sql)`, with a *one-click quick fix*
+- **Missing includes** — an `#include` whose file does not exist, which IIS refuses to run
 - **CSS** — errors and warnings inside `<style>` blocks and `style=""` attributes as you type
 - **JavaScript** — real errors inside `<script>` blocks via the TypeScript language service (noise from missing project context is suppressed)
 - **Void elements** — invalid closing tags caught with a *one-click quick fix*
@@ -169,7 +177,6 @@
 | `aspLanguageSupport.htmlIndentMode` | `continuation` | Where `<%` and `%>` sit: `continuation` — at the indent of the surrounding HTML; `flat` — at column 0. The VBScript inside is indented the same either way |
 | `aspLanguageSupport.virtualRoot` | *(empty)* | Absolute path to your IIS application root, used to resolve `#include virtual="..."` and root-relative `href`/`src`. Empty = the workspace folder root |
 | `aspLanguageSupport.defaultIncludes` | *(empty)* | Files always added to IntelliSense, hover, and Go to Definition for every document, even without an `#include` for them. For libraries pulled in through a shared bootstrap page at runtime. Resolved like `#include virtual="..."` |
-| `aspLanguageSupport.formatPreview` | `false` | Debug: `Alt + Shift + F` opens a diff preview instead of applying the format |
 
 ### Prettier (HTML/CSS/JS)
 
@@ -203,7 +210,7 @@
 ## 📋 Known Limitations
 
 - ASP blocks must be properly closed (`<% ... %>`) for formatting and diagnostics to work correctly
-- **Format Document is refused while a file has structure diagnostics.** Fix the orange squiggles first — formatting a file with unbalanced tags or blocks would rearrange the wrong things
+- **Format Document and Format Selection are refused while a file has structure diagnostics.** Fix the orange squiggles first — formatting a file with unbalanced tags or blocks would rearrange the wrong things
 - Complex mixed HTML/ASP structures may occasionally require manual adjustment after formatting
 - `#include virtual="..."` and root-relative `href`/`src` paths resolve from `aspLanguageSupport.virtualRoot`, or the first workspace folder root when that is empty
 - **Syntax highlighting breaks for a `<%= %>` that emits an HTML tag inside a JavaScript event-handler attribute** — e.g. `onclick="alert('<%= Replace(x, vbCrLf, "<br>") %>')"`. VS Code's built-in HTML and JavaScript grammars own attribute-value parsing, so an extension cannot re-scope it. The code still runs correctly; only the colours are wrong. (For the same reason the closing `"` of a `style=""` value is coloured as CSS — that affects plain HTML files too.)

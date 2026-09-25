@@ -80,6 +80,7 @@ scripts/**
 # CommonJS, so it always takes umd and never reads lib/esm — which in
 # vscode-css-languageservice alone is a second 1.5 MB copy of webCustomData.
 node_modules/vscode-css-languageservice/lib/esm/**
+node_modules/vscode-html-languageservice/lib/esm/**
 node_modules/vscode-languageserver-types/lib/esm/**
 node_modules/vscode-languageserver-textdocument/lib/esm/**
 node_modules/vscode-uri/lib/esm/**
@@ -138,6 +139,7 @@ node_modules/typescript/lib/lib.dom.asynciterable.d.ts
 # runtime. typescript/lib is deliberately absent from this list — see above.
 node_modules/prettier/**/*.d.ts
 node_modules/vscode-css-languageservice/**/*.d.ts
+node_modules/vscode-html-languageservice/**/*.d.ts
 node_modules/vscode-languageserver-types/**/*.d.ts
 node_modules/vscode-languageserver-textdocument/**/*.d.ts
 node_modules/vscode-uri/**/*.d.ts
@@ -149,6 +151,7 @@ node_modules/**/README.md
 node_modules/**/CHANGELOG.md
 node_modules/**/SECURITY.md
 node_modules/vscode-css-languageservice/docs/**
+node_modules/vscode-html-languageservice/docs/**
 node_modules/@vscode/l10n/dist/tsdoc-metadata.json
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1,9 +1,11 @@
 import * as assert from 'assert';
 import {
     computeLocalRenameScope,
+    declarationLines,
     declaringFilesFor,
     findAllOccurrences,
     includeClosure,
+    isClassMember,
     shadowingBodies,
 } from '../../providers/aspRenameProvider';
 import { FileSymbols } from '../../utils/symbolParser';
@@ -336,5 +338,65 @@ describe('findAllOccurrences — large files', () => {
         const elapsed = Date.now() - started;
         // Deliberately loose, so it measures the algorithm rather than the machine.
         assert.ok(elapsed < 500, `expected well under 500ms, took ${elapsed}ms`);
+    });
+});
+
+// A name after a dot is a member of something else: renaming the variable
+// `count` must not rewrite a Dictionary's `dict.Count`, nor `total` an
+// `obj.total`.
+describe('findAllOccurrences — members after a dot', () => {
+    const text = '<%\nDim total\ntotal = obj.total + 1\nWith obj\n  .total = total\nEnd With\n%>';
+
+    it('leaves out a member written after a dot, with or without an object before it', () => {
+        assert.deepStrictEqual(
+            findAllOccurrences(text, 'total').map(o => `${o.line}:${o.character}`),
+            ['1:4', '2:0', '4:11'],
+        );
+    });
+
+    it('keeps them when asked for members', () => {
+        assert.strictEqual(findAllOccurrences(text, 'total', { members: true }).length, 5);
+    });
+});
+
+describe('isClassMember', () => {
+    const sym: FileSymbols = {
+        variables: [
+            { name: 'total', line: 1, filePath: 'x.asp' },
+            { name: 'items', line: 5, filePath: 'x.asp' },
+        ],
+        constants: [],
+        functions: [fn('Add', 6, 8)],
+        comVariables: [],
+        classes: [{ name: 'Basket', line: 4, endLine: 9, filePath: 'x.asp' }],
+    };
+
+    it('is true for a variable or method declared inside a Class', () => {
+        assert.strictEqual(isClassMember(sym, 'items'), true);
+        assert.strictEqual(isClassMember(sym, 'add'), true);
+    });
+
+    it('is false for a name declared outside every Class, and for the Class itself', () => {
+        assert.strictEqual(isClassMember(sym, 'total'), false);
+        assert.strictEqual(isClassMember(sym, 'basket'), false);
+    });
+});
+
+describe('declarationLines', () => {
+    const sym: FileSymbols = {
+        variables: [
+            { name: 'total', line: 1, filePath: 'x.asp' },
+            { name: 'total', line: 3, filePath: 'x.asp', implicit: true },
+        ],
+        constants: [{ name: 'LIMIT', value: '5', line: 2, filePath: 'x.asp' }],
+        functions: [fn('Add', 4, 6, ['total'])],
+        comVariables: [],
+        classes: [],
+    };
+
+    it('lists Dim, Const, procedure and parameter lines, not a bare assignment', () => {
+        assert.deepStrictEqual([...declarationLines(sym, 'total')].sort(), [1, 4]);
+        assert.deepStrictEqual([...declarationLines(sym, 'limit')], [2]);
+        assert.deepStrictEqual([...declarationLines(sym, 'add')], [4]);
     });
 });

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { HTML_TAGS, isSelfClosingTag } from '../constants/htmlTags';
+import { HTML_TAGS, isInlineTag, isSelfClosingTag } from '../constants/htmlTags';
 import { getAttributesForTag } from '../constants/htmlGlobals';
 import {
     getCurrentTagName,
@@ -7,6 +7,7 @@ import {
     isInsideTagForAttributes
 } from '../utils/documentHelper';
 import { getZone } from '../utils/zoneUtils';
+import { attributeHasValues, htmlAttributeValueCompletions } from './htmlLanguageFeatures';
 
 
 // ── Cached completion items — built once, reused on every keystroke ────────
@@ -23,7 +24,9 @@ function getTagCompletions(): vscode.CompletionItem[] {
         item.documentation = new vscode.MarkdownString(`HTML <${tag.tag}> element\n\n${tag.description}`);
         item.insertText = isSelfClosingTag(tag.tag)
             ? new vscode.SnippetString(`${tag.tag} $0/>`)
-            : new vscode.SnippetString(`${tag.tag}>\n\t$0\n</${tag.tag}>`);
+            : isInlineTag(tag.tag)
+                ? new vscode.SnippetString(`${tag.tag}>$0</${tag.tag}>`)
+                : new vscode.SnippetString(`${tag.tag}>\n\t$0\n</${tag.tag}>`);
         item.sortText = '2_' + tag.tag;
         return item;
     });
@@ -43,6 +46,11 @@ function getAttributeCompletions(tagName: string): vscode.CompletionItem[] {
             ? new vscode.SnippetString(`${attr.name}$1="$2"`)
             : new vscode.SnippetString(`${attr.name}="$0"`);
         item.sortText = '2_' + attr.name;
+        // An attribute with a known set of values goes straight on to offer
+        // them, as it does in a .html file.
+        if (attributeHasValues(tagName, attr.name)) {
+            item.command = { command: 'editor.action.triggerSuggest', title: 'Suggest values' };
+        }
         return item;
     });
 
@@ -205,6 +213,11 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
         // ── Normal tag suggestions ────────────────────────────────────────────
         if (context.triggerCharacter === '<') { return getTagCompletions(); }
         if (textBefore.match(/<(\w+)$/))      { return getTagCompletions(); }
+
+        // ── Attribute values  e.g. type="|" → text, checkbox, … ───────────────
+        if (insideAttrValue && isInsideTagForAttributes(document, position)) {
+            return htmlAttributeValueCompletions(document, position);
+        }
 
         // ── Attribute suggestions ─────────────────────────────────────────────
         // Guard: insideAttrValue is computed above, before the closing-tag block.

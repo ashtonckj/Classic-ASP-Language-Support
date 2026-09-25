@@ -27,7 +27,8 @@ import { IncludeDocumentLinkProvider, HtmlAttributeLinkProvider, HtmlAttributePa
 // ASP semantic provider must now use COMBINED_SEMANTIC_LEGEND — see note above.
 import { AspSemanticTokensProvider } from './providers/aspSemanticProvider';
 import { AspHoverProvider } from './providers/aspHoverProvider';
-import { AspRenameProvider } from './providers/aspRenameProvider';
+import { HtmlHoverProvider, HtmlLinkedEditingProvider } from './providers/htmlLanguageFeatures';
+import { AspReferenceProvider, AspRenameProvider, registerIncludeUpdatesOnRename } from './providers/aspRenameProvider';
 import { addRegionHighlights } from './highlight';
 import { AspDocumentSymbolProvider } from './providers/aspDocumentSymbolProvider';
 import { JsDocumentSymbolProvider } from './providers/jsDocumentSymbolProvider';
@@ -38,7 +39,7 @@ import { JsRenameProvider } from './providers/jsRenameProvider';
 import { disposeAnalysisWorkers } from './utils/analysisClient';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache, disposeWorkspaceIndex } from './providers/aspWorkspaceSymbolProvider';
 import { AspSignatureHelpProvider } from './providers/aspSignatureHelpProvider';
-import { computeLineEdits, resolveEol, toLf } from './utils/editUtils';
+import { computeLineEdits, computeRangeEdits, resolveEol, toLf } from './utils/editUtils';
 
 // Shared structure issue check used by both the formatter and the preview.
 //
@@ -121,46 +122,85 @@ export function activate(context: vscode.ExtensionContext) {
     const aspStructureCollection  = registerAspStructureDiagnostics(context);
 
     // ── Formatter ─────────────────────────────────────────────────────────────
+    // The page as it is and as formatting would leave it — or undefined, with
+    // the user told why, when a structure problem means it cannot be formatted.
+    // Both are LF-normalised, so a CRLF-saved file is not reported as "every line
+    // changed"; the edits are written back with the line ending resolveEol picks.
+    async function formatForDocument(
+        document: vscode.TextDocument,
+    ): Promise<{ fullText: string; formatted: string } | undefined> {
+        const total = getStructureIssueCount(document, htmlStructureCollection, aspStructureCollection);
+        if (total > 0) {
+            vscode.window.showWarningMessage(
+                `Formatting skipped — ${total} structure issue${total === 1 ? '' : 's'} found. ` +
+                `Fix the highlighted warnings first.`,
+                'Show Problems'
+            ).then(choice => {
+                if (choice === 'Show Problems') {
+                    vscode.commands.executeCommand('workbench.actions.view.problems');
+                }
+            });
+            return undefined;
+        }
+
+        const fullText  = toLf(document.getText());
+        const formatted = toLf(await formatCompleteAspFile(fullText));
+        return { fullText, formatted };
+    }
+
     const formatter = vscode.languages.registerDocumentFormattingEditProvider('asp', {
         async provideDocumentFormattingEdits(document: vscode.TextDocument): Promise<vscode.TextEdit[]> {
-            const total = getStructureIssueCount(document, htmlStructureCollection, aspStructureCollection);
-            if (total > 0) {
-                vscode.window.showWarningMessage(
-                    `Formatting skipped — ${total} structure issue${total === 1 ? '' : 's'} found. ` +
-                    `Fix the highlighted warnings first.`,
-                    'Show Problems'
-                ).then(choice => {
-                    if (choice === 'Show Problems') {
-                        vscode.commands.executeCommand('workbench.actions.view.problems');
-                    }
-                });
-                return [];
-            }
+            const result = await formatForDocument(document);
+            if (!result) { return []; }
 
-            // Format on LF-normalised text and diff against the same, so a
-            // CRLF-saved file is not reported as "every line changed"; the edits
-            // are then written back with the line ending resolveEol picks.
-            const fullText  = toLf(document.getText());
-            const formatted = toLf(await formatCompleteAspFile(fullText));
-
-            const config = vscode.workspace.getConfiguration('aspLanguageSupport');
-            const eol    = resolveEol(
+            const eol = resolveEol(
                 vscode.workspace.getConfiguration('aspLanguageSupport.prettier')
                     .get<string>('endOfLine', 'auto'),
                 document,
             );
+            return computeLineEdits(document, result.fullText, result.formatted, eol);
+        }
+    });
 
-            if (config.get<boolean>('formatPreview', false)) {
-                if (formatted === fullText) {
-                    vscode.window.showInformationMessage('No formatting changes — file is already formatted.');
-                    return [];
-                }
-                await openFormattingPreview(context, document, formatted);
+    // ── Format Selection (Ctrl+K Ctrl+F) ──────────────────────────────────────
+    // What Format Document would do, kept to the selected lines; see
+    // computeRangeEdits for why the whole page is formatted to get it.
+    const rangeFormatter = vscode.languages.registerDocumentRangeFormattingEditProvider('asp', {
+        async provideDocumentRangeFormattingEdits(document: vscode.TextDocument, range: vscode.Range): Promise<vscode.TextEdit[]> {
+            const result = await formatForDocument(document);
+            if (!result) { return []; }
+
+            const eol = resolveEol(
+                vscode.workspace.getConfiguration('aspLanguageSupport.prettier')
+                    .get<string>('endOfLine', 'auto'),
+                document,
+            );
+            const edits = computeRangeEdits(document, result.fullText, result.formatted, eol, range);
+            if (!edits) {
+                vscode.window.showInformationMessage(
+                    'Formatting changes too much of this page to format just the selection — use Format Document.',
+                );
                 return [];
             }
-
-            return computeLineEdits(document, fullText, formatted, eol);
+            return edits;
         }
+    });
+
+    // ── Classic ASP: Preview Formatting ───────────────────────────────────────
+    // A diff of what Format Document would change, with nothing applied. This
+    // was the formatPreview setting, which turned Format Document itself into a
+    // preview until the setting was switched off again.
+    const previewFormatting = vscode.commands.registerCommand('aspLanguageSupport.previewFormatting', async () => {
+        const document = vscode.window.activeTextEditor?.document;
+        if (!document || document.languageId !== 'asp') { return; }
+
+        const result = await formatForDocument(document);
+        if (!result) { return; }
+        if (result.formatted === result.fullText) {
+            vscode.window.showInformationMessage('No formatting changes — file is already formatted.');
+            return;
+        }
+        await openFormattingPreview(context, document, result.formatted);
     });
 
     // ── Completion providers ──────────────────────────────────────────────────
@@ -254,6 +294,10 @@ export function activate(context: vscode.ExtensionContext) {
     // ── References and occurrence highlighting ────────────────────────────────
     // Without these VS Code matches the word as plain TEXT, so a `total` inside
     // a string or a comment highlights as though it were the variable.
+    const referenceProvider = vscode.languages.registerReferenceProvider(
+        'asp', new AspReferenceProvider()
+    );
+
     const jsReferenceProvider = vscode.languages.registerReferenceProvider(
         'asp', new JsReferenceProvider()
     );
@@ -399,6 +443,19 @@ export function activate(context: vscode.ExtensionContext) {
         'asp', new JsHoverProvider()
     );
 
+    const htmlHoverProvider = vscode.languages.registerHoverProvider(
+        'asp', new HtmlHoverProvider()
+    );
+
+    // ── Linked editing of a tag pair ──────────────────────────────────────────
+    // VS Code's own feature, as in a .html file: it runs only when the user
+    // turns on editor.linkedEditing. Start Linked Editing (Ctrl+Shift+F2)
+    // without the setting marks the pair but does not mirror the typing, in a
+    // .html file too.
+    const htmlLinkedEditingProvider = vscode.languages.registerLinkedEditingRangeProvider(
+        'asp', new HtmlLinkedEditingProvider()
+    );
+
     // ── Key handlers ──────────────────────────────────────────────────────────
     registerAutoClosingTag(context);
     registerEnterKeyHandler(context);
@@ -461,10 +518,14 @@ export function activate(context: vscode.ExtensionContext) {
     //     cleaned up when the extension is deactivated.
     context.subscriptions.push(
         formatter,
+        rangeFormatter,
+        previewFormatting,
         htmlCompletionProvider,
         aspCompletionProvider,
         cssCompletionProvider,
         cssHoverProvider,
+        htmlHoverProvider,
+        htmlLinkedEditingProvider,
         cssColorProvider,
         jsCompletionProvider,
         emmetCompletionProvider,
@@ -477,9 +538,11 @@ export function activate(context: vscode.ExtensionContext) {
         htmlAttributePathProvider,
         definitionProvider,
         jsDefinitionProvider,
+        referenceProvider,
         jsReferenceProvider,
         jsDocumentHighlightProvider,
         renameProvider,
+        registerIncludeUpdatesOnRename(),
         jsRenameProvider,
         documentSymbolProvider,
         jsDocumentSymbolProvider,

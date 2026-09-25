@@ -154,3 +154,88 @@ suite('Include symbols follow changes made on disk (integration)', () => {
         );
     });
 });
+
+// Symbols are memoised per document version. Keyed by URI, a page opened after
+// another was closed could reuse its entry: a new Untitled-1 takes the closed
+// one's name, and both start at version 1.
+suite("A new page does not inherit a closed page's symbols (integration)", () => {
+
+    async function labelsInNewPage(content: string, line: number): Promise<string[]> {
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+        const doc = await vscode.workspace.openTextDocument({ language: 'asp', content });
+        const editor = await vscode.window.showTextDocument(doc);
+        await sleep(300);
+        const position = new vscode.Position(line, editor.document.lineAt(line).text.length);
+        const list = await vscode.commands.executeCommand<vscode.CompletionList>(
+            'vscode.executeCompletionItemProvider', doc.uri, position,
+        );
+        return (list?.items ?? []).map(item => typeof item.label === 'string' ? item.label : item.label.label);
+    }
+
+    test('completion in the new page offers only its own functions', async () => {
+        const before = await labelsInNewPage('<%\nFunction ClosedPageOnly(a)\nEnd Function\nx = Clo\n%>\n', 3);
+        assert.ok(before.includes('ClosedPageOnly'), 'the first page should see its own function');
+
+        const after = await labelsInNewPage('<%\nFunction OpenPageOnly(a)\nEnd Function\nx = Op\n%>\n', 3);
+        assert.ok(after.includes('OpenPageOnly'), `the new page should see its own function; got ${JSON.stringify(after.slice(0, 25))}`);
+        assert.ok(!after.includes('ClosedPageOnly'), "the closed page's function must not be offered");
+    });
+});
+
+// IIS will not run a page whose #include names a missing file (ASP 0126), and
+// nothing said so until the page was tried on the server.
+suite('A missing include is flagged where it is written (integration)', () => {
+
+    const MISSING_NAME = `asp-missing-lib-${process.pid}.asp`;
+    const missingUri   = vscode.Uri.joinPath(dir, MISSING_NAME);
+    const brokenUri    = vscode.Uri.joinPath(dir, `asp-missing-page-${process.pid}.asp`);
+
+    function includeWarnings(uri: vscode.Uri): vscode.Diagnostic[] {
+        return vscode.languages.getDiagnostics(uri).filter(d => d.source === 'Classic ASP (includes)');
+    }
+
+    async function waitFor(check: () => boolean, timeoutMs = 6000): Promise<boolean> {
+        const started = Date.now();
+        while (Date.now() - started < timeoutMs) {
+            if (check()) { return true; }
+            await sleep(100);
+        }
+        return false;
+    }
+
+    suiteSetup(async () => {
+        await vscode.workspace.fs.writeFile(brokenUri, Buffer.from(
+            `<!--#include file="${MISSING_NAME}"-->\n<%\nIf x Then\ny = 1\nEnd If\n%>\n`, 'utf8',
+        ));
+    });
+
+    suiteTeardown(async () => {
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+        for (const uri of [missingUri, brokenUri]) {
+            try { await vscode.workspace.fs.delete(uri); } catch { /* already gone */ }
+        }
+    });
+
+    test('the path is flagged, formatting still runs, and creating the file clears it', async () => {
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+        const doc = await vscode.workspace.openTextDocument(brokenUri);
+        await vscode.window.showTextDocument(doc);
+
+        assert.ok(await waitFor(() => includeWarnings(brokenUri).length === 1), 'the missing include should be flagged');
+        const [warning] = includeWarnings(brokenUri);
+        assert.strictEqual(doc.getText(warning.range), MISSING_NAME);
+        assert.strictEqual(warning.severity, vscode.DiagnosticSeverity.Warning);
+
+        // Not a structure problem: Format Document must not refuse because of it.
+        const edits = await vscode.commands.executeCommand<vscode.TextEdit[]>(
+            'vscode.executeFormatDocumentProvider', brokenUri, { tabSize: 4, insertSpaces: true },
+        );
+        assert.ok(edits && edits.length > 0, 'the page should still be formatted');
+
+        // Created from inside VS Code, as the Explorer's New File does.
+        const create = new vscode.WorkspaceEdit();
+        create.createFile(missingUri, { contents: Buffer.from('<% %>\n', 'utf8') });
+        assert.ok(await vscode.workspace.applyEdit(create));
+        assert.ok(await waitFor(() => includeWarnings(brokenUri).length === 0), 'the warning should clear once the file exists');
+    });
+});

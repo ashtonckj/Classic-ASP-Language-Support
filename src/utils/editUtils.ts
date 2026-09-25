@@ -91,3 +91,144 @@ export function computeLineEdits(
 
     return edits;
 }
+
+/** A run of lines of `a` (aStart…aEnd) that becomes lines bStart…bEnd of `b`. */
+export interface LineHunk {
+    aStart: number;
+    aEnd:   number;
+    bStart: number;
+    bEnd:   number;
+}
+
+/**
+ * Past this many lines that differ in more than whitespace, alignLines gives
+ * up. Its memory grows with the square of that count, and a page where formatting
+ * changed that much is one to format whole.
+ */
+const MAX_ALIGNED_CHANGES = 2000;
+
+/**
+ * Lines of `a` paired with the lines of `b` they became, and what is left over
+ * as hunks — every line whose text differs, including one that only moved.
+ *
+ * Lines pair up by their text without whitespace, which is what formatting
+ * changes; a Myers diff on that finds the smallest set of lines that did more.
+ * Undefined when there are more than MAX_ALIGNED_CHANGES of those.
+ */
+export function alignLines(a: string[], b: string[]): LineHunk[] | undefined {
+    const key = (line: string) => line.trim().replace(/\s+/g, ' ');
+    const ak = a.map(key);
+    const bk = b.map(key);
+
+    // Myers, keeping each round's furthest-reaching paths to walk back through.
+    const n = ak.length, m = bk.length, max = n + m;
+    const offset = max + 1;
+    let v = new Int32Array(2 * max + 3);
+    const trace: Int32Array[] = [];
+    let found = false;
+    for (let d = 0; d <= Math.min(max, MAX_ALIGNED_CHANGES) && !found; d++) {
+        trace.push(v.slice(offset - d - 1, offset + d + 2));
+        const next = v.slice();
+        for (let k = -d; k <= d; k += 2) {
+            let x = (k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1]))
+                ? v[offset + k + 1]
+                : v[offset + k - 1] + 1;
+            let y = x - k;
+            while (x < n && y < m && ak[x] === bk[y]) { x++; y++; }
+            next[offset + k] = x;
+            if (x >= n && y >= m) { found = true; break; }
+        }
+        v = next;
+    }
+    if (!found) { return undefined; }
+
+    // Walk back from the end, collecting the pairs on the path.
+    const pairs: [number, number][] = [];
+    let x = n, y = m;
+    for (let d = trace.length - 1; d > 0; d--) {
+        const round = trace[d];
+        const at = (k: number) => round[k + d + 1];
+        const k = x - y;
+        const prevK = (k === -d || (k !== d && at(k - 1) < at(k + 1))) ? k + 1 : k - 1;
+        const prevX = at(prevK);
+        const prevY = prevX - prevK;
+        while (x > prevX && y > prevY) { pairs.push([--x, --y]); }
+        x = prevX; y = prevY;
+    }
+    while (x > 0 && y > 0) { pairs.push([--x, --y]); }
+    pairs.reverse();
+
+    // Everything between two pairs is a hunk, and so is a pair whose text
+    // differs. They are kept apart, not merged, so a selection can take a
+    // re-indented line without the added or removed lines beside it.
+    const hunks: LineHunk[] = [];
+    const add = (hunk: LineHunk) => {
+        if (hunk.aStart !== hunk.aEnd || hunk.bStart !== hunk.bEnd) { hunks.push(hunk); }
+    };
+    let ai = 0, bi = 0;
+    for (const [pa, pb] of [...pairs, [n, m] as [number, number]]) {
+        add({ aStart: ai, aEnd: pa, bStart: bi, bEnd: pb });
+        if (pa < n && a[pa] !== b[pb]) { add({ aStart: pa, aEnd: pa + 1, bStart: pb, bEnd: pb + 1 }); }
+        ai = pa + 1; bi = pb + 1;
+    }
+    return hunks;
+}
+
+/**
+ * The edits Format Document would make, kept to the lines `range` covers, for
+ * Format Selection. `original` and `formatted` are '\n'-normalised, as for
+ * computeLineEdits.
+ *
+ * The whole page is formatted and the changes are then cut down to the
+ * selection, rather than the selection being formatted on its own. Only the
+ * whole page says how deep a line is nested — a selection may well hold an
+ * `End If` whose `If` is above it — so each selected line gets exactly what
+ * Format Document would give it. A change that reaches outside the selection
+ * (lines joined across its edge, say) is left out, and the lines outside it are
+ * never touched.
+ *
+ * Undefined when the page changed too much to line the two up.
+ */
+export function computeRangeEdits(
+    document:  vscode.TextDocument,
+    original:  string,
+    formatted: string,
+    eol:       string,
+    range:     vscode.Range,
+): vscode.TextEdit[] | undefined {
+    const a = original.split('\n');
+    const b = formatted.split('\n');
+    const hunks = alignLines(a, b);
+    if (!hunks) { return undefined; }
+
+    // A selection that ends at the start of a line does not take that line in.
+    const first = range.start.line;
+    const last  = range.end.character === 0 && range.end.line > first ? range.end.line - 1 : range.end.line;
+
+    const edits: vscode.TextEdit[] = [];
+    for (const hunk of hunks) {
+        const inside = hunk.aStart === hunk.aEnd
+            ? first < hunk.aStart && hunk.aStart <= last            // lines added between two selected lines
+            : first <= hunk.aStart && hunk.aEnd - 1 <= last;
+        if (!inside) { continue; }
+
+        const lines = b.slice(hunk.bStart, hunk.bEnd);
+        if (hunk.aEnd < a.length) {
+            edits.push(vscode.TextEdit.replace(
+                new vscode.Range(hunk.aStart, 0, hunk.aEnd, 0),
+                lines.map(line => line + eol).join(''),
+            ));
+        } else {
+            // Reaches the last line, which has no line ending after it.
+            const start = hunk.aStart < a.length
+                ? new vscode.Position(hunk.aStart, 0)
+                : documentEnd(document);
+            const text = lines.join(eol);
+            edits.push(vscode.TextEdit.replace(
+                new vscode.Range(start, documentEnd(document)),
+                hunk.aStart < a.length ? text : eol + text,
+            ));
+        }
+    }
+    return edits;
+}

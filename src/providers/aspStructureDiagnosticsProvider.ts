@@ -29,7 +29,13 @@
  */
 
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { createZoneResolver } from '../utils/zoneUtils';
+import { parseIncludeDirectives, resolveIncludeDirective } from '../utils/includeDirectives';
+import { callIsWholeExpression } from '../utils/symbolParser';
+import { isRemAt, vbStatementsOnLine } from '../utils/documentHelper';
+import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
+import { areIncludeSymbolsReady, collectAllSymbols, configuredVirtualRoot, preloadIncludeSymbols } from './includeProvider';
 
 // ── Block descriptor ──────────────────────────────────────────────────────────
 
@@ -46,15 +52,6 @@ type BlockKind =
     | 'function' | 'sub' | 'select' | 'class' | 'property';
 
 // ── Strip string literals from a line ─────────────────────────────────────────
-
-// True when line[i..] begins a legacy `REM` comment: the word REM at a statement
-// boundary (start of line, or right after a `:` separator). The boundary check
-// avoids matching identifiers that merely contain "rem" (e.g. `remainder`).
-function isRemAt(line: string, i: number): boolean {
-    const ch = line[i];
-    if (ch !== 'r' && ch !== 'R') { return false; }
-    return /^rem\b/i.test(line.slice(i)) && /(^|:)\s*$/.test(line.slice(0, i));
-}
 
 function removeStrings(line: string): string {
     let result = '';
@@ -642,6 +639,188 @@ export function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] 
     return diagnostics;
 }
 
+// ── Include files that are not there ──────────────────────────────────────────
+
+/** An #include whose file does not exist: where its path is written, and why. */
+export interface MissingInclude {
+    start:   number;
+    end:     number;
+    message: string;
+}
+
+function isFile(fsPath: string): boolean {
+    try { return fs.statSync(fsPath).isFile(); } catch { return false; }
+}
+
+/**
+ * Every #include whose file does not exist, resolved the way the include links
+ * and symbols resolve it. IIS will not run a page with one — "Include file not
+ * found" (ASP 0126) — so a typo in the path stops the whole page, not just the
+ * part the include was for.
+ *
+ * `virtualRoot` is undefined when nothing says where the site starts (no
+ * setting, no folder open). A `virtual="/…"` path is then left alone rather
+ * than reported missing from a folder that was only a guess.
+ */
+export function findMissingIncludes(
+    text: string,
+    documentPath: string,
+    virtualRoot: string | undefined,
+): MissingInclude[] {
+    const missing: MissingInclude[] = [];
+    for (const directive of parseIncludeDirectives(text)) {
+        if (directive.type === 'virtual' && virtualRoot === undefined) { continue; }
+
+        const fullPath = resolveIncludeDirective(directive, documentPath, virtualRoot ?? '');
+        if (isFile(fullPath)) { continue; }
+
+        const start = text.indexOf(directive.raw, directive.index);
+        const where = directive.type === 'virtual'
+            ? ` A virtual path starts at the site root, ${virtualRoot} — set "aspLanguageSupport.virtualRoot" if yours is somewhere else.`
+            : '';
+        missing.push({
+            start,
+            end: start + directive.raw.length,
+            message: `Include file not found: ${fullPath}. IIS will not run this page (ASP 0126).${where}`,
+        });
+    }
+    return missing;
+}
+
+/** Missing-include warnings for a saved page; an untitled one has no folder to look in. */
+export function scanIncludes(document: vscode.TextDocument): vscode.Diagnostic[] {
+    if (document.uri.scheme !== 'file') { return []; }
+    return findMissingIncludes(document.getText(), document.uri.fsPath, configuredVirtualRoot())
+        .map(found => Object.assign(
+            new vscode.Diagnostic(
+                new vscode.Range(document.positionAt(found.start), document.positionAt(found.end)),
+                found.message,
+                vscode.DiagnosticSeverity.Warning,
+            ),
+            { source: 'Classic ASP (includes)' },
+        ));
+}
+
+// ── An object assigned without Set ────────────────────────────────────────────
+
+/**
+ * What a method returns, when that result has no value of its own to copy: a
+ * Recordset's default is its Fields collection, which needs an index; a
+ * TextStream or an XML node has no default at all. Assigning one without Set
+ * fails when the page runs. A File or Folder is left out on purpose — its
+ * default is its Path, so `p = fso.GetFolder(".")` is a working way to get one.
+ */
+const OBJECT_ONLY_RESULTS = new Set([
+    'adodb.recordset', 'scripting.textstream', 'msxml2.ixmldomnode', 'msxml2.ixmldomnodelist',
+]);
+
+/** An assignment that needs Set: the offsets of the name it assigns to. */
+export interface MissingSet {
+    start:  number;
+    end:    number;
+    target: string;
+}
+
+/**
+ * Every `x = …` whose right-hand side is certainly an object, which VBScript
+ * only assigns with `Set x = …`: `CreateObject(…)`, `Server.CreateObject(…)`,
+ * `GetObject(…)`, `New SomeClass`, and a method on a variable of known type
+ * that returns one of OBJECT_ONLY_RESULTS — `rs = conn.Execute(sql)`.
+ *
+ * The call must be the whole right-hand side: `n = conn.Execute(sql)(0)` reads
+ * a value out of the Recordset, and is right as it is. `comTypes` maps a
+ * variable name, lower-cased, to the ProgID it was created as.
+ */
+export function findMissingSet(text: string, comTypes: Map<string, string>): MissingSet[] {
+    const zones = createZoneResolver(text);
+    const found: MissingSet[] = [];
+
+    let lineStart = 0;
+    for (const line of text.split('\n')) {
+        const startsInAsp = zones.zoneAt(lineStart) === 'asp' && !line.trimStart().startsWith('<%');
+        if (startsInAsp || line.includes('<%')) {
+            for (const statement of vbStatementsOnLine(line, startsInAsp)) {
+                const assignment = /^(\s*(?:Let\s+)?)([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*=\s*(\S.*?)\s*$/i.exec(statement.text);
+                if (!assignment) { continue; }
+
+                const [, lead, target, value] = assignment;
+                if (!isObjectValue(value, comTypes)) { continue; }
+
+                const start = lineStart + statement.col + lead.length;
+                found.push({ start, end: start + target.length, target });
+            }
+        }
+        lineStart += line.length + 1;
+    }
+    return found;
+}
+
+function isObjectValue(value: string, comTypes: Map<string, string>): boolean {
+    if (/^New\s+[A-Za-z_]\w*$/i.test(value)) { return true; }
+
+    const creation = /^(?:Server\s*\.\s*)?(?:CreateObject|GetObject)\s*\(/i.exec(value);
+    if (creation) { return callIsWholeExpression(value, creation[0].length - 1); }
+
+    const call = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*(\(|$)/.exec(value);
+    if (!call) { return false; }
+    const progId = comTypes.get(call[1].toLowerCase());
+    const result = progId && COM_METHOD_RETURN_TYPES[`${progId}.${call[2].toLowerCase()}`];
+    if (!result || !OBJECT_ONLY_RESULTS.has(result)) { return false; }
+    return call[3] === '' || callIsWholeExpression(value, call[0].length - 1);
+}
+
+/** Missing-Set warnings for a page, using the object types known from it and its includes. */
+export function scanMissingSet(document: vscode.TextDocument): vscode.Diagnostic[] {
+    const comTypes = new Map<string, string>();
+    for (const variable of collectAllSymbols(document).comVariables) {
+        if (!comTypes.has(variable.name.toLowerCase())) { comTypes.set(variable.name.toLowerCase(), variable.progId); }
+    }
+
+    return findMissingSet(document.getText(), comTypes).map(found => Object.assign(
+        new vscode.Diagnostic(
+            new vscode.Range(document.positionAt(found.start), document.positionAt(found.end)),
+            `Missing Set: an object is assigned here, so this needs \`Set ${found.target} = …\`. ` +
+            `Without Set, VBScript tries to copy the object's default value instead, which fails when the page runs.`,
+            vscode.DiagnosticSeverity.Warning,
+        ),
+        { source: 'Classic ASP', code: MISSING_SET_CODE },
+    ));
+}
+
+const MISSING_SET_CODE = 'missing-set';
+
+/** The quick fix: `Set` in front of the name, or in place of a `Let`. */
+class AddSetQuickFix implements vscode.CodeActionProvider {
+    static readonly kinds = [vscode.CodeActionKind.QuickFix];
+
+    provideCodeActions(
+        document: vscode.TextDocument,
+        _range: vscode.Range,
+        context: vscode.CodeActionContext,
+    ): vscode.CodeAction[] {
+        return context.diagnostics
+            .filter(diagnostic => diagnostic.code === MISSING_SET_CODE)
+            .map(diagnostic => {
+                const start  = diagnostic.range.start;
+                const before = document.lineAt(start.line).text.slice(0, start.character);
+                const letAt  = /\bLet\s+$/i.exec(before);
+
+                const edit = new vscode.WorkspaceEdit();
+                if (letAt) {
+                    edit.replace(document.uri, new vscode.Range(start.line, letAt.index, start.line, letAt.index + 3), 'Set');
+                } else {
+                    edit.insert(document.uri, start, 'Set ');
+                }
+
+                const action = new vscode.CodeAction('Add Set', vscode.CodeActionKind.QuickFix);
+                action.edit        = edit;
+                action.diagnostics = [diagnostic];
+                action.isPreferred = true;
+                return action;
+            });
+    }
+}
+
 // ── Registration ──────────────────────────────────────────────────────────────
 
 export function registerAspStructureDiagnostics(
@@ -649,11 +828,41 @@ export function registerAspStructureDiagnostics(
 ): vscode.DiagnosticCollection {
 
     const collection = vscode.languages.createDiagnosticCollection('classic-asp-vbscript-structure');
-    context.subscriptions.push(collection);
+    // Its own collection: a missing include or a missing Set is worth knowing
+    // about, but neither is a structure problem, so neither may stop Format
+    // Document — which refuses to run while `collection` has anything in it.
+    const checksCollection = vscode.languages.createDiagnosticCollection('classic-asp-checks');
+    context.subscriptions.push(
+        collection,
+        checksCollection,
+        vscode.languages.registerCodeActionsProvider(
+            { language: 'asp' }, new AddSetQuickFix(), { providedCodeActionKinds: AddSetQuickFix.kinds },
+        ),
+    );
+
+    function scanChecks(document: vscode.TextDocument): void {
+        checksCollection.set(document.uri, [...scanIncludes(document), ...scanMissingSet(document)]);
+    }
 
     // Per-document debounce timers, keyed by URI, so editing one open .asp file
     // never cancels another file's pending scan (a single shared timer did).
     const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    function scanNow(document: vscode.TextDocument): void {
+        collection.set(document.uri, [
+            ...scanAspTags(document),
+            ...scanAspStructure(document),
+        ]);
+        scanChecks(document);
+
+        // Whether `conn` is a Connection may be written in an include, which
+        // is still loading the first time a page is scanned.
+        if (!areIncludeSymbolsReady(document)) {
+            void preloadIncludeSymbols(document).then(() => {
+                if (!document.isClosed) { scanChecks(document); }
+            });
+        }
+    }
 
     function schedule(document: vscode.TextDocument): void {
         if (document.languageId !== 'asp') { return; }
@@ -662,21 +871,21 @@ export function registerAspStructureDiagnostics(
         if (existing) { clearTimeout(existing); }
         debounceTimers.set(key, setTimeout(() => {
             debounceTimers.delete(key);
-            collection.set(document.uri, [
-                ...scanAspTags(document),
-                ...scanAspStructure(document),
-            ]);
+            scanNow(document);
         }, 1500));
+    }
+
+    // An include can appear or go without the page being edited — created,
+    // deleted or renamed in the Explorer, or a different site root set.
+    function recheckIncludes(): void {
+        for (const doc of vscode.workspace.textDocuments) {
+            if (doc.languageId === 'asp') { scanChecks(doc); }
+        }
     }
 
     // Run immediately on already-open documents
     for (const doc of vscode.workspace.textDocuments) {
-        if (doc.languageId === 'asp') {
-            collection.set(doc.uri, [
-                ...scanAspTags(doc),
-                ...scanAspStructure(doc),
-            ]);
-        }
+        if (doc.languageId === 'asp') { scanNow(doc); }
     }
 
     context.subscriptions.push(
@@ -687,6 +896,19 @@ export function registerAspStructureDiagnostics(
             const existing = debounceTimers.get(key);
             if (existing) { clearTimeout(existing); debounceTimers.delete(key); }
             collection.delete(doc.uri);
+            checksCollection.delete(doc.uri);
+        }),
+        vscode.workspace.onDidCreateFiles(recheckIncludes),
+        vscode.workspace.onDidDeleteFiles(recheckIncludes),
+        vscode.workspace.onDidRenameFiles(recheckIncludes),
+        vscode.workspace.onDidChangeWorkspaceFolders(recheckIncludes),
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('aspLanguageSupport.virtualRoot')) { recheckIncludes(); }
+        }),
+        // Anything done outside VS Code (a git checkout, a build step) raises
+        // none of the above; coming back to the page picks it up.
+        vscode.window.onDidChangeActiveTextEditor(editor => {
+            if (editor?.document.languageId === 'asp') { scanChecks(editor.document); }
         }),
     );
 
