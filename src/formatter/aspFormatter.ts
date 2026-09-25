@@ -816,14 +816,22 @@ function applyKeywordCaseToText(text: string, caseStyle: string): string {
         for (const { re, replacement } of MEMBER_CASING_REGEXES) {
             result = result.replace(re, replacement);
         }
-    }
-
-    for (const { re, replacement } of VBSCRIPT_FUNCTION_REGEXES) {
-        result = result.replace(re, replacement);
+        for (const { re, replacement } of VBSCRIPT_FUNCTION_REGEXES) {
+            result = result.replace(re, replacement);
+        }
+    } else {
+        // The built-in functions follow the chosen case like every other
+        // keyword. Given their mixed-case names in every mode, lowercase came
+        // out as `len(trim(s)) & UCase(s)`.
+        for (const { re } of VBSCRIPT_FUNCTION_REGEXES) {
+            result = result.replace(re, m => formatKeyword(m, caseStyle));
+        }
     }
 
     for (const { kw, re } of KEYWORD_REGEXES) {
-        if (HANDLED_KEYWORDS.has(kw.toLowerCase())) continue;
+        // Only PascalCase has an exact form for these (ElseIf, ReDim, ByVal);
+        // in the other modes they are cased like the rest.
+        if (caseStyle === 'PascalCase' && HANDLED_KEYWORDS.has(kw.toLowerCase())) continue;
         result = result.replace(re, m => formatKeyword(m, caseStyle));
     }
 

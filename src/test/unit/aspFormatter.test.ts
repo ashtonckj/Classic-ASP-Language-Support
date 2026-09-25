@@ -385,3 +385,23 @@ describe('applyKeywordCase — member names are only cased after a dot', () => {
         }
     });
 });
+
+// Every keyword follows the chosen case, the built-in functions included. They
+// used to keep their mixed-case names in every mode, so lowercase gave
+// `len(trim(s)) & UCase(s)`, and ElseIf / ReDim / ByVal were never cased at all
+// outside PascalCase.
+describe('applyKeywordCase — every mode cases every keyword', () => {
+    const LINE = 'If Len(Trim(s)) > 0 Then x = UCase(s) ElseIf IsNull(y) Then ReDim a(n)';
+
+    it('lowercase', () => {
+        assert.strictEqual(applyKeywordCase(LINE, 'lowercase'), 'if len(trim(s)) > 0 then x = ucase(s) elseif isnull(y) then redim a(n)');
+    });
+
+    it('UPPERCASE', () => {
+        assert.strictEqual(applyKeywordCase(LINE, 'UPPERCASE'), 'IF LEN(TRIM(s)) > 0 THEN x = UCASE(s) ELSEIF ISNULL(y) THEN REDIM a(n)');
+    });
+
+    it('PascalCase keeps the exact names', () => {
+        assert.strictEqual(applyKeywordCase(LINE.toLowerCase(), 'PascalCase'), 'If Len(Trim(s)) > 0 Then x = UCase(s) ElseIf IsNull(y) Then ReDim a(n)');
+    });
+});
