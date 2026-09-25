@@ -33,7 +33,7 @@ import * as fs from 'fs';
 import { createZoneResolver } from '../utils/zoneUtils';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../utils/includeDirectives';
 import { callIsWholeExpression } from '../utils/symbolParser';
-import { isRemAt, vbStatementsOnLine } from '../utils/documentHelper';
+import { removeStrings, vbStatementsOnLine } from '../utils/documentHelper';
 import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
 import { areIncludeSymbolsReady, collectAllSymbols, configuredVirtualRoot, preloadIncludeSymbols } from './includeProvider';
 
@@ -53,23 +53,6 @@ type BlockKind =
 
 // ── Strip string literals from a line ─────────────────────────────────────────
 
-function removeStrings(line: string): string {
-    let result = '';
-    let inStr  = false;
-    for (let i = 0; i < line.length; i++) {
-        if (line[i] === '"') {
-            if (inStr && i + 1 < line.length && line[i + 1] === '"') { i++; continue; }
-            inStr = !inStr;
-        } else if (!inStr) {
-            // A VBScript comment ( ' or legacy REM ) runs to end-of-line, so its
-            // text must never be classified — otherwise `REM If x Then` or
-            // `x = 1 : REM For each` fakes a block opener ("Missing End If" etc.).
-            if (line[i] === "'" || isRemAt(line, i)) { break; }
-            result += line[i];
-        }
-    }
-    return result;
-}
 
 // ── Extract only real ASP *code* from a physical line ─────────────────────────
 //

@@ -141,9 +141,11 @@ export const HTML_TAGS = [
 ];
 
 // Check if a tag is self-closing
+/** The void elements — `<br>`, `<img>`, `<input>`… — which never have a closing tag. */
+export const VOID_ELEMENTS: ReadonlySet<string> = new Set(HTML_TAGS.filter(t => t.selfClosing).map(t => t.tag));
+
 export function isSelfClosingTag(tagName: string): boolean {
-    const tag = HTML_TAGS.find(t => t.tag.toLowerCase() === tagName.toLowerCase());
-    return tag?.selfClosing === true;
+    return VOID_ELEMENTS.has(tagName.toLowerCase());
 }
 
 // Phrasing elements that sit inside a line of text, so completing one keeps it on

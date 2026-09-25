@@ -3,6 +3,7 @@ import type * as prettier from 'prettier';
 import { formatSingleAspBlock, getAspSettings, delimitersAtColumnZero } from './aspFormatter';
 import { findNextRealTag, findTagEnd, findClosingTag } from '../utils/zoneUtils';
 import { analyseHtmlStructure } from '../providers/htmlStructureDiagnosticsProvider';
+import { VOID_ELEMENTS } from '../constants/htmlTags';
 
 // ─── Prettier settings ─────────────────────────────────────────────────────
 
@@ -135,6 +136,10 @@ function tokenCollisions(source: string, prefix: string): Map<string, number> {
 // formatCompleteAspFile. Ids stay unique because they also carry a timestamp and
 // a random part; the number is what goes into a token's width.
 let _placeholderCounter = 0;
+
+// A closing tag for a void element — `</br>`, `</img>` — which HTML has no
+// such thing as.
+const VOID_CLOSING_TAG_RE = new RegExp(`</(${[...VOID_ELEMENTS].join('|')})\\s*>`, 'gi');
 
 // ─── JS event attribute masking ───────────────────────────────────────────
 
@@ -787,7 +792,6 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     // placeholder here and is preserved — the previous raw-text strip silently
     // deleted it. Real HTML void closers are still removed; the structure
     // diagnostic continues to flag them for the user to fix.
-    const VOID_CLOSING_TAG_RE = /<\/(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\s*>/gi;
     maskedCode = maskedCode.replace(VOID_CLOSING_TAG_RE, '');
 
     // Insert implied </td> </tr> … closers so Prettier doesn't mis-nest tables

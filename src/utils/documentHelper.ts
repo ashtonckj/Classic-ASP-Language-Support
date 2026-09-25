@@ -222,6 +222,26 @@ export function isRemAt(line: string, i: number): boolean {
 }
 
 /**
+ * A line of VBScript with its string literals and its comment taken out, so
+ * what is left is code: a keyword inside "…" or after ' (or REM) cannot be
+ * mistaken for one that is really there.
+ */
+export function removeStrings(line: string): string {
+    let result = '';
+    let inStr  = false;
+    for (let i = 0; i < line.length; i++) {
+        if (line[i] === '"') {
+            if (inStr && i + 1 < line.length && line[i + 1] === '"') { i++; continue; } // "" is an escaped quote
+            inStr = !inStr;
+        } else if (!inStr) {
+            if (line[i] === "'" || isRemAt(line, i)) { break; }
+            result += line[i];
+        }
+    }
+    return result;
+}
+
+/**
  * The VBScript statements on one line, each with its offset in the line: the
  * code inside `<% %>` (or all of it, inside a block or a server-side script),
  * split at `:` and cut at a comment. `<%= %>` is an output expression, not a

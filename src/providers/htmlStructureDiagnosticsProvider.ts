@@ -21,6 +21,7 @@
 
 import * as vscode from 'vscode';
 import { branchEvents } from './aspStructureDiagnosticsProvider';
+import { VOID_ELEMENTS } from '../constants/htmlTags';
 
 // ── Structural tags we care about ────────────────────────────────────────────
 
@@ -34,11 +35,6 @@ export const STRUCTURAL_TAGS = new Set([
     'ul', 'ol',
     'select', 'fieldset', 'figure', 'details', 'summary',
     'article', 'aside', 'header', 'footer', 'main', 'dialog',
-]);
-
-const VOID_ELEMENTS = new Set([
-    'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
-    'link', 'meta', 'param', 'source', 'track', 'wbr',
 ]);
 
 export const VOID_ELEMENT_DIAGNOSTIC_CODE = 'voidElementClosingTag';

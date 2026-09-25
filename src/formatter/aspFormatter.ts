@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { isRemAt, removeStrings } from '../utils/documentHelper';
 
 // ─── Settings ──────────────────────────────────────────────────────────────
 
@@ -588,42 +589,6 @@ function inferLevelFromIndent(indent: string, useTabs: boolean, indentSize: numb
 function isSQLStatement(line: string): boolean {
     return /\b(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|ORDER\s+BY|GROUP\s+BY|UNION|CREATE|DROP|ALTER|INNER|LEFT|RIGHT|OUTER|HAVING|DISTINCT|VALUES|INTO)\b/i
         .test(removeStrings(line));
-}
-
-/**
- * Strips string literals AND VBScript comment tails from a line so that
- * keyword matching in applyIndentBefore / applyIndentAfter never fires on
- * text inside a comment.  e.g.  `x = 1 ' End With`  →  `x = 1 `
- */
-/**
- * True when `line[i..]` begins a legacy `REM` comment: the word REM at a
- * statement boundary (start of line or right after a `:` separator). The
- * boundary check avoids matching identifiers that merely contain "rem"
- * (e.g. `remainder`, `myRem`).
- */
-function isRemAt(line: string, i: number): boolean {
-    const ch = line[i];
-    if (ch !== 'r' && ch !== 'R') { return false; }
-    return /^rem\b/i.test(line.slice(i)) && /(^|:)\s*$/.test(line.slice(0, i));
-}
-
-function removeStrings(line: string): string {
-    let result   = '';
-    let inString = false;
-
-    for (let i = 0; i < line.length; i++) {
-        if (line[i] === '"') {
-            // "" is an escaped quote inside a string — skip both chars.
-            if (i + 1 < line.length && line[i + 1] === '"') { i++; continue; }
-            inString = !inString;
-        } else if (!inString) {
-            // VBScript comment (' or legacy REM) — everything to EOL is non-code.
-            if (line[i] === "'" || isRemAt(line, i)) { break; }
-            result += line[i];
-        }
-    }
-
-    return result;
 }
 
 /**

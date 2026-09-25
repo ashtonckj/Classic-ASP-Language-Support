@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { isSelfClosingTag } from '../constants/htmlTags';
+import { isInlineTag, isSelfClosingTag } from '../constants/htmlTags';
 import { ASP_OBJECT_NAMES } from '../constants/aspKeywords';
 import { getZone, Zone } from '../utils/zoneUtils';
 
@@ -355,8 +355,6 @@ function findEnclosingHtmlChildIndent(
     startLine: number,
     indentUnit: string
 ): string | null {
-    const INLINE_TAGS = /^(a|abbr|b|bdi|bdo|br|cite|code|data|dfn|em|i|kbd|mark|q|rp|rt|ruby|s|samp|small|span|strong|sub|sup|time|u|var|wbr|img|input|link|meta|hr|area|base|col|embed|param|source|track)$/i;
-
     let aspDepth  = 0;
     // closedTags[tag] counts how many closing tags of that name we've passed
     // without yet seeing their opener — those openers must be skipped.
@@ -391,7 +389,7 @@ function findEnclosingHtmlChildIndent(
         const openingMatch = text.match(/^<(\w+)(\s[^>]*)?>(?!.*<\/\1\s*>)/i);
         if (openingMatch) {
             const tag = openingMatch[1].toLowerCase();
-            if (INLINE_TAGS.test(tag) || isSelfClosingTag(tag)) { continue; }
+            if (isInlineTag(tag) || isSelfClosingTag(tag)) { continue; }
             // If we've already seen a closer for this tag, it cancels this opener
             if (closedTags[tag] && closedTags[tag] > 0) {
                 closedTags[tag]--;
@@ -1544,10 +1542,9 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
             // Add one extra level when the previous line opens a block.
             // A JS/CSS block opener ends with '{'.
             // An HTML block opener ends with '>' and is a non-self-closing, non-inline tag.
-            const INLINE_OR_VOID = /^(a|abbr|b|bdi|bdo|br|cite|code|data|dfn|em|i|kbd|mark|q|rp|rt|ruby|s|samp|small|span|strong|sub|sup|time|u|var|wbr|img|input|link|meta|hr|area|base|col|embed|param|source|track)$/i;
             const htmlOpenerMatch = prevLineText.match(/^<(\w+)(\s[^>]*)?>$/);
             const isHtmlOpener = htmlOpenerMatch
-                && !INLINE_OR_VOID.test(htmlOpenerMatch[1])
+                && !isInlineTag(htmlOpenerMatch[1])
                 && !isSelfClosingTag(htmlOpenerMatch[1]);
             const opensBlock = prevLineText.endsWith('{') || !!isHtmlOpener;
             targetIndent = opensBlock ? baseIndent + indentUnit : baseIndent;
