@@ -98,6 +98,41 @@ function vbCodeSpans(line: string): string[] {
 }
 
 /**
+ * What a Const statement declares, from the text after `Const`:
+ * `A = 1, B = "x, y"` is two constants. A comma inside a string or brackets
+ * belongs to the value.
+ *
+ * Reading only up to the first `=` made `Const A = 1, B = 2` one constant, A,
+ * whose value was `1, B = 2` — and left B out of completion, hover and rename.
+ */
+export function parseConstDeclarators(text: string): { name: string; value: string }[] {
+    const parts: string[] = [];
+    let start = 0;
+    let depth = 0;
+    let inStr = false;
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (ch === '"') {
+            if (inStr && text[i + 1] === '"') { i++; continue; } // "" escaped quote
+            inStr = !inStr;
+        } else if (!inStr) {
+            if (ch === '(') { depth++; }
+            else if (ch === ')') { depth--; }
+            else if (ch === ',' && depth === 0) { parts.push(text.slice(start, i)); start = i + 1; }
+        }
+    }
+    parts.push(text.slice(start));
+
+    const declarators: { name: string; value: string }[] = [];
+    for (const part of parts) {
+        const match = /^\s*([A-Za-z_]\w*)\s*=\s*(.+?)\s*$/.exec(part);
+        if (match) { declarators.push({ name: match[1], value: match[2] }); }
+    }
+    return declarators;
+}
+
+/**
  * Splits a line into its `:`-separated VBScript statements, ignoring a colon
  * inside a string literal so `Const URL = "http://x"` stays one statement.
  *
@@ -381,14 +416,11 @@ export function extractSymbols(text: string, filePath: string): FileSymbols {
         // statement and its value is not truncated.
         const lineForConst = codeLine.replace(/'(?:[^"']|"[^"]*")*$/, '').trimEnd();
         for (const statement of splitStatements(lineForConst)) {
-            const constMatch = statement.match(/^\s*(?:Public\s+|Private\s+)?Const\s+(\w+)\s*=\s*(.+?)\s*$/i);
+            const constMatch = statement.match(/^\s*(?:Public\s+|Private\s+)?Const\s+(.+)$/i);
             if (constMatch) {
-                result.constants.push({
-                    name:  constMatch[1],
-                    value: constMatch[2].trim(),
-                    line:  lineIndex,
-                    filePath,
-                });
+                for (const { name, value } of parseConstDeclarators(constMatch[1])) {
+                    result.constants.push({ name, value, line: lineIndex, filePath });
+                }
             }
         }
 

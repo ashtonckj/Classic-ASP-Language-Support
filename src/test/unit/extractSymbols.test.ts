@@ -333,3 +333,17 @@ describe('extractSymbols — a chained call must be the whole expression', () =>
         assert.strictEqual(inferred('Set s = fso.GetFile(p) & "x"'), undefined);
     });
 });
+
+// `Const A = 1, B = 2` declares two constants. It was read up to the first `=`
+// only, as one constant A whose value was `1, B = 2`.
+describe('extractSymbols — a Const list', () => {
+    it('captures every constant in the list', () => {
+        const s = extractSymbols('<%\nConst A = 1, B = 2\n%>', 'x.asp');
+        assert.deepStrictEqual(s.constants.map(c => `${c.name}=${c.value}`), ['A=1', 'B=2']);
+    });
+
+    it('keeps a comma inside a string or brackets in the value', () => {
+        const s = extractSymbols('<%\nPrivate Const LIST = "a, b", N = (1 + 2), M = -3 \' note, here\n%>', 'x.asp');
+        assert.deepStrictEqual(s.constants.map(c => `${c.name}=${c.value}`), ['LIST="a, b"', 'N=(1 + 2)', 'M=-3']);
+    });
+});

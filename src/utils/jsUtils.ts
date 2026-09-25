@@ -74,6 +74,7 @@
 import * as path from 'path';
 import type * as ts from 'typescript';
 import { getJsBlockRanges, getZone } from './zoneUtils';
+import { parseConstDeclarators } from './symbolParser';
 import { ASP_DOM_TYPES } from './aspDomTypes.generated';
 
 export const VIRTUAL_FILENAME    = 'asp-embedded.js';
@@ -215,14 +216,16 @@ function collectVbsConsts(content: string): Map<string, string> {
         // statement-separating `:` that is OUTSIDE a string, so a URL literal like
         // "http://x" keeps its `:` (and is typed `string`) instead of being
         // truncated to "http (which fell back to `any`).
-        const constRegex = /^\s*Const\s+([A-Za-z_]\w*)\s*=\s*(.+)$/gim;
+        const constRegex = /^\s*(?:Public\s+|Private\s+)?Const\s+(.+)$/gim;
         let c: RegExpExecArray | null;
         while ((c = constRegex.exec(block)) !== null) {
-            const name = c[1];
-            const key = name.toLowerCase();
-            if (seen.has(key)) { continue; }
-            seen.add(key);
-            consts.set(name, inferVbsConstType(cutAtStatementColon(c[2])));
+            // `Const A = 1, B = "x"` declares both.
+            for (const { name, value } of parseConstDeclarators(cutAtStatementColon(c[1]))) {
+                const key = name.toLowerCase();
+                if (seen.has(key)) { continue; }
+                seen.add(key);
+                consts.set(name, inferVbsConstType(value));
+            }
         }
     }
 

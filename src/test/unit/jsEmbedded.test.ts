@@ -115,3 +115,14 @@ describe('the JS language service reuses its program for unchanged text', () => 
         assert.notStrictEqual(svc.getProgram(), before);
     });
 });
+
+// A Const list declares every name in it, so each one is typed in the JavaScript
+// projection too — not just the first.
+describe('buildVirtualJsContent — a Const list', () => {
+    it('declares each constant with its own type', () => {
+        const page = '<% Const A = 1, B = "x, y" %>\n<script>\nvar y = 1;\n</script>\n';
+        const { virtualContent, preambleLength } = buildVirtualJsContent(page, page.indexOf('var y'));
+        const preamble = virtualContent.slice(0, preambleLength);
+        assert.ok(preamble.includes('var _asp_A: number;') && preamble.includes('var _asp_B: string;'), preamble);
+    });
+});
