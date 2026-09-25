@@ -137,6 +137,15 @@ function tokenCollisions(source: string, prefix: string): Map<string, number> {
 // a random part; the number is what goes into a token's width.
 let _placeholderCounter = 0;
 
+// Created the first time Prettier fails, then reused: making a new one each
+// time left another "ASP Formatter Debug" entry in the Output list per failure.
+let _debugChannel: vscode.OutputChannel | undefined;
+
+export function disposeFormatterDebugChannel(): void {
+    _debugChannel?.dispose();
+    _debugChannel = undefined;
+}
+
 // A closing tag for a void element — `</br>`, `</img>` — which HTML has no
 // such thing as.
 const VOID_CLOSING_TAG_RE = new RegExp(`</(${[...VOID_ELEMENTS].join('|')})\\s*>`, 'gi');
@@ -834,7 +843,7 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         const location  = lineMatch ? ` (line ${lineMatch[1]}, col ${lineMatch[2]})` : '';
 
         // ── Debug: log the masked code so we can see what Prettier choked on ──
-        const channel = vscode.window.createOutputChannel('ASP Formatter Debug');
+        const channel = (_debugChannel ??= vscode.window.createOutputChannel('ASP Formatter Debug'));
         channel.clear();
         channel.appendLine('=== Prettier parse error' + location + ' ===');
         channel.appendLine('Error: ' + msg);

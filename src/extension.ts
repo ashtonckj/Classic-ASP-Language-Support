@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { formatCompleteAspFile } from './formatter/htmlFormatter';
+import { disposeFormatterDebugChannel, formatCompleteAspFile } from './formatter/htmlFormatter';
 import { HtmlCompletionProvider } from './providers/htmlCompletionProvider';
 import { registerAutoClosingTag, registerEnterKeyHandler, registerTabKeyHandler, registerVbScriptQuoteGuard, registerLineContinuationGuard } from './providers/aspIndentProvider';
 import { AspCompletionProvider } from './providers/aspCompletionProvider';
@@ -559,4 +559,5 @@ export function deactivate(): void {
     disposeAnalysisWorkers();
     disposeIncludeWatchers();
     disposeWorkspaceIndex();
+    disposeFormatterDebugChannel();
 }
