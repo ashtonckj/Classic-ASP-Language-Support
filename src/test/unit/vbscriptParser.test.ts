@@ -2,7 +2,6 @@ import * as assert from 'assert';
 import { tokenize, TokenKind } from '../../vbscript/lexer';
 import { pagePrograms } from '../../vbscript/pageSegments';
 import { parsePage, lineAt, symbolsFromTree } from '../../vbscript/symbols';
-import { extractSymbolsByLine } from '../../utils/symbolParser';
 
 // Every "accepts" and "reports" case below was checked against cscript.exe,
 // the VBScript engine IIS runs.
@@ -206,7 +205,7 @@ describe('VBScript page programs', () => {
 });
 
 describe('symbolsFromTree', () => {
-    it('matches the line scanner on a typical page', () => {
+    it('reads every kind of symbol from a typical page', () => {
         const text = [
             '<%@ Language="VBScript" %>',
             '<%',
@@ -232,7 +231,23 @@ describe('symbolsFromTree', () => {
             '%>',
             '<p><%= total %></p>',
         ].join('\n');
-        assert.deepStrictEqual(symbolsFromTree(text, 'x.asp'), extractSymbolsByLine(text, 'x.asp'));
+        const s = symbolsFromTree(text, 'x.asp');
+        assert.deepStrictEqual(s.variables.map(v => [v.name, v.line, !!v.implicit]), [
+            ['conn', 2, false], ['total', 2, false], ['count', 6, true], ['item', 7, true],
+            ['FormatRow', 11, true], ['mBalance', 14, false], ['Balance', 16, true],
+        ]);
+        assert.deepStrictEqual(s.constants.map(c => [c.name, c.value, c.line]), [
+            ['MAX_ROWS', '50', 3], ['TITLE', '"Orders, all"', 3],
+        ]);
+        assert.deepStrictEqual(s.functions.map(f => [f.kind, f.name, f.params, f.paramNames, f.line, f.endLine]), [
+            ['Function', 'FormatRow', 'ByVal value, label', ['value', 'label'], 9, 12],
+            ['Property', 'Balance', '', [], 15, 17],
+            ['Sub', 'Deposit', 'amt', ['amt'], 18, 19],
+        ]);
+        assert.deepStrictEqual(s.comVariables.map(c => [c.name, c.progId, c.line]), [
+            ['fso', 'scripting.filesystemobject', 4], ['f', 'scripting.file', 5],
+        ]);
+        assert.deepStrictEqual(s.classes.map(c => [c.name, c.line, c.endLine]), [['Account', 13, 20]]);
     });
 
     it('finds declarations the line scanner misses', () => {
