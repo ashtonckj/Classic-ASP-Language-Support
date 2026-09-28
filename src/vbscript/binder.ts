@@ -72,6 +72,17 @@ export interface Reference {
     declaration: boolean;
 }
 
+/**
+ * `obj.name`, or `.name` inside a With block: a member of some object.
+ * Nothing says what class the object is, so it is not bound to a declaration.
+ */
+export interface MemberUse {
+    name: string;
+    file: string;
+    span: A.Span;
+    scope: Scope;
+}
+
 export interface BindingDiagnostic {
     file: string;
     start: number;
@@ -84,6 +95,7 @@ export interface Binding {
     scopes: Scope[];
     declarations: Declaration[];
     references: Reference[];
+    members: MemberUse[];
     diagnostics: BindingDiagnostic[];
     optionExplicit: boolean;
     /** The scope a procedure's or class's body opens. */
@@ -106,7 +118,7 @@ const PROCEDURE_KIND: Record<A.ProcedureStmt['procKind'], DeclarationKind> = {
 
 class Binder {
     private readonly binding: Binding = {
-        scopes: [], declarations: [], references: [], diagnostics: [], optionExplicit: false, scopeOf: new Map(),
+        scopes: [], declarations: [], references: [], members: [], diagnostics: [], optionExplicit: false, scopeOf: new Map(),
     };
 
     constructor(private readonly scriptScope: ScriptScope) {}
@@ -361,8 +373,9 @@ class Binder {
             case 'Member':
                 if (e.object?.kind === 'Me') {
                     this.member(e.name, scope, file);
-                } else if (e.object) {
-                    this.expr(e.object, scope, file);
+                } else {
+                    if (e.object) { this.expr(e.object, scope, file); }
+                    if (e.name.name) { this.binding.members.push({ name: e.name.name, file, span: { start: e.name.start, end: e.name.end }, scope }); }
                 }
                 break;
             case 'Call':

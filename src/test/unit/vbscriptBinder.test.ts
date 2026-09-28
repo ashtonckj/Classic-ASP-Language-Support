@@ -110,6 +110,12 @@ describe('binder — what a name refers to', () => {
         assert.ok(uses.every(r => r.target?.file === at('lib.inc') && !r.target.implicit));
     });
 
+    it('records a member of an object, with or without the object, but not through Me', () => {
+        const { binding, lineOf } = bindCode('cart.Put 1\nWith cart\n  x = .Count\nEnd With\nx = Me.Total');
+        assert.deepStrictEqual(binding.members.map(m => `${m.name}@${lineOf(m.span.start)}`), ['put@1', 'count@3']);
+        assert.ok(!binding.references.some(r => r.name === 'put' || r.name === 'count'));
+    });
+
     it('keeps a client-side VBScript block apart from the server code', () => {
         const text = '<% Dim x %>\n<script language="vbscript">\nDim x\n</script>';
         assert.deepStrictEqual(bindPage('page.asp', parsePage(text)).diagnostics, []);
