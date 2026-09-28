@@ -12,7 +12,8 @@
  *   - Every symbol reports the line its statement starts on.
  * What it does not copy is the line scanner's blind spots: a declaration after
  * `Then` on a one-line If, `<%= x = 1 %>` (a comparison, not an assignment),
- * and HTML text that happens to look like code.
+ * HTML text that happens to look like code, and `F = …` inside Function F,
+ * which sets the function's return value and declares nothing.
  */
 
 import type * as A from './ast';
@@ -49,20 +50,27 @@ export function lineAt(page: ParsedPage, offset: number): number {
     return lo;
 }
 
-/** Calls `visit` on every statement, depth first, in source order. */
-export function walkStatements(stmts: A.Stmt[], visit: (s: A.Stmt) => void): void {
+/**
+ * Calls `visit` on every statement, depth first, in source order, with the
+ * procedure it sits in (null outside any Sub, Function or Property).
+ */
+export function walkStatements(
+    stmts: A.Stmt[],
+    visit: (s: A.Stmt, procedure: A.ProcedureStmt | null) => void,
+    procedure: A.ProcedureStmt | null = null,
+): void {
     for (const s of stmts) {
-        visit(s);
+        visit(s, procedure);
         switch (s.kind) {
-            case 'If':        for (const b of s.branches) { walkStatements(b.body, visit); } break;
-            case 'Select':    for (const c of s.cases) { walkStatements(c.body, visit); } break;
+            case 'If':        for (const b of s.branches) { walkStatements(b.body, visit, procedure); } break;
+            case 'Select':    for (const c of s.cases) { walkStatements(c.body, visit, procedure); } break;
             case 'For':
             case 'ForEach':
             case 'Do':
             case 'While':
-            case 'With':
-            case 'Procedure': walkStatements(s.body, visit); break;
-            case 'Class':     walkStatements(s.members, visit); break;
+            case 'With':      walkStatements(s.body, visit, procedure); break;
+            case 'Procedure': walkStatements(s.body, visit, s); break;
+            case 'Class':     walkStatements(s.members, visit, procedure); break;
         }
     }
 }
@@ -87,7 +95,11 @@ export function symbolsFromTree(text: string, filePath: string): FileSymbols {
     const result: FileSymbols = { variables: [], constants: [], functions: [], comVariables: [], classes: [] };
 
     const statements: A.Stmt[] = [];
-    for (const program of page.programs) { walkStatements(program.body, s => statements.push(s)); }
+    // The procedure each assignment sits in, for the function's own name.
+    const owners = new Map<A.Stmt, A.ProcedureStmt | null>();
+    for (const program of page.programs) {
+        walkStatements(program.body, (s, procedure) => { statements.push(s); owners.set(s, procedure); });
+    }
     statements.sort((a, b) => a.start - b.start);
 
     const line = (offset: number) => lineAt(page, offset);
@@ -108,11 +120,13 @@ export function symbolsFromTree(text: string, filePath: string): FileSymbols {
                 }
                 break;
 
-            case 'Assign':
-                if (!s.set && !hasOptionExplicit && s.target.kind === 'Ident' && !seen(s.target.name.name)) {
-                    result.variables.push({ name: s.target.name.text, line: line(s.start), filePath, implicit: true });
-                }
+            case 'Assign': {
+                if (s.set || hasOptionExplicit || s.target.kind !== 'Ident' || seen(s.target.name.name)) { break; }
+                const owner = owners.get(s);
+                if (owner && owner.procKind !== 'sub' && owner.name.name === s.target.name.name) { break; }
+                result.variables.push({ name: s.target.name.text, line: line(s.start), filePath, implicit: true });
                 break;
+            }
 
             case 'Const':
                 for (const d of s.declarators) {

@@ -248,9 +248,9 @@ describe('symbolsFromTree', () => {
             '<p><%= total %></p>',
         ].join('\n');
         const s = symbolsFromTree(text, 'x.asp');
+        // `FormatRow = …` and `Balance = …` set return values; they declare nothing.
         assert.deepStrictEqual(s.variables.map(v => [v.name, v.line, !!v.implicit]), [
-            ['conn', 2, false], ['total', 2, false], ['count', 6, true], ['item', 7, true],
-            ['FormatRow', 11, true], ['mBalance', 14, false], ['Balance', 16, true],
+            ['conn', 2, false], ['total', 2, false], ['count', 6, true], ['item', 7, true], ['mBalance', 14, false],
         ]);
         assert.deepStrictEqual(s.constants.map(c => [c.name, c.value, c.line]), [
             ['MAX_ROWS', '50', 3], ['TITLE', '"Orders, all"', 3],
