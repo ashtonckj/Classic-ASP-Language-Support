@@ -80,7 +80,7 @@ const PROC_KIND: Record<A.ProcedureStmt['procKind'], 'Function' | 'Sub' | 'Prope
 };
 
 /** Source text of a span, with `_` line continuations folded into one space. */
-function sourceOf(text: string, span: A.Span): string {
+export function sourceOf(text: string, span: A.Span): string {
     return text.slice(span.start, span.end).replace(/[ \t]*_[ \t]*(?:\r\n|\r|\n)[ \t]*/g, ' ').trim();
 }
 

@@ -3,11 +3,13 @@ import {
     ASP_OBJECTS, ASP_OBJECT_NAMES, VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS, VBSCRIPT_CONSTANTS,
     BUILTIN_FUNCTION_DOCS, builtinSignature,
 } from '../constants/aspKeywords';
-import { getTextBeforeCursor, isInsideVbStringOrComment, vbStatementsOnLine } from '../utils/documentHelper';
+import { getTextBeforeCursor, isInsideVbStringOrComment } from '../utils/documentHelper';
 import { areIncludeSymbolsReady, collectAllSymbols, preloadIncludeSymbols } from './includeProvider';
 import { COM_METHOD_RETURN_TYPES, COM_TYPE_MAP } from '../constants/comObjects';
-import { createZoneResolver, getZone } from '../utils/zoneUtils';
+import { getZone } from '../utils/zoneUtils';
 import { callIsWholeExpression } from '../utils/symbolParser';
+import { parsePage, sourceOf, walkStatements } from '../vbscript/symbols';
+import type * as A from '../vbscript/ast';
 import * as path from 'path';
 
 
@@ -28,41 +30,22 @@ function buildComVarMap(includeComVars: { name: string; progId: string }[]): Map
  * The object of the `With` block that `line` sits in, as written — `rs`,
  * `Server.CreateObject("ADODB.Recordset")` — or undefined outside one.
  *
- * Reads the statements before `character` on the line, then the lines above,
- * counting nested With … End With. Stops at the start or end of a procedure or
- * class, which a With block cannot reach across.
+ * Read from the syntax tree, so a With in a comment, a string or the markup
+ * never counts, and nested blocks and procedures nest the way VBScript reads
+ * them. A block still being typed, with no End With yet, runs to where the
+ * parser closed it.
  */
 export function enclosingWithObject(text: string, line: number, character: number): string | undefined {
-    const lines = text.split('\n');
-    const zones = createZoneResolver(text);
-    let lineStart = 0;
-    const starts = lines.map(l => { const at = lineStart; lineStart += l.length + 1; return at; });
-
-    let depth = 0;
-    for (let li = line; li >= 0; li--) {
-        const raw = li === line ? lines[li].slice(0, character) : lines[li];
-        const startsInAsp = zones.zoneAt(starts[li]) === 'asp' && !raw.trimStart().startsWith('<%');
-        if (!startsInAsp && !raw.includes('<%')) { continue; }
-
-        const statements = vbStatementsOnLine(raw, startsInAsp).map(st => st.text.trim());
-        // On the caret's own line the last statement is the one being typed.
-        if (li === line) { statements.pop(); }
-
-        for (const code of statements.reverse()) {
-            if (/^End\s+With\b/i.test(code)) { depth++; continue; }
-            const opened = /^With\s+(.+)$/i.exec(code);
-            if (opened) {
-                if (depth === 0) { return opened[1].trim(); }
-                depth--;
-                continue;
-            }
-            if (/^(?:(?:Public|Private)\s+)?(?:Default\s+)?(?:Sub|Function|Property|Class)\b/i.test(code) ||
-                /^End\s+(?:Sub|Function|Property|Class)\b/i.test(code)) {
-                return undefined;
-            }
-        }
+    const page = parsePage(text);
+    const offset = (page.lineStarts[line] ?? text.length) + character;
+    let found: A.WithStmt | undefined;
+    for (const program of page.programs) {
+        walkStatements(program.body, s => {
+            if (s.kind !== 'With' || offset <= s.object.end) { return; }
+            if (s.closer ? offset < s.closer.start : offset <= s.end) { found = s; }
+        });
     }
-    return undefined;
+    return found && sourceOf(text, found.object);
 }
 
 export class AspCompletionProvider implements vscode.CompletionItemProvider {
