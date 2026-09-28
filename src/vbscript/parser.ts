@@ -118,10 +118,15 @@ class Parser {
         return false;
     }
 
-    private error(start: number, end: number, message: string): void {
+    private error(start: number, end: number, message: string, code?: A.Diagnostic['code']): void {
         if (this.panic) { return; }
         this.panic = true;
-        this.diagnostics.push({ start, end, message });
+        this.diagnostics.push(code ? { start, end, message, code } : { start, end, message });
+    }
+
+    /** The span from the current token to the one `n` tokens on, both included. */
+    private spanTo(n: number): A.Span {
+        return { start: this.tok.start, end: this.peek(n).end };
     }
 
     private errorAtTok(message: string): void {
@@ -262,6 +267,13 @@ class Parser {
         this.endedEarly = true;
     }
 
+    /** Consumes a one-word closer such as `Next`, or reports it missing. Returns its span. */
+    private parseCloser(word: string, display: string): A.Span | null {
+        if (this.word() !== word) { this.unclosed(display); return null; }
+        const t = this.advance();
+        return { start: t.start, end: t.end };
+    }
+
     /** Consumes `End <word>`, or reports it missing. Returns the End statement's span. */
     private parseEnd(word: string, display: string): A.Span | null {
         if (!this.atEnd(word)) { this.unclosed(display); return null; }
@@ -334,16 +346,22 @@ class Parser {
                 this.advance();
                 return { kind: 'Stop', start: t.start, end: t.end };
             case 'next':
-                this.errorAtTok("Unexpected 'Next'");
+                this.error(t.start, t.end, "Unexpected 'Next'", 'stray-closer');
                 return this.errorStmt();
             case 'loop':
-                this.errorAtTok("'Loop' without 'Do'");
+                this.error(t.start, t.end, "'Loop' without 'Do'", 'stray-closer');
+                return this.errorStmt();
+            case 'wend':
+                this.error(t.start, t.end, "'Wend' without 'While'", 'stray-closer');
                 return this.errorStmt();
             case 'end': {
                 const what = this.word(1);
-                this.errorAtTok(what && END_WORDS[what]
-                    ? `'End ${capitalise(what)}' without a matching '${capitalise(what)}'`
-                    : 'Expected statement');
+                if (what && END_WORDS[what]) {
+                    const span = this.spanTo(1);
+                    this.error(span.start, span.end, `'End ${capitalise(what)}' without a matching '${capitalise(what)}'`, 'stray-closer');
+                } else {
+                    this.errorAtTok('Expected statement');
+                }
                 return this.errorStmt();
             }
         }
@@ -505,13 +523,15 @@ class Parser {
     }
 
     private parseIf(): A.IfStmt {
+        const opener = this.spanTo(0);
         const start = this.advance().start;
         const condition = this.parseExpr();
         this.expectWord('then', 'Then');
 
         if (this.tok.kind !== TokenKind.Newline && this.tok.kind !== TokenKind.EOF) {
-            return this.parseSingleLineIf(start, condition);
+            return this.parseSingleLineIf(start, opener, condition);
         }
+        let closer: A.Span | null = null;
 
         const branches: A.IfBranch[] = [];
         let branchStart = start;
@@ -538,19 +558,15 @@ class Parser {
                 branchCond = null;
                 continue;
             }
-            if (this.atEnd('if')) {
-                this.parseEnd('if', 'End If');
-                break;
-            }
-            this.unclosed('End If');
+            closer = this.parseEnd('if', 'End If');
             break;
         }
         this.blocks.pop();
-        return { kind: 'If', singleLine: false, branches, start, end: this.prevEnd };
+        return { kind: 'If', singleLine: false, branches, opener, closer, start, end: this.prevEnd };
     }
 
     /** `If c Then a : b Else d`, all on one line. A trailing `End If` is tolerated, as IIS tolerates it. */
-    private parseSingleLineIf(start: number, condition: A.Expr): A.IfStmt {
+    private parseSingleLineIf(start: number, opener: A.Span, condition: A.Expr): A.IfStmt {
         this.singleLine++;
         const branches: A.IfBranch[] = [];
         const thenStart = this.tok.start;
@@ -565,7 +581,7 @@ class Parser {
         }
         if (this.atEnd('if')) { this.advance(); this.advance(); }
         this.singleLine--;
-        return { kind: 'If', singleLine: true, branches, start, end: this.prevEnd };
+        return { kind: 'If', singleLine: true, branches, opener, closer: null, start, end: this.prevEnd };
     }
 
     private parseSingleLineBody(): A.Stmt[] {
@@ -585,6 +601,7 @@ class Parser {
     }
 
     private parseSelect(): A.SelectStmt {
+        const opener = this.spanTo(this.word(1) === 'case' ? 1 : 0);
         const start = this.advance().start;
         this.expectWord('case', 'Case');
         const subject = this.parseExpr();
@@ -598,6 +615,7 @@ class Parser {
         }
 
         const cases: A.CaseClause[] = [];
+        let closer: A.Span | null = null;
         for (;;) {
             if (this.word() === 'case') {
                 const caseStart = this.advance().start;
@@ -613,23 +631,25 @@ class Parser {
                 cases.push({ values, body, start: caseStart, end: this.prevEnd });
                 continue;
             }
-            this.parseEnd('select', 'End Select');
+            closer = this.parseEnd('select', 'End Select');
             break;
         }
         this.blocks.pop();
-        return { kind: 'Select', subject, cases, start, end: this.prevEnd };
+        return { kind: 'Select', subject, cases, opener, closer, start, end: this.prevEnd };
     }
 
     private parseFor(): A.ForStmt | A.ForEachStmt {
+        const isEach = this.word(1) === 'each';
+        const opener = this.spanTo(isEach ? 1 : 0);
         const start = this.advance().start;
 
-        if (this.word() === 'each') {
+        if (isEach) {
             this.advance();
             const variable = this.parseName() ?? this.missingName();
             this.expectWord('in', 'In');
             const collection = this.parseExpr();
-            const body = this.parseLoopBody('foreach', variable);
-            return { kind: 'ForEach', variable, collection, body, start, end: this.prevEnd };
+            const { body, closer } = this.parseLoopBody('foreach', variable);
+            return { kind: 'ForEach', variable, collection, body, opener, closer, start, end: this.prevEnd };
         }
 
         const counter = this.parseName() ?? this.missingName();
@@ -639,12 +659,12 @@ class Parser {
         const to = this.parseExpr();
         let step: A.Expr | null = null;
         if (this.word() === 'step') { this.advance(); step = this.parseExpr(); }
-        const body = this.parseLoopBody('for', counter);
-        return { kind: 'For', counter, from, to, step, body, start, end: this.prevEnd };
+        const { body, closer } = this.parseLoopBody('for', counter);
+        return { kind: 'For', counter, from, to, step, body, opener, closer, start, end: this.prevEnd };
     }
 
     /** A nested loop may not reuse the variable of a loop around it. */
-    private parseLoopBody(kind: 'for' | 'foreach', variable: A.Name): A.Stmt[] {
+    private parseLoopBody(kind: 'for' | 'foreach', variable: A.Name): { body: A.Stmt[]; closer: A.Span | null } {
         if (variable.name && this.loopVariables.includes(variable.name)) {
             this.error(variable.start, variable.end, "Invalid 'for' loop control variable");
         }
@@ -652,10 +672,10 @@ class Parser {
         this.blocks.push(kind);
         this.loopVariables.push(variable.name);
         const body = this.parseBlock();
-        if (this.word() === 'next') { this.advance(); } else { this.unclosed('Next'); }
+        const closer = this.parseCloser('next', 'Next');
         this.loopVariables.pop();
         this.blocks.pop();
-        return body;
+        return { body, closer };
     }
 
     private parseLoopCondition(): A.LoopCondition | null {
@@ -666,43 +686,42 @@ class Parser {
     }
 
     private parseDo(): A.DoStmt {
+        const opener = this.spanTo(this.word(1) === 'while' || this.word(1) === 'until' ? 1 : 0);
         const start = this.advance().start;
         const pre = this.parseLoopCondition();
         this.expectEOS();
         this.blocks.push('do');
         const body = this.parseBlock();
         let post: A.LoopCondition | null = null;
-        if (this.word() === 'loop') {
-            this.advance();
-            // A loop has its condition at the top or the bottom, never both.
-            if (!pre) { post = this.parseLoopCondition(); }
-        } else {
-            this.unclosed('Loop');
-        }
+        const closer = this.parseCloser('loop', 'Loop');
+        // A loop has its condition at the top or the bottom, never both.
+        if (closer && !pre) { post = this.parseLoopCondition(); }
         this.blocks.pop();
-        return { kind: 'Do', pre, post, body, start, end: this.prevEnd };
+        return { kind: 'Do', pre, post, body, opener, closer, start, end: this.prevEnd };
     }
 
     private parseWhile(): A.WhileStmt {
+        const opener = this.spanTo(0);
         const start = this.advance().start;
         const condition = this.parseExpr();
         this.expectEOS();
         this.blocks.push('while');
         const body = this.parseBlock();
-        if (this.word() === 'wend') { this.advance(); } else { this.unclosed('Wend'); }
+        const closer = this.parseCloser('wend', 'Wend');
         this.blocks.pop();
-        return { kind: 'While', condition, body, start, end: this.prevEnd };
+        return { kind: 'While', condition, body, opener, closer, start, end: this.prevEnd };
     }
 
     private parseWith(): A.WithStmt {
+        const opener = this.spanTo(0);
         const start = this.advance().start;
         const object = this.parseExpr();
         this.expectEOS();
         this.blocks.push('with');
         const body = this.parseBlock();
-        this.parseEnd('with', 'End With');
+        const closer = this.parseEnd('with', 'End With');
         this.blocks.pop();
-        return { kind: 'With', object, body, start, end: this.prevEnd };
+        return { kind: 'With', object, body, opener, closer, start, end: this.prevEnd };
     }
 
     private parseProcedure(): A.ProcedureStmt | A.ClassStmt {
@@ -723,6 +742,7 @@ class Parser {
             this.error(start, this.tok.end, 'Expected identifier');
             return this.parseClass();
         }
+        const opener = this.spanTo(0);
         const procKind = this.advance().value as A.ProcedureStmt['procKind'];
         let accessor: A.ProcedureStmt['accessor'] = null;
         if (procKind === 'property') {
@@ -763,14 +783,19 @@ class Parser {
         const body = this.parseBlock();
 
         let endStatement: A.Span | null = null;
+        let closer: A.Span | null = null;
         const endWord = this.word(1);
         if (this.word() === 'end' && (endWord === 'sub' || endWord === 'function' || endWord === 'property')) {
-            if (endWord !== procKind) {
+            endStatement = this.spanTo(1);
+            if (endWord === procKind) {
+                closer = endStatement;
+            } else {
+                // `End Function` ending a Sub: it still ends it, but it is no closer for it.
                 this.panic = false;
-                const t = this.peek(1);
-                this.error(t.start, t.end, `Expected '${capitalise(procKind)}'`);
+                this.error(endStatement.start, endStatement.end, `Expected 'End ${capitalise(procKind)}'`, 'stray-closer');
             }
-            endStatement = { start: this.advance().start, end: this.advance().end };
+            this.advance();
+            this.advance();
         } else {
             this.unclosed(`End ${capitalise(procKind)}`);
         }
@@ -778,11 +803,12 @@ class Parser {
 
         return {
             kind: 'Procedure', procKind, accessor, access, isDefault, name, paramList, params, body, endStatement,
-            start, end: this.prevEnd,
+            opener, closer, start, end: this.prevEnd,
         };
     }
 
     private parseClass(): A.ClassStmt {
+        const opener = this.spanTo(0);
         const start = this.advance().start;
         const name = this.parseName() ?? this.missingName();
         this.expectEOS();
@@ -796,9 +822,9 @@ class Parser {
                 this.error(m.start, m.end, 'Only declarations are allowed directly inside a Class');
             }
         }
-        const endStatement = this.parseEnd('class', 'End Class');
+        const closer = this.parseEnd('class', 'End Class');
         this.blocks.pop();
-        return { kind: 'Class', name, members, endStatement, start, end: this.prevEnd };
+        return { kind: 'Class', name, members, endStatement: closer, opener, closer, start, end: this.prevEnd };
     }
 
     private parseOnError(): A.OnErrorStmt {

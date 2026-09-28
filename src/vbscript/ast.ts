@@ -168,13 +168,24 @@ export interface HtmlStmt extends Span {
     kind: 'Html';
 }
 
+/**
+ * Where a block's keywords are: `opener` covers `If`, `Select Case`, `For Each`,
+ * `Do While`, the `Sub` of `Public Sub`; `closer` covers `End If`, `Next`,
+ * `Loop`. The closer is null when the block is never closed, or is closed by
+ * the wrong keyword (an `End Function` ending a Sub).
+ */
+export interface BlockKeywords {
+    opener: Span;
+    closer: Span | null;
+}
+
 export interface IfBranch extends Span {
     /** null for the Else branch. */
     condition: Expr | null;
     body: Stmt[];
 }
 
-export interface IfStmt extends Span {
+export interface IfStmt extends Span, BlockKeywords {
     kind: 'If';
     singleLine: boolean;
     branches: IfBranch[];
@@ -186,13 +197,13 @@ export interface CaseClause extends Span {
     body: Stmt[];
 }
 
-export interface SelectStmt extends Span {
+export interface SelectStmt extends Span, BlockKeywords {
     kind: 'Select';
     subject: Expr;
     cases: CaseClause[];
 }
 
-export interface ForStmt extends Span {
+export interface ForStmt extends Span, BlockKeywords {
     kind: 'For';
     counter: Name;
     from: Expr;
@@ -201,7 +212,7 @@ export interface ForStmt extends Span {
     body: Stmt[];
 }
 
-export interface ForEachStmt extends Span {
+export interface ForEachStmt extends Span, BlockKeywords {
     kind: 'ForEach';
     variable: Name;
     collection: Expr;
@@ -213,20 +224,20 @@ export interface LoopCondition {
     expr: Expr;
 }
 
-export interface DoStmt extends Span {
+export interface DoStmt extends Span, BlockKeywords {
     kind: 'Do';
     pre: LoopCondition | null;
     post: LoopCondition | null;
     body: Stmt[];
 }
 
-export interface WhileStmt extends Span {
+export interface WhileStmt extends Span, BlockKeywords {
     kind: 'While';
     condition: Expr;
     body: Stmt[];
 }
 
-export interface WithStmt extends Span {
+export interface WithStmt extends Span, BlockKeywords {
     kind: 'With';
     object: Expr;
     body: Stmt[];
@@ -238,7 +249,7 @@ export interface Parameter extends Span {
     isArray: boolean;
 }
 
-export interface ProcedureStmt extends Span {
+export interface ProcedureStmt extends Span, BlockKeywords {
     kind: 'Procedure';
     procKind: 'sub' | 'function' | 'property';
     /** Get, Let or Set for a Property, else null. */
@@ -250,11 +261,11 @@ export interface ProcedureStmt extends Span {
     paramList: Span | null;
     params: Parameter[];
     body: Stmt[];
-    /** The `End Sub` statement, or null when the procedure is never closed. */
+    /** The `End …` statement that ended it, even the wrong one, or null when it is never closed. */
     endStatement: Span | null;
 }
 
-export interface ClassStmt extends Span {
+export interface ClassStmt extends Span, BlockKeywords {
     kind: 'Class';
     name: Name;
     members: Stmt[];
@@ -287,6 +298,8 @@ export interface ErrorStmt extends Span {
 
 export interface Diagnostic extends Span {
     message: string;
+    /** 'stray-closer': an `End If`, `Next`, `Loop` or `Wend` with no block for it to close. */
+    code?: 'stray-closer';
 }
 
 export interface Program extends Span {
