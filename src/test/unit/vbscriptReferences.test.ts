@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as path from 'path';
-import { findSites, type WorkspaceHost } from '../../vbscript/references';
+import { definitionSites, findSites, resolveAt, type WorkspaceHost } from '../../vbscript/references';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../../utils/includeDirectives';
 
 /** A workspace over an in-memory site, with the site root as the virtual root. */
@@ -188,6 +188,40 @@ describe('findSites — pages and their includes', () => {
             'b.inc': '<!-- #include file="a.inc" -->\n<% n = 1 %>',
         });
         assert.deepStrictEqual(sitesOf(loop, 'a.inc', 'n %>'), ['a.inc:1:7*', 'b.inc:1:3']);
+    });
+});
+
+describe('definitionSites', () => {
+    /** Where the `n`th `word` of `file` is defined, as "file:line:col". */
+    function definedAt(host: WorkspaceHost, file: string, word: string, n = 1): string[] {
+        const text = host.read(at(file))!;
+        let offset = -1;
+        for (let i = 0; i < n; i++) { offset = text.indexOf(word, offset + 1); }
+        const resolved = resolveAt(host, at(file), offset + 1);
+        return resolved ? definitionSites(resolved.bound, resolved.target).map(s => `${path.basename(s.file)}:${s.line}:${s.character}`) : [];
+    }
+
+    it("goes to a local's own Dim, not the first of that name on the page", () => {
+        const host = site({ 'page.asp': '<%\nDim i\nSub S()\n  Dim i\n  i = 1\nEnd Sub\n%>' });
+        assert.deepStrictEqual(definedAt(host, 'page.asp', 'i = 1'), ['page.asp:3:6']);
+    });
+
+    it('goes to where a name is first assigned when nothing declares it', () => {
+        const host = site({ 'page.asp': '<%\nx = 1\nx = 2\nResponse.Write x\n%>' });
+        assert.deepStrictEqual(definedAt(host, 'page.asp', 'x', 3), ['page.asp:1:0']);
+    });
+
+    it('offers both of a Sub written twice', () => {
+        const host = site({ 'page.asp': '<%\nSub A()\nEnd Sub\nSub A()\nEnd Sub\nA\n%>' });
+        assert.deepStrictEqual(definedAt(host, 'page.asp', 'A\n%'), ['page.asp:1:4', 'page.asp:3:4']);
+    });
+
+    it('goes into the include that declares it', () => {
+        const host = site({
+            'lib.inc': '<%\nFunction Twice(n)\n  Twice = n * 2\nEnd Function\n%>',
+            'page.asp': '<!-- #include file="lib.inc" -->\n<% x = Twice(2) %>',
+        });
+        assert.deepStrictEqual(definedAt(host, 'page.asp', 'Twice'), ['lib.inc:1:9']);
     });
 });
 

@@ -103,18 +103,23 @@ export function declarationsOf(binding: Binding, target: Target): Declaration[] 
     return binding.declarations.filter(d => d.name === target.name && sameTarget(targetOf(binding, d), target));
 }
 
+function siteAt(bound: BoundPage, file: string, span: A.Span, declaration: boolean): Site | null {
+    const page = bound.pages.get(key(file));
+    if (!page) { return null; }
+    const bracketed = page.text[span.start] === '[';
+    const start = bracketed ? span.start + 1 : span.start;
+    const end = bracketed ? span.end - 1 : span.end;
+    const line = lineAt(page, start);
+    return { file, start, end, line, character: start - page.lineStarts[line], declaration };
+}
+
 /** Every place `target` is written in one binding. */
 export function sitesIn(bound: BoundPage, target: Target): Site[] {
     const { binding } = bound;
     const sites: Site[] = [];
     const add = (file: string, span: A.Span, declaration: boolean) => {
-        const page = bound.pages.get(key(file));
-        if (!page) { return; }
-        const bracketed = page.text[span.start] === '[';
-        const start = bracketed ? span.start + 1 : span.start;
-        const end = bracketed ? span.end - 1 : span.end;
-        const line = lineAt(page, start);
-        sites.push({ file, start, end, line, character: start - page.lineStarts[line], declaration });
+        const site = siteAt(bound, file, span, declaration);
+        if (site) { sites.push(site); }
     };
 
     for (const r of binding.references) {
@@ -128,6 +133,18 @@ export function sitesIn(bound: BoundPage, target: Target): Site[] {
         }
     }
     return sites;
+}
+
+/**
+ * Where `target` is declared: its Dim, Const, ReDim, parameter, procedure or
+ * class. A name never declared that way is defined where it is first assigned.
+ */
+export function definitionSites(bound: BoundPage, target: Target): Site[] {
+    const all = declarationsOf(bound.binding, target);
+    const explicit = all.filter(d => !d.implicit);
+    return (explicit.length > 0 ? explicit : all.slice(0, 1))
+        .map(d => siteAt(bound, d.file, d.span, !d.implicit))
+        .filter((site): site is Site => site !== null);
 }
 
 /**
