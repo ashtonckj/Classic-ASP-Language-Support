@@ -259,7 +259,7 @@ function fuzz(doc, count) {
             ? { how: `cut at ${at}`, text: doc.text.slice(0, at) }
             : { how: `delete ${at}+${1 + Math.floor(rand() * 200)}`, text: doc.text.slice(0, at) + doc.text.slice(at + 1 + Math.floor(rand() * 200)) };
         const t0 = process.hrtime.bigint();
-        try { symbolsFromTree(cut.text, 'fuzz'); }
+        try { symbolsFromTree(cut.text, 'fuzz'); current.scanAspStructure(fakeDocument(cut.text)); }
         catch (e) { failures.push(`${cut.how}: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`); }
         const ms = Number(process.hrtime.bigint() - t0) / 1e6;
         if (ms > worst.ms) { worst = { ms, how: cut.how }; }
