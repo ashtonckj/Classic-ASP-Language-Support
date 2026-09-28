@@ -150,16 +150,19 @@ export function definitionSites(bound: BoundPage, target: Target): Site[] {
 /**
  * The name at `offset` of `path`, bound. The page's own binding answers
  * first; when it knows nothing of the name, the pages that include this file
- * are asked, since an include often uses a name its page declares.
+ * are asked, since an include often uses a name its page declares. A caller
+ * that expects a built-in name, such as hover on `Response`, can skip that.
  */
 export function resolveAt(
     host: WorkspaceHost,
     path: string,
     offset: number,
+    askIncluders = true,
 ): { bound: BoundPage; target: Target } | null {
     const home = bindAt(host, path);
     const found = home && targetAt(home.binding, path, offset);
     if (home && found) { return { bound: home, target: found }; }
+    if (!askIncluders) { return null; }
 
     const seen = new Set([key(path)]);
     const queue = [...host.includedBy(path)];
