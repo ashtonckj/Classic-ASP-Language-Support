@@ -10,3 +10,6 @@ out/
 
 # VSIX package
 *.vsix
+
+# Older build compiled by scripts/build-baseline.js for the parser comparison
+.baseline/

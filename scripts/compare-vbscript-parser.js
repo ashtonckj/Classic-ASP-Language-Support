@@ -1,17 +1,19 @@
 /**
  * compare-vbscript-parser.js
  *
- * Runs the new VBScript parser (src/vbscript) side by side with the line
- * scanner it is meant to replace, over the test-files pages and, when present,
- * the inputs recorded from the unit tests (see record-vbscript-inputs.js).
+ * Checks the VBScript parser (src/vbscript) and the features built on it, over
+ * the test-files pages and, when present, the inputs recorded from the unit
+ * tests (see record-vbscript-inputs.js).
  *
- *   node scripts/compare-vbscript-parser.js [--dir <folder>] [--cscript] [--mutants N] [--fuzz N] [--verbose]
+ *   node scripts/compare-vbscript-parser.js [--dir <folder>] [--baseline [<folder>]]
+ *                                           [--cscript] [--mutants N] [--fuzz N] [--verbose]
  *
  *   --dir      reads every .asp and .inc under <folder> instead of test-files.
  *              Nothing is copied or sent anywhere; the report lands in out/.
- *   symbols    extractSymbols vs symbolsFromTree, entry by entry. Every
- *              difference is either a bug in the new parser or one the old
- *              scanner had, and each needs a decision.
+ *   --baseline compares the symbols and the block warnings with an older
+ *              build, .baseline/ unless a folder is given (make it with
+ *              scripts/build-baseline.js). Every difference is either a new
+ *              bug or an old one fixed, and each needs a decision.
  *   --cscript  asks Windows' own VBScript engine (cscript.exe) whether each
  *              page compiles, and compares that with the parser's errors.
  *              Nothing runs: the program starts with WScript.Quit.
@@ -20,7 +22,7 @@
  *   --mutants N  breaks each test-files page that compiles cleanly in N small
  *              random ways (a few characters or a line deleted, a stray block
  *              keyword added) and asks cscript and the parser about each one.
- *   timing     always shown: both readers on every test-files page.
+ *   timing     always shown for pages, and for the baseline too when given.
  *
  * Needs a compiled out/ (npm run compile). Writes out/vbscript-compare.json.
  */
@@ -31,11 +33,32 @@ const path = require('path');
 const cp = require('child_process');
 
 const root = path.join(__dirname, '..');
-const { extractSymbolsByLine: extractSymbols } = require(path.join(root, 'out/utils/symbolParser.js'));
+const args = process.argv.slice(2);
+
+// The providers import vscode; the unit-test stub stands in for it.
+require(path.join(root, 'out/test/unit/_mochaSetup.js'));
+const current = {
+    extractSymbols:   require(path.join(root, 'out/utils/symbolParser.js')).extractSymbols,
+    scanAspStructure: require(path.join(root, 'out/providers/aspStructureDiagnosticsProvider.js')).scanAspStructure,
+};
 const { symbolsFromTree, parsePage, lineAt } = require(path.join(root, 'out/vbscript/symbols.js'));
 const { pagePrograms } = require(path.join(root, 'out/vbscript/pageSegments.js'));
 
-const args = process.argv.slice(2);
+const baselineIndex = args.indexOf('--baseline');
+const baselineDir = baselineIndex === -1 ? null
+    : path.resolve(args[baselineIndex + 1] && !args[baselineIndex + 1].startsWith('--') ? args[baselineIndex + 1] : path.join(root, '.baseline'));
+let baseline = null;
+if (baselineDir) {
+    const out = path.join(baselineDir, 'out');
+    if (!fs.existsSync(out)) { throw new Error(`No compiled baseline in ${out}; run node scripts/build-baseline.js first.`); }
+    require(path.join(out, 'test/unit/_mochaSetup.js'));
+    baseline = {
+        ref:              fs.existsSync(path.join(baselineDir, 'REF')) ? fs.readFileSync(path.join(baselineDir, 'REF'), 'utf8').trim() : baselineDir,
+        extractSymbols:   require(path.join(out, 'utils/symbolParser.js')).extractSymbols,
+        scanAspStructure: require(path.join(out, 'providers/aspStructureDiagnosticsProvider.js')).scanAspStructure,
+    };
+}
+
 const useCscript = args.includes('--cscript');
 const verbose = args.includes('--verbose');
 const fuzzIndex = args.indexOf('--fuzz');
@@ -106,6 +129,39 @@ function diffSymbols(oldS, newS) {
         }
         for (const n of newLeft) { out.push(`${group}: only new has ${n.name} (line ${n.line + 1})`); }
     }
+    return out;
+}
+
+// ── Block warnings ───────────────────────────────────────────────────────────
+
+let documentCount = 0;
+
+/** Enough of a vscode.TextDocument for the structure scanners. */
+function fakeDocument(text) {
+    const lines = text.split('\n');
+    const starts = [];
+    let acc = 0;
+    for (const l of lines) { starts.push(acc); acc += l.length + 1; }
+    const uri = `compare:${++documentCount}`;
+    return {
+        uri:       { toString: () => uri, scheme: 'compare', fsPath: uri },
+        getText:   () => text,
+        lineCount: lines.length,
+        lineAt:    i => ({ text: lines[i].replace(/\r$/, '') }),
+        offsetAt:  p => starts[p.line] + p.character,
+    };
+}
+
+/** Each block warning only one side gives, as one line of text. */
+function diffDiagnostics(oldD, newD) {
+    const key = d => `line ${d.range.start.line + 1}: ${d.message}`;
+    const newLeft = newD.map(key);
+    const out = [];
+    for (const k of oldD.map(key)) {
+        const i = newLeft.indexOf(k);
+        if (i === -1) { out.push(`warning: only old has ${k}`); } else { newLeft.splice(i, 1); }
+    }
+    for (const k of newLeft) { out.push(`warning: only new has ${k}`); }
     return out;
 }
 
@@ -281,23 +337,28 @@ const report = { docs: [], totals: { docs: docs.length, identical: 0, difference
 for (const doc of docs) {
     const entry = { name: doc.name, lines: doc.text.split('\n').length };
     let newS;
+    let newD;
     try {
-        newS = symbolsFromTree(doc.text, 'page');
+        newS = current.extractSymbols(doc.text, 'page');
+        newD = current.scanAspStructure(fakeDocument(doc.text));
     } catch (e) {
         entry.crash = String(e && e.stack || e);
         report.docs.push(entry);
         continue;
     }
-    entry.differences = diffSymbols(extractSymbols(doc.text, 'page'), newS);
-    report.totals.differences += entry.differences.length;
-    if (entry.differences.length === 0) { report.totals.identical++; }
+    if (baseline) {
+        entry.differences = [
+            ...diffSymbols(baseline.extractSymbols(doc.text, 'page'), newS),
+            ...diffDiagnostics(baseline.scanAspStructure(fakeDocument(doc.text)), newD),
+        ];
+        report.totals.differences += entry.differences.length;
+        if (entry.differences.length === 0) { report.totals.identical++; }
+    }
 
     if (doc.isPage) {
         const runs = entry.lines > 2000 ? 5 : 21;
-        entry.ms = {
-            old: timeIt(() => extractSymbols(doc.text, 'page'), runs),
-            new: timeIt(() => symbolsFromTree(doc.text, 'page'), runs),
-        };
+        entry.ms = { new: timeIt(() => current.scanAspStructure(fakeDocument(doc.text)), runs) };
+        if (baseline) { entry.ms.old = timeIt(() => baseline.scanAspStructure(fakeDocument(doc.text)), runs); }
     }
     if (useCscript) {
         entry.oracle = oracleCompare(doc);
@@ -319,8 +380,8 @@ fs.writeFileSync(path.join(root, 'out/vbscript-compare.json'), JSON.stringify(re
 for (const d of report.docs) {
     const bits = [];
     if (d.crash) { bits.push('CRASH'); }
-    if (d.differences) { bits.push(d.differences.length === 0 ? 'symbols identical' : `${d.differences.length} symbol difference(s)`); }
-    if (d.ms) { bits.push(`old ${d.ms.old.toFixed(1)} ms, new ${d.ms.new.toFixed(1)} ms`); }
+    if (d.differences) { bits.push(d.differences.length === 0 ? 'same as baseline' : `${d.differences.length} difference(s) from baseline`); }
+    if (d.ms) { bits.push(`${d.ms.old === undefined ? '' : `old ${d.ms.old.toFixed(1)} ms, `}new ${d.ms.new.toFixed(1)} ms`); }
     if (d.oracle) { bits.push(`cscript: ${d.oracle.verdict}`); }
     if (d.fuzz) { bits.push(`fuzz: ${d.fuzz.failures.length} throw(s), slowest ${d.fuzz.worst.ms.toFixed(1)} ms`); }
     if (d.mutants) { bits.push('mutants: ' + Object.entries(d.mutants.tally).map(([k, v]) => `${k} ${v}`).join(', ')); }
@@ -339,6 +400,8 @@ for (const d of report.docs) {
 
 const t = report.totals;
 console.log('');
-console.log(`${t.docs} inputs: ${t.identical} with identical symbols, ${t.differences} difference(s) in total.`);
+console.log(baseline
+    ? `${t.docs} inputs against ${baseline.ref}: ${t.identical} the same, ${t.differences} difference(s) in total.`
+    : `${t.docs} inputs checked.`);
 if (useCscript) { console.log('cscript: ' + Object.entries(t.oracle).map(([k, v]) => `${k} ${v}`).join(', ')); }
 if (mutantCount > 0) { console.log('mutants: ' + Object.entries(t.mutants).map(([k, v]) => `${k} ${v}`).join(', ')); }
