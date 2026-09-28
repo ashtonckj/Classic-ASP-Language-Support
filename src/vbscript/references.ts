@@ -10,10 +10,10 @@
  *              Property, or anything in a client-side script. Only the page
  *              the caret is on can see it.
  *   page-wide  declared outside every procedure and class, in the page or an
- *              include. Every page whose script scope holds the declaring file
- *              sees it, so each of those pages is bound on its own and the
- *              results joined: one page may resolve a use to it where another
- *              page, with other includes, does not.
+ *              include. Changing it in a file changes it for every page that
+ *              includes that file, so each of those pages is bound on its own
+ *              and the results joined: one page may resolve a use to it where
+ *              another page, with other includes, does not.
  *   member     declared in a Class. Reached from outside as `obj.name`, and
  *              nothing says what class `obj` is, so every `.name` counts, and
  *              so does a member of the same name in another class.
@@ -168,9 +168,9 @@ export function findSites(host: WorkspaceHost, path: string, offset: number): Si
     const { bound, target } = resolved;
     if (target.kind === 'local') { return sitesIn(bound, target); }
 
-    // Every page whose script scope holds the caret's file or a file that
-    // declares the name. Binding one can turn up another declaring file, such
-    // as a second include that declares the same page-wide name.
+    // Every page whose script scope holds a file the rename changes. A name
+    // changed in a shared include is changed for every page that includes it,
+    // so each of those pages is bound too, and may lead to further files.
     const pages: string[] = [];
     const reached = new Set<string>();
     const reach = (file: string) => {
@@ -180,7 +180,6 @@ export function findSites(host: WorkspaceHost, path: string, offset: number): Si
         for (const parent of host.includedBy(file)) { reach(parent); }
     };
     reach(path);
-    for (const d of declarationsOf(bound.binding, target)) { reach(d.file); }
 
     const found = new Map<string, Site>();
     for (let i = 0; i < pages.length; i++) {
@@ -190,8 +189,8 @@ export function findSites(host: WorkspaceHost, path: string, offset: number): Si
             const at = `${key(site.file)}:${site.start}`;
             const known = found.get(at);
             if (!known) { found.set(at, site); } else if (site.declaration) { known.declaration = true; }
+            reach(site.file);
         }
-        for (const d of declarationsOf(page.binding, target)) { reach(d.file); }
     }
     return [...found.values()];
 }

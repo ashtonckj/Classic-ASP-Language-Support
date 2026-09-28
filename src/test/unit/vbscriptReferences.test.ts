@@ -170,6 +170,18 @@ describe('findSites — pages and their includes', () => {
         assert.deepStrictEqual(sitesOf(host, 'page2.asp', 'Bump'), ['lib.inc:2:4*', 'page1.asp:1:15', 'page2.asp:2:3']);
     });
 
+    it('follows a shared include to the other pages that include it', () => {
+        // Both pages make their own `cmpy` by assigning it; nav.inc uses it too,
+        // so renaming it from one page has to rename it in the other as well.
+        const shared = site({
+            'nav.inc': '<% Response.Write cmpy %>',
+            'hod.asp': '<% cmpy = "A" %>\n<!-- #include file="nav.inc" -->',
+            'kpi.asp': '<% cmpy = "B" %>\n<!-- #include file="nav.inc" -->',
+            'alone.asp': '<% cmpy = "C" %>',
+        });
+        assert.deepStrictEqual(sitesOf(shared, 'hod.asp', 'cmpy'), ['hod.asp:0:3', 'kpi.asp:0:3', 'nav.inc:0:18']);
+    });
+
     it('stops on a file that includes itself', () => {
         const loop = site({
             'a.inc': '<!-- #include file="b.inc" -->\n<% Dim n %>',
