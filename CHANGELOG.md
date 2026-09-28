@@ -5,6 +5,69 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] - 2026-09-28
+
+### ✨ Added
+- **Find All References** - `Shift + F12` on a VBScript variable, constant, Sub or Function, over the same scope rename uses
+- **Format Selection** - `Ctrl + K Ctrl + F` formats the selected lines exactly as Format Document would format them
+- **Preview Formatting command** - *Classic ASP: Preview Formatting* shows what Format Document would change, side by side; it replaces the `formatPreview` setting
+- **Missing `Set` warning** - An object assigned without `Set`, like `rs = conn.Execute(sql)`, is flagged with a quick fix that adds it
+- **Missing include warning** - An `#include` whose file does not exist is flagged, since IIS refuses to run the page
+- **`#include` paths follow your files** - Renaming or moving a file in VS Code offers to update every `#include` that points at it
+- **Parameter hints for built-in functions** - `Mid`, `InStr`, `Replace` and the rest show their parameters, and the 22 that had no documentation now have it
+- **More hovers** - VBScript constants like `vbCrLf`, `Response`, `Request` and the other ASP objects, and HTML tags and attributes
+- **HTML attribute values** - Inside `type=""`, `target=""` and the like, the values the attribute takes are offered, as in a `.html` file
+- **Linked editing** - With `editor.linkedEditing` on, editing a tag name edits its closing tag too, even with ASP between them
+- **Show Problems button** - The warning shown when formatting is skipped now opens the Problems panel
+
+### 🛠️ Fixed
+**Formatter**
+- **Tags opened inside an `If` or `Response.Write`** - A `<div>` opened in one branch and closed after `End If` is no longer flagged, and the page formats
+- **Numbers keep their signs** - `1.5E-3`, `Step -1` and `Case -1` are no longer split into `1.5E - 3`, `Step - 1` and `Case - 1`
+- **Inline elements stay apart** - Two links or other inline elements on separate lines are no longer joined into one
+- **A wrapped `onclick` survives** - A long event handler split over several lines was replaced with a placeholder
+- **The same page formats the same way** - The result no longer depended on how many pages had been formatted before it
+- **`aspTagsOnSameLine`** - A block following other content on its line no longer gains a run of spaces in front
+- **Inline tags from completion** - Picking `<span>` or `<a>` from the suggestion list keeps it on one line
+
+**IntelliSense & Rename**
+- **`With` blocks** - A bare `.` inside `With rs … End With` offers the object's members instead of every keyword
+- **Rename leaves members alone** - Renaming a variable called `total` or `count` no longer rewrote `obj.total` or `dict.Count`
+- **Rename works in unsaved pages** - Rename did nothing in a page that had never been saved
+- **Each page keeps its own symbols** - A reopened page or a new Untitled page no longer showed the symbols of one that was closed
+- **`Const A = 1, B = 2`** - Every constant in the list is now known, not just the first
+
+**Editing**
+- **Single quotes close the way `.html` does** - No more doubled apostrophes in HTML text, `autoClosingQuotes` is respected, and VSCodeVim works again
+- **Keyword casing reaches built-ins** - The lowercase and UPPERCASE settings now also apply to built-in functions, `ElseIf`, `ReDim` and `ByVal`
+
+**JavaScript**
+- **No errors on HTML after a one-line `<script>`** - A `//` inside a string, such as a URL, made the rest of the page be checked as JavaScript
+- **Pages no longer cancel each other** - JavaScript analysis in one page stopped cancelling the analysis of another
+
+**Links & Includes**
+- **Root-relative links** - `href="/images/logo.gif"` and links with a `?query` now open, resolved the way a `.html` file resolves them
+- **Includes changed outside VS Code** - An include edited by another program or by `git checkout` is now picked up
+
+**Syntax highlighting & Diagnostics**
+- **Query results are not SQL** - `n = conn.Execute(sql)(0)` no longer marked `n` as holding SQL
+- **SQL warnings clear on close** - A closed page's SQL warnings no longer stay in the Problems panel
+- **ASP region colours on every editor** - Split and side-by-side editors are now coloured too, not just the active one
+
+### ⚡ Performance
+- **Startup** - The extension starts in **57 ms** instead of **457 ms**, loading TypeScript, Prettier and Emmet only when a page needs them
+- **Typing stays smooth** - VBScript and SQL colouring run on their own thread, so the longest pause per edit fell from **192 ms** to under **17 ms**
+- **Format Document** - A page with 4,800 ASP blocks formats in about **1.8 seconds** instead of **18 seconds**
+- **Rename** - On a 14,000-line page, finding every match takes about **30 ms** instead of **5 seconds**
+- **JavaScript hover** - On a large `<script>`, a hover takes **39 ms** instead of **635 ms**
+- **Less repeated work** - Colour swatches, the Outline, `Ctrl + T`, the structure warnings and the JavaScript error check no longer rescan what another feature already read
+
+### 🔄 Refactored
+- The seven JavaScript features share one setup, and duplicated helpers were merged into one copy each
+- Removed unused code and an unused build dependency
+
+---
+
 ## [0.6.3] - 2026-09-22
 
 ### ✨ Added
@@ -575,6 +638,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[0.6.4]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.4
 [0.6.3]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.3
 [0.6.2]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.2
 [0.6.1]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.1
