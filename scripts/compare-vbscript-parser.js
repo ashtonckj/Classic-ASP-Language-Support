@@ -211,7 +211,13 @@ function runCscript(body) {
     fs.writeFileSync(file, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(body, 'utf16le')]));
     const r = cp.spawnSync('cscript', ['//nologo', file], { encoding: 'latin1' });
     const m = /\((\d+), (\d+)\) Microsoft VBScript (compilation|runtime) error: (.*)/.exec(r.stderr || '');
-    return m ? { line: Number(m[1]) - 1, message: m[4].trim() } : null;
+    if (m) { return { line: Number(m[1]) - 1, message: m[4].trim() }; }
+    // cscript did not get as far as compiling: Windows Defender, for one, refuses
+    // some generated files as "potentially unwanted". Silence would read as clean.
+    if (r.status !== 0 || /CScript Error/i.test(r.stdout || '')) {
+        return { refused: true, message: `${r.stdout || ''}${r.stderr || ''}`.trim().slice(0, 160) };
+    }
+    return null;
 }
 
 // Errors that need the names in scope, which the parser leaves to later checks.
@@ -240,7 +246,8 @@ function oracleCompare(doc) {
         ].map(d => ({ line: lineAt(page, d.start), message: d.message }));
 
         let v;
-        if (!cs && ours.length === 0) { v = 'agree-clean'; }
+        if (cs?.refused) { v = 'unclear (cscript would not run it)'; notes.push(`cscript: ${cs.message}`); }
+        else if (!cs && ours.length === 0) { v = 'agree-clean'; }
         else if (!cs) { v = 'parser-only'; notes.push(`parser: line ${ours[0].line + 1} ${ours[0].message}`); }
         else if (ours.length === 0) {
             v = SEMANTIC.test(cs.message) ? 'cscript-only-semantic' : 'cscript-only';
@@ -250,7 +257,8 @@ function oracleCompare(doc) {
             v = 'error-line-differs';
             notes.push(`cscript: line ${csLine + 1} ${cs.message}`, `parser: line ${ours[0].line + 1} ${ours[0].message}`);
         }
-        const rank = ['agree-clean', 'agree-error', 'cscript-only-semantic', 'error-line-differs', 'cscript-only', 'parser-only'];
+        const rank = ['agree-clean', 'agree-error', 'cscript-only-semantic', 'unclear (cscript would not run it)',
+            'error-line-differs', 'cscript-only', 'parser-only'];
         if (rank.indexOf(v) > rank.indexOf(verdict)) { verdict = v; }
     });
     return { verdict, notes };
@@ -327,6 +335,7 @@ function includeOracle(doc) {
         const { body, map } = oracleSource(splicedPage, segments);
         const cs = runCscript(body);
         if (!cs) { continue; }
+        if (cs.refused) { return { verdict: 'unclear (cscript would not run it)', notes: [`cscript: ${cs.message}`], files: scope.files.length }; }
         const splicedLine = cs.line < map.length - 1 ? map[cs.line] : lineAt(splicedPage, segments[segments.length - 1].end);
         const where = lineMap[splicedLine] ?? lineMap[lineMap.length - 1];
         errors.push({ at: key(where.file, where.line), message: cs.message });
