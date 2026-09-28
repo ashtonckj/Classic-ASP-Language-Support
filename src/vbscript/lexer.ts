@@ -215,7 +215,9 @@ function lexRange(
             continue;
         }
 
-        if (isDigit(ch) || (ch === '.' && isDigit(text[i + 1] ?? '') && !memberDotHere(tokens, spaceBefore))) {
+        // A `.` before a digit starts a number even straight after a name:
+        // VBScript reads `x.5` as `x .5`, a call with the argument .5.
+        if (isDigit(ch) || (ch === '.' && isDigit(text[i + 1] ?? ''))) {
             i = lexNumber(text, i, to, push);
             continue;
         }
@@ -265,13 +267,6 @@ function lexRange(
         push(TokenKind.Invalid, i, i + 1, ch, { error: 'Invalid character' });
         i++;
     }
-}
-
-/** True when a `.` here would be member access: straight after a name, `)` or `]`. */
-function memberDotHere(tokens: Token[], spaceBefore: boolean): boolean {
-    if (spaceBefore) { return false; }
-    const prev = tokens[tokens.length - 1];
-    return !!prev && (prev.kind === TokenKind.Identifier || (prev.kind === TokenKind.Punct && prev.value === ')'));
 }
 
 function lexNumber(

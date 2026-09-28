@@ -79,6 +79,8 @@ describe('VBScript parser — code VBScript accepts', () => {
         'Dim a(2, 3), b(), c(&H10)',
         'ReDim a(n + 1)',
         'Me.x = 1',
+        // `.02E+23` straight after a name is a number: a call with one argument.
+        'sm6.02E+23',
         'ReDim Preserve a(5)',
         'Dim step, property, default, error',
         'Const a = &H10, b = #1/1/2000#, c = True, d = -1, e = (1)',
