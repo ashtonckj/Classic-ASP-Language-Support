@@ -166,10 +166,10 @@ class Parser {
         return { name: t.value, text: t.text ?? t.value, start: t.start, end: t.end };
     }
 
-    /** A declarable name: any word that is not reserved, or any `[bracketed]` name. */
+    /** A declarable name: any word that is not reserved or `Me`, or any `[bracketed]` name. */
     private parseName(): A.Name | null {
         const t = this.tok;
-        if (t.kind === TokenKind.Identifier && (t.bracketed || !RESERVED.has(t.value))) {
+        if (t.kind === TokenKind.Identifier && (t.bracketed || (!RESERVED.has(t.value) && t.value !== 'me'))) {
             this.advance();
             return this.nameFrom(t);
         }
@@ -411,6 +411,9 @@ class Parser {
                 if (!this.isPunct(')')) {
                     do { bounds.push(this.parseExpr()); } while (this.isPunct(',') && this.advance());
                 }
+                // Only ReDim takes a size worked out at run time; Dim needs a whole number.
+                const loose = keyword === 'redim' ? undefined : bounds.find(b => !isIntegerLiteral(b));
+                if (loose && loose.kind !== 'Missing') { this.error(loose.start, loose.end, 'Expected integer constant'); }
                 this.expectPunct(')');
             } else if (keyword === 'redim') {
                 this.errorAtTok("Expected '('");
@@ -1109,6 +1112,11 @@ class Parser {
 const LITERAL_WORDS: Record<string, A.LiteralExpr['type']> = {
     true: 'boolean', false: 'boolean', empty: 'empty', null: 'null', nothing: 'nothing',
 };
+
+/** A whole number as written: `10`, `&H1F`. Not `-1`, `(2)` or `1.5`. */
+function isIntegerLiteral(e: A.Expr): boolean {
+    return e.kind === 'Literal' && e.type === 'number' && /^(?:\d+|&[hHoO][0-9a-fA-F]+&?)$/.test(e.raw);
+}
 
 /** What Const accepts: a literal, optionally signed or bracketed. `Const A = 1 + 2` is an error in VBScript. */
 function isLiteralConstant(e: A.Expr): boolean {
