@@ -116,6 +116,17 @@ describe('binder — what a name refers to', () => {
         assert.ok(!binding.references.some(r => r.name === 'put' || r.name === 'count'));
     });
 
+    it('resizes a page array from a Sub with ReDim, and declares a local when there is none', () => {
+        // Each checked against cscript.exe.
+        assert.strictEqual(resolved('Sub S\n  ReDim a(3)\nEnd Sub\nDim a', 'a', 2), 'variable script@4');
+        assert.strictEqual(resolved('x = 1\nSub T\n  ReDim x(2)\nEnd Sub', 'x', 3), 'variable (implicit) script@1');
+        const local = 'Option Explicit\nSub S\n  ReDim b(2)\n  b(0) = 1\nEnd Sub';
+        const { binding, lineOf } = bindCode(local);
+        const b = binding.declarations.find(d => d.name === 'b')!;
+        assert.strictEqual(`${b.scope.kind}@${lineOf(b.span.start)} ${b.implicit}`, 'procedure@3 false');
+        assert.strictEqual(resolved(local, 'b', 4), 'variable procedure@3');
+    });
+
     it('still looks up a name in the part of a line skipped after an error', () => {
         const code = 'Dim total\nSub S(total)\n  x = 1 +\n  x = ) total\nEnd Sub\ny = ( total obj.total';
         assert.strictEqual(resolved(code, 'total', 4), 'parameter procedure@2');
@@ -142,6 +153,8 @@ describe('binder — Name redefined', () => {
         'Class C\nPublic x\nSub S\nDim x\nEnd Sub\nEnd Class',
         'Class C\nDim C\nEnd Class',
         'Function F\nReDim F(2)\nEnd Function',
+        'Dim a\nSub S\nDim a\nReDim a(2)\nEnd Sub',
+        'Dim a\nSub S\nReDim a(2)\nEnd Sub\nSub T\nDim a\nEnd Sub',
     ];
     for (const code of allowed) {
         it(`allows ${JSON.stringify(code)}`, () => {
@@ -158,6 +171,7 @@ describe('binder — Name redefined', () => {
         ['Sub A(a, a)\nEnd Sub', 1],
         ['Sub A(a)\nDim a\nEnd Sub', 2],
         ['Dim a\nSub S\nReDim a(2)\nDim a\nEnd Sub', 4],
+        ['Sub S\nReDim a(2)\nDim a\nEnd Sub', 3],
         ['Function F(F)\nEnd Function', 1],
         ['Function F\nConst F = 1\nEnd Function', 2],
         ['Class C\nSub A\nEnd Sub\nFunction A\nEnd Function\nEnd Class', 4],

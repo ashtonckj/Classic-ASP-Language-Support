@@ -125,6 +125,9 @@ class Binder {
         scopes: [], declarations: [], references: [], members: [], diagnostics: [], optionExplicit: false, scopeOf: new Map(),
     };
 
+    /** The names each procedure has ReDim'd so far, in the declare pass. */
+    private readonly redimmed = new Map<Scope, Set<string>>();
+
     constructor(private readonly scriptScope: ScriptScope) {}
 
     bind(): Binding {
@@ -144,6 +147,7 @@ class Binder {
         server.sort((a, b) => a.key - b.key);
 
         for (const { file, stmt } of server) { this.declare([stmt], script, file.path); }
+        this.redimmed.clear();
         for (const { file, stmt } of server) { this.declareImplicitGlobals([stmt], script, file.path); }
         for (const { file, stmt } of server) { this.resolve([stmt], script, file.path); }
         for (const file of this.scriptScope.files) {
@@ -158,6 +162,7 @@ class Binder {
                 if (program.server) { continue; }
                 const own = this.newScope('script', null, null);
                 this.declare(program.body, own, file.path);
+                this.redimmed.clear();
                 this.declareImplicitGlobals(program.body, own, file.path);
                 this.resolve(program.body, own, file.path);
                 this.resolveSkipped(program, own, file.path);
@@ -182,7 +187,10 @@ class Binder {
                     for (const d of s.declarators) {
                         if (!d.name.name) { continue; }
                         // ReDim of a name this scope already has resizes it; otherwise it declares one.
-                        if (s.keyword === 'redim' && (this.declaredHere(scope, d.name.name) || this.isOwnName(scope, d.name.name))) { continue; }
+                        // Inside a procedure that waits for the resolve pass, as the name may be a
+                        // page variable declared further down or only ever assigned.
+                        if (s.keyword === 'redim' && scope.kind === 'procedure') { this.redimmedIn(scope).add(d.name.name); continue; }
+                        if (s.keyword === 'redim' && this.declaredHere(scope, d.name.name)) { continue; }
                         this.add(scope, file, d.name, 'variable', false);
                     }
                     break;
@@ -217,6 +225,12 @@ class Binder {
             if (name && !script.declarations.has(name.name)) { this.add(script, file, name, 'variable', true); }
             for (const body of childBodies(s)) { this.declareImplicitGlobals(body, script, file); }
         }
+    }
+
+    private redimmedIn(scope: Scope): Set<string> {
+        let names = this.redimmed.get(scope);
+        if (!names) { names = new Set(); this.redimmed.set(scope, names); }
+        return names;
     }
 
     private declaredHere(scope: Scope, name: string): boolean {
@@ -260,6 +274,8 @@ class Binder {
 
     private redefines(scope: Scope, decl: Declaration, node?: A.ProcedureStmt | A.ClassStmt): boolean {
         if (scope.kind === 'procedure' && this.isOwnName(scope, decl.name)) { return true; }
+        // A Dim after a ReDim of the name in the same procedure, even when the ReDim resized a page array.
+        if (scope.kind === 'procedure' && decl.kind === 'variable' && this.redimmed.get(scope)?.has(decl.name)) { return true; }
 
         const earlier = (scope.declarations.get(decl.name) ?? []).filter(d => !d.implicit);
         if (earlier.length === 0) { return false; }
@@ -301,7 +317,7 @@ class Binder {
             switch (s.kind) {
                 case 'Dim':
                     for (const d of s.declarators) {
-                        if (s.keyword === 'redim') { this.use(scope, file, d.name, true); }
+                        if (s.keyword === 'redim') { this.redim(scope, file, d.name); }
                         for (const b of d.bounds ?? []) { this.expr(b, scope, file); }
                     }
                     break;
@@ -367,6 +383,19 @@ class Binder {
                     this.resolve(s.members, this.binding.scopeOf.get(s)!, file);
                     break;
             }
+        }
+    }
+
+    /**
+     * ReDim resizes the array a name already refers to, as an assignment
+     * would, and inside a procedure declares a local when the name refers to
+     * nothing, even under Option Explicit.
+     */
+    private redim(scope: Scope, file: string, name: A.Name): void {
+        if (scope.kind === 'procedure' && name.name && !this.lookup(scope, name.name)) {
+            this.add(scope, file, name, 'variable', false);
+        } else {
+            this.use(scope, file, name, true);
         }
     }
 
