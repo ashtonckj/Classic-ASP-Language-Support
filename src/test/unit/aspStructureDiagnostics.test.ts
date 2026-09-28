@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { branchEvents, classifyLine, extractAspStatementCode, findMissingIncludes, findMissingSet, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
+import { branchEvents, classifyLine, findMissingIncludes, findMissingSet, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -9,34 +9,83 @@ function kinds(actions: Array<{ type: string; kind: string }>): string[] {
     return actions.map(a => `${a.type}:${a.kind}`);
 }
 
-// Only the code INSIDE <% %> is VBScript; the HTML around an inline
-// <%= %> must never reach the block classifier (else prose words like "with",
-// "do", "class" fake a block opener and raise a false "Missing End …").
-describe('extractAspStatementCode — HTML prose is not classified as VBScript', () => {
+let pageCount = 0;
+
+/** Enough of a document for the block scan, which reads only the text. */
+function pageDoc(text: string): vscode.TextDocument {
+    const uri = `file:///page-${++pageCount}.asp`;
+    return { uri: { toString: () => uri }, getText: () => text } as unknown as vscode.TextDocument;
+}
+
+/** Each block warning as "line:column message". */
+function warnings(text: string): string[] {
+    return scanAspStructure(pageDoc(text)).map(d => `${d.range.start.line}:${d.range.start.character} ${d.message}`);
+}
+
+// Only the code INSIDE <% %> is VBScript; the HTML around an inline <%= %>
+// must never count, or prose words like "with", "do", "class" fake a block
+// opener and raise a false "Missing End …".
+describe('scanAspStructure — HTML prose is not read as VBScript', () => {
     it('ignores HTML text around an inline <%= %> output expression', () => {
-        const code = extractAspStatementCode('<td>Total <%= x %> items with tax</td>');
-        assert.strictEqual(code.trim(), '');
-        assert.deepStrictEqual(classifyLine(code), []); // no phantom With
+        assert.deepStrictEqual(warnings('<td>Total <%= x %> items with tax</td>'), []);
     });
 
     it('does not fake a Do / Class opener from prose next to <%= %>', () => {
-        assert.deepStrictEqual(classifyLine(extractAspStatementCode('What to do <%= a %> now')), []);
-        assert.deepStrictEqual(classifyLine(extractAspStatementCode('see class notes <%= b %>')), []);
+        assert.deepStrictEqual(warnings('What to do <%= a %> now\nsee class notes <%= b %>'), []);
     });
 
-    it('still extracts a real inline <% %> statement block', () => {
-        assert.strictEqual(extractAspStatementCode('<% With obj %>').trim(), 'With obj');
-        assert.deepStrictEqual(kinds(classifyLine(extractAspStatementCode('<% With obj %>'))), ['open:with']);
+    it('still reads a real inline <% %> statement block', () => {
+        assert.deepStrictEqual(warnings('<% With obj %>'),
+            ["0:3 Missing closing keyword — no 'End With' found for this 'With'"]);
     });
 
-    it('classifies two <% %> blocks on one line (join with colon)', () => {
-        const code = extractAspStatementCode('<% If a Then %>x<% End If %>');
-        assert.deepStrictEqual(kinds(classifyLine(code)), ['open:if', 'close:if']);
+    it('pairs two <% %> blocks on one line', () => {
+        assert.deepStrictEqual(warnings('<% If a Then %>x<% End If %>'), []);
+        assert.strictEqual(getMatchedBlockPairs(pageDoc('<% If a Then %>x<% End If %>')).length, 1);
     });
 
-    it('treats a line with no <% as pure code (multi-line block body)', () => {
-        assert.strictEqual(extractAspStatementCode('With obj'), 'With obj');
-        assert.deepStrictEqual(kinds(classifyLine(extractAspStatementCode('With obj'))), ['open:with']);
+    it('reads the lines of a multi-line block as code', () => {
+        assert.deepStrictEqual(warnings('<%\nWith obj\n%>'),
+            ["1:0 Missing closing keyword — no 'End With' found for this 'With'"]);
+    });
+});
+
+describe('scanAspStructure — block warnings from the syntax tree', () => {
+    it('puts the warning on the Sub of a Public Sub', () => {
+        assert.deepStrictEqual(warnings('<%\n  Public Sub Save()\n%>'),
+            ["1:9 Missing closing keyword — no 'End Sub' found for this 'Sub'"]);
+    });
+
+    it('names Do While, For Each and Select Case in full', () => {
+        assert.deepStrictEqual(warnings('<%\nDo While x\n%>'), ["1:0 Missing closing keyword — no 'Loop' found for this 'Do While'"]);
+        assert.deepStrictEqual(warnings('<%\nFor Each i In c\n%>'), ["1:0 Missing closing keyword — no 'Next' found for this 'For Each'"]);
+        assert.deepStrictEqual(warnings('<%\nSelect Case x\n%>'), ["1:0 Missing closing keyword — no 'End Select' found for this 'Select Case'"]);
+    });
+
+    it('reports a closer with nothing to close', () => {
+        assert.deepStrictEqual(warnings('<%\nWend\nend  if\n%>'), [
+            "1:0 Unexpected closing keyword — no matching opener found for 'Wend'",
+            "2:0 Unexpected closing keyword — no matching opener found for 'End If'",
+        ]);
+    });
+
+    it('reports an End Function that ends a Sub as both a stray closer and a missing End Sub', () => {
+        assert.deepStrictEqual(warnings('<%\nSub A\nEnd Function\n%>'), [
+            "1:0 Missing closing keyword — no 'End Sub' found for this 'Sub'",
+            "2:0 Unexpected closing keyword — no matching opener found for 'End Function'",
+        ]);
+    });
+
+    it('closes blocks a one-line If holds, and needs no End If for the If itself', () => {
+        assert.deepStrictEqual(warnings('<%\nIf x Then y = 1 Else z = 2\nIf a Then b = 1 : c = 2\n%>'), []);
+    });
+
+    it('does not count keywords in strings, comments or after a dot', () => {
+        assert.deepStrictEqual(warnings('<%\nx = "If a Then" \' For i\nrs.Loop : obj.Next\n%>'), []);
+    });
+
+    it('reads an If whose condition runs over two lines', () => {
+        assert.deepStrictEqual(warnings('<%\nIf a And _\n   b Then\n  x = 1\nEnd If\n%>'), []);
     });
 });
 
@@ -48,7 +97,7 @@ describe('classifyLine — REM comments are not classified', () => {
     });
 
     it('handles the inline <% REM If x Then %> form', () => {
-        assert.deepStrictEqual(classifyLine(extractAspStatementCode('<% REM If x Then %>').trim()), []);
+        assert.deepStrictEqual(warnings('<% REM If x Then %>'), []);
     });
 
     it('ignores a REM after a colon separator', () => {

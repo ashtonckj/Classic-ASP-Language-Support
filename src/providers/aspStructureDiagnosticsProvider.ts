@@ -1,30 +1,20 @@
 /**
  * aspStructureDiagnosticsProvider.ts
  *
- * Detects mismatched VBScript block keywords inside <% ... %> blocks in .asp
- * files and reports them as Warning diagnostics (orange squiggles).
+ * Reports VBScript blocks that are never closed, and closing keywords with no
+ * block to close, as Warning diagnostics (orange squiggles):
  *
- * Pairs checked:
- *   If          → End If
- *   For / For Each → Next
- *   While       → Wend
- *   Do          → Loop
- *   With        → End With
- *   Function    → End Function
- *   Sub         → End Sub
- *   Select Case → End Select
- *   Class       → End Class
+ *   If → End If, For / For Each → Next, While → Wend, Do → Loop,
+ *   With → End With, Select Case → End Select, Sub / Function / Property →
+ *   End Sub / End Function / End Property, Class → End Class
  *
- * Skips:
- *  - VBScript comment lines (first non-whitespace char is ')
- *  - REM comment lines
- *  - Content of string literals
- *  - Single-line If ... Then <statement>  (no End If needed)
- *  - On Error Resume Next  (contains "Next" but is not a For/Next closer)
- *  - Loop While / Loop Until  (contains "Loop" — is a Do/Loop closer, handled)
- *  - Line-continuation (_) — physical lines joined into logical lines before
- *    classification so that multi-line If...Then constructs are handled correctly
+ * The blocks come from the VBScript syntax tree (src/vbscript), so strings,
+ * comments, one-line Ifs, `_` continuations and HTML around the code need no
+ * special cases here. Format Document refuses to run while any of these is
+ * reported, which is why only block structure is reported, not every error
+ * the parser finds.
  *
+ * Also here: the `<% %>` balance, missing include files and a missing Set.
  * Debounced at 1500 ms so it doesn't fire on every keystroke.
  */
 
@@ -35,59 +25,13 @@ import { parseIncludeDirectives, resolveIncludeDirective } from '../utils/includ
 import { callIsWholeExpression } from '../utils/symbolParser';
 import { removeStrings, vbStatementsOnLine } from '../utils/documentHelper';
 import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
+import type * as A from '../vbscript/ast';
+import { lineAt, parsePage, walkStatements, type ParsedPage } from '../vbscript/symbols';
 import { areIncludeSymbolsReady, collectAllSymbols, configuredVirtualRoot, preloadIncludeSymbols } from './includeProvider';
-
-// ── Block descriptor ──────────────────────────────────────────────────────────
-
-interface BlockEntry {
-    kind:    BlockKind;   // canonical name for matching
-    opener:  string;      // display text for error messages  e.g. "If"
-    closer:  string;      // expected closer text            e.g. "End If"
-    line:    number;      // physical line number (start of the logical line)
-    col:     number;
-}
 
 type BlockKind =
     | 'if' | 'for' | 'while' | 'do' | 'with'
     | 'function' | 'sub' | 'select' | 'class' | 'property';
-
-// ── Strip string literals from a line ─────────────────────────────────────────
-
-
-// ── Extract only real ASP *code* from a physical line ─────────────────────────
-//
-// The structure scanner must classify VBScript, never the HTML around it. A line
-// like  <td>Total <%= x %> items with tax</td>  is mostly HTML; only the text
-// inside <% ... %> is VBScript. The old approach stripped just the <% / %>
-// delimiters and kept everything else, so prose words like "with" / "do" /
-// "class" were misread as block openers (phantom "Missing End With" etc.).
-//
-// Rules:
-//  • No <% on the line → the whole line is code (we are inside a multi-line
-//    <% %> block or a server-side VBScript <script> body — there is no HTML to
-//    strip, and the leading/continuation code must still be classified).
-//  • Otherwise → concatenate ONLY the code inside <% ... %> statement blocks,
-//    joined by " : " so classifyLine (which splits on colons) classifies each.
-//    <%= ... %> output expressions carry no block structure and are ignored.
-export function extractAspStatementCode(lineText: string): string {
-    if (lineText.indexOf('<%') === -1) { return lineText; }
-
-    const codes: string[] = [];
-    let i = 0;
-    while (i < lineText.length) {
-        const open = lineText.indexOf('<%', i);
-        if (open === -1) { break; }
-        const close = lineText.indexOf('%>', open + 2);
-        const end   = close === -1 ? lineText.length : close;
-        // Ignore <%= ... %> (and <% = ... %>) output expressions — they are
-        // Response.Write shorthand and never carry block structure.
-        if (!lineText.slice(open + 2, end).trimStart().startsWith('=')) {
-            codes.push(lineText.slice(open + 2, end));
-        }
-        i = close === -1 ? lineText.length : close + 2;
-    }
-    return codes.join(' : ');
-}
 
 // ── Line-continuation joining ─────────────────────────────────────────────────
 //
@@ -401,152 +345,95 @@ function scanBlocks(document: vscode.TextDocument): BlockScan {
     const last = _lastScan.get(key);
     if (last?.text === fullText) { return last.scan; }
 
-    const scan = scanBlocksIn(document, fullText);
+    const scan = scanBlocksIn(fullText);
     _lastScan.delete(key);
     _lastScan.set(key, { text: fullText, scan });
     if (_lastScan.size > MAX_REMEMBERED_SCANS) { _lastScan.delete(_lastScan.keys().next().value!); }
     return scan;
 }
 
-function scanBlocksIn(document: vscode.TextDocument, fullText: string): BlockScan {
-    // One linear scan, then binary-search lookups. Asking getZone per line
-    // rescanned the whole document each time: on a 12,000-line page this
-    // function alone took ~36s, and it runs behind both the block diagnostics
-    // and the matching-keyword highlight.
-    const zones    = createZoneResolver(fullText);
-    const lineCount = document.lineCount;
-    const diagnostics: vscode.Diagnostic[] = [];
-    const pairs: BlockPair[] = [];
-    const stack: BlockEntry[] = [];
+type Block = A.IfStmt | A.SelectStmt | A.ForStmt | A.ForEachStmt | A.DoStmt | A.WhileStmt
+    | A.WithStmt | A.ProcedureStmt | A.ClassStmt;
 
-    // Collect raw physical line strings
-    const physicalLines: string[] = [];
-    for (let li = 0; li < lineCount; li++) {
-        physicalLines.push(document.lineAt(li).text);
+function isBlock(s: A.Stmt): s is Block {
+    return 'opener' in s && !(s.kind === 'If' && s.singleLine);
+}
+
+/** The block's keywords as the messages spell them: `Do While` … `Loop`. */
+function keywordsOf(b: Block): { opener: string; closer: string } {
+    switch (b.kind) {
+        case 'If':        return { opener: 'If', closer: 'End If' };
+        case 'Select':    return { opener: 'Select Case', closer: 'End Select' };
+        case 'For':       return { opener: 'For', closer: 'Next' };
+        case 'ForEach':   return { opener: 'For Each', closer: 'Next' };
+        case 'Do':        return { opener: b.pre ? (b.pre.until ? 'Do Until' : 'Do While') : 'Do', closer: 'Loop' };
+        case 'While':     return { opener: 'While', closer: 'Wend' };
+        case 'With':      return { opener: 'With', closer: 'End With' };
+        case 'Class':     return { opener: 'Class', closer: 'End Class' };
+        case 'Procedure': {
+            const word = b.procKind.charAt(0).toUpperCase() + b.procKind.slice(1);
+            return { opener: word, closer: `End ${word}` };
+        }
     }
+}
 
-    // Join continuation lines into logical lines before classification.
-    // Each logical line records the physical line it started on.
-    const logicalLines = joinContinuationLines(physicalLines);
+/** `end   if` → `End If`: a stray closer as the message spells it. */
+function closerWords(source: string): string {
+    return source.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+}
 
-    for (const logical of logicalLines) {
-        const li       = logical.physicalLine;
-        const lineText = logical.text;
-        const lineOffset = document.offsetAt(new vscode.Position(li, 0));
+function blockWarning(range: vscode.Range, message: string): vscode.Diagnostic {
+    return Object.assign(
+        new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Warning),
+        { source: 'Classic ASP (VBScript)' },
+    );
+}
 
-        // Find a reliable offset inside the ASP block by locating <% on this line,
-        // or falling back to the line midpoint for <script language="vbscript"> content.
-        const rawLine  = physicalLines[li];
-        const aspOpenIdx = rawLine.indexOf('<%');
-        const probeCol   = aspOpenIdx !== -1 ? aspOpenIdx + 2 : Math.floor(rawLine.length / 2);
-        const midOffset  = lineOffset + probeCol;
-        // Accept lines that are either inside a <% %> block OR inside a VBScript <script> block.
-        if (zones.zoneAt(midOffset) !== 'asp') { continue; }
+function scanBlocksIn(fullText: string): BlockScan {
+    const page: ParsedPage = parsePage(fullText);
+    const position = (offset: number): vscode.Position => {
+        const line = lineAt(page, offset);
+        return new vscode.Position(line, offset - page.lineStarts[line]);
+    };
+    const range = (span: A.Span): vscode.Range => new vscode.Range(position(span.start), position(span.end));
 
-        const trimmed = lineText.trimStart();
+    const found: { at: number; diagnostic: vscode.Diagnostic }[] = [];
+    const pairs: { at: number; pair: BlockPair }[] = [];
 
-        // Skip VBScript comment lines and REM lines
-        if (trimmed.startsWith("'") || /^rem\s/i.test(trimmed)) { continue; }
-
-        // Classify ONLY the VBScript inside <% ... %> on this line — never the
-        // surrounding HTML. Compact forms like <%End If%>, <%If x Then%>, <%Else%>
-        // still work because their code is extracted; inline output expressions
-        // (<%= x %>) and HTML prose are excluded so they can't fake a block opener.
-        const classifyText = extractAspStatementCode(lineText).trim();
-
-        const actions = classifyLine(classifyText);
-
-        for (const action of actions) {
-            if (action.type === 'open') {
-                stack.push({
-                    kind:   action.kind,
-                    opener: action.opener,
-                    closer: closerFor(action.kind),
-                    line:   li,
-                    col: (() => {
-                        const keyword = lineText.toLowerCase().indexOf(action.opener.toLowerCase(), lineText.indexOf('<%'));
-                        return keyword !== -1 ? keyword : action.colOffset;
-                    })(),
+    for (const program of page.programs) {
+        walkStatements(program.body, stmt => {
+            if (!isBlock(stmt)) { return; }
+            const words = keywordsOf(stmt);
+            if (stmt.closer) {
+                pairs.push({
+                    at: stmt.closer.start,
+                    pair: {
+                        opener: { range: range(stmt.opener), text: words.opener },
+                        closer: { range: range(stmt.closer), text: words.closer },
+                    },
                 });
             } else {
-                // Closer — find nearest matching opener on the stack
-                let matched = -1;
-                for (let s = stack.length - 1; s >= 0; s--) {
-                    if (stack[s].kind === action.kind) { matched = s; break; }
-                }
-
-                if (matched === -1) {
-                    // Stray closer — no matching opener
-                    const col   = physicalLines[li].toLowerCase().indexOf(action.closer.toLowerCase());
-                    const start = new vscode.Position(li, Math.max(0, col));
-                    const end   = new vscode.Position(li, Math.max(0, col) + action.closer.length);
-                    diagnostics.push(Object.assign(
-                        new vscode.Diagnostic(
-                            new vscode.Range(start, end),
-                            `Unexpected closing keyword — no matching opener found for '${action.closer}'`,
-                            vscode.DiagnosticSeverity.Warning
-                        ),
-                        { source: 'Classic ASP (VBScript)' }
-                    ));
-                } else {
-                    // Pop everything above the match — those are unclosed openers
-                    for (let s = stack.length - 1; s > matched; s--) {
-                        const unclosed = stack[s];
-                        const start    = new vscode.Position(unclosed.line, unclosed.col);
-                        const end      = new vscode.Position(unclosed.line, unclosed.col + unclosed.opener.length);
-                        diagnostics.push(Object.assign(
-                            new vscode.Diagnostic(
-                                new vscode.Range(start, end),
-                                `Missing closing keyword — no '${unclosed.closer}' found for this '${unclosed.opener}'`,
-                                vscode.DiagnosticSeverity.Warning
-                            ),
-                            { source: 'Classic ASP (VBScript)' }
-                        ));
-                    }
-
-                    // The entry at `matched` genuinely closed — record the pair.
-                    // Same column-finding approach as the stray-closer case above:
-                    // search the closer's own physical line for its keyword text.
-                    const entry     = stack[matched];
-                    const closerCol = Math.max(0, physicalLines[li].toLowerCase().indexOf(action.closer.toLowerCase()));
-                    pairs.push({
-                        opener: {
-                            range: new vscode.Range(
-                                new vscode.Position(entry.line, entry.col),
-                                new vscode.Position(entry.line, entry.col + entry.opener.length),
-                            ),
-                            text: entry.opener,
-                        },
-                        closer: {
-                            range: new vscode.Range(
-                                new vscode.Position(li, closerCol),
-                                new vscode.Position(li, closerCol + action.closer.length),
-                            ),
-                            text: action.closer,
-                        },
-                    });
-
-                    stack.splice(matched); // remove match + everything above
-                }
+                found.push({
+                    at: stmt.opener.start,
+                    diagnostic: blockWarning(range(stmt.opener),
+                        `Missing closing keyword — no '${words.closer}' found for this '${words.opener}'`),
+                });
             }
+        });
+
+        for (const d of program.diagnostics) {
+            if (d.code !== 'stray-closer') { continue; }
+            found.push({
+                at: d.start,
+                diagnostic: blockWarning(range(d),
+                    `Unexpected closing keyword — no matching opener found for '${closerWords(fullText.slice(d.start, d.end))}'`),
+            });
         }
     }
 
-    // Anything left on the stack is unclosed
-    for (const entry of stack) {
-        const start = new vscode.Position(entry.line, entry.col);
-        const end   = new vscode.Position(entry.line, entry.col + entry.opener.length);
-        diagnostics.push(Object.assign(
-            new vscode.Diagnostic(
-                new vscode.Range(start, end),
-                `Missing closing keyword — no '${entry.closer}' found for this '${entry.opener}'`,
-                vscode.DiagnosticSeverity.Warning
-            ),
-            { source: 'Classic ASP (VBScript)' }
-        ));
-    }
-
-    return { diagnostics, pairs };
+    found.sort((a, b) => a.at - b.at);
+    pairs.sort((a, b) => a.at - b.at);
+    return { diagnostics: found.map(f => f.diagnostic), pairs: pairs.map(p => p.pair) };
 }
 
 export function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
@@ -556,21 +443,6 @@ export function scanAspStructure(document: vscode.TextDocument): vscode.Diagnost
 /** Every successfully matched opener/closer pair in the document, in the order their closers were found. */
 export function getMatchedBlockPairs(document: vscode.TextDocument): BlockPair[] {
     return scanBlocks(document).pairs;
-}
-
-function closerFor(kind: BlockKind): string {
-    switch (kind) {
-        case 'if':       return 'End If';
-        case 'for':      return 'Next';
-        case 'while':    return 'Wend';
-        case 'do':       return 'Loop';
-        case 'with':     return 'End With';
-        case 'function': return 'End Function';
-        case 'sub':      return 'End Sub';
-        case 'select':   return 'End Select';
-        case 'class':    return 'End Class';
-        case 'property': return 'End Property';
-    }
 }
 
 // ── ASP tag balance scanner ───────────────────────────────────────────────────
