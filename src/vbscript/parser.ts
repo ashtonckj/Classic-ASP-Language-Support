@@ -753,7 +753,9 @@ class Parser {
         let accessor: A.ProcedureStmt['accessor'] = null;
         if (procKind === 'property') {
             accessor = this.advance().value as 'get' | 'let' | 'set';
-            if (isDefault && accessor !== 'get') {
+            if (!this.blocks.includes('class')) {
+                this.error(opener.start, this.prevEnd, 'Must be defined inside a Class');
+            } else if (isDefault && accessor !== 'get') {
                 this.error(start, this.prevEnd, "'Default' specification can only be on Property Get");
             }
         }

@@ -121,6 +121,7 @@ describe('VBScript parser — errors VBScript reports', () => {
         ['Dim me',                                        '1: Expected identifier'],
         ['Class C\nConst a = 1\nEnd Class',               '2: Only declarations are allowed directly inside a Class'],
         ['Function F bar\nEnd Function',                  "1: Expected '('"],
+        ['Property Get P\nEnd Property',                  '1: Must be defined inside a Class'],
         ['For i = 1 To 2\nSub A\nEnd Sub\nNext',          "2: Expected 'Next'", "4: Unexpected 'Next'"],
     ];
     for (const [code, ...expected] of rejected) {
