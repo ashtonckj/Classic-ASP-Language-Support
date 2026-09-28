@@ -196,7 +196,7 @@ function mergeSymbols(target: FileSymbols, source: FileSymbols): void {
  * Existence is not checked here: the worker finds out when it tries to read,
  * which keeps the completion hot path free of synchronous disk access.
  */
-function defaultIncludeCandidates(virtualRoot: string): string[] {
+export function defaultIncludeCandidates(virtualRoot: string): string[] {
     const configured = vscode.workspace
         .getConfiguration('aspLanguageSupport')
         .get<string[]>('defaultIncludes', []);

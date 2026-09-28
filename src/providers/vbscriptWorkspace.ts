@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { getVirtualRoot, readIncludeText, resolveDirectIncludes } from './includeProvider';
+import { defaultIncludeCandidates, getVirtualRoot, readIncludeText, resolveDirectIncludes } from './includeProvider';
 import { getWorkspaceAspFiles } from './aspWorkspaceSymbolProvider';
 import { resolveIncludeDirective } from '../utils/includeDirectives';
 import { parsePage, type ParsedPage } from '../vbscript/symbols';
@@ -67,6 +67,7 @@ export function editorWorkspace(document: vscode.TextDocument): WorkspaceHost {
         read: fsPath => fsPath.toLowerCase() === docPath.toLowerCase() ? docText : readIncludeText(fsPath),
         resolve: (directive, fromPath) => resolveIncludeDirective(directive, fromPath, getVirtualRoot(fromPath)),
         parse: parseCached,
+        defaultIncludes: rootPath => defaultIncludeCandidates(getVirtualRoot(rootPath)),
         includedBy: fsPath => {
             includedBy ??= workspaceIncludedBy(docPath, docText);
             return includedBy.get(fsPath.toLowerCase()) ?? [];

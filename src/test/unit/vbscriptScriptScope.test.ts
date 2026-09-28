@@ -56,6 +56,16 @@ describe('buildScriptScope', () => {
         ]);
     });
 
+    it('counts the default includes as included at the top of the page', () => {
+        const host = { ...site({ 'lib.asp': '<% Dim lib %>' }), defaultIncludes: () => [at('lib.asp'), at('gone.asp'), at('page.asp')] };
+        const scope = buildScriptScope(at('page.asp'), '<!-- #include file="lib.asp" --><% Dim p %>', host);
+        assert.deepStrictEqual(
+            scope.chunks.map(c => `${path.basename(c.file.path)}:${c.file.text.slice(c.start, c.end)}`),
+            ['lib.asp:<% Dim lib %>', 'page.asp:<% Dim p %>'],
+        );
+        assert.deepStrictEqual(scope.problems, []);
+    });
+
     it('reads each file once, however often it is included', () => {
         const host = site({ 'x.inc': '<% Dim x %>' });
         buildScriptScope(at('page.asp'), '<!-- #include file="x.inc" --><!-- #include file="x.inc" -->', host);

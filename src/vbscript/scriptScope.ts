@@ -66,6 +66,12 @@ export interface ScopeHost {
     resolve(directive: IncludeDirective, fromPath: string): string;
     /** How to parse a file; lets a caller reuse a cached parse. */
     parse?(path: string, text: string): ParsedPage;
+    /**
+     * Files to count as included at the top of the page, for a site whose
+     * pages get them from a shared layout page instead (the defaultIncludes
+     * setting). One that cannot be read is left out.
+     */
+    defaultIncludes?(rootPath: string): string[];
 }
 
 export function buildScriptScope(rootPath: string, rootText: string, host: ScopeHost): ScriptScope {
@@ -96,6 +102,11 @@ export function buildScriptScope(rootPath: string, rootText: string, host: Scope
     };
 
     const root = load(rootPath, rootText)!;
+    const defaults: ScopeFile[] = [];
+    for (const path of host.defaultIncludes?.(rootPath) ?? []) {
+        const file = load(path, loaded.has(path.toLowerCase()) ? null : host.read(path));
+        if (file && file !== root && !defaults.includes(file)) { defaults.push(file); }
+    }
     const chunks: Chunk[] = [];
     const problems: ScopeProblem[] = [];
     const expanded = new Set<ScopeFile>();
@@ -114,13 +125,17 @@ export function buildScriptScope(rootPath: string, rootText: string, host: Scope
                 problems.push({ ...at, message: `The include file '${inc.directive.raw}' includes itself` });
             } else if (expanded.has(inc.file)) {
                 // IIS pastes it in again, so everything it declares is declared twice.
-                problems.push({ ...at, message: `'${inc.directive.raw}' is already included on this page` });
+                // A default include is only counted as included, so including it for real is fine.
+                if (!defaults.includes(inc.file)) {
+                    problems.push({ ...at, message: `'${inc.directive.raw}' is already included on this page` });
+                }
             } else {
                 linearize(inc.file, [...stack, file]);
             }
         }
         if (pos < file.text.length) { chunks.push({ file, start: pos, end: file.text.length }); }
     };
+    for (const file of defaults) { if (!expanded.has(file)) { linearize(file, []); } }
     linearize(root, []);
 
     return { root, files, chunks, problems };
