@@ -31,7 +31,7 @@ const path = require('path');
 const cp = require('child_process');
 
 const root = path.join(__dirname, '..');
-const { extractSymbols } = require(path.join(root, 'out/utils/symbolParser.js'));
+const { extractSymbolsByLine: extractSymbols } = require(path.join(root, 'out/utils/symbolParser.js'));
 const { symbolsFromTree, parsePage, lineAt } = require(path.join(root, 'out/vbscript/symbols.js'));
 const { pagePrograms } = require(path.join(root, 'out/vbscript/pageSegments.js'));
 

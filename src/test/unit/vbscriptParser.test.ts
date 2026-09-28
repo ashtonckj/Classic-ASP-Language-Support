@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import { tokenize, TokenKind } from '../../vbscript/lexer';
 import { pagePrograms } from '../../vbscript/pageSegments';
 import { parsePage, lineAt, symbolsFromTree } from '../../vbscript/symbols';
-import { extractSymbols } from '../../utils/symbolParser';
+import { extractSymbolsByLine } from '../../utils/symbolParser';
 
 // Every "accepts" and "reports" case below was checked against cscript.exe,
 // the VBScript engine IIS runs.
@@ -206,7 +206,7 @@ describe('VBScript page programs', () => {
 });
 
 describe('symbolsFromTree', () => {
-    it('matches extractSymbols on a typical page', () => {
+    it('matches the line scanner on a typical page', () => {
         const text = [
             '<%@ Language="VBScript" %>',
             '<%',
@@ -232,7 +232,7 @@ describe('symbolsFromTree', () => {
             '%>',
             '<p><%= total %></p>',
         ].join('\n');
-        assert.deepStrictEqual(symbolsFromTree(text, 'x.asp'), extractSymbols(text, 'x.asp'));
+        assert.deepStrictEqual(symbolsFromTree(text, 'x.asp'), extractSymbolsByLine(text, 'x.asp'));
     });
 
     it('finds declarations the line scanner misses', () => {

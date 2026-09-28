@@ -17,6 +17,7 @@
 
 import { COM_METHOD_RETURN_TYPES, normalizeProgId } from '../constants/comObjects';
 import { createZoneResolver } from '../utils/zoneUtils';
+import { symbolsFromTree } from '../vbscript/symbols';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -236,7 +237,22 @@ export function callIsWholeExpression(line: string, openParen: number): boolean 
     return false;   // unbalanced — the statement continues on another line
 }
 
+/**
+ * Every symbol a page declares, read from its VBScript syntax tree (see
+ * src/vbscript). Unlike the line scanner below, the tree knows a one-line
+ * `If … Then x = 1`, a second `<% %>` block on a line and `<% Option Explicit %>`,
+ * and never reads HTML attributes such as `onclick="…"` as assignments.
+ */
 export function extractSymbols(text: string, filePath: string): FileSymbols {
+    return symbolsFromTree(text, filePath);
+}
+
+/**
+ * The line scanner extractSymbols used before the parser. It is kept only so
+ * scripts/compare-vbscript-parser.js can diff the two, and goes once the
+ * parser has settled in.
+ */
+export function extractSymbolsByLine(text: string, filePath: string): FileSymbols {
     const result: FileSymbols = {
         variables:    [],
         constants:    [],
