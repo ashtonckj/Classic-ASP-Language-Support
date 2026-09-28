@@ -177,6 +177,10 @@ describe('VBScript page programs', () => {
         assert.deepStrictEqual(diagnostics('<% Select Case x %>\n\n<% Case 1 %><% End Select %>'), []);
     });
 
+    it('reads <% = x %> as output, as IIS does', () => {
+        assert.deepStrictEqual(diagnostics('<p><% = title %></p>\n<%\n  = total\n%>'), []);
+    });
+
     it('marks which script blocks run on the server', () => {
         const text = '<script language="vbscript" runat="server">\nx = 1\n</script><script language="vbscript">\ny = 2\n</script>';
         assert.deepStrictEqual(pagePrograms(text).map(p => p.server), [true, true, false]);

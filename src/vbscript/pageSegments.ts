@@ -58,14 +58,17 @@ export function pagePrograms(text: string): ProgramSource[] {
     for (const block of aspBlocks) {
         const closed = block.end - 2 >= block.start + 2 && text.startsWith('%>', block.end - 2);
         const bodyEnd = closed ? block.end - 2 : block.end;
-        const marker = text[block.start + 2];
+        // `<% = x %>` is output just like `<%= x %>`: IIS skips the whitespace.
+        let markerAt = block.start + 2;
+        while (markerAt < bodyEnd && /\s/.test(text[markerAt])) { markerAt++; }
+        const marker = text[markerAt];
 
         if (marker === '@') { continue; }
         if (block.start > pos) { pushGap(text, pos, block.start, flow); }
         pos = block.end;
 
         if (marker === '=') {
-            flow.push({ kind: 'output', start: block.start + 3, end: Math.max(block.start + 3, bodyEnd) });
+            flow.push({ kind: 'output', start: markerAt + 1, end: Math.max(markerAt + 1, bodyEnd) });
         } else {
             flow.push({ kind: 'code', start: block.start + 2, end: bodyEnd });
         }
