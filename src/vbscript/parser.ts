@@ -612,10 +612,12 @@ class Parser {
         this.expectEOS();
 
         this.blocks.push('select');
+        // Anything before the first Case is an error, which IIS reports at the
+        // Case (or End Select) that follows it.
         const before = this.parseBlock();
         if (before.length > 0) {
             this.panic = false;
-            this.error(before[0].start, before[0].end, "Expected 'Case'");
+            this.errorAtTok("Expected 'Case'");
         }
 
         const cases: A.CaseClause[] = [];

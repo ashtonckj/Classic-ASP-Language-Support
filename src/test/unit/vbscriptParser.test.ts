@@ -116,7 +116,7 @@ describe('VBScript parser — errors VBScript reports', () => {
         ['Sub A\nExit Function\nEnd Sub',                 "2: Expected 'Sub'"],
         ['For i = 1 To 2\nFor I = 1 To 3\nNext\nNext',    "2: Invalid 'for' loop control variable"],
         ['If x Then\ny = 1 : End If',                     '2: Must be first statement on the line'],
-        ['Select Case x\ny = 1\nCase 1\nEnd Select',      "2: Expected 'Case'"],
+        ['Select Case x\ny = 1\nCase 1\nEnd Select',      "3: Expected 'Case'"],
         ['Dim a(n), b(-1), c(1.5)',                       '1: Expected integer constant'],
         ['Dim me',                                        '1: Expected identifier'],
         ['Class C\nConst a = 1\nEnd Class',               '2: Only declarations are allowed directly inside a Class'],
@@ -176,7 +176,7 @@ describe('VBScript parser — recovery', () => {
 describe('VBScript page programs', () => {
     it('treats HTML between Select Case and the first Case as a statement, as IIS does', () => {
         const text = '<% Select Case x %>\n<p>hi</p>\n<% Case 1 %>\n<% End Select %>';
-        assert.deepStrictEqual(diagnostics(text), ["1: Expected 'Case'"]);
+        assert.deepStrictEqual(diagnostics(text), ["2: Expected 'Case'"]);
     });
 
     it('does not treat whitespace between blocks as a statement', () => {
