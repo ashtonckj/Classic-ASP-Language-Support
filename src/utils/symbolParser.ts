@@ -21,7 +21,7 @@ export interface FileSymbols {
     // does NOT create a new local for those: inside a procedure they resolve to
     // the module-level variable of that name when one exists. Only an explicit
     // Dim/Const shadows it, so anything reasoning about scope must tell them
-    // apart (see shadowingBodies in aspRenameProvider).
+    // apart.
     variables:    { name: string; line: number; filePath: string; implicit?: boolean }[];
     constants:    { name: string; value: string; line: number; filePath: string }[];
     functions:    {
