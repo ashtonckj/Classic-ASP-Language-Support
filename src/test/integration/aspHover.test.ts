@@ -50,4 +50,9 @@ suite('Hover on VBScript names (integration)', () => {
         const text = await hoverTextAt(PAGE, 5, 'total');
         assert.ok(!text.includes('variable'), `got ${JSON.stringify(text)}`);
     });
+
+    test('a bare .EOF inside With rs is explained as the Recordset member', async () => {
+        const text = await hoverTextAt(PAGE, 8, 'EOF');
+        assert.ok(/EOF/.test(text) && !text.includes('keyword'), `got ${JSON.stringify(text)}`);
+    });
 });

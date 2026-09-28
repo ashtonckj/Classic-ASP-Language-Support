@@ -12,6 +12,7 @@ import { declarationsOf, resolveAt, type BoundPage, type Target } from '../vbscr
 import type { Declaration } from '../vbscript/binder';
 import { sourceOf, walkStatements, type ParsedPage } from '../vbscript/symbols';
 import { editorWorkspace } from './vbscriptWorkspace';
+import { enclosingWithObject } from './aspCompletionProvider';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // VBScript keyword docs for hover
@@ -224,12 +225,14 @@ export class AspHoverProvider implements vscode.HoverProvider {
         const allSymbols = collectAllSymbols(document);
 
         // ── 1. COM member after dot — e.g. rs.EOF, conn.Execute ──────────────
+        // A bare `.EOF` inside `With rs` is a member of rs.
         const charBeforeWord = lineText.charAt(wordRange.start.character - 1);
         if (charBeforeWord === '.') {
             const textBeforeDot = lineText.substring(0, wordRange.start.character - 1);
-            const objMatch      = textBeforeDot.match(/\b(\w+)$/);
-            if (objMatch) {
-                const objName    = objMatch[1].toLowerCase();
+            const withObject    = () => /^[A-Za-z_]\w*$/.exec(enclosingWithObject(fullText, position.line, wordRange.start.character) ?? '')?.[0];
+            const objectName    = /\b(\w+)$/.exec(textBeforeDot)?.[1] ?? (/[)\]]$/.test(textBeforeDot) ? undefined : withObject());
+            if (objectName) {
+                const objName    = objectName.toLowerCase();
 
                 // An intrinsic object first: Response, Request, Server and the
                 // rest are always in scope and are never declared, so they will
