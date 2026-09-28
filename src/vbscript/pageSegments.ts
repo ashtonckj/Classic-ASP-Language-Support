@@ -1,0 +1,96 @@
+/**
+ * pageSegments.ts
+ *
+ * Which parts of a page are VBScript, as offsets into the page, grouped into
+ * the separate programs the page really holds.
+ *
+ * The first program is the page flow:
+ *   - `<% … %>` is code and `<%= … %>` is an output expression. The first
+ *     `%>` ends the block even inside a string, as IIS does (see zoneUtils).
+ *   - `<%@ … %>` is a directive and holds no code.
+ *   - Any other text between two blocks is HTML. IIS compiles each such chunk
+ *     into a Response.WriteBlock statement, so it matters to the grammar: HTML
+ *     between `Select Case` and the first `Case` is an error. A chunk of only
+ *     whitespace is just a line break.
+ *
+ * Each `<script language="vbscript">` body (the blocks getZone reports as the
+ * asp zone) is a program of its own. A client-side one runs in the browser,
+ * and even a `runat="server"` one is not part of the page flow, so a Sub in it
+ * does not sit inside whatever `<% If %>` surrounds the tag.
+ *
+ * A file with no `<%` and no VBScript script block is read as code from end
+ * to end, as the extension already does for pure-code include files, unless
+ * it starts with a tag: then it is plain markup and holds no VBScript.
+ *
+ * Includes are not followed here. An `<!-- #include -->` is just HTML.
+ */
+
+import { getAspBlockRanges, getVbScriptBlockRanges } from '../utils/zoneUtils';
+
+export type SegmentKind = 'code' | 'output' | 'html';
+
+export interface Segment {
+    kind: SegmentKind;
+    start: number;
+    end: number;
+}
+
+export function pagePrograms(text: string): Segment[][] {
+    const aspBlocks = getAspBlockRanges(text).map(r => ({ start: r.start, end: Math.min(r.end, text.length) }));
+    const scriptBodies = getVbScriptBlockRanges(text);
+
+    if (aspBlocks.length === 0 && scriptBodies.length === 0) {
+        // Markup with no server code at all holds no VBScript.
+        return /^\s*</.test(text) ? [] : [[{ kind: 'code', start: 0, end: text.length }]];
+    }
+
+    const flow: Segment[] = [];
+    let pos = 0;
+    for (const block of aspBlocks) {
+        const closed = block.end - 2 >= block.start + 2 && text.startsWith('%>', block.end - 2);
+        const bodyEnd = closed ? block.end - 2 : block.end;
+        const marker = text[block.start + 2];
+
+        if (marker === '@') { continue; }
+        if (block.start > pos) { pushGap(text, pos, block.start, flow); }
+        pos = block.end;
+
+        if (marker === '=') {
+            flow.push({ kind: 'output', start: block.start + 3, end: Math.max(block.start + 3, bodyEnd) });
+        } else {
+            flow.push({ kind: 'code', start: block.start + 2, end: bodyEnd });
+        }
+    }
+
+    if (pos < text.length) { pushGap(text, pos, text.length, flow); }
+
+    const programs: Segment[][] = [flow];
+
+    // Each script body, less any `<% %>` block written inside it: that block
+    // belongs to the page flow, and splits the script around it.
+    for (const body of scriptBodies) {
+        const pieces: Segment[] = [];
+        let from = body.start;
+        for (const block of aspBlocks) {
+            if (block.end <= from || block.start >= body.end) { continue; }
+            if (block.start > from) { pieces.push({ kind: 'code', start: from, end: block.start }); }
+            from = Math.max(from, block.end);
+        }
+        if (from < body.end) { pieces.push({ kind: 'code', start: from, end: body.end }); }
+        if (pieces.length > 0) { programs.push(pieces); }
+    }
+
+    return programs;
+}
+
+/**
+ * The text between two flow blocks becomes an HTML segment unless it is only
+ * whitespace or directives.
+ */
+function pushGap(text: string, start: number, end: number, out: Segment[]): void {
+    const gap = text.slice(start, end).replace(/<%@[\s\S]*?%>/g, m => ' '.repeat(m.length));
+    const first = gap.search(/\S/);
+    if (first === -1) { return; }
+    // Trimmed, so an error about the chunk points at the HTML itself.
+    out.push({ kind: 'html', start: start + first, end: start + gap.trimEnd().length });
+}
