@@ -54,12 +54,14 @@ export function parseProgram(text: string, segments: Segment[], server = true): 
         body,
         diagnostics: parser.diagnostics,
         comments,
+        skippedNames: parser.skippedNames,
         server,
     };
 }
 
 class Parser {
     readonly diagnostics: A.Diagnostic[] = [];
+    readonly skippedNames: A.Program['skippedNames'] = [];
 
     private pos = 0;
     private readonly blocks: BlockKind[] = [];
@@ -139,7 +141,15 @@ class Parser {
     private skipToEOS(): A.Span | null {
         const start = this.tok.start;
         let end = start;
-        while (!this.atEOS()) { end = this.advance().end; }
+        while (!this.atEOS()) {
+            const t = this.advance();
+            end = t.end;
+            if (t.kind === TokenKind.Identifier && (t.bracketed || !RESERVED.has(t.value))) {
+                const prev = this.tokens[this.pos - 2];
+                const member = prev?.kind === TokenKind.Punct && prev.value === '.';
+                this.skippedNames.push({ ...this.nameFrom(t), member });
+            }
+        }
         return end > start ? { start, end } : null;
     }
 

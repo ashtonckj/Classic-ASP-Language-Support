@@ -116,6 +116,14 @@ describe('binder — what a name refers to', () => {
         assert.ok(!binding.references.some(r => r.name === 'put' || r.name === 'count'));
     });
 
+    it('still looks up a name in the part of a line skipped after an error', () => {
+        const code = 'Dim total\nSub S(total)\n  x = 1 +\n  x = ) total\nEnd Sub\ny = ( total obj.total';
+        assert.strictEqual(resolved(code, 'total', 4), 'parameter procedure@2');
+        assert.strictEqual(resolved(code, 'total', 6), 'variable script@1');
+        const { binding } = bindCode(code);
+        assert.deepStrictEqual(binding.members.map(m => m.name), ['total']);
+    });
+
     it('keeps a client-side VBScript block apart from the server code', () => {
         const text = '<% Dim x %>\n<script language="vbscript">\nDim x\n</script>';
         assert.deepStrictEqual(bindPage('page.asp', parsePage(text)).diagnostics, []);

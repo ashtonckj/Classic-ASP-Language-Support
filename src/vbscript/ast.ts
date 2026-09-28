@@ -306,6 +306,11 @@ export interface Program extends Span {
     body: Stmt[];
     diagnostics: Diagnostic[];
     comments: Span[];
+    /**
+     * The names in code skipped after an error, so a half-typed line still
+     * counts as using them. `member` marks one written after a dot.
+     */
+    skippedNames: (Name & { member: boolean })[];
     /** False for a client-side `<script language="vbscript">`, which runs in the browser. */
     server: boolean;
 }

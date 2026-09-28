@@ -22,6 +22,10 @@
  * A client-side `<script language="vbscript">` runs in the browser, so each
  * one is a script scope of its own.
  *
+ * A name in the part of a statement the parser skipped after an error is
+ * still looked up, as a read in the procedure or class it sits in, so a
+ * half-typed line does not drop out of a rename.
+ *
  * Declaring a name twice where VBScript forbids it is reported as "Name
  * redefined", on the later declaration, with the engine's own rules (checked
  * against cscript.exe): the same Sub or Function twice in the script scope is
@@ -142,6 +146,11 @@ class Binder {
         for (const { file, stmt } of server) { this.declare([stmt], script, file.path); }
         for (const { file, stmt } of server) { this.declareImplicitGlobals([stmt], script, file.path); }
         for (const { file, stmt } of server) { this.resolve([stmt], script, file.path); }
+        for (const file of this.scriptScope.files) {
+            for (const program of file.page.programs) {
+                if (program.server) { this.resolveSkipped(program, script, file.path); }
+            }
+        }
 
         // Each client-side script on its own.
         for (const file of this.scriptScope.files) {
@@ -151,6 +160,7 @@ class Binder {
                 this.declare(program.body, own, file.path);
                 this.declareImplicitGlobals(program.body, own, file.path);
                 this.resolve(program.body, own, file.path);
+                this.resolveSkipped(program, own, file.path);
             }
         }
         return this.binding;
@@ -358,6 +368,31 @@ class Binder {
                     break;
             }
         }
+    }
+
+    /** Names the parser skipped after an error, read in the procedure or class they sit in. */
+    private resolveSkipped(program: A.Program, script: Scope, file: string): void {
+        for (const n of program.skippedNames) {
+            const scope = this.scopeAt(program.body, n.start, script);
+            if (n.member) {
+                this.binding.members.push({ name: n.name, file, span: { start: n.start, end: n.end }, scope });
+            } else {
+                this.use(scope, file, n, false);
+            }
+        }
+    }
+
+    /** The scope of the innermost procedure or class around `offset`. */
+    private scopeAt(stmts: A.Stmt[], offset: number, scope: Scope): Scope {
+        const s = stmts.find(st => st.start <= offset && offset < st.end);
+        if (!s) { return scope; }
+        if (s.kind === 'Procedure') { return this.scopeAt(s.body, offset, this.binding.scopeOf.get(s)!); }
+        if (s.kind === 'Class') { return this.scopeAt(s.members, offset, this.binding.scopeOf.get(s)!); }
+        for (const body of childBodies(s)) {
+            const inner = this.scopeAt(body, offset, scope);
+            if (inner !== scope) { return inner; }
+        }
+        return scope;
     }
 
     /** The left side of an assignment: a bare name is written, anything else is read. */
