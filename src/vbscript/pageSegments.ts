@@ -35,13 +35,22 @@ export interface Segment {
     end: number;
 }
 
-export function pagePrograms(text: string): Segment[][] {
+export interface ProgramSource {
+    segments: Segment[];
+    /**
+     * False for a `<script language="vbscript">` without `runat="server"`:
+     * it runs in the browser, so its names are not the page's.
+     */
+    server: boolean;
+}
+
+export function pagePrograms(text: string): ProgramSource[] {
     const aspBlocks = getAspBlockRanges(text).map(r => ({ start: r.start, end: Math.min(r.end, text.length) }));
     const scriptBodies = getVbScriptBlockRanges(text);
 
     if (aspBlocks.length === 0 && scriptBodies.length === 0) {
         // Markup with no server code at all holds no VBScript.
-        return /^\s*</.test(text) ? [] : [[{ kind: 'code', start: 0, end: text.length }]];
+        return /^\s*</.test(text) ? [] : [{ segments: [{ kind: 'code', start: 0, end: text.length }], server: true }];
     }
 
     const flow: Segment[] = [];
@@ -64,7 +73,7 @@ export function pagePrograms(text: string): Segment[][] {
 
     if (pos < text.length) { pushGap(text, pos, text.length, flow); }
 
-    const programs: Segment[][] = [flow];
+    const programs: ProgramSource[] = [{ segments: flow, server: true }];
 
     // Each script body, less any `<% %>` block written inside it: that block
     // belongs to the page flow, and splits the script around it.
@@ -77,10 +86,16 @@ export function pagePrograms(text: string): Segment[][] {
             from = Math.max(from, block.end);
         }
         if (from < body.end) { pieces.push({ kind: 'code', start: from, end: body.end }); }
-        if (pieces.length > 0) { programs.push(pieces); }
+        if (pieces.length > 0) { programs.push({ segments: pieces, server: runsAtServer(text, body.start) }); }
     }
 
     return programs;
+}
+
+/** True when the `<script>` tag whose body starts at `bodyStart` has `runat="server"`. */
+function runsAtServer(text: string, bodyStart: number): boolean {
+    const tagStart = text.slice(0, bodyStart).toLowerCase().lastIndexOf('<script');
+    return tagStart !== -1 && /\brunat\s*=\s*["']?server\b/i.test(text.slice(tagStart, bodyStart));
 }
 
 /**
@@ -88,7 +103,7 @@ export function pagePrograms(text: string): Segment[][] {
  * whitespace or directives.
  */
 function pushGap(text: string, start: number, end: number, out: Segment[]): void {
-    const gap = text.slice(start, end).replace(/<%@[\s\S]*?%>/g, m => ' '.repeat(m.length));
+    const gap = text.slice(start, end).replace(/<%\s*@[\s\S]*?%>/g, m => ' '.repeat(m.length));
     const first = gap.search(/\S/);
     if (first === -1) { return; }
     // Trimmed, so an error about the chunk points at the HTML itself.

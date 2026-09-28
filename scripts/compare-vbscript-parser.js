@@ -215,7 +215,7 @@ function oracleCompare(doc) {
     let verdict = 'agree-clean';
     const notes = [];
 
-    programs.forEach((segments, i) => {
+    programs.forEach(({ segments }, i) => {
         const { body, map } = oracleSource(page, segments);
         const cs = runCscript(body);
         // cscript reports a block left open on the last line of the source, which
@@ -272,7 +272,7 @@ const STRAY_LINES = ['If x Then', 'End If', 'Else', 'Next', 'Loop', 'Wend', 'End
 
 /** One small random edit inside the page's VBScript, and what it was. */
 function mutate(text, rand) {
-    const code = pagePrograms(text).flat().filter(seg => seg.kind !== 'html' && seg.end > seg.start);
+    const code = pagePrograms(text).flatMap(p => p.segments).filter(seg => seg.kind !== 'html' && seg.end > seg.start);
     const total = code.reduce((n, seg) => n + seg.end - seg.start, 0);
     let pick = Math.floor(rand() * total);
     const seg = code.find(c => (pick -= c.end - c.start) < 0) ?? code[0];

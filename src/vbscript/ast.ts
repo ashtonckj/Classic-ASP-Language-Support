@@ -306,4 +306,6 @@ export interface Program extends Span {
     body: Stmt[];
     diagnostics: Diagnostic[];
     comments: Span[];
+    /** False for a client-side `<script language="vbscript">`, which runs in the browser. */
+    server: boolean;
 }

@@ -44,7 +44,7 @@ const END_WORDS: Record<string, BlockKind> = {
 /** How deep expressions may nest before the parser gives up on one, so no input can overflow the stack. */
 const MAX_DEPTH = 500;
 
-export function parseProgram(text: string, segments: Segment[]): A.Program {
+export function parseProgram(text: string, segments: Segment[], server = true): A.Program {
     const { tokens, comments } = tokenize(text, segments);
     const parser = new Parser(tokens);
     const body = parser.parseModule();
@@ -54,6 +54,7 @@ export function parseProgram(text: string, segments: Segment[]): A.Program {
         body,
         diagnostics: parser.diagnostics,
         comments,
+        server,
     };
 }
 

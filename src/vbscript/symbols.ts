@@ -28,7 +28,7 @@ export interface ParsedPage {
 }
 
 export function parsePage(text: string): ParsedPage {
-    const programs = pagePrograms(text).map(segments => parseProgram(text, segments));
+    const programs = pagePrograms(text).map(p => parseProgram(text, p.segments, p.server));
     const lineStarts = [0];
     // Lines split at `\n` only, as extractSymbols and VS Code's CRLF files count them.
     for (let i = 0; i < text.length; i++) {
