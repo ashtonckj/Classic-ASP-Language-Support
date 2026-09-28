@@ -17,6 +17,10 @@
  *   --cscript  asks Windows' own VBScript engine (cscript.exe) whether each
  *              page compiles, and compares that with the parser's errors.
  *              Nothing runs: the program starts with WScript.Quit.
+ *   --includes with --cscript, also checks every .asp page with its #include
+ *              files pasted in, as IIS pastes them, against the parser and
+ *              the binder on the page's script scope. Virtual paths start at
+ *              the --dir folder.
  *   --fuzz N   cuts every test-files page N times at random places, the way a
  *              page looks mid-edit, and checks the parser never throws.
  *   --mutants N  breaks each test-files page that compiles cleanly in N small
@@ -42,6 +46,9 @@ const current = {
     scanAspStructure: require(path.join(root, 'out/providers/aspStructureDiagnosticsProvider.js')).scanAspStructure,
 };
 const { symbolsFromTree, parsePage, lineAt } = require(path.join(root, 'out/vbscript/symbols.js'));
+const { bindPage, bindScriptScope } = require(path.join(root, 'out/vbscript/binder.js'));
+const { buildScriptScope } = require(path.join(root, 'out/vbscript/scriptScope.js'));
+const { parseIncludeDirectives, resolveIncludeDirective } = require(path.join(root, 'out/utils/includeDirectives.js'));
 const { pagePrograms } = require(path.join(root, 'out/vbscript/pageSegments.js'));
 
 const baselineIndex = args.indexOf('--baseline');
@@ -60,6 +67,7 @@ if (baselineDir) {
 }
 
 const useCscript = args.includes('--cscript');
+const useIncludes = args.includes('--includes');
 const verbose = args.includes('--verbose');
 const fuzzIndex = args.indexOf('--fuzz');
 const fuzzCount = fuzzIndex === -1 ? 0 : Number(args[fuzzIndex + 1] ?? 200);
@@ -83,6 +91,7 @@ const pageRoot = dirIndex === -1 ? path.join(root, 'test-files') : path.resolve(
 
 const docs = listPages(pageRoot).map(file => ({
     name: path.relative(pageRoot, file).replace(/\\/g, '/'),
+    path: file,
     text: fs.readFileSync(file, 'utf8'),
     isPage: true,
 }));
@@ -212,6 +221,7 @@ function oracleCompare(doc) {
     if (/<%@[^%]*language\s*=\s*"?(jscript|javascript)/i.test(doc.text)) { return null; }
     const page = parsePage(doc.text);
     const programs = pagePrograms(doc.text);
+    const binding = bindPage('page', page);
     let verdict = 'agree-clean';
     const notes = [];
 
@@ -223,7 +233,11 @@ function oracleCompare(doc) {
         // the end of the page. Both mean the end of the program.
         const programEnd = lineAt(page, segments[segments.length - 1].end);
         const csLine = cs ? (cs.line < map.length - 1 ? map[cs.line] : programEnd) : null;
-        const ours = page.programs[i].diagnostics.map(d => ({ line: lineAt(page, d.start), message: d.message }));
+        const program = page.programs[i];
+        const ours = [
+            ...program.diagnostics,
+            ...binding.diagnostics.filter(d => d.start >= program.start && d.start <= program.end),
+        ].map(d => ({ line: lineAt(page, d.start), message: d.message }));
 
         let v;
         if (!cs && ours.length === 0) { v = 'agree-clean'; }
@@ -240,6 +254,93 @@ function oracleCompare(doc) {
         if (rank.indexOf(v) > rank.indexOf(verdict)) { verdict = v; }
     });
     return { verdict, notes };
+}
+
+// ── cscript, with includes ───────────────────────────────────────────────────
+
+function readOrNull(file) {
+    try { return fs.readFileSync(file, 'utf8'); } catch { return null; }
+}
+
+/**
+ * The page with every #include pasted in, as IIS pastes it (an include named
+ * twice goes in twice), and the file and line each line of the result came from.
+ */
+function splicePage(rootPath, rootText) {
+    const pieces = [];
+    const visit = (file, text, stack) => {
+        let pos = 0;
+        for (const d of parseIncludeDirectives(text)) {
+            const close = text.indexOf('-->', d.index);
+            pieces.push({ file, text, start: pos, end: d.index });
+            pos = close === -1 ? text.length : close + 3;
+            const target = resolveIncludeDirective(d, file, pageRoot);
+            if (stack.includes(target.toLowerCase())) { continue; }
+            const t = readOrNull(target);
+            if (t !== null) { visit(target, t, [...stack, target.toLowerCase()]); }
+        }
+        pieces.push({ file, text, start: pos, end: text.length });
+    };
+    visit(rootPath, rootText, [rootPath.toLowerCase()]);
+
+    // Each line of the result is placed where its first character came from.
+    let spliced = '';
+    const lineMap = [];
+    let atLineStart = true;
+    let last = { file: rootPath, line: 0 };
+    for (const p of pieces) {
+        let line = p.text.slice(0, p.start).split('\n').length - 1;
+        for (let o = p.start; o < p.end; o++) {
+            if (atLineStart) { lineMap.push({ file: p.file, line }); atLineStart = false; }
+            if (p.text[o] === '\n') { atLineStart = true; line++; }
+        }
+        if (p.end > p.start) { last = { file: p.file, line }; }
+        spliced += p.text.slice(p.start, p.end);
+    }
+    if (atLineStart) { lineMap.push(last); }
+    return { spliced, lineMap };
+}
+
+/**
+ * cscript on the page with its includes pasted in, against the parser and the
+ * binder on the page's script scope, each error placed by file and line.
+ */
+function includeOracle(doc) {
+    const { spliced, lineMap } = splicePage(doc.path, doc.text);
+    const splicedPage = parsePage(spliced);
+    const key = (file, line) => `${path.relative(pageRoot, file).replace(/\\/g, '/')}:${line + 1}`;
+
+    const scope = buildScriptScope(doc.path, doc.text, {
+        read: readOrNull,
+        resolve: (d, from) => resolveIncludeDirective(d, from, pageRoot),
+    });
+    const binding = bindScriptScope(scope);
+    const byPath = new Map(scope.files.map(f => [f.path, f]));
+    const ours = [];
+    for (const f of scope.files) {
+        for (const p of f.page.programs) { for (const d of p.diagnostics) { ours.push({ at: key(f.path, lineAt(f.page, d.start)), message: d.message }); } }
+    }
+    for (const d of binding.diagnostics) { ours.push({ at: key(d.file, lineAt(byPath.get(d.file).page, d.start)), message: d.message }); }
+
+    const errors = [];
+    for (const { segments } of pagePrograms(spliced)) {
+        const { body, map } = oracleSource(splicedPage, segments);
+        const cs = runCscript(body);
+        if (!cs) { continue; }
+        const splicedLine = cs.line < map.length - 1 ? map[cs.line] : lineAt(splicedPage, segments[segments.length - 1].end);
+        const where = lineMap[splicedLine] ?? lineMap[lineMap.length - 1];
+        errors.push({ at: key(where.file, where.line), message: cs.message });
+    }
+
+    if (errors.length === 0 && ours.length === 0) { return { verdict: 'agree-clean', notes: [], files: scope.files.length }; }
+    if (errors.length === 0) { return { verdict: 'ours-only', notes: ours.slice(0, 3).map(o => `ours: ${o.at} ${o.message}`), files: scope.files.length }; }
+    const missed = errors.filter(e => !ours.some(o => o.at === e.at));
+    if (missed.length === 0) { return { verdict: 'agree-error', notes: [], files: scope.files.length }; }
+    return {
+        verdict: missed.every(e => SEMANTIC.test(e.message)) ? 'cscript-only-semantic' : 'disagree',
+        notes: [...missed.map(e => `cscript: ${e.at} ${e.message}`), ...ours.slice(0, 3).map(o => `ours: ${o.at} ${o.message}`)],
+        files: scope.files.length,
+    };
 }
 
 // ── Fuzzing ──────────────────────────────────────────────────────────────────
@@ -259,7 +360,11 @@ function fuzz(doc, count) {
             ? { how: `cut at ${at}`, text: doc.text.slice(0, at) }
             : { how: `delete ${at}+${1 + Math.floor(rand() * 200)}`, text: doc.text.slice(0, at) + doc.text.slice(at + 1 + Math.floor(rand() * 200)) };
         const t0 = process.hrtime.bigint();
-        try { symbolsFromTree(cut.text, 'fuzz'); current.scanAspStructure(fakeDocument(cut.text)); }
+        try {
+            symbolsFromTree(cut.text, 'fuzz');
+            current.scanAspStructure(fakeDocument(cut.text));
+            bindPage('fuzz', parsePage(cut.text));
+        }
         catch (e) { failures.push(`${cut.how}: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`); }
         const ms = Number(process.hrtime.bigint() - t0) / 1e6;
         if (ms > worst.ms) { worst = { ms, how: cut.how }; }
@@ -311,6 +416,13 @@ function mutants(doc, count) {
     for (let i = 0; i < count; i++) {
         const m = withoutLoneCr(mutate(doc.text, rand));
         if (!m) { break; }
+        // An empty `<%= %>` is written here as a bare `Response.Write`, which
+        // compiles; whether IIS compiles it too is not known, so it proves nothing.
+        const emptyOutputs = t => (t.match(/<%\s*=\s*%>/g) ?? []).length;
+        if (emptyOutputs(m.text) > emptyOutputs(doc.text)) {
+            tally['unclear (empty <%= %>)'] = (tally['unclear (empty <%= %>)'] ?? 0) + 1;
+            continue;
+        }
         const result = oracleCompare({ text: m.text });
         if (!result) { continue; }
         tally[result.verdict] = (tally[result.verdict] ?? 0) + 1;
@@ -332,7 +444,7 @@ function timeIt(fn, runs) {
 
 // ── Run ──────────────────────────────────────────────────────────────────────
 
-const report = { docs: [], totals: { docs: docs.length, identical: 0, differences: 0, oracle: {}, mutants: {} } };
+const report = { docs: [], totals: { docs: docs.length, identical: 0, differences: 0, oracle: {}, mutants: {}, includes: {} } };
 
 for (const doc of docs) {
     const entry = { name: doc.name, lines: doc.text.split('\n').length };
@@ -364,6 +476,10 @@ for (const doc of docs) {
         entry.oracle = oracleCompare(doc);
         if (entry.oracle) { report.totals.oracle[entry.oracle.verdict] = (report.totals.oracle[entry.oracle.verdict] ?? 0) + 1; }
     }
+    if (useCscript && useIncludes && doc.path && /\.asp$/i.test(doc.path)) {
+        entry.includes = includeOracle(doc);
+        report.totals.includes[entry.includes.verdict] = (report.totals.includes[entry.includes.verdict] ?? 0) + 1;
+    }
     if (fuzzCount > 0 && doc.isPage) { entry.fuzz = fuzz(doc, fuzzCount); }
     if (mutantCount > 0 && doc.isPage && oracleCompare(doc)?.verdict === 'agree-clean') {
         entry.mutants = mutants(doc, mutantCount);
@@ -383,17 +499,20 @@ for (const d of report.docs) {
     if (d.differences) { bits.push(d.differences.length === 0 ? 'same as baseline' : `${d.differences.length} difference(s) from baseline`); }
     if (d.ms) { bits.push(`${d.ms.old === undefined ? '' : `old ${d.ms.old.toFixed(1)} ms, `}new ${d.ms.new.toFixed(1)} ms`); }
     if (d.oracle) { bits.push(`cscript: ${d.oracle.verdict}`); }
+    if (d.includes) { bits.push(`with ${d.includes.files - 1} include(s): ${d.includes.verdict}`); }
     if (d.fuzz) { bits.push(`fuzz: ${d.fuzz.failures.length} throw(s), slowest ${d.fuzz.worst.ms.toFixed(1)} ms`); }
     if (d.mutants) { bits.push('mutants: ' + Object.entries(d.mutants.tally).map(([k, v]) => `${k} ${v}`).join(', ')); }
 
     const interesting = d.crash || (d.differences && d.differences.length > 0)
-        || (d.oracle && !d.oracle.verdict.startsWith('agree')) || (d.fuzz && d.fuzz.failures.length > 0);
+        || (d.oracle && !d.oracle.verdict.startsWith('agree')) || (d.fuzz && d.fuzz.failures.length > 0)
+        || (d.includes && !d.includes.verdict.startsWith('agree'));
     if (!interesting && !d.ms && !verbose) { continue; }
 
     console.log(`${d.name} (${d.lines} lines): ${bits.join('; ')}`);
     if (d.crash) { console.log('    ' + d.crash.split('\n').slice(0, 4).join('\n    ')); }
     for (const line of d.differences ?? []) { console.log('    ' + line); }
     for (const line of d.oracle?.notes ?? []) { console.log('    ' + line); }
+    for (const line of d.includes?.notes ?? []) { console.log('    includes: ' + line); }
     for (const line of (d.fuzz?.failures ?? []).slice(0, 5)) { console.log('    ' + line); }
     for (const line of d.mutants?.disagreements ?? []) { console.log('    mutant ' + line); }
 }
@@ -404,4 +523,5 @@ console.log(baseline
     ? `${t.docs} inputs against ${baseline.ref}: ${t.identical} the same, ${t.differences} difference(s) in total.`
     : `${t.docs} inputs checked.`);
 if (useCscript) { console.log('cscript: ' + Object.entries(t.oracle).map(([k, v]) => `${k} ${v}`).join(', ')); }
+if (useCscript && useIncludes) { console.log('with includes: ' + Object.entries(t.includes).map(([k, v]) => `${k} ${v}`).join(', ')); }
 if (mutantCount > 0) { console.log('mutants: ' + Object.entries(t.mutants).map(([k, v]) => `${k} ${v}`).join(', ')); }
