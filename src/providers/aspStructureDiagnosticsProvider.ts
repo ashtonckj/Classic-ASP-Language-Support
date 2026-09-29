@@ -23,8 +23,9 @@ import * as fs from 'fs';
 import { createZoneResolver } from '../utils/zoneUtils';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../utils/includeDirectives';
 import { removeStrings } from '../utils/documentHelper';
-import { lineAt, parsePage, type ParsedPage } from '../vbscript/symbols';
-import { findMissingSet, pageBlocks } from '../vbscript/pageAnalysis';
+import { parsePage } from '../vbscript/symbols';
+import { findMissingSet, pageBlocks, type BlockWarning } from '../vbscript/pageAnalysis';
+import { analysedPage } from './vbscriptWorkspace';
 import { areIncludeSymbolsReady, collectAllSymbols, configuredVirtualRoot, preloadIncludeSymbols } from './includeProvider';
 import { scanParserChecks } from './aspChecksProvider';
 
@@ -313,76 +314,22 @@ export function branchEvents(code: string): BranchEvent[] {
     return events;
 }
 
-// ── Matched block pairs ────────────────────────────────────────────────────────
-// A successfully matched opener/closer (the "good" case the diagnostics above
-// never report). Used to highlight the keyword matching the one under the
-// caret, which needs exactly the pairing scanAspStructure already computes
-// internally, just without throwing the matches away.
+// ── Block warnings ────────────────────────────────────────────────────────────
+// "Missing End If" and "End If with no If", read from the syntax tree
+// (vbscript/pageAnalysis.ts). After an edit they come from the VBScript worker
+// thread, with the matching-keyword highlight; Format Document reads them here,
+// since it must answer for exactly the text it is about to change.
 
-export interface BlockPair {
-    opener: { range: vscode.Range; text: string };
-    closer: { range: vscode.Range; text: string };
-}
-
-// ── Main scanner ──────────────────────────────────────────────────────────────
-// Shared by scanAspStructure (diagnostics for what's WRONG) and
-// getMatchedBlockPairs (ranges for what's RIGHT) so the two can never disagree
-// about how a file's blocks nest.
-
-type BlockScan = { diagnostics: vscode.Diagnostic[]; pairs: BlockPair[] };
-
-// The squiggles and the matching-keyword highlight both ask after every edit,
-// about the same text, and each used to scan the whole document for it. The
-// last scan of each of the most recent documents is kept for the other to use.
-const MAX_REMEMBERED_SCANS = 8;
-const _lastScan = new Map<string, { text: string; scan: BlockScan }>();
-
-function scanBlocks(document: vscode.TextDocument): BlockScan {
-    const fullText = document.getText();
-    const key      = document.uri?.toString() ?? '';
-
-    const last = _lastScan.get(key);
-    if (last?.text === fullText) { return last.scan; }
-
-    const scan = scanBlocksIn(fullText);
-    _lastScan.delete(key);
-    _lastScan.set(key, { text: fullText, scan });
-    if (_lastScan.size > MAX_REMEMBERED_SCANS) { _lastScan.delete(_lastScan.keys().next().value!); }
-    return scan;
-}
-
-function blockWarning(range: vscode.Range, message: string): vscode.Diagnostic {
-    return Object.assign(
-        new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Warning),
+/** The warnings as diagnostics on `document`, whose text they were read from. */
+export function blockDiagnostics(document: vscode.TextDocument, warnings: BlockWarning[]): vscode.Diagnostic[] {
+    return warnings.map(w => Object.assign(
+        new vscode.Diagnostic(new vscode.Range(document.positionAt(w.start), document.positionAt(w.end)), w.message, vscode.DiagnosticSeverity.Warning),
         { source: 'Classic ASP (VBScript)' },
-    );
-}
-
-function scanBlocksIn(fullText: string): BlockScan {
-    const page: ParsedPage = parsePage(fullText);
-    const position = (offset: number): vscode.Position => {
-        const line = lineAt(page, offset);
-        return new vscode.Position(line, offset - page.lineStarts[line]);
-    };
-    const range = (span: { start: number; end: number }): vscode.Range => new vscode.Range(position(span.start), position(span.end));
-
-    const blocks = pageBlocks(page);
-    return {
-        diagnostics: blocks.warnings.map(w => blockWarning(range(w), w.message)),
-        pairs: blocks.pairs.map(p => ({
-            opener: { range: range(p.opener), text: p.opener.text },
-            closer: { range: range(p.closer), text: p.closer.text },
-        })),
-    };
+    ));
 }
 
 export function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
-    return scanBlocks(document).diagnostics;
-}
-
-/** Every successfully matched opener/closer pair in the document, in the order their closers were found. */
-export function getMatchedBlockPairs(document: vscode.TextDocument): BlockPair[] {
-    return scanBlocks(document).pairs;
+    return blockDiagnostics(document, pageBlocks(parsePage(document.getText())).warnings);
 }
 
 // ── ASP tag balance scanner ───────────────────────────────────────────────────
@@ -579,10 +526,10 @@ export function registerAspStructureDiagnostics(
     const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
     function scanNow(document: vscode.TextDocument): void {
-        collection.set(document.uri, [
-            ...scanAspTags(document),
-            ...scanAspStructure(document),
-        ]);
+        void analysedPage(document).then(page => {
+            if (!page || document.isClosed || document.version !== page.version) { return; }
+            collection.set(document.uri, [...scanAspTags(document), ...blockDiagnostics(document, page.blocks.warnings)]);
+        });
         scanChecks(document);
 
         // Whether `conn` is a Connection may be written in an include, which

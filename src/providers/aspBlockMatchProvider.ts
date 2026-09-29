@@ -1,5 +1,11 @@
 import * as vscode from 'vscode';
-import { getMatchedBlockPairs, BlockPair } from './aspStructureDiagnosticsProvider';
+import { analysedPage } from './vbscriptWorkspace';
+
+/** A block's opener and the closer it was matched with, as they read in the editor. */
+interface BlockPair {
+    opener: vscode.Range;
+    closer: vscode.Range;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // aspBlockMatchProvider.ts
@@ -9,13 +15,13 @@ import { getMatchedBlockPairs, BlockPair } from './aspStructureDiagnosticsProvid
 // the caret on `If` (or `Do`, `Sub`, `Select Case`, ...) and its `End If` lights
 // up the way a `{` lights up its `}`.
 //
-// The pairing itself comes from aspStructureDiagnosticsProvider, which already
-// computes it to report MISmatches — reusing that scan means the highlight and
-// the diagnostics can never disagree about how a file's blocks nest.
+// The pairing comes from the same scan that reports MISmatches (the structure
+// warnings), read on the VBScript worker thread, so the highlight and the
+// warnings can never disagree about how a file's blocks nest.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Cached by document version. A rescan walks every line of the file, so it
-// must never run on every keystroke — onDidChangeTextEditorSelection fires
+// Cached by document version. A rescan reads the whole file, so it must never
+// be asked for on every keystroke — onDidChangeTextEditorSelection fires
 // once per cursor move, and a `type` command moves the cursor AND bumps the
 // version in the same tick, so naively rescanning there added a synchronous
 // full-document scan to every character typed anywhere in an .asp file. That
@@ -26,15 +32,18 @@ import { getMatchedBlockPairs, BlockPair } from './aspStructureDiagnosticsProvid
 interface PairCache { version: number; pairs: BlockPair[]; }
 const _pairCache = new Map<string, PairCache>();
 
-/** Always correct: rescans if the cache is stale. Only for LOW-frequency call sites (a tab switch, the debounced rescan) — never for a per-keystroke event. */
-function getPairsFresh(document: vscode.TextDocument): BlockPair[] {
+/** Brings the cache up to the document's current version. Only for LOW-frequency call sites (a tab switch, the debounced rescan) — never for a per-keystroke event. */
+async function refreshPairs(document: vscode.TextDocument): Promise<void> {
     const key = document.uri.toString();
-    const cached = _pairCache.get(key);
-    if (cached && cached.version === document.version) { return cached.pairs; }
+    if (_pairCache.get(key)?.version === document.version) { return; }
 
-    const pairs = getMatchedBlockPairs(document);
-    _pairCache.set(key, { version: document.version, pairs });
-    return pairs;
+    const page = await analysedPage(document);
+    if (!page || document.isClosed || document.version !== page.version) { return; }
+    const range = (k: { start: number; end: number }) => new vscode.Range(document.positionAt(k.start), document.positionAt(k.end));
+    _pairCache.set(key, {
+        version: page.version,
+        pairs:   page.blocks.pairs.map(p => ({ opener: range(p.opener), closer: range(p.closer) })),
+    });
 }
 
 /** Cheap: whatever's already cached, or nothing while a debounced rescan is still pending. Safe to call on every selection change. */
@@ -45,7 +54,7 @@ function getPairsCachedOnly(document: vscode.TextDocument): BlockPair[] {
 
 /** The pair whose opener or closer range contains `position`, if any. */
 function findPairAt(pairs: BlockPair[], position: vscode.Position): BlockPair | undefined {
-    return pairs.find(p => p.opener.range.contains(position) || p.closer.range.contains(position));
+    return pairs.find(p => p.opener.contains(position) || p.closer.contains(position));
 }
 
 export function registerAspBlockMatch(context: vscode.ExtensionContext): void {
@@ -61,7 +70,7 @@ export function registerAspBlockMatch(context: vscode.ExtensionContext): void {
     function applyFromCache(editor: vscode.TextEditor | undefined): void {
         if (!editor || editor.document.languageId !== 'asp') { return; }
         const match = findPairAt(getPairsCachedOnly(editor.document), editor.selection.active);
-        editor.setDecorations(decoration, match ? [match.opener.range, match.closer.range] : []);
+        editor.setDecorations(decoration, match ? [match.opener, match.closer] : []);
     }
 
     const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -73,9 +82,10 @@ export function registerAspBlockMatch(context: vscode.ExtensionContext): void {
         if (existing) { clearTimeout(existing); }
         debounceTimers.set(key, setTimeout(() => {
             debounceTimers.delete(key);
-            getPairsFresh(document); // warms the cache for the current version
-            const editor = vscode.window.activeTextEditor;
-            if (editor && editor.document === document) { applyFromCache(editor); }
+            void refreshPairs(document).then(() => {
+                const editor = vscode.window.activeTextEditor;
+                if (editor && editor.document === document) { applyFromCache(editor); }
+            });
         }, 200));
     }
 
@@ -83,8 +93,7 @@ export function registerAspBlockMatch(context: vscode.ExtensionContext): void {
         decoration,
         vscode.window.onDidChangeActiveTextEditor(editor => {
             if (!editor || editor.document.languageId !== 'asp') { return; }
-            getPairsFresh(editor.document); // a tab switch is rare enough to scan synchronously
-            applyFromCache(editor);
+            void refreshPairs(editor.document).then(() => applyFromCache(vscode.window.activeTextEditor));
         }),
         vscode.window.onDidChangeTextEditorSelection(e => applyFromCache(e.textEditor)),
         vscode.workspace.onDidChangeTextDocument(e => scheduleRescan(e.document)),
@@ -106,7 +115,6 @@ export function registerAspBlockMatch(context: vscode.ExtensionContext): void {
     // Run immediately on whatever's already open, same as
     // registerAspStructureDiagnostics does for its own initial scan.
     if (vscode.window.activeTextEditor?.document.languageId === 'asp') {
-        getPairsFresh(vscode.window.activeTextEditor.document);
-        applyFromCache(vscode.window.activeTextEditor);
+        void refreshPairs(vscode.window.activeTextEditor.document).then(() => applyFromCache(vscode.window.activeTextEditor));
     }
 }

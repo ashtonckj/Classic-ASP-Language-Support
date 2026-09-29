@@ -1,8 +1,8 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { branchEvents, classifyLine, findMissingIncludes, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
-import { findMissingSet } from '../../vbscript/pageAnalysis';
-import { parsePage } from '../../vbscript/symbols';
+import { branchEvents, classifyLine, findMissingIncludes, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
+import { findMissingSet, pageBlocks, type Keyword } from '../../vbscript/pageAnalysis';
+import { lineAt, parsePage } from '../../vbscript/symbols';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -13,10 +13,21 @@ function kinds(actions: Array<{ type: string; kind: string }>): string[] {
 
 let pageCount = 0;
 
-/** Enough of a document for the block scan, which reads only the text. */
+/** Enough of a document for the block scan, which reads the text and turns offsets into positions. */
 function pageDoc(text: string): vscode.TextDocument {
     const uri = `file:///page-${++pageCount}.asp`;
-    return { uri: { toString: () => uri }, getText: () => text } as unknown as vscode.TextDocument;
+    const positionAt = (offset: number) => {
+        const before = text.slice(0, offset);
+        return new vscode.Position(before.split('\n').length - 1, offset - before.lastIndexOf('\n') - 1);
+    };
+    return { uri: { toString: () => uri }, getText: () => text, positionAt } as unknown as vscode.TextDocument;
+}
+
+/** The blocks the matching-keyword highlight pairs up, with the line each keyword is on. */
+function matchedPairs(text: string): { opener: { text: string; line: number }; closer: { text: string; line: number } }[] {
+    const page = parsePage(text);
+    const at = (k: Keyword) => ({ text: k.text, line: lineAt(page, k.start) });
+    return pageBlocks(page).pairs.map(p => ({ opener: at(p.opener), closer: at(p.closer) }));
 }
 
 /** Each block warning as "line:column message". */
@@ -43,7 +54,7 @@ describe('scanAspStructure — HTML prose is not read as VBScript', () => {
 
     it('pairs two <% %> blocks on one line', () => {
         assert.deepStrictEqual(warnings('<% If a Then %>x<% End If %>'), []);
-        assert.strictEqual(getMatchedBlockPairs(pageDoc('<% If a Then %>x<% End If %>')).length, 1);
+        assert.strictEqual(matchedPairs('<% If a Then %>x<% End If %>').length, 1);
     });
 
     it('reads the lines of a multi-line block as code', () => {
@@ -142,30 +153,17 @@ describe('classifyLine — member access is not a block keyword', () => {
     });
 });
 
-// getMatchedBlockPairs powers the matching-keyword highlight — it must find
-// exactly the pairs scanAspStructure agrees are correctly closed, sharing the
-// same scan so the two can never disagree.
-describe('getMatchedBlockPairs', () => {
-    function doc(text: string): vscode.TextDocument {
-        const lines = text.split('\n');
-        const lineOffsets: number[] = [];
-        let acc = 0;
-        for (const l of lines) { lineOffsets.push(acc); acc += l.length + 1; }
-        return {
-            getText:   () => text,
-            lineCount: lines.length,
-            lineAt:    (i: number) => ({ text: lines[i] }),
-            offsetAt:  (pos: vscode.Position) => lineOffsets[pos.line] + pos.character,
-        } as unknown as vscode.TextDocument;
-    }
-
+// The pairs power the matching-keyword highlight — they must be exactly the
+// blocks scanAspStructure agrees are correctly closed, both read from one scan
+// so the two can never disagree.
+describe('pageBlocks — matched pairs', () => {
     it('matches a simple If ... End If', () => {
-        const pairs = getMatchedBlockPairs(doc('<%\nIf x Then\n  y = 1\nEnd If\n%>'));
+        const pairs = matchedPairs('<%\nIf x Then\n  y = 1\nEnd If\n%>');
         assert.strictEqual(pairs.length, 1);
         assert.strictEqual(pairs[0].opener.text, 'If');
-        assert.strictEqual(pairs[0].opener.range.start.line, 1);
+        assert.strictEqual(pairs[0].opener.line, 1);
         assert.strictEqual(pairs[0].closer.text, 'End If');
-        assert.strictEqual(pairs[0].closer.range.start.line, 3);
+        assert.strictEqual(pairs[0].closer.line, 3);
     });
 
     it('matches nested blocks as two separate, correctly nested pairs', () => {
@@ -178,32 +176,32 @@ describe('getMatchedBlockPairs', () => {
             'End Sub',         // 5
             '%>',              // 6
         ].join('\n');
-        const pairs = getMatchedBlockPairs(doc(text));
+        const pairs = matchedPairs(text);
         assert.strictEqual(pairs.length, 2);
 
         const ifPair  = pairs.find(p => p.opener.text === 'If')!;
         const subPair = pairs.find(p => p.opener.text === 'Sub')!;
         assert.ok(ifPair && subPair, `expected both an If and a Sub pair; got ${JSON.stringify(pairs.map(p => p.opener.text))}`);
-        assert.strictEqual(ifPair.opener.range.start.line, 2);
-        assert.strictEqual(ifPair.closer.range.start.line, 4);
-        assert.strictEqual(subPair.opener.range.start.line, 1);
-        assert.strictEqual(subPair.closer.range.start.line, 5);
+        assert.strictEqual(ifPair.opener.line, 2);
+        assert.strictEqual(ifPair.closer.line, 4);
+        assert.strictEqual(subPair.opener.line, 1);
+        assert.strictEqual(subPair.closer.line, 5);
     });
 
     it('does not report a pair for an unclosed block', () => {
-        const pairs = getMatchedBlockPairs(doc('<%\nIf x Then\n  y = 1\n%>'));
+        const pairs = matchedPairs('<%\nIf x Then\n  y = 1\n%>');
         assert.deepStrictEqual(pairs, []);
         // scanAspStructure must still flag it — the two must agree.
-        assert.strictEqual(scanAspStructure(doc('<%\nIf x Then\n  y = 1\n%>')).length, 1);
+        assert.strictEqual(scanAspStructure(pageDoc('<%\nIf x Then\n  y = 1\n%>')).length, 1);
     });
 
     it('does not report a pair for a stray closer with no opener', () => {
-        const pairs = getMatchedBlockPairs(doc('<%\nEnd If\n%>'));
+        const pairs = matchedPairs('<%\nEnd If\n%>');
         assert.deepStrictEqual(pairs, []);
     });
 
     it('a one-liner opener+closer joined by a colon still matches', () => {
-        const pairs = getMatchedBlockPairs(doc('<%\nFor i = 1 To 10 : Next\n%>'));
+        const pairs = matchedPairs('<%\nFor i = 1 To 10 : Next\n%>');
         assert.strictEqual(pairs.length, 1);
         assert.strictEqual(pairs[0].opener.text, 'For');
         assert.strictEqual(pairs[0].closer.text, 'Next');
@@ -236,38 +234,6 @@ describe('classifyLine — real keywords still classified', () => {
 
     it('does not treat On Error Resume Next as a For closer', () => {
         assert.deepStrictEqual(classifyLine('On Error Resume Next'), []);
-    });
-});
-
-// The squiggles and the matching-keyword highlight both ask about the document
-// after every edit; the second asks about the text the first just scanned.
-describe('scanAspStructure / getMatchedBlockPairs — one scan per text', () => {
-    function doc(uri: string, text: string): vscode.TextDocument {
-        const lines = text.split('\n');
-        const lineOffsets: number[] = [];
-        let acc = 0;
-        for (const l of lines) { lineOffsets.push(acc); acc += l.length + 1; }
-        return {
-            uri:       { toString: () => uri },
-            getText:   () => text,
-            lineCount: lines.length,
-            lineAt:    (i: number) => ({ text: lines[i] }),
-            offsetAt:  (pos: vscode.Position) => lineOffsets[pos.line] + pos.character,
-        } as unknown as vscode.TextDocument;
-    }
-
-    it('gives the second caller the scan the first one made', () => {
-        const page = doc('file:///shared.asp', '<%\nIf x Then\n  y = 1\nEnd If\n%>');
-        const first = getMatchedBlockPairs(page);
-        assert.strictEqual(getMatchedBlockPairs(page), first);
-    });
-
-    it('scans again once the text has changed', () => {
-        const before = doc('file:///edited.asp', '<%\nIf x Then\n  y = 1\nEnd If\n%>');
-        const after  = doc('file:///edited.asp', '<%\nIf x Then\n  y = 1\n%>');
-        assert.strictEqual(scanAspStructure(before).length, 0);
-        assert.strictEqual(scanAspStructure(after).length, 1, 'the missing End If should be reported');
-        assert.strictEqual(getMatchedBlockPairs(after).length, 0);
     });
 });
 
