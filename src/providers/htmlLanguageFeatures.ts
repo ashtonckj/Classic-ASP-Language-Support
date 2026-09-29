@@ -12,7 +12,8 @@ import * as vscode from 'vscode';
 import type * as HtmlLs from 'vscode-html-languageservice';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
 import { getAspBlockRanges, getZone } from '../utils/zoneUtils';
-import { branchEvents, classifyLine } from './aspStructureDiagnosticsProvider';
+import type { BlockEvent } from '../vbscript/pageAnalysis';
+import { analysedPage } from './vbscriptWorkspace';
 
 let _htmlLs:  typeof HtmlLs | undefined;
 let _service: HtmlLs.LanguageService | undefined;
@@ -136,20 +137,17 @@ export function attributeHasValues(tagName: string, attribute: string): boolean 
  * has two start tags for the one end tag, and renaming either one with the end
  * tag would leave the other branch unmatched.
  */
-export function vbScriptBalancedBetween(text: string, from: number, to: number): boolean {
+export function vbScriptBalancedBetween(text: string, from: number, to: number, events: BlockEvent[]): boolean {
+    const blocks = getAspBlockRanges(text).filter(block => block.start >= from && block.end <= to);
     let depth = 0;
-    for (const block of getAspBlockRanges(text)) {
-        if (block.start < from || block.end > to) { continue; }
-        const code = text.slice(block.start + 2, block.end - 2);
-        if (/^\s*[=@]/.test(code)) { continue; } // an output expression or a directive
-
-        for (const line of code.split(/\r?\n/)) {
-            if (depth === 0 && branchEvents(line).some(event => event.type === 'branch')) { return false; }
-            for (const action of classifyLine(line)) {
-                depth += action.type === 'open' ? 1 : -1;
-                if (depth < 0) { return false; }
-            }
+    for (const event of events) {
+        if (!blocks.some(block => block.start <= event.at && event.at < block.end)) { continue; }
+        if (event.type === 'branch') {
+            if (depth === 0) { return false; }
+            continue;
         }
+        depth += event.type === 'open' ? 1 : -1;
+        if (depth < 0) { return false; }
     }
     return depth === 0;
 }
@@ -159,7 +157,9 @@ export function vbScriptBalancedBetween(text: string, from: number, to: number):
  * — the same VS Code feature a .html file has, off unless the user turns it on.
  */
 export class HtmlLinkedEditingProvider implements vscode.LinkedEditingRangeProvider {
-    provideLinkedEditingRanges(document: vscode.TextDocument, position: vscode.Position): vscode.LinkedEditingRanges | undefined {
+    async provideLinkedEditingRanges(
+        document: vscode.TextDocument, position: vscode.Position, token?: vscode.CancellationToken,
+    ): Promise<vscode.LinkedEditingRanges | undefined> {
         if (!inMarkup(document, position)) { return undefined; }
 
         const page   = parse(document);
@@ -167,7 +167,11 @@ export class HtmlLinkedEditingProvider implements vscode.LinkedEditingRangeProvi
         if (!ranges || ranges.length !== 2) { return undefined; }
 
         const [first, second] = ranges.map(toRange).sort((a, b) => document.offsetAt(a.start) - document.offsetAt(b.start));
-        if (!vbScriptBalancedBetween(document.getText(), document.offsetAt(first.end), document.offsetAt(second.start))) {
+        // The VBScript blocks between the two tags come from the worker.
+        const version = document.version;
+        const vbscript = await analysedPage(document, token);
+        if (!vbscript || vbscript.version !== version) { return undefined; }
+        if (!vbScriptBalancedBetween(document.getText(), document.offsetAt(first.end), document.offsetAt(second.start), vbscript.blocks.events)) {
             return undefined;
         }
         return new vscode.LinkedEditingRanges([first, second]);

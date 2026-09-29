@@ -1,5 +1,7 @@
 import * as assert from 'assert';
 import { maskAspBlocks, vbScriptBalancedBetween } from '../../providers/htmlLanguageFeatures';
+import { pageBlocks } from '../../vbscript/pageAnalysis';
+import { parsePage } from '../../vbscript/symbols';
 
 // The HTML language service reads the page with its ASP turned to spaces, so a
 // `<%= x %>` is nothing to it, and every position still lines up.
@@ -21,7 +23,7 @@ describe('maskAspBlocks', () => {
 // whole: with an If opened and not closed, or an Else of a block that started
 // before, the end tag belongs to more than one start tag.
 describe('vbScriptBalancedBetween', () => {
-    const between = (text: string) => vbScriptBalancedBetween(text, text.indexOf('>') + 1, text.lastIndexOf('</'));
+    const between = (text: string) => vbScriptBalancedBetween(text, text.indexOf('>') + 1, text.lastIndexOf('</'), pageBlocks(parsePage(text)).events);
 
     it('is true with no VBScript, output expressions, or a whole If between', () => {
         assert.strictEqual(between('<div>x</div>'), true);

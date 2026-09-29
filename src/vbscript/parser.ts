@@ -367,6 +367,12 @@ class Parser {
             case 'wend':
                 this.error(t.start, t.end, "'Wend' without 'While'", 'stray-closer');
                 return this.errorStmt();
+            case 'else':
+            case 'elseif':
+            case 'case':
+                // A branch of a block that is not open here.
+                this.error(t.start, t.end, 'Expected statement', 'stray-branch');
+                return this.errorStmt();
             case 'end': {
                 const what = this.word(1);
                 if (what && END_WORDS[what]) {

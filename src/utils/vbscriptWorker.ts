@@ -68,7 +68,7 @@ parentPort?.on('message', (request: PageRequest | ChecksRequest) => {
             ? {
                 id: request.id, failed: true,
                 symbols: { variables: [], constants: [], functions: [], comVariables: [], classes: [] },
-                blocks: { warnings: [], pairs: [], withBlocks: [] },
+                blocks: { warnings: [], pairs: [], withBlocks: [], events: [] },
             }
             : { id: request.id, failed: true, missingSet: [], checks: [] };
     }

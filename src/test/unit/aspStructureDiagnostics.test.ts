@@ -1,15 +1,11 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { branchEvents, classifyLine, findMissingIncludes, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
+import { findMissingIncludes, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
 import { findMissingSet, pageBlocks, type Keyword } from '../../vbscript/pageAnalysis';
 import { lineAt, parsePage } from '../../vbscript/symbols';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-
-function kinds(actions: Array<{ type: string; kind: string }>): string[] {
-    return actions.map(a => `${a.type}:${a.kind}`);
-}
 
 let pageCount = 0;
 
@@ -102,11 +98,18 @@ describe('scanAspStructure — block warnings from the syntax tree', () => {
     });
 });
 
-// A REM comment (like a ' comment) must never be classified, or a
-// commented-out opener such as `REM If x Then` fakes a "Missing End If".
-describe('classifyLine — REM comments are not classified', () => {
+// The block events: where each block opens, starts a branch or closes. The
+// HTML structure check and linked tag editing read VBScript through these.
+/** The events of `code` as "type:block". */
+function events(code: string): string[] {
+    return pageBlocks(parsePage(`<%\n${code}\n%>`)).events.map(e => `${e.type}:${e.block}`);
+}
+
+// A REM comment (like a ' comment) must never count, or a commented-out
+// opener such as `REM If x Then` fakes a "Missing End If".
+describe('block events — REM comments', () => {
     it('does not open an If for a REM-commented If', () => {
-        assert.deepStrictEqual(classifyLine('REM If x Then'), []);
+        assert.deepStrictEqual(events('REM If x Then'), []);
     });
 
     it('handles the inline <% REM If x Then %> form', () => {
@@ -114,42 +117,37 @@ describe('classifyLine — REM comments are not classified', () => {
     });
 
     it('ignores a REM after a colon separator', () => {
-        assert.deepStrictEqual(classifyLine('x = 1 : REM For each row'), []);
-    });
-
-    it('still classifies a real If (guards against over-stripping)', () => {
-        assert.deepStrictEqual(kinds(classifyLine('If x Then')), ['open:if']);
+        assert.deepStrictEqual(events('x = 1 : REM For each row'), []);
     });
 
     it('does not treat a "rem"-prefixed identifier as a comment', () => {
-        assert.deepStrictEqual(classifyLine('remainder = 5'), []);
+        assert.deepStrictEqual(events('remainder = 5'), []);
     });
 });
 
-// A `:`-joined one-liner must be seen as BOTH an opener and a closer, so it
-// balances and no false "Missing …" diagnostic is raised.
-describe('classifyLine — colon-joined statements', () => {
-    it('sees opener AND closer in `For i = 1 To 10 : Next`', () => {
-        assert.deepStrictEqual(kinds(classifyLine('For i = 1 To 10 : Next')), ['open:for', 'close:for']);
+// A `:`-joined one-liner is both an opener and a closer, so it balances.
+describe('block events — colon-joined statements', () => {
+    it('opens and closes `For i = 1 To 10 : Next`', () => {
+        assert.deepStrictEqual(events('For i = 1 To 10 : Next'), ['open:other', 'close:other']);
     });
 
     it('balances `Do : Loop` on one line', () => {
-        assert.deepStrictEqual(kinds(classifyLine('Do : Loop')), ['open:do', 'close:do']);
+        assert.deepStrictEqual(events('Do : Loop'), ['open:other', 'close:other']);
     });
 });
 
-// Member access (obj.Do, rs.With) must not be read as a block keyword.
-describe('classifyLine — member access is not a block keyword', () => {
+// Member access (obj.Do, rs.With) is not a block keyword.
+describe('block events — member access is not a block keyword', () => {
     it('does not open a Do block for obj.Do', () => {
-        assert.deepStrictEqual(classifyLine('obj.Do'), []);
+        assert.deepStrictEqual(events('obj.Do'), []);
     });
 
     it('does not open a With block for rs.With', () => {
-        assert.deepStrictEqual(classifyLine('x = rs.With'), []);
+        assert.deepStrictEqual(events('x = rs.With'), []);
     });
 
     it('does not treat Set x = obj.Do() as a block', () => {
-        assert.deepStrictEqual(classifyLine('Set x = obj.Do()'), []);
+        assert.deepStrictEqual(events('Set x = obj.Do()'), []);
     });
 });
 
@@ -208,56 +206,43 @@ describe('pageBlocks — matched pairs', () => {
     });
 });
 
-// Real keywords must still be classified (guard against over-correction).
-describe('classifyLine — real keywords still classified', () => {
-    it('opens Do While', () => {
-        assert.deepStrictEqual(kinds(classifyLine('Do While x > 0')), ['open:do']);
+describe('block events — real keywords', () => {
+    it('opens Do While and a block If', () => {
+        assert.deepStrictEqual(events('Do While x > 0'), ['open:other']);
+        assert.deepStrictEqual(events('If x Then'), ['open:if']);
     });
 
-    it('opens a block If ... Then', () => {
-        assert.deepStrictEqual(kinds(classifyLine('If x Then')), ['open:if']);
+    it('gives a single-line If nothing', () => {
+        assert.deepStrictEqual(events('If x Then y = 1'), []);
+        assert.deepStrictEqual(events('If a Then b = 1 Else b = 2'), []);
     });
 
-    it('treats single-line If ... Then <stmt> as opening nothing', () => {
-        assert.deepStrictEqual(classifyLine('If x Then y = 1'), []);
-    });
-
-    it('closes End If and Next', () => {
-        assert.deepStrictEqual(kinds(classifyLine('End If')), ['close:if']);
-        assert.deepStrictEqual(kinds(classifyLine('Next')), ['close:for']);
-    });
-
-    it('opens With / closes End With', () => {
-        assert.deepStrictEqual(kinds(classifyLine('With obj')), ['open:with']);
-        assert.deepStrictEqual(kinds(classifyLine('End With')), ['close:with']);
+    it('closes a stray End If and Next', () => {
+        assert.deepStrictEqual(events('End If'), ['close:if']);
+        assert.deepStrictEqual(events('Next'), ['close:other']);
     });
 
     it('does not treat On Error Resume Next as a For closer', () => {
-        assert.deepStrictEqual(classifyLine('On Error Resume Next'), []);
+        assert.deepStrictEqual(events('On Error Resume Next'), []);
     });
 });
 
 // The HTML structure check reads the tags in each branch of an If or Select
 // Case as alternatives, and finds the branches through these events.
-describe('branchEvents', () => {
-    const events = (code: string) => branchEvents(code).map(e => `${e.type}:${e.block}`);
-
+describe('block events — branches', () => {
     it('reads If / ElseIf / Else / End If', () => {
-        assert.deepStrictEqual(events('If a = 1 Then'), ['open:if']);
-        assert.deepStrictEqual(events('ElseIf a = 2 Then'), ['branch:if']);
-        assert.deepStrictEqual(events('Else'), ['branch:if']);
-        assert.deepStrictEqual(events('End If'), ['close:if']);
+        assert.deepStrictEqual(events('If a = 1 Then\nElseIf a = 2 Then\nElse\nEnd If'), ['open:if', 'branch:if', 'branch:if', 'close:if']);
     });
 
     it('reads Select Case / Case / Case Else / End Select', () => {
-        assert.deepStrictEqual(events('Select Case mode'), ['open:select']);
-        assert.deepStrictEqual(events('Case 1, 2'), ['branch:select']);
-        assert.deepStrictEqual(events('Case Else'), ['branch:select']);
-        assert.deepStrictEqual(events('End Select'), ['close:select']);
+        assert.deepStrictEqual(events('Select Case mode\nCase 1, 2\nCase Else\nEnd Select'),
+            ['open:select', 'branch:select', 'branch:select', 'close:select']);
     });
 
-    it('gives a single-line If nothing', () => {
-        assert.deepStrictEqual(events('If a Then b = 1 Else b = 2'), []);
+    it('reads a branch of a block that opened in another <% %> block', () => {
+        assert.deepStrictEqual(events('ElseIf a = 2 Then'), ['branch:if']);
+        assert.deepStrictEqual(events('Else'), ['branch:if']);
+        assert.deepStrictEqual(events('Case Else'), ['branch:select']);
     });
 
     it('reads every statement of a multi-line block in order', () => {

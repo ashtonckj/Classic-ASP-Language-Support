@@ -20,7 +20,9 @@
  */
 
 import * as vscode from 'vscode';
-import { branchEvents } from './aspStructureDiagnosticsProvider';
+import { pageBlocks, type BlockEvent } from '../vbscript/pageAnalysis';
+import { parsePage } from '../vbscript/symbols';
+import { analysedPage } from './vbscriptWorkspace';
 import { VOID_ELEMENTS } from '../constants/htmlTags';
 
 // ── Structural tags we care about ────────────────────────────────────────────
@@ -136,8 +138,14 @@ interface BranchFrame {
  *
  * A tag whose partner is written by VBScript — `Response.Write "<table>"`
  * before a `</table>` in the markup — is not reported either.
+ *
+ * The If / Select Case structure comes from the VBScript syntax tree:
+ * `events` when the caller already has them (the VBScript worker read them),
+ * otherwise the page is parsed here.
  */
-export function analyseHtmlStructure(fullText: string): HtmlStructure {
+export function analyseHtmlStructure(fullText: string, events?: BlockEvent[]): HtmlStructure {
+    const branchEvents = (events ?? pageBlocks(parsePage(fullText)).events).filter(e => e.block !== 'other');
+    let nextEvent = 0;
     let   issues: StructureIssue[] = [];
     const voids:  StructureIssue[] = [];
     let   hidden: HiddenTag[]      = [];
@@ -332,12 +340,15 @@ export function analyseHtmlStructure(fullText: string): HtmlStructure {
             const closeAt = fullText.indexOf('%>', i + 2);
             const code    = fullText.slice(i + 2, closeAt === -1 ? fullText.length : closeAt);
             noteWrittenTags(code);
-            if (!inScript && !inStyle && !/^[=@]/.test(code.trimStart())) {
-                for (const event of branchEvents(code)) {
-                    if (event.type === 'open')        { openBranch(event.block); }
-                    else if (event.type === 'branch') { nextBranch(event.block); }
-                    else                              { closeBranch(event.block); }
-                }
+            const blockEnd = closeAt === -1 ? fullText.length : closeAt;
+            while (nextEvent < branchEvents.length && branchEvents[nextEvent].at < i) { nextEvent++; }
+            for (; nextEvent < branchEvents.length && branchEvents[nextEvent].at < blockEnd; nextEvent++) {
+                if (inScript || inStyle) { continue; }
+                const event = branchEvents[nextEvent];
+                const block = event.block as 'if' | 'select';
+                if (event.type === 'open')        { openBranch(block); }
+                else if (event.type === 'branch') { nextBranch(block); }
+                else                              { closeBranch(block); }
             }
             i = closeAt === -1 ? fullText.length : closeAt + 2;
             continue;
@@ -454,8 +465,8 @@ export function analyseHtmlStructure(fullText: string): HtmlStructure {
     return { issues: [...unique, ...voids].sort((a, b) => a.start - b.start), hidden };
 }
 
-export function scanHtmlStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
-    return analyseHtmlStructure(document.getText()).issues.map(issue => {
+export function scanHtmlStructure(document: vscode.TextDocument, events?: BlockEvent[]): vscode.Diagnostic[] {
+    return analyseHtmlStructure(document.getText(), events).issues.map(issue => {
         const diagnostic = new vscode.Diagnostic(
             new vscode.Range(document.positionAt(issue.start), document.positionAt(issue.end)),
             issue.message,
@@ -515,7 +526,11 @@ export function registerHtmlStructureDiagnostics(
         if (existing) { clearTimeout(existing); }
         debounceTimers.set(key, setTimeout(() => {
             debounceTimers.delete(key);
-            collection.set(document.uri, scanHtmlStructure(document));
+            // The VBScript blocks come from the worker, so the page is not parsed here.
+            void analysedPage(document).then(page => {
+                if (!page || document.isClosed || document.version !== page.version) { return; }
+                collection.set(document.uri, scanHtmlStructure(document, page.blocks.events));
+            });
         }, 1500));
     }
 

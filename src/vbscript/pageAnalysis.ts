@@ -46,10 +46,18 @@ export interface BlockWarning { start: number; end: number; message: string; }
  */
 export interface WithBlock { object: string; from: number; to: number; }
 
+/**
+ * Where a block opens, starts another branch (ElseIf, Else, Case) or closes.
+ * `block` names only the two whose branches are alternatives.
+ */
+export interface BlockEvent { at: number; type: 'open' | 'branch' | 'close'; block: 'if' | 'select' | 'other'; }
+
 export interface PageBlocks {
     warnings:   BlockWarning[];
     pairs:      BlockPairSpan[];
     withBlocks: WithBlock[];
+    /** In page order. A block with no closer has no close; a closer with no block is a close of its own. */
+    events:     BlockEvent[];
 }
 
 type Block = A.IfStmt | A.SelectStmt | A.ForStmt | A.ForEachStmt | A.DoStmt | A.WhileStmt
@@ -93,6 +101,7 @@ export function pageBlocks(page: ParsedPage): PageBlocks {
     const warnings: BlockWarning[] = [];
     const pairs: BlockPairSpan[] = [];
     const withBlocks: WithBlock[] = [];
+    const events: BlockEvent[] = [];
 
     for (const program of page.programs) {
         walkStatements(program.body, stmt => {
@@ -105,6 +114,11 @@ export function pageBlocks(page: ParsedPage): PageBlocks {
                 });
             }
             if (!isBlock(stmt)) { return; }
+            const block = stmt.kind === 'If' ? 'if' : stmt.kind === 'Select' ? 'select' : 'other';
+            events.push({ at: stmt.opener.start, type: 'open', block });
+            if (stmt.kind === 'If') { for (const b of stmt.branches.slice(1)) { events.push({ at: b.start, type: 'branch', block }); } }
+            if (stmt.kind === 'Select') { for (const c of stmt.cases) { events.push({ at: c.start, type: 'branch', block }); } }
+            if (stmt.closer) { events.push({ at: stmt.closer.start, type: 'close', block }); }
             const words = keywordsOf(stmt);
             if (stmt.closer) {
                 pairs.push({
@@ -120,7 +134,10 @@ export function pageBlocks(page: ParsedPage): PageBlocks {
         });
 
         for (const d of program.diagnostics) {
+            if (d.code === 'stray-branch') { events.push({ at: d.start, type: 'branch', block: text.slice(d.start, d.end).toLowerCase() === 'case' ? 'select' : 'if' }); }
             if (d.code !== 'stray-closer') { continue; }
+            const closer = text.slice(d.start, d.end).toLowerCase().replace(/\s+/g, ' ');
+            events.push({ at: d.start, type: 'close', block: closer === 'end if' ? 'if' : closer === 'end select' ? 'select' : 'other' });
             warnings.push({
                 start: d.start, end: d.end,
                 message: `Unexpected closing keyword — no matching opener found for '${closerWords(text.slice(d.start, d.end))}'`,
@@ -130,7 +147,8 @@ export function pageBlocks(page: ParsedPage): PageBlocks {
 
     warnings.sort((a, b) => a.start - b.start);
     pairs.sort((a, b) => a.closer.start - b.closer.start);
-    return { warnings, pairs, withBlocks };
+    events.sort((a, b) => a.at - b.at);
+    return { warnings, pairs, withBlocks, events };
 }
 
 /** The object of the innermost With block `offset` sits in, as written, or undefined outside one. */

@@ -305,7 +305,7 @@ export interface ErrorStmt extends Span {
 export interface Diagnostic extends Span {
     message: string;
     /** 'stray-closer': an `End If`, `Next`, `Loop` or `Wend` with no block for it to close. */
-    code?: 'stray-closer';
+    code?: 'stray-closer' | 'stray-branch';
 }
 
 export interface Program extends Span {
