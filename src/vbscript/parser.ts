@@ -241,13 +241,13 @@ class Parser {
 
     /**
      * After the header of a Sub, Function, Property, With, Do While, While or
-     * Class, VBScript lets the first statement follow on the same line with
-     * no colon — though not straight away the block's closer.
+     * Class, and after a Case, VBScript lets the first statement follow on the
+     * same line with no colon — though not straight away a closer or a Case.
      */
     private statementMayFollow(): void {
         if (this.atEOS()) { return; }
         const w = this.word();
-        if (w === 'end' || w === 'loop' || w === 'wend' || w === 'next') { this.errorAtTok('Expected statement'); }
+        if (w === 'end' || w === 'loop' || w === 'wend' || w === 'next' || w === 'case') { this.errorAtTok('Expected statement'); }
     }
 
     /** True when the statement starting here is a procedure or class header. */
@@ -680,7 +680,7 @@ class Parser {
                     values = [];
                     do { values.push(this.parseExpr()); } while (this.isPunct(',') && this.advance());
                 }
-                this.expectEOS();
+                this.statementMayFollow();
                 const body = this.parseBlock();
                 cases.push({ values, body, start: caseStart, end: this.prevEnd });
                 continue;
