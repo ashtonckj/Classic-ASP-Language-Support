@@ -24,7 +24,7 @@
 
 import type * as A from './ast';
 import { bindScriptScope, type Binding, type Declaration, type Scope } from './binder';
-import { buildScriptScope, type ScopeHost } from './scriptScope';
+import { buildScriptScope, type ScopeHost, type ScopeProblem } from './scriptScope';
 import { lineAt, type ParsedPage } from './symbols';
 
 export type Target =
@@ -55,6 +55,8 @@ export interface BoundPage {
     path: string;
     binding: Binding;
     pages: Map<string, ParsedPage>;
+    /** What IIS would say about the includes: one missing, including itself, or included twice. */
+    problems: ScopeProblem[];
 }
 
 const key = (path: string) => path.toLowerCase();
@@ -63,7 +65,7 @@ export function bindAt(host: ScopeHost, path: string): BoundPage | null {
     const text = host.read(path);
     if (text === null) { return null; }
     const scope = buildScriptScope(path, text, host);
-    return { path, binding: bindScriptScope(scope), pages: new Map(scope.files.map(f => [key(f.path), f.page])) };
+    return { path, binding: bindScriptScope(scope), pages: new Map(scope.files.map(f => [key(f.path), f.page])), problems: scope.problems };
 }
 
 function targetOf(binding: Binding, d: Declaration): Target {

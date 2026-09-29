@@ -45,6 +45,7 @@ export interface Chunk {
 
 /** Something about the includes IIS would complain of. */
 export interface ScopeProblem {
+    kind: 'missing' | 'loop' | 'twice';
     file: ScopeFile;
     start: number;
     end: number;
@@ -120,14 +121,14 @@ export function buildScriptScope(rootPath: string, rootText: string, host: Scope
 
             const at = { file, start: inc.directive.index, end: inc.end };
             if (!inc.file) {
-                problems.push({ ...at, message: `Include file not found: ${inc.path}` });
+                problems.push({ ...at, kind: 'missing', message: `Include file not found: ${inc.path}` });
             } else if (stack.includes(inc.file) || inc.file === file) {
-                problems.push({ ...at, message: `The include file '${inc.directive.raw}' includes itself` });
+                problems.push({ ...at, kind: 'loop', message: `The include file '${inc.directive.raw}' includes itself` });
             } else if (expanded.has(inc.file)) {
                 // IIS pastes it in again, so everything it declares is declared twice.
                 // A default include is only counted as included, so including it for real is fine.
                 if (!defaults.includes(inc.file)) {
-                    problems.push({ ...at, message: `'${inc.directive.raw}' is already included on this page` });
+                    problems.push({ ...at, kind: 'twice', message: `'${inc.directive.raw}' is already included on this page` });
                 }
             } else {
                 linearize(inc.file, [...stack, file]);
