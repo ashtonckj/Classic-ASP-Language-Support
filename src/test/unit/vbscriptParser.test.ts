@@ -131,6 +131,42 @@ describe('VBScript parser — errors VBScript reports', () => {
     }
 });
 
+// A closer or a first statement on the same line with no colon, which the
+// engine allows for some blocks and not others — each case from cscript.exe.
+describe('VBScript parser — a statement and a closer on one line', () => {
+    const cases: [string, 'accepts' | 'reports'][] = [
+        ['Sub S()\n  x = 1 End Sub',                        'accepts'],
+        ['Function F()\n  F = 1 End Function',              'accepts'],
+        ['Class C\n  Public x End Class',                   'accepts'],
+        ['With o\n  .x = 1 End With',                       'accepts'],
+        ['Sub S()\n  rsEmp.Open conn End Sub',              'accepts'],
+        ['Sub S()\n  Call Foo End Sub',                     'accepts'],
+        ['Sub S()\n  x = 1 End Sub : y = 2',                'accepts'],
+        ['Sub S() x = 1\nEnd Sub',                          'accepts'],
+        ['While a x = 1\nWend',                             'accepts'],
+        ['Do While a x = 1\nLoop',                          'accepts'],
+        ['Class C Public x\nEnd Class',                     'accepts'],
+        ['If a Then\n  x = 1 End If',                       'reports'],
+        ['For i = 1 To 2\n  x = 1 Next',                    'reports'],
+        ['Do\n  x = 1 Loop',                                'reports'],
+        ['While a\n  x = 1 Wend',                           'reports'],
+        ['Sub S()\n  Foo End Sub',                          'reports'],
+        ['Sub S()\n  rsEmp.Open End Sub',                   'reports'],
+        ['Sub S()\n  x = 1 End Sub y = 2',                  'reports'],
+        ['Sub S() End Sub',                                  'reports'],
+        ['With o End With',                                  'reports'],
+        ['Do While a Loop',                                  'reports'],
+        ['For i = 1 To 2 x = 1\nNext',                      'reports'],
+        ['Select Case a x = 1\nEnd Select',                 'reports'],
+    ];
+    for (const [code, verdict] of cases) {
+        it(`${verdict} ${JSON.stringify(code)}`, () => {
+            const found = diagnostics(page(code));
+            if (verdict === 'accepts') { assert.deepStrictEqual(found, []); } else { assert.ok(found.length > 0, 'expected an error'); }
+        });
+    }
+});
+
 describe('VBScript parser — recovery', () => {
     it('lets an End Sub close the Sub around an unclosed If', () => {
         const code = 'Sub A\nIf x Then\ny = 1\nEnd Sub\nSub B\nEnd Sub';

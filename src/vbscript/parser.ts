@@ -214,16 +214,40 @@ class Parser {
             const before = this.pos;
             const stmt = this.parseStatement();
             if (stmt) { body.push(stmt); }
-            this.endStatement(before);
+            this.endStatement(before, stmt);
         }
         return body;
     }
 
     /** After a statement: the rest of the line must be empty, unless a block ended early. */
-    private endStatement(before: number): void {
+    private endStatement(before: number, stmt?: A.Stmt | null): void {
         if (this.endedEarly) { this.endedEarly = false; }
-        else { this.expectEOS(); }
+        else if (!this.closerEndsStatement(stmt)) { this.expectEOS(); }
         if (this.pos === before) { this.advance(); }
+    }
+
+    /**
+     * `x = 1 End Sub`: VBScript lets End Sub, End Function, End Property,
+     * End Class and End With end the statement before them with no colon —
+     * but not End If, Next, Loop or Wend, and not after a call with no
+     * arguments, where it reads the End as the first argument.
+     */
+    private closerEndsStatement(stmt?: A.Stmt | null): boolean {
+        if (this.singleLine > 0 || this.word() !== 'end') { return false; }
+        const what = this.word(1);
+        if (what !== 'sub' && what !== 'function' && what !== 'property' && what !== 'class' && what !== 'with') { return false; }
+        return !(stmt?.kind === 'CallStmt' && stmt.args.length === 0 && !stmt.hasCallKeyword);
+    }
+
+    /**
+     * After the header of a Sub, Function, Property, With, Do While, While or
+     * Class, VBScript lets the first statement follow on the same line with
+     * no colon — though not straight away the block's closer.
+     */
+    private statementMayFollow(): void {
+        if (this.atEOS()) { return; }
+        const w = this.word();
+        if (w === 'end' || w === 'loop' || w === 'wend' || w === 'next') { this.errorAtTok('Expected statement'); }
     }
 
     /** True when the statement starting here is a procedure or class header. */
@@ -719,7 +743,7 @@ class Parser {
         const opener = this.spanTo(this.word(1) === 'while' || this.word(1) === 'until' ? 1 : 0);
         const start = this.advance().start;
         const pre = this.parseLoopCondition();
-        this.expectEOS();
+        if (pre) { this.statementMayFollow(); } else { this.expectEOS(); }
         this.blocks.push('do');
         const body = this.parseBlock();
         let post: A.LoopCondition | null = null;
@@ -734,7 +758,7 @@ class Parser {
         const opener = this.spanTo(0);
         const start = this.advance().start;
         const condition = this.parseExpr();
-        this.expectEOS();
+        this.statementMayFollow();
         this.blocks.push('while');
         const body = this.parseBlock();
         const closer = this.parseCloser('wend', 'Wend');
@@ -746,7 +770,7 @@ class Parser {
         const opener = this.spanTo(0);
         const start = this.advance().start;
         const object = this.parseExpr();
-        this.expectEOS();
+        this.statementMayFollow();
         this.blocks.push('with');
         const body = this.parseBlock();
         const closer = this.parseEnd('with', 'End With');
@@ -804,7 +828,7 @@ class Parser {
                 this.advance();
             }
             paramList = { start: open.end, end: this.tok.start };
-            this.expectPunct(')');
+            if (this.expectPunct(')')) { this.statementMayFollow(); }
         } else if (!this.atEOS()) {
             // Code may follow `Sub A()` on the same line, but not a bare `Sub A`.
             this.errorAtTok("Expected '('");
@@ -843,7 +867,7 @@ class Parser {
         const opener = this.spanTo(0);
         const start = this.advance().start;
         const name = this.parseName() ?? this.missingName();
-        this.expectEOS();
+        this.statementMayFollow();
 
         this.blocks.push('class');
         const members = this.parseBlock();
