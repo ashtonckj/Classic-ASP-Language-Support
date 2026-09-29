@@ -79,6 +79,23 @@ describe('SQL colouring follows a variable across block layouts', () => {
     });
 });
 
+// The colouring reads the syntax tree, where a string joined with & is one
+// expression however many lines it runs over.
+describe('SQL colouring reads a joined string as one', () => {
+    it('colours every piece, including those after a value joined in', () => {
+        const page = '<%\ncmd.CommandText = "DELETE FROM Log " & _\n    "WHERE Cmpy = \'" & cmpy & "\' AND At = \'" & at & "\'"\n%>\n';
+        const tokens = sqlTokens(page);
+        assert.ok(tokens.includes('sqlDml:DELETE') && tokens.includes('sqlLogical:AND'), `got ${JSON.stringify(tokens)}`);
+    });
+
+    it('still colours a query whose & _ was cut off by a blank line, as the one query it was meant to be', () => {
+        const page = '<%\nsql = "SELECT a FROM t " & _\n\n    "UNION ALL " & _\n    "SELECT b FROM u"\n%>\n';
+        const tokens = sqlTokens(page);
+        assert.ok(tokens.includes('sqlDml:UNION') || tokens.includes('sqlKeyword:UNION'), `got ${JSON.stringify(tokens)}`);
+        assert.strictEqual(tokens.filter(t => t === 'sqlDml:SELECT').length, 2, `got ${JSON.stringify(tokens)}`);
+    });
+});
+
 describe('SQL colouring stays off things that are not SQL', () => {
     it('leaves an ordinary string alone', () => {
         assert.deepStrictEqual(sqlTokens('<%\nmsg = "Hello there, welcome back"\nmsg = msg & " again"\n%>\n'), []);
