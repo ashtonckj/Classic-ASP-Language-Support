@@ -1,6 +1,8 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { branchEvents, classifyLine, findMissingIncludes, findMissingSet, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
+import { branchEvents, classifyLine, findMissingIncludes, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
+import { findMissingSet } from '../../vbscript/pageAnalysis';
+import { parsePage } from '../../vbscript/symbols';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -369,7 +371,7 @@ describe('findMissingSet', () => {
         ['fso', 'scripting.filesystemobject'],
         ['xml', 'msxml2.domdocument'],
     ]);
-    const targets = (text: string) => findMissingSet(text, types).map(found => text.slice(found.start, found.end));
+    const targets = (text: string) => findMissingSet(parsePage(text), types).map(found => text.slice(found.start, found.end));
 
     it('flags a Recordset assigned without Set, on the name', () => {
         assert.deepStrictEqual(targets('<%\nrs = conn.Execute(sql)\n%>'), ['rs']);

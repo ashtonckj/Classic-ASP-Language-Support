@@ -23,9 +23,8 @@ import * as fs from 'fs';
 import { createZoneResolver } from '../utils/zoneUtils';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../utils/includeDirectives';
 import { removeStrings } from '../utils/documentHelper';
-import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
-import type * as A from '../vbscript/ast';
-import { lineAt, parsePage, walkStatements, type ParsedPage } from '../vbscript/symbols';
+import { lineAt, parsePage, type ParsedPage } from '../vbscript/symbols';
+import { findMissingSet, pageBlocks } from '../vbscript/pageAnalysis';
 import { areIncludeSymbolsReady, collectAllSymbols, configuredVirtualRoot, preloadIncludeSymbols } from './includeProvider';
 import { scanParserChecks } from './aspChecksProvider';
 
@@ -352,36 +351,6 @@ function scanBlocks(document: vscode.TextDocument): BlockScan {
     return scan;
 }
 
-type Block = A.IfStmt | A.SelectStmt | A.ForStmt | A.ForEachStmt | A.DoStmt | A.WhileStmt
-    | A.WithStmt | A.ProcedureStmt | A.ClassStmt;
-
-function isBlock(s: A.Stmt): s is Block {
-    return 'opener' in s && !(s.kind === 'If' && s.singleLine);
-}
-
-/** The block's keywords as the messages spell them: `Do While` … `Loop`. */
-function keywordsOf(b: Block): { opener: string; closer: string } {
-    switch (b.kind) {
-        case 'If':        return { opener: 'If', closer: 'End If' };
-        case 'Select':    return { opener: 'Select Case', closer: 'End Select' };
-        case 'For':       return { opener: 'For', closer: 'Next' };
-        case 'ForEach':   return { opener: 'For Each', closer: 'Next' };
-        case 'Do':        return { opener: b.pre ? (b.pre.until ? 'Do Until' : 'Do While') : 'Do', closer: 'Loop' };
-        case 'While':     return { opener: 'While', closer: 'Wend' };
-        case 'With':      return { opener: 'With', closer: 'End With' };
-        case 'Class':     return { opener: 'Class', closer: 'End Class' };
-        case 'Procedure': {
-            const word = b.procKind.charAt(0).toUpperCase() + b.procKind.slice(1);
-            return { opener: word, closer: `End ${word}` };
-        }
-    }
-}
-
-/** `end   if` → `End If`: a stray closer as the message spells it. */
-function closerWords(source: string): string {
-    return source.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-}
-
 function blockWarning(range: vscode.Range, message: string): vscode.Diagnostic {
     return Object.assign(
         new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Warning),
@@ -395,45 +364,16 @@ function scanBlocksIn(fullText: string): BlockScan {
         const line = lineAt(page, offset);
         return new vscode.Position(line, offset - page.lineStarts[line]);
     };
-    const range = (span: A.Span): vscode.Range => new vscode.Range(position(span.start), position(span.end));
+    const range = (span: { start: number; end: number }): vscode.Range => new vscode.Range(position(span.start), position(span.end));
 
-    const found: { at: number; diagnostic: vscode.Diagnostic }[] = [];
-    const pairs: { at: number; pair: BlockPair }[] = [];
-
-    for (const program of page.programs) {
-        walkStatements(program.body, stmt => {
-            if (!isBlock(stmt)) { return; }
-            const words = keywordsOf(stmt);
-            if (stmt.closer) {
-                pairs.push({
-                    at: stmt.closer.start,
-                    pair: {
-                        opener: { range: range(stmt.opener), text: words.opener },
-                        closer: { range: range(stmt.closer), text: words.closer },
-                    },
-                });
-            } else {
-                found.push({
-                    at: stmt.opener.start,
-                    diagnostic: blockWarning(range(stmt.opener),
-                        `Missing closing keyword — no '${words.closer}' found for this '${words.opener}'`),
-                });
-            }
-        });
-
-        for (const d of program.diagnostics) {
-            if (d.code !== 'stray-closer') { continue; }
-            found.push({
-                at: d.start,
-                diagnostic: blockWarning(range(d),
-                    `Unexpected closing keyword — no matching opener found for '${closerWords(fullText.slice(d.start, d.end))}'`),
-            });
-        }
-    }
-
-    found.sort((a, b) => a.at - b.at);
-    pairs.sort((a, b) => a.at - b.at);
-    return { diagnostics: found.map(f => f.diagnostic), pairs: pairs.map(p => p.pair) };
+    const blocks = pageBlocks(page);
+    return {
+        diagnostics: blocks.warnings.map(w => blockWarning(range(w), w.message)),
+        pairs: blocks.pairs.map(p => ({
+            opener: { range: range(p.opener), text: p.opener.text },
+            closer: { range: range(p.closer), text: p.closer.text },
+        })),
+    };
 }
 
 export function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
@@ -558,65 +498,6 @@ export function scanIncludes(document: vscode.TextDocument): vscode.Diagnostic[]
 
 // ── An object assigned without Set ────────────────────────────────────────────
 
-/**
- * What a method returns, when that result has no value of its own to copy: a
- * Recordset's default is its Fields collection, which needs an index; a
- * TextStream or an XML node has no default at all. Assigning one without Set
- * fails when the page runs. A File or Folder is left out on purpose — its
- * default is its Path, so `p = fso.GetFolder(".")` is a working way to get one.
- */
-const OBJECT_ONLY_RESULTS = new Set([
-    'adodb.recordset', 'scripting.textstream', 'msxml2.ixmldomnode', 'msxml2.ixmldomnodelist',
-]);
-
-/** An assignment that needs Set: the offsets of the name it assigns to. */
-export interface MissingSet {
-    start:  number;
-    end:    number;
-    target: string;
-}
-
-/**
- * Every `x = …` whose right-hand side is certainly an object, which VBScript
- * only assigns with `Set x = …`: `CreateObject(…)`, `Server.CreateObject(…)`,
- * `GetObject(…)`, `New SomeClass`, and a method on a variable of known type
- * that returns one of OBJECT_ONLY_RESULTS — `rs = conn.Execute(sql)`.
- *
- * Read from the syntax tree, so the call has to be the whole right-hand side:
- * `n = conn.Execute(sql)(0)` reads a value out of the Recordset, and is right
- * as it is. `comTypes` maps a variable name, lower-cased, to the ProgID it
- * was created as.
- */
-export function findMissingSet(text: string, comTypes: Map<string, string>): MissingSet[] {
-    const found: MissingSet[] = [];
-    for (const program of parsePage(text).programs) {
-        walkStatements(program.body, stmt => {
-            if (stmt.kind !== 'Assign' || stmt.set || !isObjectValue(stmt.value, comTypes)) { return; }
-            found.push({ start: stmt.target.start, end: stmt.target.end, target: text.slice(stmt.target.start, stmt.target.end) });
-        });
-    }
-    return found.sort((a, b) => a.start - b.start);
-}
-
-function isObjectValue(value: A.Expr, comTypes: Map<string, string>): boolean {
-    if (value.kind === 'New') { return true; }
-
-    // A call, or a method with no parentheses: `rs.NextRecordset`.
-    const callee = value.kind === 'Call' ? value.callee : value;
-    if (callee.kind === 'Ident') {
-        return value.kind === 'Call' && (callee.name.name === 'createobject' || callee.name.name === 'getobject');
-    }
-    if (callee.kind !== 'Member' || callee.object?.kind !== 'Ident') { return false; }
-
-    const objectName = callee.object.name.name;
-    const method = callee.name.name;
-    if (objectName === 'server' && method === 'createobject') { return value.kind === 'Call'; }
-
-    const progId = comTypes.get(objectName);
-    const result = progId && COM_METHOD_RETURN_TYPES[`${progId}.${method}`];
-    return !!result && OBJECT_ONLY_RESULTS.has(result);
-}
-
 /** Missing-Set warnings for a page, using the object types known from it and its includes. */
 export function scanMissingSet(document: vscode.TextDocument): vscode.Diagnostic[] {
     const comTypes = new Map<string, string>();
@@ -624,7 +505,7 @@ export function scanMissingSet(document: vscode.TextDocument): vscode.Diagnostic
         if (!comTypes.has(variable.name.toLowerCase())) { comTypes.set(variable.name.toLowerCase(), variable.progId); }
     }
 
-    return findMissingSet(document.getText(), comTypes).map(found => Object.assign(
+    return findMissingSet(parsePage(document.getText()), comTypes).map(found => Object.assign(
         new vscode.Diagnostic(
             new vscode.Range(document.positionAt(found.start), document.positionAt(found.end)),
             `Missing Set: an object is assigned here, so this needs \`Set ${found.target} = …\`. ` +

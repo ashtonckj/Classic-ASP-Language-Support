@@ -8,8 +8,8 @@ import { areIncludeSymbolsReady, collectAllSymbols, preloadIncludeSymbols } from
 import { COM_METHOD_RETURN_TYPES, COM_TYPE_MAP } from '../constants/comObjects';
 import { getZone } from '../utils/zoneUtils';
 import { callIsWholeExpression } from '../utils/symbolParser';
-import { parsePage, sourceOf, walkStatements } from '../vbscript/symbols';
-import type * as A from '../vbscript/ast';
+import { parsePage } from '../vbscript/symbols';
+import { pageBlocks, withObjectAt } from '../vbscript/pageAnalysis';
 import * as path from 'path';
 
 
@@ -37,15 +37,7 @@ function buildComVarMap(includeComVars: { name: string; progId: string }[]): Map
  */
 export function enclosingWithObject(text: string, line: number, character: number): string | undefined {
     const page = parsePage(text);
-    const offset = (page.lineStarts[line] ?? text.length) + character;
-    let found: A.WithStmt | undefined;
-    for (const program of page.programs) {
-        walkStatements(program.body, s => {
-            if (s.kind !== 'With' || offset <= s.object.end) { return; }
-            if (s.closer ? offset < s.closer.start : offset <= s.end) { found = s; }
-        });
-    }
-    return found && sourceOf(text, found.object);
+    return withObjectAt(pageBlocks(page).withBlocks, (page.lineStarts[line] ?? text.length) + character);
 }
 
 export class AspCompletionProvider implements vscode.CompletionItemProvider {
