@@ -158,6 +158,11 @@ function fakeDocument(text) {
         lineCount: lines.length,
         lineAt:    i => ({ text: lines[i].replace(/\r$/, '') }),
         offsetAt:  p => starts[p.line] + p.character,
+        positionAt: offset => {
+            let line = 0;
+            while (line + 1 < starts.length && starts[line + 1] <= offset) { line++; }
+            return { line, character: offset - starts[line] };
+        },
     };
 }
 
