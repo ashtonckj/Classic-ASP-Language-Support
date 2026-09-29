@@ -34,6 +34,7 @@ import { JsDefinitionProvider } from './providers/jsDefinitionProvider';
 import { JsReferenceProvider, JsDocumentHighlightProvider } from './providers/jsReferenceProvider';
 import { JsRenameProvider } from './providers/jsRenameProvider';
 import { disposeAnalysisWorkers } from './utils/analysisClient';
+import { migrateOldSettingsAndTell } from './settingsMigration';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache, disposeWorkspaceIndex } from './providers/aspWorkspaceSymbolProvider';
 import { AspSignatureHelpProvider } from './providers/aspSignatureHelpProvider';
 import { computeLineEdits, computeRangeEdits, resolveEol, toLf } from './utils/editUtils';
@@ -105,6 +106,9 @@ function preloadIncludes(document: vscode.TextDocument | undefined): void {
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('Classic ASP Language Support is now active!');
+
+    // Settings kept under their pre-0.7.0 names move to the new ones.
+    void migrateOldSettingsAndTell(context);
 
     preloadIncludes(vscode.window.activeTextEditor?.document);
     context.subscriptions.push(

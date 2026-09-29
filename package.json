@@ -369,6 +369,128 @@
                         "description": "ASP code block background (dark theme)"
                     }
                 }
+            },
+            {
+                "title": "Old names (moved to classicAsp)",
+                "properties": {
+                    "aspLanguageSupport.keywordCase": {
+                        "type": "string",
+                        "enum": [
+                            "lowercase",
+                            "UPPERCASE",
+                            "PascalCase"
+                        ],
+                        "deprecationMessage": "Renamed to classicAsp.keywordCase. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.aspTagsOnSameLine": {
+                        "type": "boolean",
+                        "deprecationMessage": "Renamed to classicAsp.aspTagsOnSameLine. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.htmlIndentMode": {
+                        "type": "string",
+                        "enum": [
+                            "flat",
+                            "continuation"
+                        ],
+                        "deprecationMessage": "Renamed to classicAsp.htmlIndentMode. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.virtualRoot": {
+                        "type": "string",
+                        "deprecationMessage": "Renamed to classicAsp.virtualRoot. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.defaultIncludes": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "deprecationMessage": "Renamed to classicAsp.defaultIncludes. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.prettier.printWidth": {
+                        "type": "number",
+                        "deprecationMessage": "Renamed to classicAsp.prettier.printWidth. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.prettier.tabWidth": {
+                        "type": "number",
+                        "enum": [
+                            2,
+                            4,
+                            8
+                        ],
+                        "deprecationMessage": "Renamed to classicAsp.prettier.tabWidth. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.prettier.useTabs": {
+                        "type": "boolean",
+                        "deprecationMessage": "Renamed to classicAsp.prettier.useTabs. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.prettier.bracketSameLine": {
+                        "type": "boolean",
+                        "deprecationMessage": "Renamed to classicAsp.prettier.bracketSameLine. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.prettier.semi": {
+                        "type": "boolean",
+                        "deprecationMessage": "Renamed to classicAsp.prettier.semi. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.prettier.singleQuote": {
+                        "type": "boolean",
+                        "deprecationMessage": "Renamed to classicAsp.prettier.singleQuote. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.prettier.arrowParens": {
+                        "type": "string",
+                        "enum": [
+                            "always",
+                            "avoid"
+                        ],
+                        "deprecationMessage": "Renamed to classicAsp.prettier.arrowParens. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.prettier.trailingComma": {
+                        "type": "string",
+                        "enum": [
+                            "none",
+                            "es5",
+                            "all"
+                        ],
+                        "deprecationMessage": "Renamed to classicAsp.prettier.trailingComma. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.prettier.endOfLine": {
+                        "type": "string",
+                        "enum": [
+                            "auto",
+                            "lf",
+                            "crlf",
+                            "cr"
+                        ],
+                        "deprecationMessage": "Renamed to classicAsp.prettier.endOfLine. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.prettier.htmlWhitespaceSensitivity": {
+                        "type": "string",
+                        "enum": [
+                            "css",
+                            "strict",
+                            "ignore"
+                        ],
+                        "deprecationMessage": "Renamed to classicAsp.prettier.htmlWhitespaceSensitivity. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.highlightAspRegions": {
+                        "type": "boolean",
+                        "deprecationMessage": "Renamed to classicAsp.highlightAspRegions. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.bracketLightColor": {
+                        "type": "string",
+                        "deprecationMessage": "Renamed to classicAsp.bracketLightColor. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.bracketDarkColor": {
+                        "type": "string",
+                        "deprecationMessage": "Renamed to classicAsp.bracketDarkColor. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.codeBlockLightColor": {
+                        "type": "string",
+                        "deprecationMessage": "Renamed to classicAsp.codeBlockLightColor. Your value is moved there automatically."
+                    },
+                    "aspLanguageSupport.codeBlockDarkColor": {
+                        "type": "string",
+                        "deprecationMessage": "Renamed to classicAsp.codeBlockDarkColor. Your value is moved there automatically."
+                    }
+                }
             }
         ],
         "configurationDefaults": {
