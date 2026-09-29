@@ -1,9 +1,12 @@
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { checkPage, objectTagIds, type CheckCode } from '../../vbscript/checks';
 import { bindAt, type WorkspaceHost } from '../../vbscript/references';
 import { lineAt, parsePage } from '../../vbscript/symbols';
 import { resolveIncludeDirective } from '../../utils/includeDirectives';
+import { checkPageFiles, type ChecksRequest, type PageChecks } from '../../vbscript/pageChecks';
 
 // The engine's behaviour behind each check was confirmed with cscript.exe:
 // a wrong argument count is error 450, an undeclared name under Option
@@ -93,5 +96,50 @@ describe('objectTagIds', () => {
     it('finds the ids of server-side object tags only', () => {
         const text = '<OBJECT RUNAT=Server SCOPE=Session ID=Cart PROGID="Scripting.Dictionary"></OBJECT>\n<object id="player" classid="x"></object>';
         assert.deepStrictEqual(objectTagIds(text), ['cart']);
+    });
+});
+
+// On the worker thread the checks read the includes themselves: from disk, or
+// as the editor holds them when they are open with unsaved changes.
+describe('checkPageFiles — the checks with the includes read from disk', () => {
+    let dir: string;
+    const file = (name: string) => path.join(dir, name);
+    const request = (text: string, extra: Partial<ChecksRequest> = {}): ChecksRequest => ({
+        text, docPath: file('page.asp'), configuredRoot: dir, defaultIncludes: [], openFiles: {}, includeComVariables: [], ...extra,
+    });
+    const codes = (result: PageChecks) => result.checks.map(c => c.code);
+
+    before(() => {
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'asp-checks-'));
+        fs.writeFileSync(file('lib.inc'), '<%\nDim fromLib\n%>');
+    });
+    after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+    it('counts a name an include on disk declares', () => {
+        const text = '<!--#include file="lib.inc"-->\n<%\nOption Explicit\nfromLib = 1\n%>';
+        assert.deepStrictEqual(codes(checkPageFiles(request(text), (_p, t) => parsePage(t))), []);
+    });
+
+    it('reads an include open with unsaved changes as the editor holds it', () => {
+        const text = '<!--#include file="lib.inc"-->\n<%\nOption Explicit\nfromLib = 1\n%>';
+        const openFiles = { [file('lib.inc').toLowerCase()]: '<%\nDim renamed\n%>' };
+        assert.deepStrictEqual(codes(checkPageFiles(request(text, { openFiles }), (_p, t) => parsePage(t))), ['undeclared']);
+    });
+
+    it('counts an object global.asa declares', () => {
+        fs.writeFileSync(file('global.asa'), '<object runat="server" scope="application" id="Cache" progid="Scripting.Dictionary"></object>');
+        try {
+            const text = '<%\nOption Explicit\nCache.Add "a", 1\n%>';
+            assert.deepStrictEqual(codes(checkPageFiles(request(text), (_p, t) => parsePage(t))), []);
+        } finally {
+            fs.rmSync(file('global.asa'));
+        }
+    });
+
+    it('finds a Missing Set on an object whose type an include declares', () => {
+        const text = '<%\nrs = conn.Execute("SELECT 1")\n%>';
+        const includeComVariables = [{ name: 'conn', progId: 'adodb.connection' }];
+        const result = checkPageFiles(request(text, { includeComVariables }), (_p, t) => parsePage(t));
+        assert.deepStrictEqual(result.missingSet.map(m => m.target), ['rs']);
     });
 });

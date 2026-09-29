@@ -6,7 +6,7 @@
  *   • jsAnalysisWorker.ts — the type-aware JavaScript colouring and the JS
  *     squiggles, both from one TypeScript pass;
  *   • aspColouring.ts     — the VBScript and SQL colouring, and the SQL warnings;
- *   • vbscriptWorker.ts   — the VBScript page's symbols and blocks.
+ *   • vbscriptWorker.ts   — the VBScript page's symbols and blocks, and its checks.
  *
  * Each is a long-lived worker thread of its own, so neither waits behind the
  * other, and both are driven the same way:
@@ -35,8 +35,9 @@ import { Worker } from 'node:worker_threads';
 import type { JsAnalysisResult } from './jsAnalysisWorker';
 import type { AspColouringRequest, AspColouringResult } from './aspColouring';
 import type { FileSymbols } from './symbolParser';
-import type { PageResult } from './vbscriptWorker';
+import type { ChecksResult, PageResult } from './vbscriptWorker';
 import type { PageAnalysis } from '../vbscript/pageAnalysis';
+import type { ChecksRequest, PageChecks } from '../vbscript/pageChecks';
 
 export type { JsAnalysisResult, PlainJsDiagnostic } from './jsAnalysisWorker';
 export type { AspColouringResult, SqlWarning } from './aspColouring';
@@ -69,6 +70,8 @@ class AnalysisWorker<I extends { text: string }, R extends { id: number }> {
         private readonly sameInput: (a: I, b: I) => boolean,
         /** False for an answer that may be a failure in disguise, which is not kept. */
         private readonly worthKeeping: (result: R) => boolean,
+        /** True for a job to send ahead of the others waiting. */
+        private readonly urgent: (input: I) => boolean = () => false,
     ) {}
 
     request(key: string, input: I): Promise<R | undefined> {
@@ -176,7 +179,8 @@ class AnalysisWorker<I extends { text: string }, R extends { id: number }> {
         const worker = this.ensureWorker();
         if (!worker) { this.failAllPending(); return; }
 
-        const [key, job] = this.queued.entries().next().value!;
+        const [key, job] = [...this.queued.entries()].find(([, waiting]) => this.urgent(waiting.input))
+            ?? this.queued.entries().next().value!;
         this.queued.delete(key);
 
         const id = this.nextId++;
@@ -209,10 +213,16 @@ const aspWorker = new AnalysisWorker<AspColouringInput, AspColouringResult>(
     result => !result.failed,
 );
 
-const vbscriptWorker = new AnalysisWorker<{ kind: 'page'; text: string; docPath: string }, PageResult>(
+type VbscriptInput = { kind: 'page'; text: string; docPath: string } | (ChecksRequest & { kind: 'checks' });
+
+const vbscriptWorker = new AnalysisWorker<VbscriptInput, PageResult | ChecksResult>(
     path.join(__dirname, 'vbscriptWorker.js'),
-    (a, b) => a.text === b.text && a.docPath === b.docPath,
-    result => !result.failed,
+    // Checks read the includes from disk, which may have changed since, so
+    // only a page's own reading is shared.
+    (a, b) => a.kind === 'page' && b.kind === 'page' && a.text === b.text && a.docPath === b.docPath,
+    result => !result.failed && 'symbols' in result,
+    // What completion is waiting on goes before checks nobody is waiting on.
+    input => input.kind === 'page',
 );
 
 /**
@@ -243,7 +253,17 @@ export function colourAspPage(
  * the worker could not answer.
  */
 export async function analyseVbscriptPage(key: string, text: string, docPath: string): Promise<PageAnalysis | undefined> {
-    const result = await vbscriptWorker.request(key, { kind: 'page', text, docPath });
+    const result = await vbscriptWorker.request(key, { kind: 'page', text, docPath }) as PageResult | undefined;
+    return result && !result.failed ? result : undefined;
+}
+
+/**
+ * Missing Set and the parser's checks for the document `key` (its URI), or
+ * undefined when a newer request for that document superseded this one or
+ * the worker could not answer.
+ */
+export async function checkVbscriptPage(key: string, request: ChecksRequest): Promise<PageChecks | undefined> {
+    const result = await vbscriptWorker.request(`checks:${key}`, { ...request, kind: 'checks' }) as ChecksResult | undefined;
     return result && !result.failed ? result : undefined;
 }
 

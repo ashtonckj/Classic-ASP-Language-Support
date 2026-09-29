@@ -24,10 +24,10 @@ import { createZoneResolver } from '../utils/zoneUtils';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../utils/includeDirectives';
 import { removeStrings } from '../utils/documentHelper';
 import { parsePage } from '../vbscript/symbols';
-import { findMissingSet, pageBlocks, type BlockWarning } from '../vbscript/pageAnalysis';
-import { analysedPage } from './vbscriptWorkspace';
-import { areIncludeSymbolsReady, collectAllSymbols, configuredVirtualRoot, preloadIncludeSymbols } from './includeProvider';
-import { scanParserChecks } from './aspChecksProvider';
+import { pageBlocks, type BlockWarning, type MissingSet } from '../vbscript/pageAnalysis';
+import { analysedPage, checkedPage } from './vbscriptWorkspace';
+import { areIncludeSymbolsReady, configuredVirtualRoot, preloadIncludeSymbols } from './includeProvider';
+import { parserCheckDiagnostics } from './aspChecksProvider';
 
 type BlockKind =
     | 'if' | 'for' | 'while' | 'do' | 'with'
@@ -445,14 +445,9 @@ export function scanIncludes(document: vscode.TextDocument): vscode.Diagnostic[]
 
 // ── An object assigned without Set ────────────────────────────────────────────
 
-/** Missing-Set warnings for a page, using the object types known from it and its includes. */
-export function scanMissingSet(document: vscode.TextDocument): vscode.Diagnostic[] {
-    const comTypes = new Map<string, string>();
-    for (const variable of collectAllSymbols(document).comVariables) {
-        if (!comTypes.has(variable.name.toLowerCase())) { comTypes.set(variable.name.toLowerCase(), variable.progId); }
-    }
-
-    return findMissingSet(parsePage(document.getText()), comTypes).map(found => Object.assign(
+/** The Missing-Set warnings as diagnostics on `document`, whose text they were found in. */
+export function missingSetDiagnostics(document: vscode.TextDocument, missingSet: MissingSet[]): vscode.Diagnostic[] {
+    return missingSet.map(found => Object.assign(
         new vscode.Diagnostic(
             new vscode.Range(document.positionAt(found.start), document.positionAt(found.end)),
             `Missing Set: an object is assigned here, so this needs \`Set ${found.target} = …\`. ` +
@@ -518,7 +513,16 @@ export function registerAspStructureDiagnostics(
     );
 
     function scanChecks(document: vscode.TextDocument): void {
-        checksCollection.set(document.uri, [...scanIncludes(document), ...scanMissingSet(document), ...scanParserChecks(document)]);
+        // Missing Set and the parser's checks bind the page with its includes,
+        // which is worked out on the VBScript worker thread.
+        void checkedPage(document).then(checked => {
+            if (!checked || document.isClosed || document.version !== checked.version) { return; }
+            checksCollection.set(document.uri, [
+                ...scanIncludes(document),
+                ...missingSetDiagnostics(document, checked.missingSet),
+                ...parserCheckDiagnostics(document, checked.checks),
+            ]);
+        });
     }
 
     // Per-document debounce timers, keyed by URI, so editing one open .asp file

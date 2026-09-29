@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
-import { defaultIncludeCandidates, getVirtualRoot, readIncludeText, resolveDirectIncludes } from './includeProvider';
+import { collectIncludeSymbols, configuredVirtualRoot, defaultIncludeCandidates, getVirtualRoot, readIncludeText, resolveDirectIncludes } from './includeProvider';
 import { getWorkspaceAspFiles } from './aspWorkspaceSymbolProvider';
 import { resolveIncludeDirective } from '../utils/includeDirectives';
 import { parsePage, type ParsedPage } from '../vbscript/symbols';
 import type { WorkspaceHost } from '../vbscript/references';
 import { analysePage, type PageAnalysis } from '../vbscript/pageAnalysis';
-import { analyseVbscriptPage, vbscriptWorkerUsable } from '../utils/analysisClient';
+import { checkPageFiles, type ChecksRequest, type PageChecks } from '../vbscript/pageChecks';
+import { analyseVbscriptPage, checkVbscriptPage, vbscriptWorkerUsable } from '../utils/analysisClient';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The workspace as the VBScript parser sees it
@@ -112,4 +113,39 @@ export async function analysedPage(document: vscode.TextDocument, token?: vscode
         if (analysis && !document.isClosed && document.version === version) { return { version, ...analysis }; }
     }
     return undefined;
+}
+
+/** Missing Set and the parser's checks, worked out for the document's text at `version`. */
+export interface CheckedPage extends PageChecks { version: number; }
+
+/**
+ * Missing Set and the parser's checks for the page, worked out on the
+ * VBScript worker thread with its includes. Undefined when a newer request
+ * superseded this one or the worker could not answer.
+ */
+export async function checkedPage(document: vscode.TextDocument): Promise<CheckedPage | undefined> {
+    const version = document.version;
+    const docPath = document.uri.fsPath;
+
+    // The worker reads files from disk; an include open with unsaved changes
+    // counts as the editor shows it.
+    const openFiles: Record<string, string> = {};
+    for (const open of vscode.workspace.textDocuments) {
+        if (open.isDirty && open !== document && open.uri.scheme === 'file') { openFiles[open.uri.fsPath.toLowerCase()] = open.getText(); }
+    }
+
+    const request: ChecksRequest = {
+        text: document.getText(),
+        docPath,
+        configuredRoot: configuredVirtualRoot(),
+        defaultIncludes: defaultIncludeCandidates(getVirtualRoot(docPath)),
+        openFiles,
+        includeComVariables: collectIncludeSymbols(document).comVariables.map(({ name, progId }) => ({ name, progId })),
+    };
+
+    // A worker that cannot start is no reason to lose the checks.
+    const result = vbscriptWorkerUsable()
+        ? await checkVbscriptPage(document.uri.toString(), request)
+        : checkPageFiles(request, parseCached);
+    return result && { version, ...result };
 }
