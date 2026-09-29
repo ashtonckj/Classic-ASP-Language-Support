@@ -62,11 +62,11 @@ export function hasNonEmptySelection(selections: readonly { isEmpty: boolean }[]
 }
 
 const REGION_SETTINGS = [
-    'aspLanguageSupport.highlightAspRegions',
-    'aspLanguageSupport.bracketLightColor',
-    'aspLanguageSupport.bracketDarkColor',
-    'aspLanguageSupport.codeBlockLightColor',
-    'aspLanguageSupport.codeBlockDarkColor',
+    'classicAsp.highlightAspRegions',
+    'classicAsp.bracketLightColor',
+    'classicAsp.bracketDarkColor',
+    'classicAsp.codeBlockLightColor',
+    'classicAsp.codeBlockDarkColor',
 ];
 
 /**
@@ -199,7 +199,7 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
     }
 
     function updateDecorations() {
-        const config = vscode.workspace.getConfiguration("aspLanguageSupport");
+        const config = vscode.workspace.getConfiguration("classicAsp");
         const highlightAspRegions = config.get<boolean>("highlightAspRegions", true);
 
         // Only a settings change needs new decoration types (the colours are baked

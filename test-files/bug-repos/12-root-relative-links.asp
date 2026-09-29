@@ -7,7 +7,7 @@
   completion browses the wrong folder.
 
   #include virtual="..." already resolves through getVirtualRoot() (the
-  workspace folder, or the aspLanguageSupport.virtualRoot setting). The HTML
+  workspace folder, or the classicAsp.virtualRoot setting). The HTML
   link/completion path does not use it.
 
   WHAT TO LOOK FOR  (open the repo root as the workspace folder)

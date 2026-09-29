@@ -3,7 +3,7 @@
   Two different indent widths are in play:
     • Enter / Tab smart-indent uses the EDITOR's indent (editor.options.tabSize,
       4 by default).
-    • Format Document uses aspLanguageSupport.prettier.tabWidth (2 by default),
+    • Format Document uses classicAsp.prettier.tabWidth (2 by default),
       for both the HTML and the VBScript inside <% %>.
 
   So the extension indents your code one way while you type and a different way

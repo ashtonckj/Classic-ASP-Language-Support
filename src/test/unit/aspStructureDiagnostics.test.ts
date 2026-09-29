@@ -308,7 +308,7 @@ describe('findMissingIncludes', () => {
     it('flags a virtual include from the site root, and says where that is', () => {
         const [found] = findMissingIncludes('<!--#include virtual="/inc/footer.asp"-->', page, site);
         assert.ok(found.message.includes(path.join(site, 'inc', 'footer.asp')), found.message);
-        assert.ok(found.message.includes('aspLanguageSupport.virtualRoot'), found.message);
+        assert.ok(found.message.includes('classicAsp.virtualRoot'), found.message);
     });
 
     it('leaves a virtual include alone when the site root is not known', () => {

@@ -151,7 +151,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (!result) { return []; }
 
             const eol = resolveEol(
-                vscode.workspace.getConfiguration('aspLanguageSupport.prettier')
+                vscode.workspace.getConfiguration('classicAsp.prettier')
                     .get<string>('endOfLine', 'auto'),
                 document,
             );
@@ -168,7 +168,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (!result) { return []; }
 
             const eol = resolveEol(
-                vscode.workspace.getConfiguration('aspLanguageSupport.prettier')
+                vscode.workspace.getConfiguration('classicAsp.prettier')
                     .get<string>('endOfLine', 'auto'),
                 document,
             );
@@ -187,7 +187,7 @@ export function activate(context: vscode.ExtensionContext) {
     // A diff of what Format Document would change, with nothing applied. This
     // was the formatPreview setting, which turned Format Document itself into a
     // preview until the setting was switched off again.
-    const previewFormatting = vscode.commands.registerCommand('aspLanguageSupport.previewFormatting', async () => {
+    const previewFormatting = vscode.commands.registerCommand('classicAsp.previewFormatting', async () => {
         const document = vscode.window.activeTextEditor?.document;
         if (!document || document.languageId !== 'asp') { return; }
 

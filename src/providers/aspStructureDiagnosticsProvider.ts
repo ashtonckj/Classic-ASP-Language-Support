@@ -418,7 +418,7 @@ export function findMissingIncludes(
 
         const start = text.indexOf(directive.raw, directive.index);
         const where = directive.type === 'virtual'
-            ? ` A virtual path starts at the site root, ${virtualRoot} — set "aspLanguageSupport.virtualRoot" if yours is somewhere else.`
+            ? ` A virtual path starts at the site root, ${virtualRoot} — set "classicAsp.virtualRoot" if yours is somewhere else.`
             : '';
         missing.push({
             start,
@@ -584,7 +584,7 @@ export function registerAspStructureDiagnostics(
         vscode.workspace.onDidRenameFiles(recheckIncludes),
         vscode.workspace.onDidChangeWorkspaceFolders(recheckIncludes),
         vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('aspLanguageSupport.virtualRoot')) { recheckIncludes(); }
+            if (e.affectsConfiguration('classicAsp.virtualRoot')) { recheckIncludes(); }
         }),
         // Anything done outside VS Code (a git checkout, a build step) raises
         // none of the above; coming back to the page picks it up.

@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as os from 'os';
 
-// aspLanguageSupport.defaultIncludes: files that many real Classic ASP apps only
+// classicAsp.defaultIncludes: files that many real Classic ASP apps only
 // pull in through a shared bootstrap/layout page — never through the module
 // being edited itself — so IntelliSense/hover/Go to Definition previously had
 // no way to see them from that module's own #include chain (which is empty).
@@ -36,7 +36,7 @@ const dir = vscode.Uri.file(os.tmpdir());
 const libUri = vscode.Uri.joinPath(dir, `asp-default-include-lib-${process.pid}.asp`);
 const moduleUri = vscode.Uri.joinPath(dir, `asp-default-include-module-${process.pid}.asp`);
 
-const config = () => vscode.workspace.getConfiguration('aspLanguageSupport');
+const config = () => vscode.workspace.getConfiguration('classicAsp');
 let previousDefaultIncludes: string[] | undefined;
 
 async function setDefaultIncludes(value: string[] | undefined): Promise<void> {
@@ -44,7 +44,7 @@ async function setDefaultIncludes(value: string[] | undefined): Promise<void> {
     await sleep(200);
 }
 
-suite('aspLanguageSupport.defaultIncludes (integration)', () => {
+suite('classicAsp.defaultIncludes (integration)', () => {
 
     suiteSetup(async () => {
         await vscode.workspace.fs.writeFile(libUri, Buffer.from(LIBRARY, 'utf8'));

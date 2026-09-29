@@ -154,13 +154,13 @@ describe('affectsRegionHighlight', () => {
     });
 
     it('is true for the on/off switch and each colour', () => {
-        assert.strictEqual(affectsRegionHighlight(change('aspLanguageSupport.highlightAspRegions')), true);
-        assert.strictEqual(affectsRegionHighlight(change('aspLanguageSupport.codeBlockDarkColor')), true);
+        assert.strictEqual(affectsRegionHighlight(change('classicAsp.highlightAspRegions')), true);
+        assert.strictEqual(affectsRegionHighlight(change('classicAsp.codeBlockDarkColor')), true);
     });
 
     it('is false for any other setting, this extension\'s included', () => {
         assert.strictEqual(affectsRegionHighlight(change('editor.fontSize')), false);
-        assert.strictEqual(affectsRegionHighlight(change('aspLanguageSupport.keywordCase')), false);
+        assert.strictEqual(affectsRegionHighlight(change('classicAsp.keywordCase')), false);
     });
 });
 

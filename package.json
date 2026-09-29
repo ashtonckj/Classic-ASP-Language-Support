@@ -175,7 +175,7 @@
         ],
         "commands": [
             {
-                "command": "aspLanguageSupport.previewFormatting",
+                "command": "classicAsp.previewFormatting",
                 "title": "Preview Formatting",
                 "category": "Classic ASP"
             }
@@ -183,7 +183,7 @@
         "menus": {
             "commandPalette": [
                 {
-                    "command": "aspLanguageSupport.previewFormatting",
+                    "command": "classicAsp.previewFormatting",
                     "when": "editorLangId == asp"
                 }
             ]
@@ -192,7 +192,7 @@
             {
                 "title": "VBScript Formatting",
                 "properties": {
-                    "aspLanguageSupport.keywordCase": {
+                    "classicAsp.keywordCase": {
                         "type": "string",
                         "default": "PascalCase",
                         "enum": [
@@ -207,12 +207,12 @@
                         ],
                         "description": "VBScript keyword casing style"
                     },
-                    "aspLanguageSupport.aspTagsOnSameLine": {
+                    "classicAsp.aspTagsOnSameLine": {
                         "type": "boolean",
                         "default": false,
                         "description": "Keep <% and %> on the same line as the code they wrap"
                     },
-                    "aspLanguageSupport.htmlIndentMode": {
+                    "classicAsp.htmlIndentMode": {
                         "type": "string",
                         "default": "continuation",
                         "enum": [
@@ -225,30 +225,30 @@
                         ],
                         "description": "Where the <% and %> delimiters sit relative to the surrounding HTML. The VBScript inside the block is indented the same either way — only the delimiters move."
                     },
-                    "aspLanguageSupport.virtualRoot": {
+                    "classicAsp.virtualRoot": {
                         "type": "string",
                         "default": "",
                         "description": "Absolute path to your IIS web application root, used to resolve #include virtual=\"...\" directives. Leave empty to use the workspace folder root (the default, which works for most projects)."
                     },
-                    "aspLanguageSupport.defaultIncludes": {
+                    "classicAsp.defaultIncludes": {
                         "type": "array",
                         "items": {
                             "type": "string"
                         },
                         "default": [],
-                        "description": "Files that are always added to IntelliSense, hover, Go to Definition, and Peek Definition for every document — even if that document has no #include for them. Use this when common libraries are only pulled in through a shared bootstrap/layout page at runtime rather than directly by each module. Paths are resolved the same way as #include virtual=\"...\" (relative to aspLanguageSupport.virtualRoot, or the workspace folder root)."
+                        "description": "Files that are always added to IntelliSense, hover, Go to Definition, and Peek Definition for every document — even if that document has no #include for them. Use this when common libraries are only pulled in through a shared bootstrap/layout page at runtime rather than directly by each module. Paths are resolved the same way as #include virtual=\"...\" (relative to classicAsp.virtualRoot, or the workspace folder root)."
                     }
                 }
             },
             {
                 "title": "HTML, CSS & JavaScript Formatting (via Prettier)",
                 "properties": {
-                    "aspLanguageSupport.prettier.printWidth": {
+                    "classicAsp.prettier.printWidth": {
                         "type": "number",
                         "default": 80,
                         "description": "Wrap lines at this column width — Prettier printWidth"
                     },
-                    "aspLanguageSupport.prettier.tabWidth": {
+                    "classicAsp.prettier.tabWidth": {
                         "type": "number",
                         "default": 2,
                         "enum": [
@@ -258,27 +258,27 @@
                         ],
                         "description": "Spaces per HTML/CSS/JS indentation level — Prettier tabWidth"
                     },
-                    "aspLanguageSupport.prettier.useTabs": {
+                    "classicAsp.prettier.useTabs": {
                         "type": "boolean",
                         "default": false,
                         "description": "Use tabs instead of spaces for HTML/CSS/JS — Prettier useTabs"
                     },
-                    "aspLanguageSupport.prettier.bracketSameLine": {
+                    "classicAsp.prettier.bracketSameLine": {
                         "type": "boolean",
                         "default": false,
                         "description": "Put the closing > of a multi-line HTML element on the last attribute line — Prettier bracketSameLine"
                     },
-                    "aspLanguageSupport.prettier.semi": {
+                    "classicAsp.prettier.semi": {
                         "type": "boolean",
                         "default": true,
                         "description": "Add semicolons at the end of JavaScript statements — Prettier semi"
                     },
-                    "aspLanguageSupport.prettier.singleQuote": {
+                    "classicAsp.prettier.singleQuote": {
                         "type": "boolean",
                         "default": false,
                         "description": "Use single quotes instead of double quotes in JavaScript — Prettier singleQuote"
                     },
-                    "aspLanguageSupport.prettier.arrowParens": {
+                    "classicAsp.prettier.arrowParens": {
                         "type": "string",
                         "default": "always",
                         "enum": [
@@ -291,7 +291,7 @@
                         ],
                         "description": "Parentheses around single arrow function parameters — Prettier arrowParens"
                     },
-                    "aspLanguageSupport.prettier.trailingComma": {
+                    "classicAsp.prettier.trailingComma": {
                         "type": "string",
                         "default": "es5",
                         "enum": [
@@ -306,7 +306,7 @@
                         ],
                         "description": "Trailing comma style — Prettier trailingComma"
                     },
-                    "aspLanguageSupport.prettier.endOfLine": {
+                    "classicAsp.prettier.endOfLine": {
                         "type": "string",
                         "default": "auto",
                         "enum": [
@@ -323,7 +323,7 @@
                         ],
                         "description": "Line ending style — Prettier endOfLine"
                     },
-                    "aspLanguageSupport.prettier.htmlWhitespaceSensitivity": {
+                    "classicAsp.prettier.htmlWhitespaceSensitivity": {
                         "type": "string",
                         "default": "css",
                         "enum": [
@@ -343,27 +343,27 @@
             {
                 "title": "Syntax Highlighting",
                 "properties": {
-                    "aspLanguageSupport.highlightAspRegions": {
+                    "classicAsp.highlightAspRegions": {
                         "type": "boolean",
                         "default": true,
                         "description": "Highlight ASP code regions with background colors"
                     },
-                    "aspLanguageSupport.bracketLightColor": {
+                    "classicAsp.bracketLightColor": {
                         "type": "string",
                         "default": "rgba(255, 100, 0, 0.15)",
                         "description": "ASP bracket <% %> color (light theme)"
                     },
-                    "aspLanguageSupport.bracketDarkColor": {
+                    "classicAsp.bracketDarkColor": {
                         "type": "string",
                         "default": "rgba(0, 100, 255, 0.15)",
                         "description": "ASP bracket <% %> color (dark theme)"
                     },
-                    "aspLanguageSupport.codeBlockLightColor": {
+                    "classicAsp.codeBlockLightColor": {
                         "type": "string",
                         "default": "rgba(100, 100, 100, 0.04)",
                         "description": "ASP code block background (light theme)"
                     },
-                    "aspLanguageSupport.codeBlockDarkColor": {
+                    "classicAsp.codeBlockDarkColor": {
                         "type": "string",
                         "default": "rgba(220, 220, 220, 0.04)",
                         "description": "ASP code block background (dark theme)"

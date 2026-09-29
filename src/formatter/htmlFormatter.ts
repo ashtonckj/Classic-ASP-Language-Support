@@ -9,7 +9,7 @@ import { VOID_ELEMENTS } from '../constants/htmlTags';
 
 /**
  * Prettier formatting options surfaced under the
- * `aspLanguageSupport.prettier.*` configuration namespace.
+ * `classicAsp.prettier.*` configuration namespace.
  *
  * HTML, CSS, and JavaScript formatting is delegated entirely to Prettier
  * (https://prettier.io). These settings map 1-to-1 to Prettier's own options.
@@ -28,7 +28,7 @@ export interface PrettierSettings {
 }
 
 export function getPrettierSettings(): PrettierSettings {
-    const config = vscode.workspace.getConfiguration('aspLanguageSupport.prettier');
+    const config = vscode.workspace.getConfiguration('classicAsp.prettier');
     return {
         printWidth:                config.get<number>('printWidth',                80),
         tabWidth:                  config.get<number>('tabWidth',                  2),
