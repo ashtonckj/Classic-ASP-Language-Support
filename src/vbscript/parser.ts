@@ -318,7 +318,9 @@ class Parser {
         }
         if (t.kind !== TokenKind.Identifier) {
             this.errorAtTok('Expected statement');
-            return this.errorStmt();
+            if (!this.startsExpression()) { return this.errorStmt(); }
+            const expr = this.parseExpr();
+            return { kind: 'Error', start: t.start, end: expr.end, expr };
         }
         if (t.bracketed) { return this.parseAssignOrCall(); }
 
@@ -382,6 +384,12 @@ class Parser {
             return this.errorStmt();
         }
         return this.parseAssignOrCall();
+    }
+
+    /** A string, number or date, or an opening bracket: something only an expression starts with. */
+    private startsExpression(): boolean {
+        const k = this.tok.kind;
+        return k === TokenKind.String || k === TokenKind.Number || k === TokenKind.Date || this.isPunct('(');
     }
 
     private errorStmt(): A.ErrorStmt | null {

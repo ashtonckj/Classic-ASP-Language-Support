@@ -294,6 +294,12 @@ export interface StopStmt extends Span {
 /** Tokens the parser skipped after an error. */
 export interface ErrorStmt extends Span {
     kind: 'Error';
+    /**
+     * An expression written where a statement should start, such as the rest
+     * of a string whose `& _` was cut off by a blank line. Kept so the names
+     * and strings in it still count.
+     */
+    expr?: Expr;
 }
 
 export interface Diagnostic extends Span {

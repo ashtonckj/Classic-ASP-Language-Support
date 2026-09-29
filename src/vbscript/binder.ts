@@ -376,6 +376,9 @@ class Binder {
                 case 'Erase':
                     for (const t of s.targets) { this.expr(t, scope, file); }
                     break;
+                case 'Error':
+                    if (s.expr) { this.expr(s.expr, scope, file); }
+                    break;
                 case 'Procedure':
                     this.resolve(s.body, this.binding.scopeOf.get(s)!, file);
                     break;

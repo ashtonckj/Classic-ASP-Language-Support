@@ -168,6 +168,14 @@ describe('VBScript parser — recovery', () => {
         }
     });
 
+    it('keeps the rest of a string cut off by a blank line after & _, with one error for it', () => {
+        const code = 'sql = "SELECT a " & _\n\n  "FROM t " & id\nx = 1';
+        assert.deepStrictEqual(diagnostics(page(code)), ['2: Expected expression', '3: Expected statement']);
+        const [, rest, next] = parsePage(page(code)).programs[0].body;
+        assert.strictEqual(rest.kind === 'Error' && rest.expr?.kind, 'Binary');
+        assert.strictEqual(next.kind, 'Assign');
+    });
+
     it('survives brackets nested thousands deep', () => {
         const code = 'x = ' + '('.repeat(5000) + '1' + ')'.repeat(5000);
         assert.ok(diagnostics(page(code)).length > 0);
