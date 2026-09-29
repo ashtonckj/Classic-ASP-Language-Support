@@ -18,8 +18,6 @@
 
 import { parentPort } from 'node:worker_threads';
 import type { FileSymbols } from './symbolParser';
-import { createZoneResolver, getVbScriptBlockRanges } from './zoneUtils';
-import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import {
     T_FUNCTION, T_NAMESPACE, T_VARIABLE, T_PARAMETER, T_CONSTANT,
     M_DECLARATION, M_READONLY,
@@ -28,6 +26,7 @@ import {
 } from '../providers/sqlSemanticProvider';
 import type * as A from '../vbscript/ast';
 import { parsePage, symbolsOfPage, walkStatements } from '../vbscript/symbols';
+import { bindPage, type Scope } from '../vbscript/binder';
 import {
     concatOperands, isConcat, isStringLiteral, statementExpressions, stringValue, walkExpression,
 } from '../vbscript/expressions';
@@ -57,25 +56,22 @@ export interface AspColouringResult {
 }
 
 /**
- * The page's lines and the offset each starts at, split where a TextDocument
+ * The offset each of the page's lines starts at, split where a TextDocument
  * splits them — at \r\n, \n or a lone \r — so every offset matches the
  * editor's own.
  */
-function linesOf(text: string): { lines: string[]; starts: number[] } {
-    const lines: string[] = [];
+function lineStartsOf(text: string): number[] {
     const starts: number[] = [];
     let start = 0;
     for (let i = 0; i < text.length; i++) {
         const ch = text.charCodeAt(i);
         if (ch !== 10 && ch !== 13) { continue; }
-        lines.push(text.slice(start, i));
         starts.push(start);
         if (ch === 13 && text.charCodeAt(i + 1) === 10) { i++; }
         start = i + 1;
     }
-    lines.push(text.slice(start));
     starts.push(start);
-    return { lines, starts };
+    return starts;
 }
 
 /** The page's own symbols followed by its includes', in the order collectAllSymbols gives them. */
@@ -94,7 +90,7 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
     const page = parsePage(fullText);
     const allSymbols = withIncludes(symbolsOfPage(page, docPath), request.includeSymbols);
 
-    const { lines, starts: lineStarts } = linesOf(fullText);
+    const lineStarts = lineStartsOf(fullText);
 
     const tokens: number[] = [];
     const builder: TokenSink = {
@@ -104,110 +100,16 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
     };
 
 
-    // Build a per-character ASP-zone bitmap once from the raw text.
-    // inAsp(offset) scans backwards on every call — O(distance to nearest
-    // boundary). At 4k lines that's ~96k calls × avg half-file scan ≈ very slow.
-    // aspMap[offset] === 1 replaces every hot-path call with a single array lookup.
-    const aspMap = new Uint8Array(fullText.length);
-    {
-        let inside = false;
-        for (let i = 0; i < fullText.length; i++) {
-            if (!inside && fullText[i] === '<' && i + 1 < fullText.length && fullText[i + 1] === '%') {
-                inside = true; aspMap[i] = 1; i++; aspMap[i] = 1;
-            } else if (inside && fullText[i] === '%' && i + 1 < fullText.length && fullText[i + 1] === '>') {
-                inside = false; i++;
-            } else if (inside) {
-                aspMap[i] = 1;
-            }
-        }
-        // Also mark the body of every VBScript <script> block as ASP zone, so
-        // semantic tokens are emitted for the VBScript in it.
-        //
-        // getVbScriptBlockRanges is the same scanner getZone uses, so the two
-        // agree on where a block starts and ends. A blind regex over the whole
-        // document used to do this, and it had two failure modes:
-        //   • it matched a `<script language="vbscript">` that was only TEXT —
-        //     written in an HTML comment, or inside a VBScript string — and
-        //     coloured everything up to the next `</script>` as VBScript;
-        //   • it located the body with indexOf of the body text within the whole
-        //     match, so a body that also appeared in an attribute value
-        //     (`<script language="vbscript" title="x=1">x=1</script>`) marked the
-        //     attribute instead of the body.
-        for (const { start, end } of getVbScriptBlockRanges(fullText)) {
-            for (let i = start; i < end; i++) { aspMap[i] = 1; }
-        }
+    // What the page's includes declare, for a name the page itself does not
+    // declare. Includes are VBScript through and through, so every name counts.
+    const { includeSymbols } = request;
+    const includeFunctions = new Map<string, number>();
+    for (const fn of includeSymbols.functions) {
+        const key = fn.name.toLowerCase();
+        if (!includeFunctions.has(key)) { includeFunctions.set(key, fn.kind === 'Function' ? T_FUNCTION : T_NAMESPACE); }
     }
-    const inAsp = (offset: number): boolean => aspMap[offset] === 1;
-
-    // Build fast lookup sets/maps from collected symbols.
-    //
-    // extractSymbols() has no zone awareness — it collects every symbol it
-    // finds in the raw text, including symbols declared inside <script> (JS)
-    // blocks.  We must filter those out here before building the colouring
-    // sets, otherwise a JS identifier that shares a name with a VBScript one
-    // will receive the wrong colour (e.g. a JS param colouring a Dim variable).
-    //
-    // Symbols from #include files always come from pure VBScript files so
-    // they are never zone-filtered — only same-document symbols need the check.
-
-    // One scan for the whole run. isJsZoneSymbol is asked once per collected
-    // symbol — ~184 times on a large page — and getZone answers each call by
-    // rescanning the document from offset 0, which was ~275ms of every
-    // semantic-tokens pass on its own.
-    const zones = createZoneResolver(fullText);
-
-    // Returns true when a same-document symbol sits inside a JS <script> block.
-    function isJsZoneSymbol(filePath: string, line: number): boolean {
-        if (filePath !== docPath) { return false; }
-        return zones.zoneAt(lineStarts[line]) === 'js';
-    }
-
-    const funcMap = new Map<string, 'function' | 'Sub'>();
-    for (const fn of allSymbols.functions) {
-        if (isJsZoneSymbol(fn.filePath, fn.line)) { continue; }
-        funcMap.set(fn.name.toLowerCase(), fn.kind === 'Function' ? 'function' : 'Sub');
-    }
-
-    const varSet = new Set<string>(
-        allSymbols.variables
-            .filter(v => !isJsZoneSymbol(v.filePath, v.line))
-            .map(v => v.name.toLowerCase())
-    );
-    const comVarSet = new Set<string>(
-        allSymbols.comVariables
-            .filter(cv => !isJsZoneSymbol(cv.filePath, cv.line))
-            .map(cv => cv.name.toLowerCase())
-    );
-    const constSet = new Set<string>(
-        allSymbols.constants
-            .filter(c => !isJsZoneSymbol(c.filePath, c.line))
-            .map(c => c.name.toLowerCase())
-    );
-
-    // Parameter scoping: lineNumber -> Set<paramName>
-    // Only register VBScript function params — JS function params must not
-    // bleed into ASP lines that happen to share the same line-number range.
-    const lineCount = lines.length;
-    const lineParamSets: Map<number, Set<string>> = new Map();
-    for (const fn of allSymbols.functions) {
-        if (fn.paramNames.length === 0)           { continue; }
-        if (fn.filePath !== docPath)               { continue; }
-        if (isJsZoneSymbol(fn.filePath, fn.line)) { continue; }
-        const start = fn.line;
-        const end   = fn.endLine !== -1 ? fn.endLine : lineCount - 1;
-        for (let l = start; l <= end; l++) {
-            if (!lineParamSets.has(l)) { lineParamSets.set(l, new Set()); }
-            for (const p of fn.paramNames) { lineParamSets.get(l)!.add(p.toLowerCase()); }
-        }
-    }
-
-    // Line text and offset caches, used by all the passes below.
-    const lineTextCache: string[] = new Array(lineCount);
-    const lineOffsetCache: number[] = new Array(lineCount);
-    for (let li = 0; li < lineCount; li++) {
-        lineTextCache[li]   = lines[li];
-        lineOffsetCache[li] = lineStarts[li];
-    }
+    const includeConstants = new Set(includeSymbols.constants.map(c => c.name.toLowerCase()));
+    const includeVariables = new Set([...includeSymbols.variables, ...includeSymbols.comVariables].map(v => v.name.toLowerCase()));
 
     // ── SQL, read from the syntax tree ───────────────────────────────────
     //
@@ -470,8 +372,6 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
     // Each string joined with `&` is read as one: it is coloured as SQL when
     // it reads as SQL, or, piece by piece, when it is written into a SQL
     // variable or returned by a SQL function, as a fragment of that SQL.
-    const sqlStringLines = new Map<number, Array<[number, number]>>();
-
     /** The literals as one SQL string, mapped back to where each character is written. */
     function colourAsSql(literals: A.LiteralExpr[]): void {
         let stitched = '';
@@ -487,8 +387,6 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
                 stitched += raw[i];
                 if (raw[i] === '"') { i++; }
             }
-            const ranges = sqlStringLines.get(line);
-            if (ranges) { ranges.push([col + 1, col + raw.length - 1]); } else { sqlStringLines.set(line, [[col + 1, col + raw.length - 1]]); }
         }
         if (stitched.length === 0) { return; }
         emitSqlTokensForGroup(builder, { stitched, omLine: Int32Array.from(omLineArr), omCol: Int32Array.from(omColArr) });
@@ -521,97 +419,35 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
         for (const e of statementExpressions(stmt)) { walkExpression(e, colourJoined); }
     }
 
-    // ── VBScript identifier pass ──────────────────────────────────────────
-    // Lines are NOT skipped by a single midpoint ASP-zone check because a
-    // line like  <td><%= userName %></td>  or  value="<%= x %>"  has its
-    // midpoint in HTML, yet still contains valid ASP tokens that must be
-    // coloured.  Instead, each token's actual document offset is checked
-    // individually so mixed HTML/ASP lines are handled correctly.
-    for (let lineIndex = 0; lineIndex < lineCount; lineIndex++) {
-        const line       = lineTextCache[lineIndex];
-        const lineOffset = lineOffsetCache[lineIndex];
-
-        // Fast pre-filter: skip lines that contain no <% at all.
-        if (!line.includes('<%') && !inAsp(lineOffset)) { continue; }
-
-        const trimmed = line.trimStart();
-        if (trimmed.startsWith("'") || /^rem\s/i.test(trimmed)) { continue; }
-
-        // Strip VBScript string literals ("...") only when the opening quote
-        // is itself inside an ASP block — this preserves HTML attribute values
-        // like value="<%= x %>" and onclick="..." so tokens inside remain visible.
-        // Replacement is always the same length (spaces) so string offsets stay valid.
-        let strippedLine = line.replace(/"[^"]*"/g, (m: string, offset: number) =>
-            inAsp(lineOffset + offset) ? ' '.repeat(m.length) : m
-        );
-        // Only treat ' as a VBScript comment marker when it sits inside an
-        // ASP block — a ' in HTML (e.g. onclick="alert('<%= x %>')") is a JS
-        // string delimiter and must not truncate the rest of the line.
-        // Scan past any leading ' chars that are in HTML to find the first
-        // one that genuinely opens a VBScript comment.
-        {
-            let searchFrom = 0;
-            while (true) {
-                const qi = strippedLine.indexOf("'", searchFrom);
-                if (qi === -1) break;
-                if (inAsp(lineOffset + qi)) {
-                    strippedLine = strippedLine.substring(0, qi);
-                    break;
-                }
-                searchFrom = qi + 1;
-            }
+    // ── VBScript names, from the binder ──────────────────────────────────
+    // Each name is coloured as what it refers to in VBScript's own scopes: a
+    // local belongs to its Sub, a parameter to its procedure, and `obj.count`
+    // is a member, not the variable count. Keywords, strings and comments are
+    // not names, so nothing needs stripping first. A name the page declares
+    // nowhere takes its colour from what the includes declare.
+    const binding = bindPage(docPath, page);
+    const serverScope = binding.scopes[0];
+    const rootOf = (scope: Scope): Scope => { let s = scope; while (s.parent) { s = s.parent; } return s; };
+    for (const r of binding.references) {
+        const { line, col } = positionOf(r.span.start);
+        const length = r.span.end - r.span.start;
+        const declaration = r.declaration ? M_DECLARATION : 0;
+        switch (r.target?.kind) {
+            case 'function':  builder.push(line, col, length, T_FUNCTION, declaration); continue;
+            case 'sub':
+            case 'property':  builder.push(line, col, length, T_NAMESPACE, declaration); continue;
+            case 'parameter': builder.push(line, col, length, T_PARAMETER, declaration); continue;
+            case 'constant':  builder.push(line, col, length, T_CONSTANT, declaration | M_READONLY); continue;
+            case 'variable':  builder.push(line, col, length, T_VARIABLE, declaration); continue;
+            case 'class':     continue;
         }
-
-        const activeParams = lineParamSets.get(lineIndex);
-        const sqlRanges    = sqlStringLines.get(lineIndex);
-
-        const isFuncDeclaration = /^\s*(?:Public\s+|Private\s+)?(?:Function|Sub)\s+/i.test(line);
-        const isDimLine         = /^\s*(?:Dim|ReDim|Public|Private)\s+/i.test(line);
-        const isConstLine       = /^\s*(?:Public\s+|Private\s+)?Const\s+/i.test(line);
-        const isSetLine         = /^\s*Set\s+\w+\s*=/i.test(line);
-
-        const wordPattern = /\b([a-zA-Z_]\w*)\b/g;
-        let match: RegExpExecArray | null;
-
-        while ((match = wordPattern.exec(strippedLine)) !== null) {
-            const word    = match[1];
-            const wordKey = word.toLowerCase();
-            const col     = match.index;
-
-            // Per-token zone check — only colour tokens that actually sit
-            // inside an ASP block, handles inline <%= %> in HTML attributes.
-            if (!inAsp(lineOffset + col)) { continue; }
-
-            if (sqlRanges?.some(([s, e]) => col >= s && col < e)) { continue; }
-            if (VBSCRIPT_KEYWORDS_SET.has(wordKey)) { continue; }
-
-            if (funcMap.has(wordKey)) {
-                const kind         = funcMap.get(wordKey)!;
-                const tokenType    = kind === 'function' ? T_FUNCTION : T_NAMESPACE;
-                const modifierMask = isFuncDeclaration && word === line.match(/(?:Function|Sub)\s+(\w+)/i)?.[1]
-                    ? M_DECLARATION : 0;
-                builder.push(lineIndex, col, word.length, tokenType, modifierMask);
-                continue;
-            }
-            if (activeParams?.has(wordKey)) {
-                builder.push(lineIndex, col, word.length, T_PARAMETER, isFuncDeclaration ? M_DECLARATION : 0);
-                continue;
-            }
-            if (constSet.has(wordKey)) {
-                builder.push(lineIndex, col, word.length, T_CONSTANT, isConstLine ? M_DECLARATION | M_READONLY : M_READONLY);
-                continue;
-            }
-            if (comVarSet.has(wordKey)) {
-                builder.push(lineIndex, col, word.length, T_VARIABLE, isSetLine ? M_DECLARATION : 0);
-                continue;
-            }
-            if (varSet.has(wordKey)) {
-                builder.push(lineIndex, col, word.length, T_VARIABLE, isDimLine ? M_DECLARATION : 0);
-                continue;
-            }
-        }
+        // Includes are pasted into the page's server code only, and `Me.x` names a member.
+        if (rootOf(r.scope) !== serverScope || fullText[r.span.start - 1] === '.') { continue; }
+        const fn = includeFunctions.get(r.name);
+        if (fn !== undefined) { builder.push(line, col, length, fn, 0); }
+        else if (includeConstants.has(r.name)) { builder.push(line, col, length, T_CONSTANT, M_READONLY); }
+        else if (includeVariables.has(r.name)) { builder.push(line, col, length, T_VARIABLE, 0); }
     }
-
 
     return { id: request.id, tokens: Uint32Array.from(tokens), warnings };
 }
