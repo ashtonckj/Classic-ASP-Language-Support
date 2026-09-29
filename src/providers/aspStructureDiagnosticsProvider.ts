@@ -27,6 +27,7 @@ import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
 import type * as A from '../vbscript/ast';
 import { lineAt, parsePage, walkStatements, type ParsedPage } from '../vbscript/symbols';
 import { areIncludeSymbolsReady, collectAllSymbols, configuredVirtualRoot, preloadIncludeSymbols } from './includeProvider';
+import { scanParserChecks } from './aspChecksProvider';
 
 type BlockKind =
     | 'if' | 'for' | 'while' | 'do' | 'with'
@@ -675,9 +676,10 @@ export function registerAspStructureDiagnostics(
 ): vscode.DiagnosticCollection {
 
     const collection = vscode.languages.createDiagnosticCollection('classic-asp-vbscript-structure');
-    // Its own collection: a missing include or a missing Set is worth knowing
-    // about, but neither is a structure problem, so neither may stop Format
-    // Document — which refuses to run while `collection` has anything in it.
+    // Its own collection: a missing include, a missing Set and the parser's
+    // checks are worth knowing about, but none is a structure problem, so none
+    // may stop Format Document — which refuses to run while `collection` has
+    // anything in it.
     const checksCollection = vscode.languages.createDiagnosticCollection('classic-asp-checks');
     context.subscriptions.push(
         collection,
@@ -688,7 +690,7 @@ export function registerAspStructureDiagnostics(
     );
 
     function scanChecks(document: vscode.TextDocument): void {
-        checksCollection.set(document.uri, [...scanIncludes(document), ...scanMissingSet(document)]);
+        checksCollection.set(document.uri, [...scanIncludes(document), ...scanMissingSet(document), ...scanParserChecks(document)]);
     }
 
     // Per-document debounce timers, keyed by URI, so editing one open .asp file
