@@ -80,6 +80,7 @@
 - **VBScript** — unmatched control blocks (`If/End If`, `Sub/End Sub`, `For/Next`, etc.) and unbalanced `<% %>` tags
 - **Missing Set** — an object assigned without `Set`, like `rs = conn.Execute(sql)`, with a *one-click quick fix*
 - **Missing includes** — an `#include` whose file does not exist, which IIS refuses to run
+- **VBScript checks** — a name declared twice, an undeclared name under `Option Explicit`, and a call with the wrong number of arguments; a `Dim` never used and code after `Exit Sub` are shown faded
 - **CSS** — errors and warnings inside `<style>` blocks and `style=""` attributes as you type
 - **JavaScript** — real errors inside `<script>` blocks via the TypeScript language service (noise from missing project context is suppressed)
 - **Void elements** — invalid closing tags caught with a *one-click quick fix*
