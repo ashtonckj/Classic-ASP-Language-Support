@@ -17,7 +17,7 @@
  */
 
 import { parentPort } from 'node:worker_threads';
-import { extractSymbols, FileSymbols } from './symbolParser';
+import type { FileSymbols } from './symbolParser';
 import { createZoneResolver, getVbScriptBlockRanges } from './zoneUtils';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import {
@@ -27,7 +27,7 @@ import {
     SqlStringGroup, emitSqlTokensForGroup, TokenSink,
 } from '../providers/sqlSemanticProvider';
 import type * as A from '../vbscript/ast';
-import { parsePage, walkStatements } from '../vbscript/symbols';
+import { parsePage, symbolsOfPage, walkStatements } from '../vbscript/symbols';
 import {
     concatOperands, isConcat, isStringLiteral, statementExpressions, stringValue, walkExpression,
 } from '../vbscript/expressions';
@@ -90,7 +90,9 @@ function withIncludes(own: FileSymbols, includes: FileSymbols): FileSymbols {
 
 export function colourAspPage(request: AspColouringRequest): AspColouringResult {
     const { text: fullText, docPath } = request;
-    const allSymbols = withIncludes(extractSymbols(fullText, docPath), request.includeSymbols);
+    // One parse for both the symbols and the SQL passes below.
+    const page = parsePage(fullText);
+    const allSymbols = withIncludes(symbolsOfPage(page, docPath), request.includeSymbols);
 
     const { lines, starts: lineStarts } = linesOf(fullText);
 
@@ -215,7 +217,6 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
     // so these passes work on those expressions: which variables hold SQL,
     // which strings to colour as SQL, and which pieces joined into a SQL
     // variable are not known to be SQL.
-    const page = parsePage(fullText);
 
     /** 0-based line and column of an offset, on the lines the editor counts. */
     function positionOf(offset: number): { line: number; col: number } {
