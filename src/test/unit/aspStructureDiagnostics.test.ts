@@ -416,6 +416,11 @@ describe('findMissingSet', () => {
         assert.deepStrictEqual(targets('<p>rs = conn.Execute(sql)</p>\n<script>\nrs = conn.Execute(sql)\n</script>'), []);
     });
 
+    it('finds one after Then on a one-line If, and one written over two lines', () => {
+        assert.deepStrictEqual(targets('<%\nIf ok Then rs = conn.Execute(sql) Else x = 1\n%>'), ['rs']);
+        assert.deepStrictEqual(targets('<%\nrs = _\n    conn.Execute(sql)\n%>'), ['rs']);
+    });
+
     it('reads a server-side VBScript <script> block', () => {
         assert.deepStrictEqual(targets('<script runat="server" language="vbscript">\nrs = conn.Execute(sql)\n</script>'), ['rs']);
     });

@@ -22,8 +22,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { createZoneResolver } from '../utils/zoneUtils';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../utils/includeDirectives';
-import { callIsWholeExpression } from '../utils/symbolParser';
-import { removeStrings, vbStatementsOnLine } from '../utils/documentHelper';
+import { removeStrings } from '../utils/documentHelper';
 import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
 import type * as A from '../vbscript/ast';
 import { lineAt, parsePage, walkStatements, type ParsedPage } from '../vbscript/symbols';
@@ -582,46 +581,39 @@ export interface MissingSet {
  * `GetObject(…)`, `New SomeClass`, and a method on a variable of known type
  * that returns one of OBJECT_ONLY_RESULTS — `rs = conn.Execute(sql)`.
  *
- * The call must be the whole right-hand side: `n = conn.Execute(sql)(0)` reads
- * a value out of the Recordset, and is right as it is. `comTypes` maps a
- * variable name, lower-cased, to the ProgID it was created as.
+ * Read from the syntax tree, so the call has to be the whole right-hand side:
+ * `n = conn.Execute(sql)(0)` reads a value out of the Recordset, and is right
+ * as it is. `comTypes` maps a variable name, lower-cased, to the ProgID it
+ * was created as.
  */
 export function findMissingSet(text: string, comTypes: Map<string, string>): MissingSet[] {
-    const zones = createZoneResolver(text);
     const found: MissingSet[] = [];
-
-    let lineStart = 0;
-    for (const line of text.split('\n')) {
-        const startsInAsp = zones.zoneAt(lineStart) === 'asp' && !line.trimStart().startsWith('<%');
-        if (startsInAsp || line.includes('<%')) {
-            for (const statement of vbStatementsOnLine(line, startsInAsp)) {
-                const assignment = /^(\s*(?:Let\s+)?)([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*=\s*(\S.*?)\s*$/i.exec(statement.text);
-                if (!assignment) { continue; }
-
-                const [, lead, target, value] = assignment;
-                if (!isObjectValue(value, comTypes)) { continue; }
-
-                const start = lineStart + statement.col + lead.length;
-                found.push({ start, end: start + target.length, target });
-            }
-        }
-        lineStart += line.length + 1;
+    for (const program of parsePage(text).programs) {
+        walkStatements(program.body, stmt => {
+            if (stmt.kind !== 'Assign' || stmt.set || !isObjectValue(stmt.value, comTypes)) { return; }
+            found.push({ start: stmt.target.start, end: stmt.target.end, target: text.slice(stmt.target.start, stmt.target.end) });
+        });
     }
-    return found;
+    return found.sort((a, b) => a.start - b.start);
 }
 
-function isObjectValue(value: string, comTypes: Map<string, string>): boolean {
-    if (/^New\s+[A-Za-z_]\w*$/i.test(value)) { return true; }
+function isObjectValue(value: A.Expr, comTypes: Map<string, string>): boolean {
+    if (value.kind === 'New') { return true; }
 
-    const creation = /^(?:Server\s*\.\s*)?(?:CreateObject|GetObject)\s*\(/i.exec(value);
-    if (creation) { return callIsWholeExpression(value, creation[0].length - 1); }
+    // A call, or a method with no parentheses: `rs.NextRecordset`.
+    const callee = value.kind === 'Call' ? value.callee : value;
+    if (callee.kind === 'Ident') {
+        return value.kind === 'Call' && (callee.name.name === 'createobject' || callee.name.name === 'getobject');
+    }
+    if (callee.kind !== 'Member' || callee.object?.kind !== 'Ident') { return false; }
 
-    const call = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*(\(|$)/.exec(value);
-    if (!call) { return false; }
-    const progId = comTypes.get(call[1].toLowerCase());
-    const result = progId && COM_METHOD_RETURN_TYPES[`${progId}.${call[2].toLowerCase()}`];
-    if (!result || !OBJECT_ONLY_RESULTS.has(result)) { return false; }
-    return call[3] === '' || callIsWholeExpression(value, call[0].length - 1);
+    const objectName = callee.object.name.name;
+    const method = callee.name.name;
+    if (objectName === 'server' && method === 'createobject') { return value.kind === 'Call'; }
+
+    const progId = comTypes.get(objectName);
+    const result = progId && COM_METHOD_RETURN_TYPES[`${progId}.${method}`];
+    return !!result && OBJECT_ONLY_RESULTS.has(result);
 }
 
 /** Missing-Set warnings for a page, using the object types known from it and its includes. */
