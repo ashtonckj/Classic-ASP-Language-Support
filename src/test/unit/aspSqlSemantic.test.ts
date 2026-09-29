@@ -96,6 +96,29 @@ describe('SQL colouring reads a joined string as one', () => {
     });
 });
 
+describe('SQL colouring tells a function name from a table or column of that name', () => {
+    it('colours Log after FROM as a table, not as the LOG function', () => {
+        const tokens = sqlTokens('<%\ncmd.CommandText = "DELETE FROM log WHERE Id = 1"\n%>\n');
+        assert.ok(tokens.includes('sqlBracketContent:log'), `got ${JSON.stringify(tokens)}`);
+        assert.ok(!tokens.includes('sqlFunction:log'), `got ${JSON.stringify(tokens)}`);
+    });
+
+    it('still colours LOG( and COUNT( as functions', () => {
+        const tokens = sqlTokens('<%\nsql = "SELECT LOG(x), COUNT(*) FROM t"\n%>\n');
+        assert.ok(tokens.includes('sqlFunction:LOG') && tokens.includes('sqlFunction:COUNT'), `got ${JSON.stringify(tokens)}`);
+    });
+
+    it('still colours CONCAT written between two values, as DB2 does', () => {
+        const tokens = sqlTokens('<%\nsql = "SELECT code CONCAT name FROM t"\n%>\n');
+        assert.ok(tokens.includes('sqlFunction:CONCAT'), `got ${JSON.stringify(tokens)}`);
+    });
+
+    it('leaves a column called Count uncoloured', () => {
+        const tokens = sqlTokens('<%\nsql = "SELECT Count FROM t"\n%>\n');
+        assert.ok(!tokens.some(t => t.endsWith(':Count')), `got ${JSON.stringify(tokens)}`);
+    });
+});
+
 describe('SQL colouring stays off things that are not SQL', () => {
     it('leaves an ordinary string alone', () => {
         assert.deepStrictEqual(sqlTokens('<%\nmsg = "Hello there, welcome back"\nmsg = msg & " again"\n%>\n'), []);

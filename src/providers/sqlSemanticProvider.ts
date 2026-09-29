@@ -349,6 +349,15 @@ function matchTwoWordTableIntro(sig: SqlTok[], i: number): number {
     return -1;
 }
 
+// A word is SQL, not a name, unless it is only a function name and no ( follows:
+// LOG, COUNT and SUM are also ordinary table and column names.
+function isSqlWordAt(sig: SqlTok[], i: number): boolean {
+    const w = sig[i].val.toLowerCase();
+    if (!ALL_SQL_KEYWORDS.has(w)) { return false; }
+    if (!FUNCTION_ONLY_WORDS.has(w)) { return true; }
+    return i + 1 < sig.length && sig[i + 1].type === 'paren' && sig[i + 1].val === '(';
+}
+
 function isIdentifier(tok: SqlTok): boolean {
     return tok.type === 'bracket' || tok.type === 'word';
 }
@@ -365,7 +374,7 @@ function collectTableChain(sig: SqlTok[], start: number): Array<{off: number; le
         if (tok.type === 'bracket') {
             result.push({ off: tok.off, len: tok.val.length });
         } else {
-            if (!ALL_SQL_KEYWORDS.has(tok.val.toLowerCase())) {
+            if (!isSqlWordAt(sig, i)) {
                 result.push({ off: tok.off, len: tok.val.length });
             } else {
                 break;
@@ -382,11 +391,10 @@ function collectTableChain(sig: SqlTok[], start: number): Array<{off: number; le
         const tok = sig[i];
         if (tok.type === 'word' && tok.val.toLowerCase() === 'as') {
             i++;
-            if (i < sig.length && sig[i].type === 'word' &&
-                !ALL_SQL_KEYWORDS.has(sig[i].val.toLowerCase())) {
+            if (i < sig.length && sig[i].type === 'word' && !isSqlWordAt(sig, i)) {
                 result.push({ off: sig[i].off, len: sig[i].val.length });
             }
-        } else if (tok.type === 'word' && !ALL_SQL_KEYWORDS.has(tok.val.toLowerCase())) {
+        } else if (tok.type === 'word' && !isSqlWordAt(sig, i)) {
             result.push({ off: tok.off, len: tok.val.length });
         }
     }
@@ -438,8 +446,7 @@ function findTableRanges(sql: string): Set<string> {
                 if (j < sig.length && sig[j].type === 'word' && sig[j].val.toLowerCase() === 'as') {
                     j++;
                 }
-                if (j < sig.length && sig[j].type === 'word' &&
-                    !ALL_SQL_KEYWORDS.has(sig[j].val.toLowerCase())) {
+                if (j < sig.length && sig[j].type === 'word' && !isSqlWordAt(sig, j)) {
                     result.add(`${sig[j].off}:${sig[j].val.length}`);
                 }
             } else {
@@ -467,12 +474,10 @@ function findTableRanges(sql: string): Set<string> {
                 // j is now past the closing ')' — look for AS <alias> or bare alias
                 if (j < sig.length && sig[j].type === 'word' && sig[j].val.toLowerCase() === 'as') {
                     j++;
-                    if (j < sig.length && sig[j].type === 'word' &&
-                        !ALL_SQL_KEYWORDS.has(sig[j].val.toLowerCase())) {
+                    if (j < sig.length && sig[j].type === 'word' && !isSqlWordAt(sig, j)) {
                         result.add(`${sig[j].off}:${sig[j].val.length}`);
                     }
-                } else if (j < sig.length && sig[j].type === 'word' &&
-                           !ALL_SQL_KEYWORDS.has(sig[j].val.toLowerCase())) {
+                } else if (j < sig.length && sig[j].type === 'word' && !isSqlWordAt(sig, j)) {
                     result.add(`${sig[j].off}:${sig[j].val.length}`);
                 }
             } else {
@@ -516,6 +521,13 @@ const DATEPART_WORDS = new Set([
     'hour','minute','second','millisecond','microsecond','nanosecond',
     'dayofweek','dayofyear','week','weekday','quarter',
 ]);
+// Words whose only SQL role is a function name. Without a ( after them they
+// are names: DELETE FROM Log, SELECT Count FROM t. CONCAT is left out: DB2
+// also writes it between two values, a CONCAT b.
+const FUNCTION_ONLY_WORDS = new Set([...SQL_FUNCTION_WORDS].filter(w =>
+    SQL_WORD_TOKEN_MAP.get(w) === T_SQL_FUNC && !DUAL_ROLE_JOIN.has(w) && !DATEPART_WORDS.has(w) &&
+    w !== 'concat'));
+
 const DATEPART_FUNCTIONS = new Set([
     'dateadd','datediff','datediff_big','datepart','datename',
 ]);
@@ -659,6 +671,8 @@ export function emitSqlTokensForGroup(
                 } else {
                     continue; // uncoloured — ambiguous
                 }
+            } else if (FUNCTION_ONLY_WORDS.has(wLower)) {
+                if (!/^\s*\(/.test(after)) { continue; } // a name, not a call
             } else if (DATEPART_WORDS.has(wLower)) {
                 // Date-part words have three possible roles:
                 //   HOUR(start_time)        → ( follows → function colour
