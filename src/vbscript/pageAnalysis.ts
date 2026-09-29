@@ -11,8 +11,23 @@
  */
 
 import type * as A from './ast';
-import { sourceOf, walkStatements, type ParsedPage } from './symbols';
+import { sourceOf, symbolsOfPage, walkStatements, type ParsedPage } from './symbols';
 import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
+import type { FileSymbols } from '../utils/symbolParser';
+
+/**
+ * What completion, the outline, the matching-keyword highlight and the
+ * structure warnings need after every edit, from one parse of the page.
+ */
+export interface PageAnalysis {
+    /** The page's own symbols, without its includes'. */
+    symbols: FileSymbols;
+    blocks:  PageBlocks;
+}
+
+export function analysePage(page: ParsedPage, filePath: string): PageAnalysis {
+    return { symbols: symbolsOfPage(page, filePath), blocks: pageBlocks(page) };
+}
 
 // ── Blocks ────────────────────────────────────────────────────────────────────
 

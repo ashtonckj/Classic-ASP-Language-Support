@@ -5,25 +5,27 @@
  * Shows Functions, Subs, Classes, and top-level Constants/Variables declared
  * in the current .asp file (not from #include'd files — those are separate docs).
  *
- * Symbols are derived from the same extractSymbols() pass used by completions,
- * hover, and semantic tokens so behaviour is always consistent.
+ * Symbols are the page's own, as completion reads them: read on the VBScript
+ * worker thread (utils/vbscriptWorker.ts), since VS Code asks for the outline
+ * after every edit to keep the breadcrumb bar current.
  */
 
 import * as vscode from 'vscode';
-import { extractSymbols } from '../utils/symbolParser';
+import { analysedPage } from './vbscriptWorkspace';
 import { indexOfWholeWord } from '../utils/documentHelper';
 
 export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
 
-    provideDocumentSymbols(
-        document: vscode.TextDocument
-    ): vscode.ProviderResult<vscode.DocumentSymbol[]> {
+    async provideDocumentSymbols(
+        document: vscode.TextDocument,
+        token?: vscode.CancellationToken,
+    ): Promise<vscode.DocumentSymbol[] | undefined> {
 
         if (document.languageId !== 'asp') { return []; }
 
-        const fullText = document.getText();
-        const docPath = document.uri.fsPath;
-        const symbols = extractSymbols(fullText, docPath);
+        const page = await analysedPage(document, token);
+        if (!page) { return undefined; }
+        const symbols = page.symbols;
 
         const result: vscode.DocumentSymbol[] = [];
 

@@ -408,6 +408,21 @@ export function collectIncludeSymbols(document: vscode.TextDocument): FileSymbol
 
 
 /**
+ * `own`, a page's own symbols, followed by what its includes declare: what
+ * collectAllSymbols gives, for own symbols read elsewhere (the VBScript worker).
+ */
+export function withIncludeSymbols(document: vscode.TextDocument, own: FileSymbols): FileSymbols {
+    const includes = collectIncludeSymbols(document);
+    return {
+        variables:    [...own.variables,    ...includes.variables],
+        constants:    [...own.constants,    ...includes.constants],
+        functions:    [...own.functions,    ...includes.functions],
+        comVariables: [...own.comVariables, ...includes.comVariables],
+        classes:      [...own.classes,      ...includes.classes],
+    };
+}
+
+/**
  * Forgets one file's include symbols, because it was saved or changed on disk.
  *
  * Only that file: saving a page used to throw away every include of every open

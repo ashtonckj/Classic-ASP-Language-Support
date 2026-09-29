@@ -1,11 +1,12 @@
 /**
  * analysisClient.ts  (utils/)
  *
- * The extension-host side of the two page-analysis workers:
+ * The extension-host side of the three page-analysis workers:
  *
  *   • jsAnalysisWorker.ts — the type-aware JavaScript colouring and the JS
  *     squiggles, both from one TypeScript pass;
- *   • aspColouring.ts     — the VBScript and SQL colouring, and the SQL warnings.
+ *   • aspColouring.ts     — the VBScript and SQL colouring, and the SQL warnings;
+ *   • vbscriptWorker.ts   — the VBScript page's symbols and blocks.
  *
  * Each is a long-lived worker thread of its own, so neither waits behind the
  * other, and both are driven the same way:
@@ -34,6 +35,8 @@ import { Worker } from 'node:worker_threads';
 import type { JsAnalysisResult } from './jsAnalysisWorker';
 import type { AspColouringRequest, AspColouringResult } from './aspColouring';
 import type { FileSymbols } from './symbolParser';
+import type { PageResult } from './vbscriptWorker';
+import type { PageAnalysis } from '../vbscript/pageAnalysis';
 
 export type { JsAnalysisResult, PlainJsDiagnostic } from './jsAnalysisWorker';
 export type { AspColouringResult, SqlWarning } from './aspColouring';
@@ -94,6 +97,11 @@ class AnalysisWorker<I extends { text: string }, R extends { id: number }> {
             this.queued.set(key, { input, resolvers: [resolve] });
             this.send();
         });
+    }
+
+    /** False once the worker has failed to start too often to try again. */
+    get usable(): boolean {
+        return this.failures < MAX_CONSECUTIVE_FAILURES;
     }
 
     dispose(): void {
@@ -201,6 +209,12 @@ const aspWorker = new AnalysisWorker<AspColouringInput, AspColouringResult>(
     result => !result.failed,
 );
 
+const vbscriptWorker = new AnalysisWorker<{ kind: 'page'; text: string; docPath: string }, PageResult>(
+    path.join(__dirname, 'vbscriptWorker.js'),
+    (a, b) => a.text === b.text && a.docPath === b.docPath,
+    result => !result.failed,
+);
+
 /**
  * Classification spans and diagnostics for the JavaScript embedded in `text`,
  * the current text of the document `key` (its URI), or undefined when a newer
@@ -223,8 +237,24 @@ export function colourAspPage(
     return aspWorker.request(key, { text, docPath, includeSymbols });
 }
 
-/** Shuts both workers down. Called from deactivate. */
+/**
+ * The symbols and blocks of `text`, the text of the document `key` (its URI),
+ * or undefined when a newer request for that document superseded this one or
+ * the worker could not answer.
+ */
+export async function analyseVbscriptPage(key: string, text: string, docPath: string): Promise<PageAnalysis | undefined> {
+    const result = await vbscriptWorker.request(key, { kind: 'page', text, docPath });
+    return result && !result.failed ? result : undefined;
+}
+
+/** False when the VBScript worker cannot run, and the host has to read pages itself. */
+export function vbscriptWorkerUsable(): boolean {
+    return vbscriptWorker.usable;
+}
+
+/** Shuts the workers down. Called from deactivate. */
 export function disposeAnalysisWorkers(): void {
     jsWorker.dispose();
     aspWorker.dispose();
+    vbscriptWorker.dispose();
 }

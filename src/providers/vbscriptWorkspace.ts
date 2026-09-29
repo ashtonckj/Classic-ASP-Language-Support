@@ -4,6 +4,8 @@ import { getWorkspaceAspFiles } from './aspWorkspaceSymbolProvider';
 import { resolveIncludeDirective } from '../utils/includeDirectives';
 import { parsePage, type ParsedPage } from '../vbscript/symbols';
 import type { WorkspaceHost } from '../vbscript/references';
+import { analysePage, type PageAnalysis } from '../vbscript/pageAnalysis';
+import { analyseVbscriptPage, vbscriptWorkerUsable } from '../utils/analysisClient';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The workspace as the VBScript parser sees it
@@ -85,4 +87,29 @@ export function editorWorkspace(document: vscode.TextDocument): WorkspaceHost {
         defaultIncludes: rootPath => defaultIncludeCandidates(getVirtualRoot(rootPath)),
         includedBy: fsPath => includeGraphFor(document).get(fsPath.toLowerCase()) ?? [],
     };
+}
+
+/** A page's symbols and blocks, read for the document's text at `version`. */
+export interface AnalysedPage extends PageAnalysis { version: number; }
+
+/**
+ * The page's own symbols and blocks, read on the VBScript worker thread, for
+ * exactly the text the document holds when this returns. A page edited while
+ * the worker read it is asked about again. Undefined when the document closed,
+ * `token` was cancelled, or the page kept changing.
+ */
+export async function analysedPage(document: vscode.TextDocument, token?: vscode.CancellationToken): Promise<AnalysedPage | undefined> {
+    const docPath = document.uri.fsPath;
+    for (let attempt = 0; attempt < 5; attempt++) {
+        if (document.isClosed || token?.isCancellationRequested) { return undefined; }
+        const version = document.version;
+        const text = document.getText();
+
+        // A worker that cannot start is no reason to lose these features.
+        if (!vbscriptWorkerUsable()) { return { version, ...analysePage(parseCached(docPath, text), docPath) }; }
+
+        const analysis = await analyseVbscriptPage(document.uri.toString(), text, docPath);
+        if (analysis && !document.isClosed && document.version === version) { return { version, ...analysis }; }
+    }
+    return undefined;
 }

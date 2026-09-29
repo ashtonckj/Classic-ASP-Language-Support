@@ -91,7 +91,12 @@ function isCreateObject(callee: A.Expr): boolean {
 }
 
 export function symbolsFromTree(text: string, filePath: string): FileSymbols {
-    const page = parsePage(text);
+    return symbolsOfPage(parsePage(text), filePath);
+}
+
+/** symbolsFromTree for a page already parsed. */
+export function symbolsOfPage(page: ParsedPage, filePath: string): FileSymbols {
+    const text = page.text;
     const result: FileSymbols = { variables: [], constants: [], functions: [], comVariables: [], classes: [] };
 
     const statements: A.Stmt[] = [];

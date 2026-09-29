@@ -4,7 +4,8 @@ import {
     BUILTIN_FUNCTION_DOCS, builtinSignature,
 } from '../constants/aspKeywords';
 import { getTextBeforeCursor, isInsideVbStringOrComment } from '../utils/documentHelper';
-import { areIncludeSymbolsReady, collectAllSymbols, preloadIncludeSymbols } from './includeProvider';
+import { areIncludeSymbolsReady, collectAllSymbols, preloadIncludeSymbols, withIncludeSymbols } from './includeProvider';
+import { analysedPage } from './vbscriptWorkspace';
 import { COM_METHOD_RETURN_TYPES, COM_TYPE_MAP } from '../constants/comObjects';
 import { getZone } from '../utils/zoneUtils';
 import { callIsWholeExpression } from '../utils/symbolParser';
@@ -42,14 +43,15 @@ export function enclosingWithObject(text: string, line: number, character: numbe
 
 export class AspCompletionProvider implements vscode.CompletionItemProvider {
 
-    provideCompletionItems(
+    async provideCompletionItems(
         document: vscode.TextDocument,
         position: vscode.Position,
-        _token: vscode.CancellationToken,
+        token: vscode.CancellationToken,
         context: vscode.CompletionContext
-    ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
+    ): Promise<vscode.CompletionItem[] | vscode.CompletionList | undefined> {
 
         const fullText = document.getText();
+        const version  = document.version;
         const offset = document.offsetAt(position);
 
         // Only provide ASP completions inside ASP blocks
@@ -102,8 +104,13 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
             });
         }
 
-        // Collect all symbols from this document + whatever include symbols are cached.
-        const allSymbols = collectAllSymbols(document);
+        // The page's own symbols come from the VBScript worker, so a large page
+        // is not parsed on this thread on every keystroke. Typing on while it
+        // reads gives the symbols of the newer text, which are as good. Then
+        // whatever include symbols are cached.
+        const page = await analysedPage(document, token);
+        if (token.isCancellationRequested) { return undefined; }
+        const allSymbols = page ? withIncludeSymbols(document, page.symbols) : collectAllSymbols(document);
         const comVarMap  = buildComVarMap(allSymbols.comVariables);
 
         // ── 1. A member of the With object  e.g. "  .EO" inside With rs ───────
@@ -112,7 +119,9 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         // offer; the keyword and function list is never right here.
         const withDot = /(?:^|[^\w)\].])\.(\w*)$/.exec(lineText);
         if (withDot && !/^\d/.test(withDot[1])) {
-            const object = enclosingWithObject(fullText, position.line, position.character);
+            const object = page?.version === version
+                ? withObjectAt(page.blocks.withBlocks, offset)
+                : enclosingWithObject(fullText, position.line, position.character);
             return object ? this.provideWithMembers(object, comVarMap) : [];
         }
 
