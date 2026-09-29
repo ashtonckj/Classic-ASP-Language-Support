@@ -119,6 +119,7 @@ describe('VBScript parser — errors VBScript reports', () => {
         ['Select Case x\ny = 1\nCase 1\nEnd Select',      "3: Expected 'Case'"],
         ['Dim a(n), b(-1), c(1.5)',                       '1: Expected integer constant'],
         ['Dim me',                                        '1: Expected identifier'],
+        ['Dim as',                                        '1: Expected identifier'],
         ['Class C\nConst a = 1\nEnd Class',               '2: Only declarations are allowed directly inside a Class'],
         ['Function F bar\nEnd Function',                  "1: Expected '('"],
         ['Property Get P\nEnd Property',                  '1: Must be defined inside a Class'],

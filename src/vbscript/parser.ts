@@ -26,7 +26,7 @@ import type { Segment } from './pageSegments';
 
 /** Words that can never be a plain name. After a `.` any word is a name. */
 const RESERVED = new Set([
-    'and', 'byref', 'byval', 'call', 'case', 'class', 'const', 'dim', 'do', 'each', 'else',
+    'and', 'as', 'byref', 'byval', 'call', 'case', 'class', 'const', 'dim', 'do', 'each', 'else',
     'elseif', 'empty', 'end', 'eqv', 'exit', 'false', 'for', 'function', 'get', 'goto', 'if',
     'imp', 'in', 'is', 'let', 'loop', 'mod', 'new', 'next', 'not', 'nothing', 'null', 'on',
     'option', 'or', 'preserve', 'private', 'public', 'redim', 'resume', 'select', 'set',
