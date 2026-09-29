@@ -5,6 +5,47 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-09-30
+
+### ✨ Added
+- **A real VBScript parser** - Every VBScript feature now reads your code the way the VBScript engine does, instead of matching text line by line
+- **New checks** - A name declared twice, an undeclared name under `Option Explicit` and a call with the wrong number of arguments are flagged, without blocking Format Document
+- **Unused code is faded** - A `Dim` or `Const` in a Sub that is never used, and code after `Exit Sub` or `Exit For`, are shown faded
+- **Settings are now `classicAsp.*`** - Every `aspLanguageSupport.*` setting was renamed, and the values you set are moved to the new names automatically
+- **More names can be renamed** - A `For` loop counter, and a name an include uses but the page declares, no longer get "not a recognised VBScript symbol"
+- **Hover says what a name is** - A parameter, a local variable, a class member or a `Property Get` is shown as exactly that
+
+### 🛠️ Fixed
+**Rename, References & Go to Definition**
+- **Locals stay in their Sub** - Renaming a `Dim i` in one Sub no longer renames the `i` of another, and F12 goes to its own `Dim`
+- **Shared includes stay in step** - Renaming a name in an include now updates every page that includes it, not just the open one
+- **Members are not variables** - F2 on `dict.Count` or `Err.Clear` no longer renames a variable `count` or a Sub `Clear`
+
+**IntelliSense**
+- **`With` blocks** - A `With` in a comment, a string or the HTML no longer counts, and one still being typed already offers members
+- **Parameter hints** - `items(` on a local array no longer shows a `Function Items`, and `Me.Add(` finds the class's own `Add`
+- **Function return values** - `Total = …` inside `Function Total` is no longer listed as a second variable
+
+**Syntax highlighting**
+- **Names coloured by what they are** - `obj.count`, words in strings and another Sub's locals are no longer coloured as page variables; loop counters now are
+- **SQL over several lines** - A query joined with `&` over several lines is read as one, so every piece is coloured and checked
+- **Tables named like functions** - A table or column called `Log` or `Count` gets the table colour, not the SQL function colour
+
+**Diagnostics**
+- **Missing `Set` in more places** - Now also caught after `Then` on a one-line `If`, and in an assignment continued onto the next line with `_`
+- **`<% = x %>`** - An output block with a space before the `=` is read as output, as IIS reads it
+- **One-line `If` and HTML attributes** - `If a Then x = 1` and markup like `onclick="…"` no longer confuse the Outline and completion
+
+### ⚡ Performance
+On a 14,000-line page, the time the extension held up typing over ten seconds fell from **1,160 ms** to **235 ms**.
+- **Pages are read once** - Completion, the Outline, the structure warnings and the keyword highlight share one reading of the page, off the typing thread
+- **A faster reader** - The parser reads a page 3 to 10 times faster than the line scanner it replaces
+
+### 🔄 Refactored
+- The line-by-line VBScript scanners were replaced by the parser, which is checked against Windows' own VBScript engine
+
+---
+
 ## [0.6.4] - 2026-09-28
 
 ### ✨ Added
@@ -638,6 +679,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[0.7.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.7.0
 [0.6.4]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.4
 [0.6.3]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.3
 [0.6.2]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.2
