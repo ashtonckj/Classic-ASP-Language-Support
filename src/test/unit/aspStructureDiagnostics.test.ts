@@ -1,120 +1,167 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { branchEvents, classifyLine, extractAspStatementCode, findMissingIncludes, findMissingSet, getMatchedBlockPairs, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
+import { findMissingIncludes, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
+import { findMissingSet, pageBlocks, type Keyword } from '../../vbscript/pageAnalysis';
+import { lineAt, parsePage } from '../../vbscript/symbols';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-function kinds(actions: Array<{ type: string; kind: string }>): string[] {
-    return actions.map(a => `${a.type}:${a.kind}`);
+let pageCount = 0;
+
+/** Enough of a document for the block scan, which reads the text and turns offsets into positions. */
+function pageDoc(text: string): vscode.TextDocument {
+    const uri = `file:///page-${++pageCount}.asp`;
+    const positionAt = (offset: number) => {
+        const before = text.slice(0, offset);
+        return new vscode.Position(before.split('\n').length - 1, offset - before.lastIndexOf('\n') - 1);
+    };
+    return { uri: { toString: () => uri }, getText: () => text, positionAt } as unknown as vscode.TextDocument;
 }
 
-// Only the code INSIDE <% %> is VBScript; the HTML around an inline
-// <%= %> must never reach the block classifier (else prose words like "with",
-// "do", "class" fake a block opener and raise a false "Missing End …").
-describe('extractAspStatementCode — HTML prose is not classified as VBScript', () => {
+/** The blocks the matching-keyword highlight pairs up, with the line each keyword is on. */
+function matchedPairs(text: string): { opener: { text: string; line: number }; closer: { text: string; line: number } }[] {
+    const page = parsePage(text);
+    const at = (k: Keyword) => ({ text: k.text, line: lineAt(page, k.start) });
+    return pageBlocks(page).pairs.map(p => ({ opener: at(p.opener), closer: at(p.closer) }));
+}
+
+/** Each block warning as "line:column message". */
+function warnings(text: string): string[] {
+    return scanAspStructure(pageDoc(text)).map(d => `${d.range.start.line}:${d.range.start.character} ${d.message}`);
+}
+
+// Only the code INSIDE <% %> is VBScript; the HTML around an inline <%= %>
+// must never count, or prose words like "with", "do", "class" fake a block
+// opener and raise a false "Missing End …".
+describe('scanAspStructure — HTML prose is not read as VBScript', () => {
     it('ignores HTML text around an inline <%= %> output expression', () => {
-        const code = extractAspStatementCode('<td>Total <%= x %> items with tax</td>');
-        assert.strictEqual(code.trim(), '');
-        assert.deepStrictEqual(classifyLine(code), []); // no phantom With
+        assert.deepStrictEqual(warnings('<td>Total <%= x %> items with tax</td>'), []);
     });
 
     it('does not fake a Do / Class opener from prose next to <%= %>', () => {
-        assert.deepStrictEqual(classifyLine(extractAspStatementCode('What to do <%= a %> now')), []);
-        assert.deepStrictEqual(classifyLine(extractAspStatementCode('see class notes <%= b %>')), []);
+        assert.deepStrictEqual(warnings('What to do <%= a %> now\nsee class notes <%= b %>'), []);
     });
 
-    it('still extracts a real inline <% %> statement block', () => {
-        assert.strictEqual(extractAspStatementCode('<% With obj %>').trim(), 'With obj');
-        assert.deepStrictEqual(kinds(classifyLine(extractAspStatementCode('<% With obj %>'))), ['open:with']);
+    it('still reads a real inline <% %> statement block', () => {
+        assert.deepStrictEqual(warnings('<% With obj %>'),
+            ["0:3 Missing closing keyword — no 'End With' found for this 'With'"]);
     });
 
-    it('classifies two <% %> blocks on one line (join with colon)', () => {
-        const code = extractAspStatementCode('<% If a Then %>x<% End If %>');
-        assert.deepStrictEqual(kinds(classifyLine(code)), ['open:if', 'close:if']);
+    it('pairs two <% %> blocks on one line', () => {
+        assert.deepStrictEqual(warnings('<% If a Then %>x<% End If %>'), []);
+        assert.strictEqual(matchedPairs('<% If a Then %>x<% End If %>').length, 1);
     });
 
-    it('treats a line with no <% as pure code (multi-line block body)', () => {
-        assert.strictEqual(extractAspStatementCode('With obj'), 'With obj');
-        assert.deepStrictEqual(kinds(classifyLine(extractAspStatementCode('With obj'))), ['open:with']);
+    it('reads the lines of a multi-line block as code', () => {
+        assert.deepStrictEqual(warnings('<%\nWith obj\n%>'),
+            ["1:0 Missing closing keyword — no 'End With' found for this 'With'"]);
     });
 });
 
-// A REM comment (like a ' comment) must never be classified, or a
-// commented-out opener such as `REM If x Then` fakes a "Missing End If".
-describe('classifyLine — REM comments are not classified', () => {
+describe('scanAspStructure — block warnings from the syntax tree', () => {
+    it('puts the warning on the Sub of a Public Sub', () => {
+        assert.deepStrictEqual(warnings('<%\n  Public Sub Save()\n%>'),
+            ["1:9 Missing closing keyword — no 'End Sub' found for this 'Sub'"]);
+    });
+
+    it('names Do While, For Each and Select Case in full', () => {
+        assert.deepStrictEqual(warnings('<%\nDo While x\n%>'), ["1:0 Missing closing keyword — no 'Loop' found for this 'Do While'"]);
+        assert.deepStrictEqual(warnings('<%\nFor Each i In c\n%>'), ["1:0 Missing closing keyword — no 'Next' found for this 'For Each'"]);
+        assert.deepStrictEqual(warnings('<%\nSelect Case x\n%>'), ["1:0 Missing closing keyword — no 'End Select' found for this 'Select Case'"]);
+    });
+
+    it('reports a closer with nothing to close', () => {
+        assert.deepStrictEqual(warnings('<%\nWend\nend  if\n%>'), [
+            "1:0 Unexpected closing keyword — no matching opener found for 'Wend'",
+            "2:0 Unexpected closing keyword — no matching opener found for 'End If'",
+        ]);
+    });
+
+    it('reports an End Function that ends a Sub as both a stray closer and a missing End Sub', () => {
+        assert.deepStrictEqual(warnings('<%\nSub A\nEnd Function\n%>'), [
+            "1:0 Missing closing keyword — no 'End Sub' found for this 'Sub'",
+            "2:0 Unexpected closing keyword — no matching opener found for 'End Function'",
+        ]);
+    });
+
+    it('closes blocks a one-line If holds, and needs no End If for the If itself', () => {
+        assert.deepStrictEqual(warnings('<%\nIf x Then y = 1 Else z = 2\nIf a Then b = 1 : c = 2\n%>'), []);
+    });
+
+    it('does not count keywords in strings, comments or after a dot', () => {
+        assert.deepStrictEqual(warnings('<%\nx = "If a Then" \' For i\nrs.Loop : obj.Next\n%>'), []);
+    });
+
+    it('reads an If whose condition runs over two lines', () => {
+        assert.deepStrictEqual(warnings('<%\nIf a And _\n   b Then\n  x = 1\nEnd If\n%>'), []);
+    });
+});
+
+// The block events: where each block opens, starts a branch or closes. The
+// HTML structure check and linked tag editing read VBScript through these.
+/** The events of `code` as "type:block". */
+function events(code: string): string[] {
+    return pageBlocks(parsePage(`<%\n${code}\n%>`)).events.map(e => `${e.type}:${e.block}`);
+}
+
+// A REM comment (like a ' comment) must never count, or a commented-out
+// opener such as `REM If x Then` fakes a "Missing End If".
+describe('block events — REM comments', () => {
     it('does not open an If for a REM-commented If', () => {
-        assert.deepStrictEqual(classifyLine('REM If x Then'), []);
+        assert.deepStrictEqual(events('REM If x Then'), []);
     });
 
     it('handles the inline <% REM If x Then %> form', () => {
-        assert.deepStrictEqual(classifyLine(extractAspStatementCode('<% REM If x Then %>').trim()), []);
+        assert.deepStrictEqual(warnings('<% REM If x Then %>'), []);
     });
 
     it('ignores a REM after a colon separator', () => {
-        assert.deepStrictEqual(classifyLine('x = 1 : REM For each row'), []);
-    });
-
-    it('still classifies a real If (guards against over-stripping)', () => {
-        assert.deepStrictEqual(kinds(classifyLine('If x Then')), ['open:if']);
+        assert.deepStrictEqual(events('x = 1 : REM For each row'), []);
     });
 
     it('does not treat a "rem"-prefixed identifier as a comment', () => {
-        assert.deepStrictEqual(classifyLine('remainder = 5'), []);
+        assert.deepStrictEqual(events('remainder = 5'), []);
     });
 });
 
-// A `:`-joined one-liner must be seen as BOTH an opener and a closer, so it
-// balances and no false "Missing …" diagnostic is raised.
-describe('classifyLine — colon-joined statements', () => {
-    it('sees opener AND closer in `For i = 1 To 10 : Next`', () => {
-        assert.deepStrictEqual(kinds(classifyLine('For i = 1 To 10 : Next')), ['open:for', 'close:for']);
+// A `:`-joined one-liner is both an opener and a closer, so it balances.
+describe('block events — colon-joined statements', () => {
+    it('opens and closes `For i = 1 To 10 : Next`', () => {
+        assert.deepStrictEqual(events('For i = 1 To 10 : Next'), ['open:other', 'close:other']);
     });
 
     it('balances `Do : Loop` on one line', () => {
-        assert.deepStrictEqual(kinds(classifyLine('Do : Loop')), ['open:do', 'close:do']);
+        assert.deepStrictEqual(events('Do : Loop'), ['open:other', 'close:other']);
     });
 });
 
-// Member access (obj.Do, rs.With) must not be read as a block keyword.
-describe('classifyLine — member access is not a block keyword', () => {
+// Member access (obj.Do, rs.With) is not a block keyword.
+describe('block events — member access is not a block keyword', () => {
     it('does not open a Do block for obj.Do', () => {
-        assert.deepStrictEqual(classifyLine('obj.Do'), []);
+        assert.deepStrictEqual(events('obj.Do'), []);
     });
 
     it('does not open a With block for rs.With', () => {
-        assert.deepStrictEqual(classifyLine('x = rs.With'), []);
+        assert.deepStrictEqual(events('x = rs.With'), []);
     });
 
     it('does not treat Set x = obj.Do() as a block', () => {
-        assert.deepStrictEqual(classifyLine('Set x = obj.Do()'), []);
+        assert.deepStrictEqual(events('Set x = obj.Do()'), []);
     });
 });
 
-// getMatchedBlockPairs powers the matching-keyword highlight — it must find
-// exactly the pairs scanAspStructure agrees are correctly closed, sharing the
-// same scan so the two can never disagree.
-describe('getMatchedBlockPairs', () => {
-    function doc(text: string): vscode.TextDocument {
-        const lines = text.split('\n');
-        const lineOffsets: number[] = [];
-        let acc = 0;
-        for (const l of lines) { lineOffsets.push(acc); acc += l.length + 1; }
-        return {
-            getText:   () => text,
-            lineCount: lines.length,
-            lineAt:    (i: number) => ({ text: lines[i] }),
-            offsetAt:  (pos: vscode.Position) => lineOffsets[pos.line] + pos.character,
-        } as unknown as vscode.TextDocument;
-    }
-
+// The pairs power the matching-keyword highlight — they must be exactly the
+// blocks scanAspStructure agrees are correctly closed, both read from one scan
+// so the two can never disagree.
+describe('pageBlocks — matched pairs', () => {
     it('matches a simple If ... End If', () => {
-        const pairs = getMatchedBlockPairs(doc('<%\nIf x Then\n  y = 1\nEnd If\n%>'));
+        const pairs = matchedPairs('<%\nIf x Then\n  y = 1\nEnd If\n%>');
         assert.strictEqual(pairs.length, 1);
         assert.strictEqual(pairs[0].opener.text, 'If');
-        assert.strictEqual(pairs[0].opener.range.start.line, 1);
+        assert.strictEqual(pairs[0].opener.line, 1);
         assert.strictEqual(pairs[0].closer.text, 'End If');
-        assert.strictEqual(pairs[0].closer.range.start.line, 3);
+        assert.strictEqual(pairs[0].closer.line, 3);
     });
 
     it('matches nested blocks as two separate, correctly nested pairs', () => {
@@ -127,120 +174,75 @@ describe('getMatchedBlockPairs', () => {
             'End Sub',         // 5
             '%>',              // 6
         ].join('\n');
-        const pairs = getMatchedBlockPairs(doc(text));
+        const pairs = matchedPairs(text);
         assert.strictEqual(pairs.length, 2);
 
         const ifPair  = pairs.find(p => p.opener.text === 'If')!;
         const subPair = pairs.find(p => p.opener.text === 'Sub')!;
         assert.ok(ifPair && subPair, `expected both an If and a Sub pair; got ${JSON.stringify(pairs.map(p => p.opener.text))}`);
-        assert.strictEqual(ifPair.opener.range.start.line, 2);
-        assert.strictEqual(ifPair.closer.range.start.line, 4);
-        assert.strictEqual(subPair.opener.range.start.line, 1);
-        assert.strictEqual(subPair.closer.range.start.line, 5);
+        assert.strictEqual(ifPair.opener.line, 2);
+        assert.strictEqual(ifPair.closer.line, 4);
+        assert.strictEqual(subPair.opener.line, 1);
+        assert.strictEqual(subPair.closer.line, 5);
     });
 
     it('does not report a pair for an unclosed block', () => {
-        const pairs = getMatchedBlockPairs(doc('<%\nIf x Then\n  y = 1\n%>'));
+        const pairs = matchedPairs('<%\nIf x Then\n  y = 1\n%>');
         assert.deepStrictEqual(pairs, []);
         // scanAspStructure must still flag it — the two must agree.
-        assert.strictEqual(scanAspStructure(doc('<%\nIf x Then\n  y = 1\n%>')).length, 1);
+        assert.strictEqual(scanAspStructure(pageDoc('<%\nIf x Then\n  y = 1\n%>')).length, 1);
     });
 
     it('does not report a pair for a stray closer with no opener', () => {
-        const pairs = getMatchedBlockPairs(doc('<%\nEnd If\n%>'));
+        const pairs = matchedPairs('<%\nEnd If\n%>');
         assert.deepStrictEqual(pairs, []);
     });
 
     it('a one-liner opener+closer joined by a colon still matches', () => {
-        const pairs = getMatchedBlockPairs(doc('<%\nFor i = 1 To 10 : Next\n%>'));
+        const pairs = matchedPairs('<%\nFor i = 1 To 10 : Next\n%>');
         assert.strictEqual(pairs.length, 1);
         assert.strictEqual(pairs[0].opener.text, 'For');
         assert.strictEqual(pairs[0].closer.text, 'Next');
     });
 });
 
-// Real keywords must still be classified (guard against over-correction).
-describe('classifyLine — real keywords still classified', () => {
-    it('opens Do While', () => {
-        assert.deepStrictEqual(kinds(classifyLine('Do While x > 0')), ['open:do']);
+describe('block events — real keywords', () => {
+    it('opens Do While and a block If', () => {
+        assert.deepStrictEqual(events('Do While x > 0'), ['open:other']);
+        assert.deepStrictEqual(events('If x Then'), ['open:if']);
     });
 
-    it('opens a block If ... Then', () => {
-        assert.deepStrictEqual(kinds(classifyLine('If x Then')), ['open:if']);
+    it('gives a single-line If nothing', () => {
+        assert.deepStrictEqual(events('If x Then y = 1'), []);
+        assert.deepStrictEqual(events('If a Then b = 1 Else b = 2'), []);
     });
 
-    it('treats single-line If ... Then <stmt> as opening nothing', () => {
-        assert.deepStrictEqual(classifyLine('If x Then y = 1'), []);
-    });
-
-    it('closes End If and Next', () => {
-        assert.deepStrictEqual(kinds(classifyLine('End If')), ['close:if']);
-        assert.deepStrictEqual(kinds(classifyLine('Next')), ['close:for']);
-    });
-
-    it('opens With / closes End With', () => {
-        assert.deepStrictEqual(kinds(classifyLine('With obj')), ['open:with']);
-        assert.deepStrictEqual(kinds(classifyLine('End With')), ['close:with']);
+    it('closes a stray End If and Next', () => {
+        assert.deepStrictEqual(events('End If'), ['close:if']);
+        assert.deepStrictEqual(events('Next'), ['close:other']);
     });
 
     it('does not treat On Error Resume Next as a For closer', () => {
-        assert.deepStrictEqual(classifyLine('On Error Resume Next'), []);
-    });
-});
-
-// The squiggles and the matching-keyword highlight both ask about the document
-// after every edit; the second asks about the text the first just scanned.
-describe('scanAspStructure / getMatchedBlockPairs — one scan per text', () => {
-    function doc(uri: string, text: string): vscode.TextDocument {
-        const lines = text.split('\n');
-        const lineOffsets: number[] = [];
-        let acc = 0;
-        for (const l of lines) { lineOffsets.push(acc); acc += l.length + 1; }
-        return {
-            uri:       { toString: () => uri },
-            getText:   () => text,
-            lineCount: lines.length,
-            lineAt:    (i: number) => ({ text: lines[i] }),
-            offsetAt:  (pos: vscode.Position) => lineOffsets[pos.line] + pos.character,
-        } as unknown as vscode.TextDocument;
-    }
-
-    it('gives the second caller the scan the first one made', () => {
-        const page = doc('file:///shared.asp', '<%\nIf x Then\n  y = 1\nEnd If\n%>');
-        const first = getMatchedBlockPairs(page);
-        assert.strictEqual(getMatchedBlockPairs(page), first);
-    });
-
-    it('scans again once the text has changed', () => {
-        const before = doc('file:///edited.asp', '<%\nIf x Then\n  y = 1\nEnd If\n%>');
-        const after  = doc('file:///edited.asp', '<%\nIf x Then\n  y = 1\n%>');
-        assert.strictEqual(scanAspStructure(before).length, 0);
-        assert.strictEqual(scanAspStructure(after).length, 1, 'the missing End If should be reported');
-        assert.strictEqual(getMatchedBlockPairs(after).length, 0);
+        assert.deepStrictEqual(events('On Error Resume Next'), []);
     });
 });
 
 // The HTML structure check reads the tags in each branch of an If or Select
 // Case as alternatives, and finds the branches through these events.
-describe('branchEvents', () => {
-    const events = (code: string) => branchEvents(code).map(e => `${e.type}:${e.block}`);
-
+describe('block events — branches', () => {
     it('reads If / ElseIf / Else / End If', () => {
-        assert.deepStrictEqual(events('If a = 1 Then'), ['open:if']);
-        assert.deepStrictEqual(events('ElseIf a = 2 Then'), ['branch:if']);
-        assert.deepStrictEqual(events('Else'), ['branch:if']);
-        assert.deepStrictEqual(events('End If'), ['close:if']);
+        assert.deepStrictEqual(events('If a = 1 Then\nElseIf a = 2 Then\nElse\nEnd If'), ['open:if', 'branch:if', 'branch:if', 'close:if']);
     });
 
     it('reads Select Case / Case / Case Else / End Select', () => {
-        assert.deepStrictEqual(events('Select Case mode'), ['open:select']);
-        assert.deepStrictEqual(events('Case 1, 2'), ['branch:select']);
-        assert.deepStrictEqual(events('Case Else'), ['branch:select']);
-        assert.deepStrictEqual(events('End Select'), ['close:select']);
+        assert.deepStrictEqual(events('Select Case mode\nCase 1, 2\nCase Else\nEnd Select'),
+            ['open:select', 'branch:select', 'branch:select', 'close:select']);
     });
 
-    it('gives a single-line If nothing', () => {
-        assert.deepStrictEqual(events('If a Then b = 1 Else b = 2'), []);
+    it('reads a branch of a block that opened in another <% %> block', () => {
+        assert.deepStrictEqual(events('ElseIf a = 2 Then'), ['branch:if']);
+        assert.deepStrictEqual(events('Else'), ['branch:if']);
+        assert.deepStrictEqual(events('Case Else'), ['branch:select']);
     });
 
     it('reads every statement of a multi-line block in order', () => {
@@ -291,7 +293,7 @@ describe('findMissingIncludes', () => {
     it('flags a virtual include from the site root, and says where that is', () => {
         const [found] = findMissingIncludes('<!--#include virtual="/inc/footer.asp"-->', page, site);
         assert.ok(found.message.includes(path.join(site, 'inc', 'footer.asp')), found.message);
-        assert.ok(found.message.includes('aspLanguageSupport.virtualRoot'), found.message);
+        assert.ok(found.message.includes('classicAsp.virtualRoot'), found.message);
     });
 
     it('leaves a virtual include alone when the site root is not known', () => {
@@ -320,7 +322,7 @@ describe('findMissingSet', () => {
         ['fso', 'scripting.filesystemobject'],
         ['xml', 'msxml2.domdocument'],
     ]);
-    const targets = (text: string) => findMissingSet(text, types).map(found => text.slice(found.start, found.end));
+    const targets = (text: string) => findMissingSet(parsePage(text), types).map(found => text.slice(found.start, found.end));
 
     it('flags a Recordset assigned without Set, on the name', () => {
         assert.deepStrictEqual(targets('<%\nrs = conn.Execute(sql)\n%>'), ['rs']);
@@ -365,6 +367,11 @@ describe('findMissingSet', () => {
         assert.deepStrictEqual(targets('<%\nIf rs = conn.Execute(sql) Then\n%>'), []);
         assert.deepStrictEqual(targets('<%= x = CreateObject("a") %>'), []);
         assert.deepStrictEqual(targets('<p>rs = conn.Execute(sql)</p>\n<script>\nrs = conn.Execute(sql)\n</script>'), []);
+    });
+
+    it('finds one after Then on a one-line If, and one written over two lines', () => {
+        assert.deepStrictEqual(targets('<%\nIf ok Then rs = conn.Execute(sql) Else x = 1\n%>'), ['rs']);
+        assert.deepStrictEqual(targets('<%\nrs = _\n    conn.Execute(sql)\n%>'), ['rs']);
     });
 
     it('reads a server-side VBScript <script> block', () => {

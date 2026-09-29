@@ -1,13 +1,7 @@
 // No vscode import: the ASP colouring that uses this runs on a worker thread
 // (see utils/aspColouring.ts), where the vscode module does not exist. What it
-// needs from a document and from a token builder is these two shapes, which a
-// TextDocument and a SemanticTokensBuilder both already have.
-
-/** The lines extractSqlGroup reads. */
-export interface LineSource {
-    readonly lineCount: number;
-    lineAt(line: number): { readonly text: string };
-}
+// needs from a token builder is this shape, which a SemanticTokensBuilder
+// already has.
 
 /** Where emitSqlTokensForGroup writes its tokens. */
 export interface TokenSink {
@@ -355,6 +349,15 @@ function matchTwoWordTableIntro(sig: SqlTok[], i: number): number {
     return -1;
 }
 
+// A word is SQL, not a name, unless it is only a function name and no ( follows:
+// LOG, COUNT and SUM are also ordinary table and column names.
+function isSqlWordAt(sig: SqlTok[], i: number): boolean {
+    const w = sig[i].val.toLowerCase();
+    if (!ALL_SQL_KEYWORDS.has(w)) { return false; }
+    if (!FUNCTION_ONLY_WORDS.has(w)) { return true; }
+    return i + 1 < sig.length && sig[i + 1].type === 'paren' && sig[i + 1].val === '(';
+}
+
 function isIdentifier(tok: SqlTok): boolean {
     return tok.type === 'bracket' || tok.type === 'word';
 }
@@ -371,7 +374,7 @@ function collectTableChain(sig: SqlTok[], start: number): Array<{off: number; le
         if (tok.type === 'bracket') {
             result.push({ off: tok.off, len: tok.val.length });
         } else {
-            if (!ALL_SQL_KEYWORDS.has(tok.val.toLowerCase())) {
+            if (!isSqlWordAt(sig, i)) {
                 result.push({ off: tok.off, len: tok.val.length });
             } else {
                 break;
@@ -388,11 +391,10 @@ function collectTableChain(sig: SqlTok[], start: number): Array<{off: number; le
         const tok = sig[i];
         if (tok.type === 'word' && tok.val.toLowerCase() === 'as') {
             i++;
-            if (i < sig.length && sig[i].type === 'word' &&
-                !ALL_SQL_KEYWORDS.has(sig[i].val.toLowerCase())) {
+            if (i < sig.length && sig[i].type === 'word' && !isSqlWordAt(sig, i)) {
                 result.push({ off: sig[i].off, len: sig[i].val.length });
             }
-        } else if (tok.type === 'word' && !ALL_SQL_KEYWORDS.has(tok.val.toLowerCase())) {
+        } else if (tok.type === 'word' && !isSqlWordAt(sig, i)) {
             result.push({ off: tok.off, len: tok.val.length });
         }
     }
@@ -444,8 +446,7 @@ function findTableRanges(sql: string): Set<string> {
                 if (j < sig.length && sig[j].type === 'word' && sig[j].val.toLowerCase() === 'as') {
                     j++;
                 }
-                if (j < sig.length && sig[j].type === 'word' &&
-                    !ALL_SQL_KEYWORDS.has(sig[j].val.toLowerCase())) {
+                if (j < sig.length && sig[j].type === 'word' && !isSqlWordAt(sig, j)) {
                     result.add(`${sig[j].off}:${sig[j].val.length}`);
                 }
             } else {
@@ -473,12 +474,10 @@ function findTableRanges(sql: string): Set<string> {
                 // j is now past the closing ')' — look for AS <alias> or bare alias
                 if (j < sig.length && sig[j].type === 'word' && sig[j].val.toLowerCase() === 'as') {
                     j++;
-                    if (j < sig.length && sig[j].type === 'word' &&
-                        !ALL_SQL_KEYWORDS.has(sig[j].val.toLowerCase())) {
+                    if (j < sig.length && sig[j].type === 'word' && !isSqlWordAt(sig, j)) {
                         result.add(`${sig[j].off}:${sig[j].val.length}`);
                     }
-                } else if (j < sig.length && sig[j].type === 'word' &&
-                           !ALL_SQL_KEYWORDS.has(sig[j].val.toLowerCase())) {
+                } else if (j < sig.length && sig[j].type === 'word' && !isSqlWordAt(sig, j)) {
                     result.add(`${sig[j].off}:${sig[j].val.length}`);
                 }
             } else {
@@ -493,196 +492,13 @@ function findTableRanges(sql: string): Set<string> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stitch & _ continuation lines and collect per-segment ranges.
-// Returns null when the stitched string is not confirmed SQL.
-// Also returns the stitched string and a per-character offset map so
-// table ranges in the stitched string can be mapped back to document positions.
+// A SQL string, which may be several string literals joined with &, with a
+// map from each of its characters back to where it is written.
 // ─────────────────────────────────────────────────────────────────────────────
-export interface SqlStringSegment {
-    lineIndex: number;
-    lineText:  string;
-    colStart:  number;
-    colEnd:    number;
-}
 export interface SqlStringGroup {
-    segments: SqlStringSegment[];
     stitched: string;
     omLine: Int32Array;  // offsetMap: line index per stitched char
     omCol:  Int32Array;  // offsetMap: column per stitched char
-}
-
-export function extractSqlGroup(
-    document: LineSource,
-    startLine: number,
-    startCol: number
-): SqlStringGroup | null {
-
-    const lineCount = document.lineCount;
-    const segments: SqlStringSegment[] = [];
-    let   stitched  = '';
-    // offsetMap as two flat Int32Arrays — 10x less allocation than Array<{lineIndex,col}>.
-    // We grow them lazily via a regular array of pairs, then convert at return time.
-    const omLineArr: number[] = [];
-    const omColArr:  number[] = [];
-
-    function readFragment(lineText: string, col: number): {
-        content: string; colStart: number; colEnd: number; nextCol: number;
-        colOffsets: number[];
-    } | null {
-        if (col >= lineText.length || lineText[col] !== '"') { return null; }
-        col++;
-        const colStart = col;
-        let content = '';
-        const colOffsets: number[] = [];
-        while (col < lineText.length) {
-            if (lineText[col] === '"') {
-                if (col + 1 < lineText.length && lineText[col + 1] === '"') {
-                    colOffsets.push(col);
-                    content += '"'; col += 2;
-                } else { break; }
-            } else {
-                colOffsets.push(col);
-                content += lineText[col++];
-            }
-        }
-        if (col >= lineText.length) { return null; }
-        return { content, colStart, colEnd: col, nextCol: col + 1, colOffsets };
-    }
-
-    function appendFragment(lineIndex: number, lineText: string, frag: {
-        content: string; colStart: number; colEnd: number; colOffsets: number[];
-    }): void {
-        if (stitched.length > 0) {
-            omLineArr.push(lineIndex); omColArr.push(frag.colStart);
-            stitched += ' ';
-        }
-        for (const c of frag.colOffsets) {
-            omLineArr.push(lineIndex); omColArr.push(c);
-        }
-        stitched += frag.content;
-        segments.push({ lineIndex, lineText, colStart: frag.colStart, colEnd: frag.colEnd });
-    }
-
-    // Check if the rest of a line (after col) ends with & _
-    function lineEndsWithContinuation(lineText: string, col: number): boolean {
-        // Scan backwards from end of trimmed line, skipping any ' comment first
-        let end = lineText.length - 1;
-        while (end >= col && (lineText[end] === ' ' || lineText[end] === '\t')) { end--; }
-        // Check for _
-        if (end < col || lineText[end] !== '_') { return false; }
-        end--;
-        while (end >= col && (lineText[end] === ' ' || lineText[end] === '\t')) { end--; }
-        return end >= col && lineText[end] === '&';
-    }
-
-    // Advance past & variable & gaps to find the next opening quote.
-    // Handles:
-    //   "sql" & _           → continuation to next line (caller handles)
-    //   "sql" & varName & " → skip identifier between two & operators
-    //   "sql" & fn(x) & "   → skip function call (depth-tracked parens)
-    //   "sql" & "more"      → direct string concatenation
-    function findNextQuote(lineText: string, col: number): number {
-        while (col < lineText.length && lineText[col] <= ' ') { col++; }
-        if (col < lineText.length && lineText[col] === '"') { return col; }
-        if (col >= lineText.length || lineText[col] !== '&') { return -1; }
-        col++; // skip the &
-
-        while (col < lineText.length) {
-            // Skip whitespace
-            while (col < lineText.length && lineText[col] <= ' ') { col++; }
-            if (col >= lineText.length) { return -1; }
-
-            const ch = lineText[col];
-
-            // Found a string — done
-            if (ch === '"') { return col; }
-
-            // Another & — continue looking (handles && gaps with no token between)
-            if (ch === '&') { col++; continue; }
-
-            // Line continuation _ — let outer loop handle the next line
-            if (ch === '_') { return -1; }
-
-            // VBScript comment — nothing more on this line
-            if (ch === "'") { return -1; }
-
-            // Identifier or function call (possibly with parens):
-            //   varName, varName(args), Trim(x), obj.Method(x)
-            // Skip past it including any parenthesised argument list.
-            if (/[a-zA-Z_$]/.test(ch) || ch === '(') {
-                let depth = 0;
-                while (col < lineText.length) {
-                    const c2 = lineText[col];
-                    if (c2 === '(') { depth++; col++; continue; }
-                    if (c2 === ')') {
-                        depth--;
-                        col++;
-                        if (depth <= 0) { break; }
-                        continue;
-                    }
-                    // At depth 0, stop on & (next operator), " (next string),
-                    // _ (continuation), ' (comment), or line end.
-                    if (depth === 0) {
-                        if (c2 === '&' || c2 === '"' || c2 === '_' || c2 === "'") { break; }
-                        // space before & — keep scanning
-                        if (c2 <= ' ') { break; }
-                    }
-                    col++;
-                }
-                // After the identifier/call, expect whitespace then & then more
-                while (col < lineText.length && lineText[col] <= ' ') { col++; }
-                if (col < lineText.length && lineText[col] === '"') { return col; }
-                if (col < lineText.length && lineText[col] === '&') { col++; continue; }
-                return -1; // nothing useful follows
-            }
-
-            // Any other character — can't bridge this gap
-            return -1;
-        }
-        return -1;
-    }
-
-    // Step 1: read first fragment
-    const firstLine = document.lineAt(startLine).text;
-    const firstFrag = readFragment(firstLine, startCol);
-    if (!firstFrag) { return null; }
-
-    appendFragment(startLine, firstLine, firstFrag);
-
-    let scanLine = startLine;
-    let scanText = firstLine;
-    let scanCol  = firstFrag.nextCol;
-
-    // Steps 2–4: scan for more fragments on the same or continuation lines
-    while (true) {
-        const nextQuoteCol = findNextQuote(scanText, scanCol);
-        if (nextQuoteCol !== -1) {
-            const frag = readFragment(scanText, nextQuoteCol);
-            if (frag) {
-                appendFragment(scanLine, scanText, frag);
-                scanCol = frag.nextCol;
-                continue;
-            }
-        }
-
-        if (!lineEndsWithContinuation(scanText, scanCol)) { break; }
-
-        // Advance to the next non-blank line, skipping over empty lines.
-        // A blank line inside a `& _` continuation chain is allowed in VBScript
-        // and should not break the SQL string group.
-        scanLine++;
-        while (scanLine < lineCount && document.lineAt(scanLine).text.trim() === '') {
-            scanLine++;
-        }
-        if (scanLine >= lineCount) { break; }
-
-        scanText = document.lineAt(scanLine).text;
-        scanCol  = 0;
-        while (scanCol < scanText.length && scanText[scanCol] <= ' ') { scanCol++; }
-    }
-
-    if (!isSql(stitched)) { return null; }
-    return { segments, stitched, omLine: new Int32Array(omLineArr), omCol: new Int32Array(omColArr) };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -705,6 +521,13 @@ const DATEPART_WORDS = new Set([
     'hour','minute','second','millisecond','microsecond','nanosecond',
     'dayofweek','dayofyear','week','weekday','quarter',
 ]);
+// Words whose only SQL role is a function name. Without a ( after them they
+// are names: DELETE FROM Log, SELECT Count FROM t. CONCAT is left out: DB2
+// also writes it between two values, a CONCAT b.
+const FUNCTION_ONLY_WORDS = new Set([...SQL_FUNCTION_WORDS].filter(w =>
+    SQL_WORD_TOKEN_MAP.get(w) === T_SQL_FUNC && !DUAL_ROLE_JOIN.has(w) && !DATEPART_WORDS.has(w) &&
+    w !== 'concat'));
+
 const DATEPART_FUNCTIONS = new Set([
     'dateadd','datediff','datediff_big','datepart','datename',
 ]);
@@ -848,6 +671,8 @@ export function emitSqlTokensForGroup(
                 } else {
                     continue; // uncoloured — ambiguous
                 }
+            } else if (FUNCTION_ONLY_WORDS.has(wLower)) {
+                if (!/^\s*\(/.test(after)) { continue; } // a name, not a call
             } else if (DATEPART_WORDS.has(wLower)) {
                 // Date-part words have three possible roles:
                 //   HOUR(start_time)        → ( follows → function colour

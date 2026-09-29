@@ -341,13 +341,13 @@ For i = 1 To 5           ' ← WARN: Missing 'Next' — never closed
     End If               ' ← OK: closes the If above
 
 ' ── 5c. Swapped End Sub / End Function ───────────────────────────────────────
-Function GetName()       ' ← OK: matched by End Function below via stack walk-back
+Function GetName()       ' ← WARN: Missing 'End Function' — the End Sub below ends it
     GetName = "Alice"
-End Sub                  ' ← WARN: Unexpected 'End Sub' — no Sub above this
+End Sub                  ' ← WARN: Unexpected 'End Sub' — it ends a Function
 
-Sub PrintName()          ' ← WARN: unclosed — popped when End Function matches Function above
+Sub PrintName()          ' ← WARN: Missing 'End Sub' — the End Function below ends it
     Response.Write "Bob"
-End Function             ' ← OK: matches Function GetName via stack walk-back
+End Function             ' ← WARN: Unexpected 'End Function' — it ends a Sub
 
 %>
 

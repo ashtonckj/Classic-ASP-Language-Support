@@ -1,15 +1,19 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { AspDocumentSymbolProvider } from '../../providers/aspDocumentSymbolProvider';
+import { disposeAnalysisWorkers } from '../../utils/analysisClient';
 
 // Minimal TextDocument for the outline provider: it reads getText, lineCount,
-// lineAt(...).text and lineAt(...).range.end.
+// lineAt(...).text and lineAt(...).range.end, and the version the worker's
+// answer is checked against.
 function doc(text: string): vscode.TextDocument {
     const lines = text.split('\n');
     return {
         languageId: 'asp',
         lineCount: lines.length,
-        uri: { fsPath: 'x.asp' },
+        version: 1,
+        isClosed: false,
+        uri: { fsPath: 'x.asp', toString: () => 'file:///x.asp' },
         getText: () => text,
         lineAt: (n: number) => ({
             text: lines[n],
@@ -18,8 +22,10 @@ function doc(text: string): vscode.TextDocument {
     } as unknown as vscode.TextDocument;
 }
 
-const outline = (text: string) =>
-    new AspDocumentSymbolProvider().provideDocumentSymbols(doc(text)) as vscode.DocumentSymbol[];
+const outline = async (text: string) =>
+    (await new AspDocumentSymbolProvider().provideDocumentSymbols(doc(text)))!;
+
+after(() => disposeAnalysisWorkers());
 
 const names = (list: vscode.DocumentSymbol[]) => list.map(s => s.name);
 const find  = (list: vscode.DocumentSymbol[], name: string) => list.find(s => s.name === name)!;
@@ -51,17 +57,17 @@ const SOURCE = [
 // DocumentSymbol contract forbids — and left the breadcrumb unable to show
 // `Cart > Add`.
 describe('AspDocumentSymbolProvider — class members are nested', () => {
-    it('keeps only the file-level symbols at the top', () => {
-        assert.deepStrictEqual(names(outline(SOURCE)).sort(), ['Cart', 'MAX', 'Total', 'pageTitle']);
+    it('keeps only the file-level symbols at the top', async () => {
+        assert.deepStrictEqual(names(await outline(SOURCE)).sort(), ['Cart', 'MAX', 'Total', 'pageTitle']);
     });
 
-    it('nests the class members under the class', () => {
-        const cart = find(outline(SOURCE), 'Cart');
+    it('nests the class members under the class', async () => {
+        const cart = find(await outline(SOURCE), 'Cart');
         assert.deepStrictEqual(names(cart.children).sort(), ['Add', 'Count', 'items']);
     });
 
-    it('leaves no sibling range overlapping another', () => {
-        const top = outline(SOURCE);
+    it('leaves no sibling range overlapping another', async () => {
+        const top = await outline(SOURCE);
         for (let i = 0; i < top.length; i++) {
             for (let j = i + 1; j < top.length; j++) {
                 const a = top[i].range, b = top[j].range;
@@ -71,8 +77,8 @@ describe('AspDocumentSymbolProvider — class members are nested', () => {
         }
     });
 
-    it('keeps every child inside its parent range', () => {
-        const cart = find(outline(SOURCE), 'Cart');
+    it('keeps every child inside its parent range', async () => {
+        const cart = find(await outline(SOURCE), 'Cart');
         for (const child of cart.children) {
             assert.ok(
                 child.range.start.line >= cart.range.start.line &&
@@ -82,8 +88,8 @@ describe('AspDocumentSymbolProvider — class members are nested', () => {
         }
     });
 
-    it('sorts each level by line', () => {
-        const cart = find(outline(SOURCE), 'Cart');
+    it('sorts each level by line', async () => {
+        const cart = find(await outline(SOURCE), 'Cart');
         const lines = cart.children.map(c => c.range.start.line);
         assert.deepStrictEqual(lines, [...lines].sort((a, b) => a - b));
     });
@@ -94,27 +100,27 @@ describe('AspDocumentSymbolProvider — class members are nested', () => {
 // and without Option Explicit the implicit-assignment pass would otherwise fill
 // the outline with every temporary the page assigns.
 describe('AspDocumentSymbolProvider — variables', () => {
-    it('lists a module-level Dim', () => {
-        assert.ok(names(outline(SOURCE)).includes('pageTitle'));
+    it('lists a module-level Dim', async () => {
+        assert.ok(names(await outline(SOURCE)).includes('pageTitle'));
     });
 
-    it('marks it as a Variable', () => {
-        assert.strictEqual(find(outline(SOURCE), 'pageTitle').kind, vscode.SymbolKind.Variable);
+    it('marks it as a Variable', async () => {
+        assert.strictEqual(find(await outline(SOURCE), 'pageTitle').kind, vscode.SymbolKind.Variable);
     });
 
-    it('omits a variable declared inside a function body', () => {
-        assert.ok(!names(outline(SOURCE)).includes('scratch'));
-        const total = find(outline(SOURCE), 'Total');
+    it('omits a variable declared inside a function body', async () => {
+        assert.ok(!names(await outline(SOURCE)).includes('scratch'));
+        const total = find(await outline(SOURCE), 'Total');
         assert.deepStrictEqual(names(total.children), []);
     });
 
-    it('does not list a COM variable twice', () => {
+    it('does not list a COM variable twice', async () => {
         const text = '<%\nDim conn\nSet conn = Server.CreateObject("ADODB.Connection")\n%>';
-        assert.strictEqual(names(outline(text)).filter(n => n === 'conn').length, 1);
+        assert.strictEqual(names(await outline(text)).filter(n => n === 'conn').length, 1);
     });
 
-    it('selects the name, not the whole line', () => {
-        const title = find(outline(SOURCE), 'pageTitle');
+    it('selects the name, not the whole line', async () => {
+        const title = find(await outline(SOURCE), 'pageTitle');
         assert.strictEqual(title.selectionRange.start.character, 'Dim '.length);
         assert.strictEqual(title.selectionRange.end.character, 'Dim pageTitle'.length);
     });

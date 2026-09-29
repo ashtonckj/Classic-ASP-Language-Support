@@ -143,6 +143,19 @@ suite('Built-in functions show parameter hints and docs (integration)', () => {
         assert.strictEqual(help?.signatures[0]?.label, 'Function Trim(a, b)');
     });
 
+    test('a local array is indexed, not a call of a Function of that name', async () => {
+        const page = '<%\nFunction Items(a, b)\nEnd Function\nSub S()\n  Dim items(3)\n  x = items(\nEnd Sub\n%>\n';
+        const help = await signatureAtEndOf(page, 5);
+        assert.ok(!help?.signatures.length, `got ${JSON.stringify(help?.signatures[0]?.label)}`);
+    });
+
+    test("a class's own method, called through Me", async () => {
+        const page = '<%\nClass Cart\n  Sub Add(item, qty)\n  End Sub\n  Sub Fill()\n    Me.Add(1, \n  End Sub\nEnd Class\n%>\n';
+        const help = await signatureAtEndOf(page, 5);
+        assert.strictEqual(help?.signatures[0]?.label, 'Sub Add(item, qty)');
+        assert.strictEqual(help?.activeParameter, 1);
+    });
+
     test('the completion shows the signature and the full doc', async () => {
         const items = await completionsAtEndOf('<%\nx = InS\n%>\n', 1);
         const instr = items.find(item => labelOf(item) === 'InStr');

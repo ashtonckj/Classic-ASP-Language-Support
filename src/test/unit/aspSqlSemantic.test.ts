@@ -79,6 +79,46 @@ describe('SQL colouring follows a variable across block layouts', () => {
     });
 });
 
+// The colouring reads the syntax tree, where a string joined with & is one
+// expression however many lines it runs over.
+describe('SQL colouring reads a joined string as one', () => {
+    it('colours every piece, including those after a value joined in', () => {
+        const page = '<%\ncmd.CommandText = "DELETE FROM Log " & _\n    "WHERE Cmpy = \'" & cmpy & "\' AND At = \'" & at & "\'"\n%>\n';
+        const tokens = sqlTokens(page);
+        assert.ok(tokens.includes('sqlDml:DELETE') && tokens.includes('sqlLogical:AND'), `got ${JSON.stringify(tokens)}`);
+    });
+
+    it('still colours a query whose & _ was cut off by a blank line, as the one query it was meant to be', () => {
+        const page = '<%\nsql = "SELECT a FROM t " & _\n\n    "UNION ALL " & _\n    "SELECT b FROM u"\n%>\n';
+        const tokens = sqlTokens(page);
+        assert.ok(tokens.includes('sqlDml:UNION') || tokens.includes('sqlKeyword:UNION'), `got ${JSON.stringify(tokens)}`);
+        assert.strictEqual(tokens.filter(t => t === 'sqlDml:SELECT').length, 2, `got ${JSON.stringify(tokens)}`);
+    });
+});
+
+describe('SQL colouring tells a function name from a table or column of that name', () => {
+    it('colours Log after FROM as a table, not as the LOG function', () => {
+        const tokens = sqlTokens('<%\ncmd.CommandText = "DELETE FROM log WHERE Id = 1"\n%>\n');
+        assert.ok(tokens.includes('sqlBracketContent:log'), `got ${JSON.stringify(tokens)}`);
+        assert.ok(!tokens.includes('sqlFunction:log'), `got ${JSON.stringify(tokens)}`);
+    });
+
+    it('still colours LOG( and COUNT( as functions', () => {
+        const tokens = sqlTokens('<%\nsql = "SELECT LOG(x), COUNT(*) FROM t"\n%>\n');
+        assert.ok(tokens.includes('sqlFunction:LOG') && tokens.includes('sqlFunction:COUNT'), `got ${JSON.stringify(tokens)}`);
+    });
+
+    it('still colours CONCAT written between two values, as DB2 does', () => {
+        const tokens = sqlTokens('<%\nsql = "SELECT code CONCAT name FROM t"\n%>\n');
+        assert.ok(tokens.includes('sqlFunction:CONCAT'), `got ${JSON.stringify(tokens)}`);
+    });
+
+    it('leaves a column called Count uncoloured', () => {
+        const tokens = sqlTokens('<%\nsql = "SELECT Count FROM t"\n%>\n');
+        assert.ok(!tokens.some(t => t.endsWith(':Count')), `got ${JSON.stringify(tokens)}`);
+    });
+});
+
 describe('SQL colouring stays off things that are not SQL', () => {
     it('leaves an ordinary string alone', () => {
         assert.deepStrictEqual(sqlTokens('<%\nmsg = "Hello there, welcome back"\nmsg = msg & " again"\n%>\n'), []);

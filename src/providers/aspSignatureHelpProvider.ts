@@ -4,16 +4,22 @@
  * Provides parameter hints (signature help) for user-defined VBScript
  * functions and subs, and for VBScript's built-in functions (Mid, InStr,
  * Replace, …), when the user types `(` or `,` after a known function name.
+ * The parser says which procedure the name means, so a local array `items(`
+ * is not taken for a Function Items elsewhere, and `Me.Add(` finds the
+ * class's own Add.
  *
  * Shows the function signature and highlights the current parameter based on
  * how many commas appear before the cursor inside the argument list.
  */
 
 import * as vscode from 'vscode';
-import { collectAllSymbols } from './includeProvider';
+import * as path from 'path';
 import { getZone } from '../utils/zoneUtils';
 import { aspCodeStartOnLine } from '../utils/documentHelper';
 import { BUILTIN_FUNCTION_DOCS, BuiltinSignature, builtinSignature } from '../constants/aspKeywords';
+import { declarationsOf, resolveAt } from '../vbscript/references';
+import type * as A from '../vbscript/ast';
+import { editorWorkspace } from './vbscriptWorkspace';
 
 /** Parameter hints for a built-in function, from its doc. */
 function builtinHelp(builtin: BuiltinSignature, activeParam: number): vscode.SignatureHelp {
@@ -98,18 +104,29 @@ export class AspSignatureHelpProvider implements vscode.SignatureHelpProvider {
         if (!nameMatch) { return null; }
 
         const funcName = nameMatch[1].toLowerCase();
-        const symbols  = collectAllSymbols(document);
+        const afterDot = /\.\s*\w+\s*$/.test(beforeParen);
 
-        const fn = symbols.functions.find(f => f.name.toLowerCase() === funcName);
-        if (!fn) {
-            // A built-in, unless the page defines its own of that name. After a
+        // What the parser says the name means. Only a procedure has parameters
+        // to show; a variable of that name is an array being indexed.
+        const nameOffset = document.offsetAt(new vscode.Position(position.line, nameMatch.index!));
+        const resolved   = resolveAt(editorWorkspace(document), document.uri.fsPath, nameOffset, !(funcName in BUILTIN_FUNCTION_DOCS));
+        const decls      = resolved ? declarationsOf(resolved.bound.binding, resolved.target) : [];
+        const procedure  = decls.map(d => d.node).reverse().find((n): n is A.ProcedureStmt => n?.kind === 'Procedure');
+        if (!procedure) {
+            // A built-in, unless the page declares its own of that name. After a
             // dot it is a member of something else — `re.Replace(` on a RegExp
             // is not VBScript's Replace.
-            const afterDot = /\.\s*\w+\s*$/.test(beforeParen);
-            const doc      = afterDot ? undefined : BUILTIN_FUNCTION_DOCS[funcName];
-            const builtin  = doc ? builtinSignature(doc) : undefined;
+            const doc     = afterDot || resolved ? undefined : BUILTIN_FUNCTION_DOCS[funcName];
+            const builtin = doc ? builtinSignature(doc) : undefined;
             return builtin ? builtinHelp(builtin, activeParam) : null;
         }
+        const file = decls.find(d => d.node === procedure)!.file;
+        const fn   = {
+            kind:       ({ sub: 'Sub', function: 'Function', property: 'Property' } as const)[procedure.procKind],
+            name:       procedure.name.text,
+            paramNames: procedure.params.map(p => p.name.text),
+            filePath:   file,
+        };
 
         // Build the signature label  e.g.  "MyFunc(name, value, flag)"
         const paramNames  = fn.paramNames.length > 0 ? fn.paramNames : [];
@@ -118,7 +135,7 @@ export class AspSignatureHelpProvider implements vscode.SignatureHelpProvider {
 
         const sig         = new vscode.SignatureInformation(sigLabel);
         sig.documentation = new vscode.MarkdownString(
-            `*${fn.kind}* defined in \`${require('path').basename(fn.filePath)}\``
+            `*${fn.kind}* defined in \`${path.basename(fn.filePath)}\``
         );
 
         // Add each parameter as a ParameterInformation so VS Code can highlight it

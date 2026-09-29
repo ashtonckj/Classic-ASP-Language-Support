@@ -2,10 +2,17 @@ import * as vscode from 'vscode';
 import { collectAllSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../utils/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
-import { ASP_MEMBER_DOCS, ASP_OBJECTS, AspObjectDef, BUILTIN_FUNCTION_DOCS, VBSCRIPT_CONSTANTS } from '../constants/aspKeywords';
+import {
+    ASP_MEMBER_DOCS, ASP_OBJECTS, ASP_OBJECT_NAMES, AspObjectDef, BUILTIN_FUNCTION_DOCS, VBSCRIPT_CONSTANTS, VBSCRIPT_KEYWORDS_SET,
+} from '../constants/aspKeywords';
 import { getZone } from '../utils/zoneUtils';
 import { aspCodeStartOnLine, isInsideVbString } from '../utils/documentHelper';
 import * as path from 'path';
+import { declarationsOf, resolveAt, type BoundPage, type Target } from '../vbscript/references';
+import type { Declaration } from '../vbscript/binder';
+import { sourceOf, walkStatements, type ParsedPage } from '../vbscript/symbols';
+import { editorWorkspace } from './vbscriptWorkspace';
+import { enclosingWithObject } from './aspCompletionProvider';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // VBScript keyword docs for hover
@@ -108,6 +115,77 @@ function describeAspObject(object: AspObjectDef): string {
     return sections.join('\n\n');
 }
 
+/** True for a name VBScript or ASP provides, which a page rarely declares itself. */
+function isBuiltinName(wordKey: string): boolean {
+    return ASP_OBJECT_NAMES.has(wordKey) || wordKey in BUILTIN_FUNCTION_DOCS
+        || VBSCRIPT_CONSTANTS.some(constant => constant.name.toLowerCase() === wordKey);
+}
+
+/** The declaration a hover describes: the one that runs, for a Sub written twice. */
+function declarationFor(bound: BoundPage, target: Target): Declaration | undefined {
+    const all = declarationsOf(bound.binding, target);
+    const explicit = all.filter(d => !d.implicit);
+    return explicit.length > 0 ? explicit[explicit.length - 1] : all[0];
+}
+
+const PROCEDURE_WORD = { sub: 'Sub', function: 'Function', property: 'Property' } as const;
+
+/** What a hover says about a declaration the parser found. */
+export function describeDeclaration(
+    bound: BoundPage,
+    decl: Declaration,
+    docPath: string,
+    comVariables: { name: string; progId: string }[],
+): string {
+    const page = bound.pages.get(decl.file.toLowerCase());
+    const fromInclude = decl.file.toLowerCase() !== docPath.toLowerCase();
+    const where = (verb: string) => fromInclude ? `*${verb} in \`${path.basename(decl.file)}\`*` : `*${verb} in this file*`;
+    const owner = decl.scope.node;
+    const ownerName = owner?.name.text ?? '';
+
+    if (decl.node?.kind === 'Procedure') {
+        const proc = decl.node;
+        const params = proc.paramList && page ? sourceOf(page.text, proc.paramList) : '';
+        const word = PROCEDURE_WORD[proc.procKind] + (proc.accessor ? ` ${proc.accessor[0].toUpperCase()}${proc.accessor.slice(1)}` : '');
+        const header = `**${word} ${proc.name.text}${params ? `(${params})` : ''}**`;
+        const member = owner?.kind === 'Class' ? `\n\n*Member of class \`${ownerName}\`*` : '';
+        return `${header}${member}\n\n${where('Defined')}`;
+    }
+    if (decl.node?.kind === 'Class') {
+        return `**Class ${decl.node.name.text}**\n\n${where('Defined')}`;
+    }
+
+    if (decl.kind === 'constant') {
+        const value = page && constantValue(page, decl);
+        return `**${decl.text}**${value ? ` = \`${value}\`` : ' — constant'}\n\n${where('Declared')}`;
+    }
+    if (decl.kind === 'parameter') {
+        return `**${decl.text}** — parameter of \`${ownerName}\``;
+    }
+
+    const com = comVariables.find(cv => cv.name.toLowerCase() === decl.name);
+    if (com) {
+        return `**${decl.text}** — \`${com.progId}\`\n\n${where('Declared')}\n\nType \`${decl.text}.\` to see available members.`;
+    }
+    const what = owner?.kind === 'Procedure' ? `local variable of \`${ownerName}\``
+        : owner?.kind === 'Class' ? `member of class \`${ownerName}\``
+        : 'variable';
+    return `**${decl.text}** — ${what}\n\n${where('Declared')}`;
+}
+
+/** The value a Const gives its name, as written. */
+function constantValue(page: ParsedPage, decl: Declaration): string | undefined {
+    let value: string | undefined;
+    for (const program of page.programs) {
+        walkStatements(program.body, s => {
+            if (s.kind !== 'Const') { return; }
+            const d = s.declarators.find(x => x.name.start === decl.span.start);
+            if (d) { value = sourceOf(page.text, d.value); }
+        });
+    }
+    return value;
+}
+
 export class AspHoverProvider implements vscode.HoverProvider {
 
     provideHover(
@@ -147,12 +225,14 @@ export class AspHoverProvider implements vscode.HoverProvider {
         const allSymbols = collectAllSymbols(document);
 
         // ── 1. COM member after dot — e.g. rs.EOF, conn.Execute ──────────────
+        // A bare `.EOF` inside `With rs` is a member of rs.
         const charBeforeWord = lineText.charAt(wordRange.start.character - 1);
         if (charBeforeWord === '.') {
             const textBeforeDot = lineText.substring(0, wordRange.start.character - 1);
-            const objMatch      = textBeforeDot.match(/\b(\w+)$/);
-            if (objMatch) {
-                const objName    = objMatch[1].toLowerCase();
+            const withObject    = () => /^[A-Za-z_]\w*$/.exec(enclosingWithObject(fullText, position.line, wordRange.start.character) ?? '')?.[0];
+            const objectName    = /\b(\w+)$/.exec(textBeforeDot)?.[1] ?? (/[)\]]$/.test(textBeforeDot) ? undefined : withObject());
+            if (objectName) {
+                const objName    = objectName.toLowerCase();
 
                 // An intrinsic object first: Response, Request, Server and the
                 // rest are always in scope and are never declared, so they will
@@ -178,66 +258,26 @@ export class AspHoverProvider implements vscode.HoverProvider {
             }
         }
 
-        // ── 2. User-defined Function or Sub ───────────────────────────────────
-        // Skip functions defined inside a <script> (JS) block in this file —
-        // they are JavaScript, not VBScript, and should not show a VBScript hover.
-        // Functions from #include files are always VBScript so they are shown as-is.
-        const fn = allSymbols.functions.find(f => {
-            if (f.name.toLowerCase() !== wordKey) return false;
-            if (f.filePath === document.uri.fsPath) {
-                const fnOffset = document.offsetAt(new vscode.Position(f.line, 0));
-                if (getZone(fullText, fnOffset) === 'js') return false;
+        // ── 2. A name the page declares ───────────────────────────────────────
+        // The parser says which declaration the name means: a local, a
+        // parameter, a page variable, a procedure or a class member.
+        if (!VBSCRIPT_KEYWORDS_SET.has(wordKey)) {
+            const resolved = resolveAt(
+                editorWorkspace(document), document.uri.fsPath, document.offsetAt(wordRange.start), !isBuiltinName(wordKey),
+            );
+            const decl = resolved && declarationFor(resolved.bound, resolved.target);
+            if (resolved && decl) {
+                return new vscode.Hover(new vscode.MarkdownString(
+                    describeDeclaration(resolved.bound, decl, document.uri.fsPath, allSymbols.comVariables),
+                ));
             }
-            return true;
-        });
-        if (fn) {
-            const fromInclude = fn.filePath !== document.uri.fsPath;
-            const header      = fn.params
-                ? `**${fn.kind} ${fn.name}(${fn.params})**`
-                : `**${fn.kind} ${fn.name}**`;
-            const source      = fromInclude
-                ? `\n\n*Defined in \`${path.basename(fn.filePath)}\`*`
-                : `\n\n*Defined in this file*`;
-            return new vscode.Hover(new vscode.MarkdownString(header + source));
         }
 
-        // ── 3. COM object variable (rs, conn, dict, etc.) ─────────────────────
-        const comVar = allSymbols.comVariables.find(cv => cv.name.toLowerCase() === wordKey);
-        if (comVar) {
-            const fromInclude = comVar.filePath !== document.uri.fsPath;
-            const source      = fromInclude
-                ? `*Declared in \`${path.basename(comVar.filePath)}\`*`
-                : `*Declared in this file*`;
-            return new vscode.Hover(
-                new vscode.MarkdownString(
-                    `**${comVar.name}** — \`${comVar.progId}\`\n\n${source}\n\nType \`${comVar.name}.\` to see available members.`
-                )
-            );
-        }
+        // After a dot the word is a member of some object. Its docs, when known,
+        // were found above; a variable or function of the same name is not it.
+        if (charBeforeWord === '.') return null;
 
-        // ── 4. User-defined variable ──────────────────────────────────────────
-        const variable = allSymbols.variables.find(v => v.name.toLowerCase() === wordKey);
-        if (variable) {
-            const fromInclude = variable.filePath !== document.uri.fsPath;
-            const source      = fromInclude
-                ? `*Declared in \`${path.basename(variable.filePath)}\`*`
-                : `*Declared in this file*`;
-            return new vscode.Hover(new vscode.MarkdownString(`**${variable.name}** — variable\n\n${source}`));
-        }
-
-        // ── 5. User-defined constant ──────────────────────────────────────────
-        const constant = allSymbols.constants.find(c => c.name.toLowerCase() === wordKey);
-        if (constant) {
-            const fromInclude = constant.filePath !== document.uri.fsPath;
-            const source      = fromInclude
-                ? `*Declared in \`${path.basename(constant.filePath)}\`*`
-                : `*Declared in this file*`;
-            return new vscode.Hover(
-                new vscode.MarkdownString(`**${constant.name}** = \`${constant.value}\`\n\n${source}`)
-            );
-        }
-
-        // ── 6. Intrinsic object — Response, Request, Server, Session, … ─────────
+        // ── 3. Intrinsic object — Response, Request, Server, Session, … ─────────
         // Always in scope and never declared, so never among the symbols above.
         // After a dot the word is a member of something else (`obj.Response`).
         const aspObject = charBeforeWord === '.'
@@ -247,7 +287,7 @@ export class AspHoverProvider implements vscode.HoverProvider {
             return new vscode.Hover(new vscode.MarkdownString(describeAspObject(aspObject)));
         }
 
-        // ── 7. Built-in VBScript constant — vbCrLf, vbTextCompare, … ────────────
+        // ── 4. Built-in VBScript constant — vbCrLf, vbTextCompare, … ────────────
         const vbConstant = VBSCRIPT_CONSTANTS.find(constant => constant.name.toLowerCase() === wordKey);
         if (vbConstant) {
             return new vscode.Hover(
@@ -255,7 +295,7 @@ export class AspHoverProvider implements vscode.HoverProvider {
             );
         }
 
-        // ── 8. Built-in VBScript function hover ─────────────────────────────────
+        // ── 5. Built-in VBScript function hover ─────────────────────────────────
         // Show docs for built-in functions like Split(), InStr(), DateDiff(), etc.
         if (BUILTIN_FUNCTION_DOCS[wordKey]) {
             return new vscode.Hover(new vscode.MarkdownString(BUILTIN_FUNCTION_DOCS[wordKey]));

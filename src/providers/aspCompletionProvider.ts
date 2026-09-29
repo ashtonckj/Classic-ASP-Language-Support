@@ -3,11 +3,14 @@ import {
     ASP_OBJECTS, ASP_OBJECT_NAMES, VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS, VBSCRIPT_CONSTANTS,
     BUILTIN_FUNCTION_DOCS, builtinSignature,
 } from '../constants/aspKeywords';
-import { getTextBeforeCursor, isInsideVbStringOrComment, vbStatementsOnLine } from '../utils/documentHelper';
-import { areIncludeSymbolsReady, collectAllSymbols, preloadIncludeSymbols } from './includeProvider';
+import { getTextBeforeCursor, isInsideVbStringOrComment } from '../utils/documentHelper';
+import { areIncludeSymbolsReady, collectAllSymbols, preloadIncludeSymbols, withIncludeSymbols } from './includeProvider';
+import { analysedPage } from './vbscriptWorkspace';
 import { COM_METHOD_RETURN_TYPES, COM_TYPE_MAP } from '../constants/comObjects';
-import { createZoneResolver, getZone } from '../utils/zoneUtils';
+import { getZone } from '../utils/zoneUtils';
 import { callIsWholeExpression } from '../utils/symbolParser';
+import { parsePage } from '../vbscript/symbols';
+import { pageBlocks, withObjectAt } from '../vbscript/pageAnalysis';
 import * as path from 'path';
 
 
@@ -28,53 +31,27 @@ function buildComVarMap(includeComVars: { name: string; progId: string }[]): Map
  * The object of the `With` block that `line` sits in, as written — `rs`,
  * `Server.CreateObject("ADODB.Recordset")` — or undefined outside one.
  *
- * Reads the statements before `character` on the line, then the lines above,
- * counting nested With … End With. Stops at the start or end of a procedure or
- * class, which a With block cannot reach across.
+ * Read from the syntax tree, so a With in a comment, a string or the markup
+ * never counts, and nested blocks and procedures nest the way VBScript reads
+ * them. A block still being typed, with no End With yet, runs to where the
+ * parser closed it.
  */
 export function enclosingWithObject(text: string, line: number, character: number): string | undefined {
-    const lines = text.split('\n');
-    const zones = createZoneResolver(text);
-    let lineStart = 0;
-    const starts = lines.map(l => { const at = lineStart; lineStart += l.length + 1; return at; });
-
-    let depth = 0;
-    for (let li = line; li >= 0; li--) {
-        const raw = li === line ? lines[li].slice(0, character) : lines[li];
-        const startsInAsp = zones.zoneAt(starts[li]) === 'asp' && !raw.trimStart().startsWith('<%');
-        if (!startsInAsp && !raw.includes('<%')) { continue; }
-
-        const statements = vbStatementsOnLine(raw, startsInAsp).map(st => st.text.trim());
-        // On the caret's own line the last statement is the one being typed.
-        if (li === line) { statements.pop(); }
-
-        for (const code of statements.reverse()) {
-            if (/^End\s+With\b/i.test(code)) { depth++; continue; }
-            const opened = /^With\s+(.+)$/i.exec(code);
-            if (opened) {
-                if (depth === 0) { return opened[1].trim(); }
-                depth--;
-                continue;
-            }
-            if (/^(?:(?:Public|Private)\s+)?(?:Default\s+)?(?:Sub|Function|Property|Class)\b/i.test(code) ||
-                /^End\s+(?:Sub|Function|Property|Class)\b/i.test(code)) {
-                return undefined;
-            }
-        }
-    }
-    return undefined;
+    const page = parsePage(text);
+    return withObjectAt(pageBlocks(page).withBlocks, (page.lineStarts[line] ?? text.length) + character);
 }
 
 export class AspCompletionProvider implements vscode.CompletionItemProvider {
 
-    provideCompletionItems(
+    async provideCompletionItems(
         document: vscode.TextDocument,
         position: vscode.Position,
-        _token: vscode.CancellationToken,
+        token: vscode.CancellationToken,
         context: vscode.CompletionContext
-    ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
+    ): Promise<vscode.CompletionItem[] | vscode.CompletionList | undefined> {
 
         const fullText = document.getText();
+        const version  = document.version;
         const offset = document.offsetAt(position);
 
         // Only provide ASP completions inside ASP blocks
@@ -127,8 +104,13 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
             });
         }
 
-        // Collect all symbols from this document + whatever include symbols are cached.
-        const allSymbols = collectAllSymbols(document);
+        // The page's own symbols come from the VBScript worker, so a large page
+        // is not parsed on this thread on every keystroke. Typing on while it
+        // reads gives the symbols of the newer text, which are as good. Then
+        // whatever include symbols are cached.
+        const page = await analysedPage(document, token);
+        if (token.isCancellationRequested) { return undefined; }
+        const allSymbols = page ? withIncludeSymbols(document, page.symbols) : collectAllSymbols(document);
         const comVarMap  = buildComVarMap(allSymbols.comVariables);
 
         // ── 1. A member of the With object  e.g. "  .EO" inside With rs ───────
@@ -137,7 +119,9 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         // offer; the keyword and function list is never right here.
         const withDot = /(?:^|[^\w)\].])\.(\w*)$/.exec(lineText);
         if (withDot && !/^\d/.test(withDot[1])) {
-            const object = enclosingWithObject(fullText, position.line, position.character);
+            const object = page?.version === version
+                ? withObjectAt(page.blocks.withBlocks, offset)
+                : enclosingWithObject(fullText, position.line, position.character);
             return object ? this.provideWithMembers(object, comVarMap) : [];
         }
 

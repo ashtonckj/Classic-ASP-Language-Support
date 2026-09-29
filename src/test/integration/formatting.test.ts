@@ -30,7 +30,7 @@ suite('Classic ASP: Preview Formatting (integration)', () => {
         const doc = await vscode.workspace.openTextDocument({ language: 'asp', content });
         await vscode.window.showTextDocument(doc);
 
-        await vscode.commands.executeCommand('aspLanguageSupport.previewFormatting');
+        await vscode.commands.executeCommand('classicAsp.previewFormatting');
 
         const preview = await waitFor(() =>
             vscode.window.visibleTextEditors.find(e => e.document.uri.scheme === 'asp-format-preview'));
@@ -41,7 +41,7 @@ suite('Classic ASP: Preview Formatting (integration)', () => {
 
     test('is offered in the Command Palette', async () => {
         const commands = await vscode.commands.getCommands(true);
-        assert.ok(commands.includes('aspLanguageSupport.previewFormatting'));
+        assert.ok(commands.includes('classicAsp.previewFormatting'));
     });
 });
 

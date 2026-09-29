@@ -44,6 +44,18 @@ describe('enclosingWithObject', () => {
         assert.strictEqual(objectAt('<% With rs : .|'), 'rs');
     });
 
+    it('finds a block still being typed, with no End With yet', () => {
+        assert.strictEqual(objectAt('<%\nSub Report()\n  With rs\n    .|\nEnd Sub\n%>'), 'rs');
+        assert.strictEqual(objectAt('<%\nWith rs\n  .|'), 'rs');
+    });
+
+    it('reads an object written over several lines as one', () => {
+        assert.strictEqual(
+            objectAt('<%\nWith Server.CreateObject( _\n    "ADODB.Recordset")\n  .|\nEnd With\n%>'),
+            'Server.CreateObject( "ADODB.Recordset")',
+        );
+    });
+
     it('is not fooled by With in a comment, a string or markup', () => {
         assert.strictEqual(objectAt("<%\n' With rs\nx = \"With rs\"\n%>\n<p>With rs</p>\n<%\n.|\n%>"), undefined);
     });

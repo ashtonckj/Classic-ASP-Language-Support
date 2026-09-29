@@ -180,3 +180,6 @@ node_modules/@emmetio/abbreviation/dist/index.js
 node_modules/@emmetio/css-abbreviation/dist/index.js
 node_modules/@emmetio/scanner/scanner.js
 node_modules/@emmetio/**/*.d.ts
+
+# The older build scripts/build-baseline.js compiles for the parser comparison.
+.baseline/**

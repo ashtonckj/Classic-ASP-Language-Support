@@ -29,8 +29,8 @@ export function delimitersAtColumnZero(settings: AspFormatterSettings): boolean 
 }
 
 export function getAspSettings(): AspFormatterSettings {
-    const config         = vscode.workspace.getConfiguration('aspLanguageSupport');
-    const prettierConfig = vscode.workspace.getConfiguration('aspLanguageSupport.prettier');
+    const config         = vscode.workspace.getConfiguration('classicAsp');
+    const prettierConfig = vscode.workspace.getConfiguration('classicAsp.prettier');
     return {
         keywordCase:       config.get<string>('keywordCase',             'PascalCase'),
         useTabs:           prettierConfig.get<boolean>('useTabs',        false),

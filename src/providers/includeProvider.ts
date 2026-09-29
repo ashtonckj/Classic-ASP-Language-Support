@@ -15,7 +15,7 @@ import type { IncludeWorkerEntry } from './includeSymbolWorker';
 // Returns the base directory to use when resolving virtual="..." includes.
 //
 // Priority:
-//   1. aspLanguageSupport.virtualRoot setting (explicit user override)
+//   1. classicAsp.virtualRoot setting (explicit user override)
 //   2. First workspace folder root (common case — user opened VS Code at app root)
 //   3. Directory of the current document (last resort fallback)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -30,7 +30,7 @@ export function getVirtualRoot(documentPath: string): string {
  * is just a guess.
  */
 export function configuredVirtualRoot(): string | undefined {
-    const config      = vscode.workspace.getConfiguration('aspLanguageSupport');
+    const config      = vscode.workspace.getConfiguration('classicAsp');
     const userSetting = config.get<string>('virtualRoot', '').trim();
 
     if (userSetting) {
@@ -53,7 +53,7 @@ let _virtualRootWarningShown = false;
  * resolve and no explicit virtualRoot setting has been configured.
  */
 function notifyVirtualRootUnresolved(includePath: string): void {
-    const config      = vscode.workspace.getConfiguration('aspLanguageSupport');
+    const config      = vscode.workspace.getConfiguration('classicAsp');
     const userSetting = config.get<string>('virtualRoot', '').trim();
 
     // Only notify when the user hasn't already set a root
@@ -63,13 +63,13 @@ function notifyVirtualRootUnresolved(includePath: string): void {
     vscode.window.showInformationMessage(
         `Classic ASP: could not resolve virtual include "${includePath}". ` +
         `If your virtual root differs from the workspace folder, set ` +
-        `"aspLanguageSupport.virtualRoot" in your settings.`,
+        `"classicAsp.virtualRoot" in your settings.`,
         'Open Settings'
     ).then(choice => {
         if (choice === 'Open Settings') {
             vscode.commands.executeCommand(
                 'workbench.action.openSettings',
-                'aspLanguageSupport.virtualRoot'
+                'classicAsp.virtualRoot'
             );
         }
     });
@@ -187,7 +187,7 @@ function mergeSymbols(target: FileSymbols, source: FileSymbols): void {
 }
 
 /**
- * aspLanguageSupport.defaultIncludes lists files that many real apps only pull
+ * classicAsp.defaultIncludes lists files that many real apps only pull
  * in through a shared bootstrap/layout page — never through the module being
  * edited itself — so their symbols would otherwise be invisible to IntelliSense,
  * hover, Go to Definition, and Peek Definition. Resolved the same way as
@@ -196,9 +196,9 @@ function mergeSymbols(target: FileSymbols, source: FileSymbols): void {
  * Existence is not checked here: the worker finds out when it tries to read,
  * which keeps the completion hot path free of synchronous disk access.
  */
-function defaultIncludeCandidates(virtualRoot: string): string[] {
+export function defaultIncludeCandidates(virtualRoot: string): string[] {
     const configured = vscode.workspace
-        .getConfiguration('aspLanguageSupport')
+        .getConfiguration('classicAsp')
         .get<string[]>('defaultIncludes', []);
 
     return configured.map(entry => path.isAbsolute(entry)
@@ -406,6 +406,21 @@ export function collectIncludeSymbols(document: vscode.TextDocument): FileSymbol
     return symbols;
 }
 
+
+/**
+ * `own`, a page's own symbols, followed by what its includes declare: what
+ * collectAllSymbols gives, for own symbols read elsewhere (the VBScript worker).
+ */
+export function withIncludeSymbols(document: vscode.TextDocument, own: FileSymbols): FileSymbols {
+    const includes = collectIncludeSymbols(document);
+    return {
+        variables:    [...own.variables,    ...includes.variables],
+        constants:    [...own.constants,    ...includes.constants],
+        functions:    [...own.functions,    ...includes.functions],
+        comVariables: [...own.comVariables, ...includes.comVariables],
+        classes:      [...own.classes,      ...includes.classes],
+    };
+}
 
 /**
  * Forgets one file's include symbols, because it was saved or changed on disk.

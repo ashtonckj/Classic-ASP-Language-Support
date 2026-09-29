@@ -80,6 +80,7 @@
 - **VBScript** — unmatched control blocks (`If/End If`, `Sub/End Sub`, `For/Next`, etc.) and unbalanced `<% %>` tags
 - **Missing Set** — an object assigned without `Set`, like `rs = conn.Execute(sql)`, with a *one-click quick fix*
 - **Missing includes** — an `#include` whose file does not exist, which IIS refuses to run
+- **VBScript checks** — a name declared twice, an undeclared name under `Option Explicit`, and a call with the wrong number of arguments; a `Dim` never used and code after `Exit Sub` are shown faded
 - **CSS** — errors and warnings inside `<style>` blocks and `style=""` attributes as you type
 - **JavaScript** — real errors inside `<script>` blocks via the TypeScript language service (noise from missing project context is suppressed)
 - **Void elements** — invalid closing tags caught with a *one-click quick fix*
@@ -172,36 +173,36 @@
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `aspLanguageSupport.keywordCase` | `PascalCase` | `lowercase` · `UPPERCASE` · `PascalCase` |
-| `aspLanguageSupport.aspTagsOnSameLine` | `false` | Keep `<% %>` on the same line as code |
-| `aspLanguageSupport.htmlIndentMode` | `continuation` | Where `<%` and `%>` sit: `continuation` — at the indent of the surrounding HTML; `flat` — at column 0. The VBScript inside is indented the same either way |
-| `aspLanguageSupport.virtualRoot` | *(empty)* | Absolute path to your IIS application root, used to resolve `#include virtual="..."` and root-relative `href`/`src`. Empty = the workspace folder root |
-| `aspLanguageSupport.defaultIncludes` | *(empty)* | Files always added to IntelliSense, hover, and Go to Definition for every document, even without an `#include` for them. For libraries pulled in through a shared bootstrap page at runtime. Resolved like `#include virtual="..."` |
+| `classicAsp.keywordCase` | `PascalCase` | `lowercase` · `UPPERCASE` · `PascalCase` |
+| `classicAsp.aspTagsOnSameLine` | `false` | Keep `<% %>` on the same line as code |
+| `classicAsp.htmlIndentMode` | `continuation` | Where `<%` and `%>` sit: `continuation` — at the indent of the surrounding HTML; `flat` — at column 0. The VBScript inside is indented the same either way |
+| `classicAsp.virtualRoot` | *(empty)* | Absolute path to your IIS application root, used to resolve `#include virtual="..."` and root-relative `href`/`src`. Empty = the workspace folder root |
+| `classicAsp.defaultIncludes` | *(empty)* | Files always added to IntelliSense, hover, and Go to Definition for every document, even without an `#include` for them. For libraries pulled in through a shared bootstrap page at runtime. Resolved like `#include virtual="..."` |
 
 ### Prettier (HTML/CSS/JS)
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `aspLanguageSupport.prettier.printWidth` | `80` | Wrap lines at this column width |
-| `aspLanguageSupport.prettier.tabWidth` | `2` | Spaces per indentation level |
-| `aspLanguageSupport.prettier.useTabs` | `false` | Use tabs instead of spaces |
-| `aspLanguageSupport.prettier.bracketSameLine` | `false` | Put `>` on last attribute line |
-| `aspLanguageSupport.prettier.semi` | `true` | Add semicolons in JavaScript |
-| `aspLanguageSupport.prettier.singleQuote` | `false` | Use single quotes in JavaScript |
-| `aspLanguageSupport.prettier.arrowParens` | `always` | Arrow function parentheses |
-| `aspLanguageSupport.prettier.trailingComma` | `es5` | Trailing comma style |
-| `aspLanguageSupport.prettier.endOfLine` | `auto` | Line ending style — `auto` keeps the endings the file is already saved with |
-| `aspLanguageSupport.prettier.htmlWhitespaceSensitivity` | `css` | HTML whitespace handling |
+| `classicAsp.prettier.printWidth` | `80` | Wrap lines at this column width |
+| `classicAsp.prettier.tabWidth` | `2` | Spaces per indentation level |
+| `classicAsp.prettier.useTabs` | `false` | Use tabs instead of spaces |
+| `classicAsp.prettier.bracketSameLine` | `false` | Put `>` on last attribute line |
+| `classicAsp.prettier.semi` | `true` | Add semicolons in JavaScript |
+| `classicAsp.prettier.singleQuote` | `false` | Use single quotes in JavaScript |
+| `classicAsp.prettier.arrowParens` | `always` | Arrow function parentheses |
+| `classicAsp.prettier.trailingComma` | `es5` | Trailing comma style |
+| `classicAsp.prettier.endOfLine` | `auto` | Line ending style — `auto` keeps the endings the file is already saved with |
+| `classicAsp.prettier.htmlWhitespaceSensitivity` | `css` | HTML whitespace handling |
 
 ### Syntax Highlighting
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `aspLanguageSupport.highlightAspRegions` | `true` | Highlight ASP regions |
-| `aspLanguageSupport.bracketLightColor` | `rgba(255, 100, 0, 0.15)` | Bracket colour (light theme) |
-| `aspLanguageSupport.bracketDarkColor` | `rgba(0, 100, 255, 0.15)` | Bracket colour (dark theme) |
-| `aspLanguageSupport.codeBlockLightColor` | `rgba(100, 100, 100, 0.04)` | Code block colour (light) |
-| `aspLanguageSupport.codeBlockDarkColor` | `rgba(220, 220, 220, 0.04)` | Code block colour (dark) |
+| `classicAsp.highlightAspRegions` | `true` | Highlight ASP regions |
+| `classicAsp.bracketLightColor` | `rgba(255, 100, 0, 0.15)` | Bracket colour (light theme) |
+| `classicAsp.bracketDarkColor` | `rgba(0, 100, 255, 0.15)` | Bracket colour (dark theme) |
+| `classicAsp.codeBlockLightColor` | `rgba(100, 100, 100, 0.04)` | Code block colour (light) |
+| `classicAsp.codeBlockDarkColor` | `rgba(220, 220, 220, 0.04)` | Code block colour (dark) |
 
 </details>
 
@@ -212,9 +213,9 @@
 - ASP blocks must be properly closed (`<% ... %>`) for formatting and diagnostics to work correctly
 - **Format Document and Format Selection are refused while a file has structure diagnostics.** Fix the orange squiggles first — formatting a file with unbalanced tags or blocks would rearrange the wrong things
 - Complex mixed HTML/ASP structures may occasionally require manual adjustment after formatting
-- `#include virtual="..."` and root-relative `href`/`src` paths resolve from `aspLanguageSupport.virtualRoot`, or the first workspace folder root when that is empty
+- `#include virtual="..."` and root-relative `href`/`src` paths resolve from `classicAsp.virtualRoot`, or the first workspace folder root when that is empty
 - **Syntax highlighting breaks for a `<%= %>` that emits an HTML tag inside a JavaScript event-handler attribute** — e.g. `onclick="alert('<%= Replace(x, vbCrLf, "<br>") %>')"`. VS Code's built-in HTML and JavaScript grammars own attribute-value parsing, so an extension cannot re-scope it. The code still runs correctly; only the colours are wrong. (For the same reason the closing `"` of a `style=""` value is coloured as CSS — that affects plain HTML files too.)
-- Smart Enter/Tab indent follows the editor's `editor.tabSize`, while Format Document follows `aspLanguageSupport.prettier.tabWidth`. Set them to the same value if you want typing and formatting to agree
+- Smart Enter/Tab indent follows the editor's `editor.tabSize`, while Format Document follows `classicAsp.prettier.tabWidth`. Set them to the same value if you want typing and formatting to agree
 
 ---
 
