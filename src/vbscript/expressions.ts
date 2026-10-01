@@ -45,10 +45,19 @@ export function childExpressions(e: A.Expr): A.Expr[] {
 /**
  * Calls `visit` on `e` and every expression inside it, outside in. When
  * `visit` returns false, what is inside that expression is skipped.
+ *
+ * A chain of `&`, `.` or `(…)` is a tree as deep as the chain is long, and a
+ * page may join thousands of strings in one statement, so the walk keeps its
+ * own stack rather than recursing.
  */
 export function walkExpression(e: A.Expr, visit: (e: A.Expr) => boolean | void): void {
-    if (visit(e) === false) { return; }
-    for (const child of childExpressions(e)) { walkExpression(child, visit); }
+    const stack = [e];
+    while (stack.length > 0) {
+        const next = stack.pop()!;
+        if (visit(next) === false) { continue; }
+        const children = childExpressions(next);
+        for (let i = children.length - 1; i >= 0; i--) { stack.push(children[i]); }
+    }
 }
 
 export function isConcat(e: A.Expr): e is A.BinaryExpr {
@@ -57,7 +66,13 @@ export function isConcat(e: A.Expr): e is A.BinaryExpr {
 
 /** The pieces joined by `&`, in order: `"a" & b & "c"` gives `"a"`, `b`, `"c"`. Anything else is one piece. */
 export function concatOperands(e: A.Expr): A.Expr[] {
-    return isConcat(e) ? [...concatOperands(e.left), ...concatOperands(e.right)] : [e];
+    const operands: A.Expr[] = [];
+    const stack = [e];
+    while (stack.length > 0) {
+        const next = stack.pop()!;
+        if (isConcat(next)) { stack.push(next.right, next.left); } else { operands.push(next); }
+    }
+    return operands;
 }
 
 export function isStringLiteral(e: A.Expr): e is A.LiteralExpr {

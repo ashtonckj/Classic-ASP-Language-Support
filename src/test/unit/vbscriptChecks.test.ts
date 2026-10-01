@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -71,6 +72,31 @@ describe('checks — calls with the wrong number of arguments', () => {
     it("leaves a Function's own name inside it alone, and arrays indexed like calls", () => {
         const code = 'Function F(n)\n  F = F + n\nEnd Function\nDim arr(3)\narr(1) = 2';
         assert.deepStrictEqual(checksOf(code, 'wrong-arguments'), []);
+    });
+
+    // VBScript accepts a chain of & or . or (…) of any length, and the parser
+    // builds each as a tree as deep as the chain is long.
+    it('checks every call in a join, member chain or call chain thousands long', () => {
+        const n = 50000;
+        const code = `${procs}y = One(1)${' & One(1, 2)'.repeat(n)}\ny = o${'.p'.repeat(n)}\ny = One${'(1)'.repeat(n)}`;
+        assert.strictEqual(checksOf(code, 'wrong-arguments').length, n);
+    });
+
+    // In the test run the checks are usually compiled to machine code by now,
+    // with smaller stack frames, so only a fresh process shows the worst case.
+    it('survives long chains in a fresh process, before the checks are compiled', () => {
+        const module = (name: string) => JSON.stringify(path.join(__dirname, `../../vbscript/${name}.js`));
+        const script = [
+            `const { parsePage } = require(${module('symbols')});`,
+            `const { bindPage } = require(${module('binder')});`,
+            `const { checkPage } = require(${module('checks')});`,
+            `for (const code of ['x = a' + ' & a'.repeat(8000), 'x = a' + '.b'.repeat(8000), 'x = a' + '(1)'.repeat(8000)]) {`,
+            `    const page = parsePage('<%\\n' + code + '\\n%>');`,
+            `    const bound = { path: 'page.asp', binding: bindPage('page.asp', page), pages: new Map([['page.asp', page]]), problems: [] };`,
+            `    checkPage(bound, 'page.asp', new Set());`,
+            `}`,
+        ].join('\n');
+        assert.doesNotThrow(() => execFileSync(process.execPath, ['-e', script], { stdio: 'pipe' }));
     });
 });
 
