@@ -213,24 +213,30 @@ This extension includes syntax highlighting and snippets, so it can replace **[C
 
 ---
 
-## 🔌 Compatibility
+## 🔌 Other Extensions
 
-| | Extension | Status | Notes |
-|:---:|-----------|:------:|-------|
-| <img src="images/ext-prettier.png" width="50"> | [Prettier] | ✅ Integrated | Already bundled — no separate install needed |
-| <img src="images/ext-error-lens.png" width="50"> | [Error Lens] | ✅ Compatible | Displays diagnostics inline |
-| <img src="images/ext-gitlens.png" width="50"> | [GitLens] | ✅ Compatible | Git blame, history, and code insights |
-| <img src="images/ext-indent-rainbow.png" width="50"> | [Indent Rainbow] | ✅ Compatible | Colour-coded indentation levels |
-| <img src="images/ext-lorem-ipsum.png" width="50"> | [Lorem Ipsum] | ✅ Compatible | Quick placeholder text insertion |
-| <img src="images/ext-color-highlight.png" width="50"> | [Color Highlight] | ✅ Compatible | Highlights CSS colour values inline |
-| <img src="images/ext-better-comments.png" width="50"> | [Better Comments] | ✅ Compatible | Colour-coded comment annotations |
-| <img src="images/ext-inline-bookmarks.png" height="35"> | [Inline Bookmarks] | ✅ Compatible | In-editor bookmark tracking |
-| <img src="images/ext-http-status-codes.png" width="50"> | [HTTP Status Codes] | ✅ Compatible | HTTP status code reference on hover |
-| <img src="images/ext-asp-html-tag-matcher.png" width="50"> | [ASP HTML Tag Matcher] | ✅ Compatible | Highlights matching HTML tags in ASP files |
-| <img src="images/ext-auto-rename-tag.png" width="50"> | [Auto Rename Tag] | ⚠️ Partially Compatible | Rename opening/closing HTML tags together |
-| <img src="images/ext-html-css-support.png" width="50"> | [HTML CSS Support] | ⚠️ Caution | May conflict with built-in HTML completions — but may be fine |
-| <img src="images/ext-asp-classic-support.png" width="50"> | [ASP Classic Support] | ❌ Incompatible | Already integrated into this extension |
-| <img src="images/ext-classic-asp-syntaxes.png" width="50"> | [Classic ASP Syntaxes & Snippets] | ❌ Incompatible | Already integrated into this extension |
+**Works well with**
+
+| | Extension | Why |
+|:---:|-----------|-----|
+| <img src="images/ext-error-lens.png" width="40"> | [Error Lens] | Shows the VBScript, HTML, CSS and JavaScript diagnostics inline, at the end of the line |
+| <img src="images/ext-indent-rainbow.png" width="40"> | [Indent Rainbow] | Makes deeply nested `If` / `For` blocks inside HTML easier to follow |
+| <img src="images/ext-asp-html-tag-matcher.png" width="40"> | [ASP HTML Tag Matcher] | Highlights the matching HTML tag, even with ASP between them |
+
+**Not needed — already built in**
+
+| | Extension | Instead |
+|:---:|-----------|---------|
+| <img src="images/ext-prettier.png" width="40"> | [Prettier] | Bundled. HTML, CSS and JavaScript are formatted without installing it |
+| <img src="images/ext-auto-rename-tag.png" width="40"> | [Auto Rename Tag] | Turn on `editor.linkedEditing`: closing tags follow the opening tag, ASP between them or not |
+| <img src="images/ext-asp-classic-support.png" width="40"> | [ASP Classic Support] | Its highlighting is included. Running both makes the two fight over colours, so uninstall it |
+| <img src="images/ext-classic-asp-syntaxes.png" width="40"> | [Classic ASP Syntaxes & Snippets] | Its highlighting and snippets are included. Running both makes the two fight over colours, so uninstall it |
+
+**Use with care**
+
+| | Extension | Note |
+|:---:|-----------|------|
+| <img src="images/ext-html-css-support.png" width="40"> | [HTML CSS Support] | Can show its HTML completions alongside this extension's own. Usually fine, but disable it if the list doubles up |
 
 > 💡 **Bracket pair colourisation** works natively with ASP files — enable it via `editor.bracketPairColorization.enabled` and `editor.guides.bracketPairs` in VS Code settings.
 
@@ -305,13 +311,7 @@ If you find this extension helpful, please consider leaving a ⭐ on GitHub and 
 [Prettier]: https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode
 [Error Lens]: https://marketplace.visualstudio.com/items?itemName=usernamehw.errorlens
 [Auto Rename Tag]: https://marketplace.visualstudio.com/items?itemName=formulahendry.auto-rename-tag
-[GitLens]: https://marketplace.visualstudio.com/items?itemName=eamodio.gitlens
 [Indent Rainbow]: https://marketplace.visualstudio.com/items?itemName=oderwat.indent-rainbow
-[Lorem Ipsum]: https://marketplace.visualstudio.com/items?itemName=Tyriar.lorem-ipsum
-[Color Highlight]: https://marketplace.visualstudio.com/items?itemName=naumovs.color-highlight
-[Better Comments]: https://marketplace.visualstudio.com/items?itemName=aaron-bond.better-comments
-[Inline Bookmarks]: https://marketplace.visualstudio.com/items?itemName=tintinweb.vscode-inline-bookmarks
-[HTTP Status Codes]: https://marketplace.visualstudio.com/items?itemName=beatzoid.http-status-codes
 [ASP HTML Tag Matcher]: https://marketplace.visualstudio.com/items?itemName=sabahweb.asp-html-tag-matcher
 [HTML CSS Support]: https://marketplace.visualstudio.com/items?itemName=ecmel.vscode-html-css
 [ASP Classic Support]: https://marketplace.visualstudio.com/items?itemName=zbecknell.asp-classic-support
