@@ -35,6 +35,7 @@ import { JsReferenceProvider, JsDocumentHighlightProvider } from './providers/js
 import { JsRenameProvider } from './providers/jsRenameProvider';
 import { disposeAnalysisWorkers } from './utils/analysisClient';
 import { migrateOldSettingsAndTell } from './settingsMigration';
+import { checkForCompetingExtensions } from './competingExtensions';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache, disposeWorkspaceIndex } from './providers/aspWorkspaceSymbolProvider';
 import { AspSignatureHelpProvider } from './providers/aspSignatureHelpProvider';
 import { computeLineEdits, computeRangeEdits, resolveEol, toLf } from './utils/editUtils';
@@ -109,6 +110,11 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Settings kept under their pre-0.7.0 names move to the new ones.
     void migrateOldSettingsAndTell(context);
+
+    // Another Classic ASP extension fights this one over the colours.
+    if (context.extensionMode !== vscode.ExtensionMode.Test) {
+        void checkForCompetingExtensions(context);
+    }
 
     preloadIncludes(vscode.window.activeTextEditor?.document);
     context.subscriptions.push(

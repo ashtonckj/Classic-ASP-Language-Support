@@ -47,7 +47,7 @@ Then open any `.asp` or `.inc` file and press `Alt + Shift + F`.
 
 ### Coming from another Classic ASP extension?
 
-This extension includes syntax highlighting and snippets, so it can replace **[Classic ASP Syntaxes and Snippets][Classic ASP Syntaxes & Snippets]** and **[ASP Classic Support][ASP Classic Support]**. Disable or uninstall them first: two extensions that claim the same `.asp` files fight over colours and completions. Your files are not touched either way.
+This extension includes syntax highlighting and snippets, so it can replace **[Classic ASP Syntaxes and Snippets][Classic ASP Syntaxes & Snippets]** and **[ASP Classic Support][ASP Classic Support]**. Two extensions that claim the same `.asp` files fight over colours and completions, so when it finds one of them it offers to uninstall it for you, or to open it in the Extensions view so you can disable it. Your files are not touched either way.
 
 ---
 
