@@ -1,4 +1,6 @@
 import * as assert from 'assert';
+import { execFileSync } from 'child_process';
+import * as path from 'path';
 import { tokenize, TokenKind } from '../../vbscript/lexer';
 import { pagePrograms } from '../../vbscript/pageSegments';
 import { parsePage, lineAt, symbolsFromTree } from '../../vbscript/symbols';
@@ -219,7 +221,38 @@ describe('VBScript parser — recovery', () => {
 
     it('survives brackets nested thousands deep', () => {
         const code = 'x = ' + '('.repeat(5000) + '1' + ')'.repeat(5000);
-        assert.ok(diagnostics(page(code)).length > 0);
+        assert.deepStrictEqual(diagnostics(page(code)), ['1: Nested too deeply']);
+    });
+
+    it('survives Not and signs thousands deep', () => {
+        assert.deepStrictEqual(diagnostics(page('x = ' + 'Not '.repeat(5000) + '1')), ['1: Nested too deeply']);
+        assert.deepStrictEqual(diagnostics(page('x = ' + '-'.repeat(5000) + '1')), ['1: Nested too deeply']);
+    });
+
+    it('survives blocks nested thousands deep, with one error and none for the closers after it', () => {
+        const code = 'If x Then\n'.repeat(5000) + 'y = 1\n' + 'End If\n'.repeat(5000);
+        assert.deepStrictEqual(diagnostics(page(code)), ['100: Nested too deeply']);
+    });
+
+    it('survives one-line Ifs nested thousands deep', () => {
+        assert.deepStrictEqual(diagnostics(page('If x Then '.repeat(5000) + 'y = 1')), ['1: Nested too deeply']);
+    });
+
+    it('accepts blocks and brackets nested as deep as real pages go', () => {
+        const code = 'If x Then\n'.repeat(30) + 'y = ' + 'f('.repeat(20) + '1' + ')'.repeat(20) + '\n' + 'End If\n'.repeat(30);
+        assert.deepStrictEqual(diagnostics(page(code)), []);
+    });
+
+    // In the test run the parser is usually compiled to machine code by now,
+    // with smaller stack frames, so only a fresh process shows the worst case.
+    it('survives deep nesting in a fresh process, before the parser is compiled', () => {
+        const symbols = path.join(__dirname, '../../vbscript/symbols.js');
+        const script = [
+            `const { parsePage } = require(${JSON.stringify(symbols)});`,
+            `parsePage('<%\\nx = ' + '('.repeat(5000) + '1' + ')'.repeat(5000) + '\\n%>');`,
+            `parsePage('<%\\n' + 'If x Then\\n'.repeat(5000) + '%>');`,
+        ].join('\n');
+        assert.doesNotThrow(() => execFileSync(process.execPath, ['-e', script], { stdio: 'pipe' }));
     });
 });
 

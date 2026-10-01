@@ -41,8 +41,13 @@ const END_WORDS: Record<string, BlockKind> = {
     if: 'if', select: 'select', with: 'with', sub: 'sub', function: 'function', property: 'property', class: 'class',
 };
 
-/** How deep expressions may nest before the parser gives up on one, so no input can overflow the stack. */
-const MAX_DEPTH = 500;
+/**
+ * How deep statements and expressions together may nest before the parser
+ * gives up on the program, so no input can overflow the stack. One level of
+ * brackets takes some twenty-five calls, about 3 KB of stack before V8
+ * compiles them, so 100 levels use a third of Node's default stack.
+ */
+const MAX_DEPTH = 100;
 
 export function parseProgram(text: string, segments: Segment[], server = true): A.Program {
     const { tokens, comments } = tokenize(text, segments);
@@ -70,6 +75,8 @@ class Parser {
     /** Above 0 while parsing the statements of a one-line `If … Then … Else …`. */
     private singleLine = 0;
     private depth = 0;
+    /** Set once the program nests deeper than MAX_DEPTH. Nothing after that point is read or reported. */
+    private gaveUp = false;
     private sawStatement = false;
     /**
      * Set when a block ended without its closing keyword, at the start of a
@@ -122,7 +129,7 @@ class Parser {
     }
 
     private error(start: number, end: number, message: string, code?: A.Diagnostic['code']): void {
-        if (this.panic) { return; }
+        if (this.panic || this.gaveUp) { return; }
         this.panic = true;
         this.diagnostics.push(code ? { start, end, message, code } : { start, end, message });
     }
@@ -190,6 +197,28 @@ class Parser {
     private missingName(): A.Name {
         const at = this.tok.start;
         return { name: '', text: '', start: at, end: at };
+    }
+
+    /**
+     * Steps one statement or expression deeper. Past MAX_DEPTH it reports one
+     * error and skips to the end of the program, as cscript stops compiling a
+     * page nested too deeply for it, so every open block and expression
+     * unwinds at once. Returns false then; a caller that got true must call
+     * leave().
+     */
+    private enter(): boolean {
+        if (this.depth >= MAX_DEPTH) {
+            this.errorAtTok('Nested too deeply');
+            this.gaveUp = true;
+            this.pos = this.tokens.length - 1;
+            return false;
+        }
+        this.depth++;
+        return true;
+    }
+
+    private leave(): void {
+        this.depth--;
     }
 
     // ── Blocks ───────────────────────────────────────────────────────────────
@@ -320,6 +349,13 @@ class Parser {
     // ── Statements ───────────────────────────────────────────────────────────
 
     private parseStatement(): A.Stmt | null {
+        if (!this.enter()) { return null; }
+        const stmt = this.parseStatementBody();
+        this.leave();
+        return stmt;
+    }
+
+    private parseStatementBody(): A.Stmt | null {
         const t = this.tok;
         const first = !this.sawStatement;
         this.sawStatement = true;
@@ -944,15 +980,15 @@ class Parser {
     // side of ^ may carry its own sign: `2 ^ -1`.
 
     parseExpr(): A.Expr {
-        if (++this.depth > MAX_DEPTH) {
-            this.depth--;
-            this.errorAtTok('Expression is nested too deeply');
-            const at = this.tok.start;
-            return { kind: 'Missing', start: at, end: at };
-        }
+        if (!this.enter()) { return this.missingExpr(); }
         const e = this.parseBinaryWords(0);
-        this.depth--;
+        this.leave();
         return e;
+    }
+
+    private missingExpr(): A.MissingExpr {
+        const at = this.tok.start;
+        return { kind: 'Missing', start: at, end: at };
     }
 
     private static readonly WORD_LEVELS = ['imp', 'eqv', 'xor', 'or', 'and'];
@@ -970,8 +1006,10 @@ class Parser {
 
     private parseNot(): A.Expr {
         if (this.word() === 'not') {
+            if (!this.enter()) { return this.missingExpr(); }
             const start = this.advance().start;
             const operand = this.parseNot();
+            this.leave();
             return { kind: 'Unary', op: 'not', operand, start, end: operand.end };
         }
         return this.parseComparison();
@@ -1017,15 +1055,10 @@ class Parser {
 
     private parseUnary(): A.Expr {
         if (this.isPunct('-') || this.isPunct('+')) {
-            if (++this.depth > MAX_DEPTH) {
-                this.depth--;
-                this.errorAtTok('Expression is nested too deeply');
-                const at = this.tok.start;
-                return { kind: 'Missing', start: at, end: at };
-            }
+            if (!this.enter()) { return this.missingExpr(); }
             const t = this.advance();
             const operand = this.parseUnary();
-            this.depth--;
+            this.leave();
             return { kind: 'Unary', op: t.value, operand, start: t.start, end: operand.end };
         }
         return this.parsePower();
