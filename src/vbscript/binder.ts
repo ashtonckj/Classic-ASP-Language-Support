@@ -34,6 +34,7 @@
  */
 
 import type * as A from './ast';
+import { childExpressions } from './expressions';
 import type { ParsedPage } from './symbols';
 import { orderKey, type ScopeFile, type ScriptScope } from './scriptScope';
 
@@ -432,36 +433,40 @@ class Binder {
         if (e.kind === 'Ident') { this.use(scope, file, e.name, true); } else { this.expr(e, scope, file); }
     }
 
-    private expr(e: A.Expr, scope: Scope, file: string): void {
-        switch (e.kind) {
-            case 'Ident':
-                this.use(scope, file, e.name, false);
-                break;
-            case 'Member':
-                if (e.object?.kind === 'Me') {
-                    this.member(e.name, scope, file);
-                } else {
-                    if (e.object) { this.expr(e.object, scope, file); }
-                    if (e.name.name) { this.binding.members.push({ name: e.name.name, file, span: { start: e.name.start, end: e.name.end }, scope }); }
+    /**
+     * The names read in an expression, in the order they are written. A chain
+     * of `&`, `.` or `(…)` is a tree as deep as the chain is long, so this
+     * keeps its own stack rather than recursing. A member's name waits on the
+     * stack until its object has been read.
+     */
+    private expr(root: A.Expr, scope: Scope, file: string): void {
+        const stack: (A.Expr | A.Name)[] = [root];
+        while (stack.length > 0) {
+            const e = stack.pop()!;
+            if (!('kind' in e)) {
+                this.binding.members.push({ name: e.name, file, span: { start: e.start, end: e.end }, scope });
+                continue;
+            }
+            switch (e.kind) {
+                case 'Ident':
+                    this.use(scope, file, e.name, false);
+                    break;
+                case 'Member':
+                    if (e.object?.kind === 'Me') {
+                        this.member(e.name, scope, file);
+                    } else {
+                        if (e.name.name) { stack.push(e.name); }
+                        if (e.object) { stack.push(e.object); }
+                    }
+                    break;
+                case 'New':
+                    this.use(scope, file, e.className, false);
+                    break;
+                default: {
+                    const children = childExpressions(e);
+                    for (let i = children.length - 1; i >= 0; i--) { stack.push(children[i]); }
                 }
-                break;
-            case 'Call':
-                this.expr(e.callee, scope, file);
-                for (const a of e.args) { if (a) { this.expr(a, scope, file); } }
-                break;
-            case 'Unary':
-                this.expr(e.operand, scope, file);
-                break;
-            case 'Binary':
-                this.expr(e.left, scope, file);
-                this.expr(e.right, scope, file);
-                break;
-            case 'Paren':
-                this.expr(e.expr, scope, file);
-                break;
-            case 'New':
-                this.use(scope, file, e.className, false);
-                break;
+            }
         }
     }
 

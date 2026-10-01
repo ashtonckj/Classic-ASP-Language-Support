@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import { execFileSync } from 'child_process';
 import * as path from 'path';
 import { bindPage, bindScriptScope, type Binding } from '../../vbscript/binder';
 import { buildScriptScope, type ScopeHost } from '../../vbscript/scriptScope';
@@ -138,6 +139,36 @@ describe('binder — what a name refers to', () => {
     it('keeps a client-side VBScript block apart from the server code', () => {
         const text = '<% Dim x %>\n<script language="vbscript">\nDim x\n</script>';
         assert.deepStrictEqual(bindPage('page.asp', parsePage(text)).diagnostics, []);
+    });
+});
+
+// VBScript accepts a chain of & or . or (…) of any length, and the parser
+// builds each as a tree as deep as the chain is long.
+describe('binder — chains thousands long', () => {
+    it('reads every name in a long join, member chain and call chain, in the order written', () => {
+        const n = 50000;
+        const { binding, lineOf } = bindCode(`x = a${' & a'.repeat(n)}\ny = o${'.p'.repeat(n)}\nz = f${'(i)'.repeat(n)}`);
+        const uses = (name: string) => binding.references.filter(r => r.name === name && !r.declaration);
+        assert.strictEqual(uses('a').length, n + 1);
+        assert.strictEqual(uses('i').length, n);
+        assert.deepStrictEqual(uses('o').map(r => lineOf(r.span.start)), [2]);
+        assert.strictEqual(binding.members.length, n);
+        assert.ok(binding.members.every((m, k) => m.name === 'p' && (k === 0 || binding.members[k - 1].span.start < m.span.start)));
+    });
+
+    // In the test run the binder is usually compiled to machine code by now,
+    // with smaller stack frames, so only a fresh process shows the worst case.
+    it('survives long chains in a fresh process, before the binder is compiled', () => {
+        const symbols = path.join(__dirname, '../../vbscript/symbols.js');
+        const binder = path.join(__dirname, '../../vbscript/binder.js');
+        const script = [
+            `const { parsePage } = require(${JSON.stringify(symbols)});`,
+            `const { bindPage } = require(${JSON.stringify(binder)});`,
+            `for (const code of ['x = a' + ' & a'.repeat(8000), 'x = a' + '.b'.repeat(8000), 'x = a' + '(1)'.repeat(8000)]) {`,
+            `    bindPage('page.asp', parsePage('<%\\n' + code + '\\n%>'));`,
+            `}`,
+        ].join('\n');
+        assert.doesNotThrow(() => execFileSync(process.execPath, ['-e', script], { stdio: 'pipe' }));
     });
 });
 
