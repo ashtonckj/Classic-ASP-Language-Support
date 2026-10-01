@@ -5,6 +5,12 @@
 </h3>
 
 <p align="center">
+    <strong>Format, navigate and error-check Classic ASP in VS Code.</strong><br>
+    One keystroke tidies your VBScript, HTML, CSS, JavaScript and SQL together.<br>
+    Go to Definition and Rename follow your <code>#include</code> files, and a missing <code>Set</code> is flagged as you type.
+</p>
+
+<p align="center">
     <a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img alt="Version: 0.7.0" src="https://img.shields.io/badge/Version-0.7.0-b7bdf8?style=for-the-badge&labelColor=363a4f&logo=visual-studio-code&cacheSeconds=86400"/></a>
     <a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img src="https://vsmarketplacebadges.dev/installs/ashtonckj.classic-asp-language-support.jpg?style=for-the-badge&labelColor=363a4f&color=8aadf4&cacheSeconds=3600"/></a>
     <a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/issues"><img src="https://img.shields.io/github/issues/ashtonckj/Classic-ASP-Language-Support?colorA=363a4f&colorB=f5a97f&style=for-the-badge&cacheSeconds=3600"></a>
@@ -13,13 +19,35 @@
 
 ---
 
-## 📸 See It In Action
+<p align="center">
+    <img src="https://raw.githubusercontent.com/ashtonckj/Classic-ASP-Language-Support/main/images/format.gif" height="450" alt="Format Document turning a messy Classic ASP file into a clean one">
+    <br>
+    <sub>Format Document, before and after · Theme: <a href="https://github.com/catppuccin/vscode">Catppuccin</a></sub>
+</p>
 
-> *Using **[Catppuccin Theme](https://github.com/catppuccin/vscode)***
+---
 
-| Formatting Before & After | SQL Syntax Highlighting |
-|:------:|:-----:|
-| <img src="https://raw.githubusercontent.com/ashtonckj/Classic-ASP-Language-Support/main/images/format.gif" height="450"> | <img src="https://raw.githubusercontent.com/ashtonckj/Classic-ASP-Language-Support/main/images/sql.gif" width="400"> |
+## 📥 Install
+
+Open the Extensions view (`Ctrl + Shift + X`), search for **Classic ASP Language Support** and click **Install**. Or from the Command Palette:
+
+```
+ext install ashtonckj.classic-asp-language-support
+```
+
+Then open any `.asp` or `.inc` file and press `Alt + Shift + F`.
+
+## 🎯 Why This One
+
+- **Formats the whole file, not just the HTML.** VBScript, HTML, CSS, JavaScript and SQL are formatted in one keystroke, with keyword casing of your choice.
+- **Understands your includes.** Go to Definition, Find All References and Rename follow `#include` across the project, and renaming a file offers to fix every include that pointed at it.
+- **Catches mistakes before IIS does.** Unmatched `If`/`End If`, a missing `Set`, an `#include` that doesn't exist, an undeclared name under `Option Explicit` and a call with the wrong number of arguments are flagged as you type.
+- **Knows your COM objects.** After `Set rs = Server.CreateObject("ADODB.Recordset")`, typing `rs.` lists every method and property.
+- **Colours it properly.** ASP regions, SQL inside strings and your own functions and Subs each get their own colour.
+
+### Coming from another Classic ASP extension?
+
+This extension includes syntax highlighting and snippets, so it can replace **[Classic ASP Syntaxes and Snippets][Classic ASP Syntaxes & Snippets]** and **[ASP Classic Support][ASP Classic Support]**. Disable or uninstall them first: two extensions that claim the same `.asp` files fight over colours and completions. Your files are not touched either way.
 
 ---
 
@@ -141,29 +169,6 @@
 
 ---
 
-## 🔌 Compatibility
-
-| | Extension | Status | Notes |
-|:---:|-----------|:------:|-------|
-| <img src="images/ext-prettier.png" width="50"> | [Prettier] | ✅ Integrated | Already bundled — no separate install needed |
-| <img src="images/ext-error-lens.png" width="50"> | [Error Lens] | ✅ Compatible | Displays diagnostics inline |
-| <img src="images/ext-gitlens.png" width="50"> | [GitLens] | ✅ Compatible | Git blame, history, and code insights |
-| <img src="images/ext-indent-rainbow.png" width="50"> | [Indent Rainbow] | ✅ Compatible | Colour-coded indentation levels |
-| <img src="images/ext-lorem-ipsum.png" width="50"> | [Lorem Ipsum] | ✅ Compatible | Quick placeholder text insertion |
-| <img src="images/ext-color-highlight.png" width="50"> | [Color Highlight] | ✅ Compatible | Highlights CSS colour values inline |
-| <img src="images/ext-better-comments.png" width="50"> | [Better Comments] | ✅ Compatible | Colour-coded comment annotations |
-| <img src="images/ext-inline-bookmarks.png" height="35"> | [Inline Bookmarks] | ✅ Compatible | In-editor bookmark tracking |
-| <img src="images/ext-http-status-codes.png" width="50"> | [HTTP Status Codes] | ✅ Compatible | HTTP status code reference on hover |
-| <img src="images/ext-asp-html-tag-matcher.png" width="50"> | [ASP HTML Tag Matcher] | ✅ Compatible | Highlights matching HTML tags in ASP files |
-| <img src="images/ext-auto-rename-tag.png" width="50"> | [Auto Rename Tag] | ⚠️ Partially Compatible | Rename opening/closing HTML tags together |
-| <img src="images/ext-html-css-support.png" width="50"> | [HTML CSS Support] | ⚠️ Caution | May conflict with built-in HTML completions — but may be fine |
-| <img src="images/ext-asp-classic-support.png" width="50"> | [ASP Classic Support] | ❌ Incompatible | Already integrated into this extension |
-| <img src="images/ext-classic-asp-syntaxes.png" width="50"> | [Classic ASP Syntaxes & Snippets] | ❌ Incompatible | Already integrated into this extension |
-
-> 💡 **Bracket pair colourisation** works natively with ASP files — enable it via `editor.bracketPairColorization.enabled` and `editor.guides.bracketPairs` in VS Code settings.
-
----
-
 ## ⚙️ Configuration
 
 <details>
@@ -205,6 +210,29 @@
 | `classicAsp.codeBlockDarkColor` | `rgba(220, 220, 220, 0.04)` | Code block colour (dark) |
 
 </details>
+
+---
+
+## 🔌 Compatibility
+
+| | Extension | Status | Notes |
+|:---:|-----------|:------:|-------|
+| <img src="images/ext-prettier.png" width="50"> | [Prettier] | ✅ Integrated | Already bundled — no separate install needed |
+| <img src="images/ext-error-lens.png" width="50"> | [Error Lens] | ✅ Compatible | Displays diagnostics inline |
+| <img src="images/ext-gitlens.png" width="50"> | [GitLens] | ✅ Compatible | Git blame, history, and code insights |
+| <img src="images/ext-indent-rainbow.png" width="50"> | [Indent Rainbow] | ✅ Compatible | Colour-coded indentation levels |
+| <img src="images/ext-lorem-ipsum.png" width="50"> | [Lorem Ipsum] | ✅ Compatible | Quick placeholder text insertion |
+| <img src="images/ext-color-highlight.png" width="50"> | [Color Highlight] | ✅ Compatible | Highlights CSS colour values inline |
+| <img src="images/ext-better-comments.png" width="50"> | [Better Comments] | ✅ Compatible | Colour-coded comment annotations |
+| <img src="images/ext-inline-bookmarks.png" height="35"> | [Inline Bookmarks] | ✅ Compatible | In-editor bookmark tracking |
+| <img src="images/ext-http-status-codes.png" width="50"> | [HTTP Status Codes] | ✅ Compatible | HTTP status code reference on hover |
+| <img src="images/ext-asp-html-tag-matcher.png" width="50"> | [ASP HTML Tag Matcher] | ✅ Compatible | Highlights matching HTML tags in ASP files |
+| <img src="images/ext-auto-rename-tag.png" width="50"> | [Auto Rename Tag] | ⚠️ Partially Compatible | Rename opening/closing HTML tags together |
+| <img src="images/ext-html-css-support.png" width="50"> | [HTML CSS Support] | ⚠️ Caution | May conflict with built-in HTML completions — but may be fine |
+| <img src="images/ext-asp-classic-support.png" width="50"> | [ASP Classic Support] | ❌ Incompatible | Already integrated into this extension |
+| <img src="images/ext-classic-asp-syntaxes.png" width="50"> | [Classic ASP Syntaxes & Snippets] | ❌ Incompatible | Already integrated into this extension |
+
+> 💡 **Bracket pair colourisation** works natively with ASP files — enable it via `editor.bracketPairColorization.enabled` and `editor.guides.bracketPairs` in VS Code settings.
 
 ---
 
