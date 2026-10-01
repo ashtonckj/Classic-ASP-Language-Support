@@ -6,6 +6,7 @@ out/test/**
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md
+PARSER-PLAN.md
 **/tsconfig.json
 **/eslint.config.mjs
 **/*.map
