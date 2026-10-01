@@ -36,6 +36,7 @@ import { JsRenameProvider } from './providers/jsRenameProvider';
 import { disposeAnalysisWorkers } from './utils/analysisClient';
 import { migrateOldSettingsAndTell } from './settingsMigration';
 import { checkForCompetingExtensions } from './competingExtensions';
+import { ReviewPrompt } from './reviewPrompt';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache, disposeWorkspaceIndex } from './providers/aspWorkspaceSymbolProvider';
 import { AspSignatureHelpProvider } from './providers/aspSignatureHelpProvider';
 import { computeLineEdits, computeRangeEdits, resolveEol, toLf } from './utils/editUtils';
@@ -128,6 +129,9 @@ export function activate(context: vscode.ExtensionContext) {
     const htmlStructureCollection = registerHtmlStructureDiagnostics(context);
     const aspStructureCollection  = registerAspStructureDiagnostics(context);
 
+    // Asks for a rating, rarely, after a format that worked.
+    const reviewPrompt = new ReviewPrompt(context);
+
     // ── Formatter ─────────────────────────────────────────────────────────────
     // The page as it is and as formatting would leave it — or undefined, with
     // the user told why, when a structure problem means it cannot be formatted.
@@ -152,6 +156,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const fullText  = toLf(document.getText());
         const formatted = toLf(await formatCompleteAspFile(fullText));
+        void reviewPrompt.formatted();
         return { fullText, formatted };
     }
 
