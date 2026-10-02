@@ -21,7 +21,7 @@
 ---
 
 <p align="center">
-    <img src="https://raw.githubusercontent.com/ashtonckj/Classic-ASP-Language-Support/main/images/demo.gif" alt="Format Document tidying a messy Classic ASP page, IntelliSense listing Recordset members, a missing Set fixed in one click, F2 renaming a variable everywhere, and the same page in four colour themes">
+    <img src="https://raw.githubusercontent.com/ashtonckj/Classic-ASP-Language-Support/main/images/demo.gif" alt="Format Document tidying a messy Classic ASP page, IntelliSense listing Recordset members, a hover and Ctrl+Click into a function in an #include file, F2 renaming a variable everywhere, and the same page in four colour themes">
     <br>
     <sub>Recorded in VS Code · Dark Modern, Light Modern, Monokai and <a href="https://github.com/catppuccin/vscode">Catppuccin</a></sub>
 </p>
