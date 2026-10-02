@@ -11,7 +11,7 @@ How it works:
    clicks and presses keys:
    - Format Document
    - `rs.` IntelliSense
-   - a missing `Set` and its quick fix
+   - a hover, and Ctrl+Click into a function in `inc/helpers.asp`
    - an F2 rename
    - the same page in four themes
 
@@ -20,8 +20,8 @@ How it works:
    moment.
 3. `rec/make_gif.py` renders the GIF at 25 fps. It draws the pointer and the click ripples,
    places each caption next to the action where it covers no code or popup, and cross-fades
-   the format and theme changes. It plays the wait for the missing-`Set` squiggle four times
-   faster, then adds the end card.
+   the format, file and theme changes. Any wait marked as fast plays four times
+   quicker. Last comes the end card.
 4. `rec/social.py` builds the 1280×640 share image from the last frame (the finished page in Catppuccin Mocha).
 
 ## One-time setup
@@ -51,7 +51,7 @@ Close it afterwards: the scripts leave it open. Everything a run creates is list
 
 ## Changing it
 
-- **The page:** `demo/products.orig.asp`. Keep its formatted form at 35 lines or fewer, or it won't fit the 800 px window.
+- **The page:** `demo/products.orig.asp`, with `demo/inc/helpers.asp` as its include. Keep the formatted page at 37 lines or fewer, or it won't fit the 840 px window.
 - **The story:** `rec/record.mjs`, one block per scene.
   - `caption(parts, anchor)` shows a caption near `anchor`, as text, keys and a sub-label: `text('…')`, `key('F2')`, `plus`, `{ sub: '…' }`.
   - `hideCaption()` clears it.

@@ -79,15 +79,20 @@ export async function launch(file, { width = 960, height = 800 } = {}) {
         await send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch });
     }
 
-    async function click(x, y) {
+    async function click(x, y, modifiers = 0) {
         for (const type of ['mousePressed', 'mouseReleased']) {
-            await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 });
+            await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1, modifiers });
         }
     }
 
-    async function mouseMove(x, y) {
-        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+    async function mouseMove(x, y, modifiers = 0) {
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, modifiers });
     }
+
+    // Holding a modifier on its own, as for Ctrl+Click.
+    const MODKEY = { Control: [17, 'ControlLeft', 2], Alt: [18, 'AltLeft', 1], Shift: [16, 'ShiftLeft', 8] };
+    const keyDown = k => send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: k, code: MODKEY[k][1], windowsVirtualKeyCode: MODKEY[k][0], modifiers: MODKEY[k][2] });
+    const keyUp = k => send('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code: MODKEY[k][1], windowsVirtualKeyCode: MODKEY[k][0] });
 
     /** Streams every frame VS Code paints to onFrame(pngBuffer, receivedAtMs). */
     async function startScreencast(onFrame) {
@@ -110,5 +115,5 @@ export async function launch(file, { width = 960, height = 800 } = {}) {
         ws.close();
     }
 
-    return { send, evaluate, press, typeChar, click, mouseMove, startScreencast, stopScreencast, shot, close };
+    return { send, evaluate, press, typeChar, click, mouseMove, keyDown, keyUp, startScreencast, stopScreencast, shot, close };
 }

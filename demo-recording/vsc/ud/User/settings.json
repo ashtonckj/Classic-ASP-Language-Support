@@ -26,7 +26,7 @@
   "editor.lightbulb.enabled": "off",
   "editor.semanticHighlighting.enabled": true,
   "editor.suggest.preview": false,
-  "editor.hover.enabled": "off",
+  "editor.hover.enabled": "on",
   "editor.scrollBeyondLastLine": false,
   "breadcrumbs.enabled": false,
   "security.workspace.trust.enabled": false,
@@ -41,5 +41,7 @@
   "files.autoSave": "off",
   "files.eol": "\n",
   "files.hotExit": "off",
-  "workbench.editor.restoreViewState": false
+  "workbench.editor.restoreViewState": false,
+  "editor.hover.delay": 350,
+  "editor.hover.sticky": false
 }

@@ -17,7 +17,7 @@ function setTheme(name) {
 }
 setTheme('Default Dark Modern');
 
-const v = await launch(`${S}/demo/products.asp`);
+const v = await launch(`${S}/demo/products.asp`, { height: 840 });
 
 // ── In-page helpers: where text, the caret and the popups are ──────────────────
 const HELPERS = `window.__demo = window.__demo || {
@@ -64,7 +64,7 @@ const HELPERS = `window.__demo = window.__demo || {
       const rc = r.getBoundingClientRect();
       if (rc.width) out.push([rc.left, rc.top, rc.width, rc.height]);
     }
-    for (const sel of ['.suggest-widget', '.action-widget', '.rename-box', '.notification-toast', '.quick-input-widget']) {
+    for (const sel of ['.suggest-widget', '.action-widget', '.rename-box', '.monaco-hover', '.notification-toast', '.quick-input-widget']) {
       for (const e of document.querySelectorAll(sel)) {
         const rc = e.getBoundingClientRect();
         if (rc.width && rc.height && getComputedStyle(e).visibility !== 'hidden' && getComputedStyle(e).display !== 'none') out.push([rc.left, rc.top, rc.width, rc.height]);
@@ -143,7 +143,7 @@ const t0 = Date.now();
 // ── 1. Format Document ─────────────────────────────────────────────────────────
 await caption([text('A messy Classic ASP page')], await at('lineEnd', 4));
 await sleep(1500);
-let end = await at('lineEnd', 16);
+let end = await at('lineEnd', 17);
 await moveTo(end.x + 40, end.y, 900);
 await click();
 await sleep(250);
@@ -154,12 +154,12 @@ hideCaption();
 await v.press('alt+shift+F');
 if (!await waitFor(async () => await maxLine() >= 30)) { throw new Error('format did not happen'); }
 await sleep(500);
-await caption([text('VBScript, HTML, CSS and JavaScript, all tidied')], await at('lineEnd', 15));
+await caption([text('VBScript, HTML and CSS, all tidied')], await at('lineEnd', 16));
 await sleep(2000);
 
 // ── 2. COM IntelliSense ────────────────────────────────────────────────────────
 hideCaption();
-end = await at('lineEnd', 30);
+end = await at('lineEnd', 31);
 await moveTo(end.x + 24, end.y, 900);
 await click();
 await sleep(250);
@@ -173,7 +173,7 @@ await away;
 await v.typeChar('.');
 await waitFor(() => visible('.suggest-widget .monaco-list-row'));
 await sleep(350);
-end = await at('lineEnd', 31);
+end = await at('lineEnd', 32);
 await caption([key('rs.'), text('Knows every ADODB.Recordset member')], end);
 await sleep(1600);
 await type('Cl', 200);
@@ -182,35 +182,37 @@ await v.press('Enter');
 await sleep(500);
 hideCaption();
 
-// ── 3. Missing Set ─────────────────────────────────────────────────────────────
-await v.press('Enter');
+// ── 3. Hover docs and Go to Definition into the include ───────────────────────
+const fp = await at('find', 27, 'FormatPrice');
+const fpRight = { x: fp.x + fp.w, y: fp.y + fp.h / 2 };
+await moveTo(fp.x + fp.w * 0.4, fp.y + fp.h / 2, 900);
+await waitFor(() => visible('.monaco-hover'), 4000);
 await sleep(250);
-await type('rs = conn.Execute(sql)', 70);
-// The check runs after a pause in typing; the GIF plays this wait fast.
-log({ type: 'fast', on: true });
-await waitFor(() => visible('.squiggly-warning, .squiggly-error, .squiggly-info'), 6000);
-log({ type: 'fast', on: false });
-await sleep(450);
-await caption([text('Forgot the Set? Flagged as you type')], await at('lineEnd', 32));
-await sleep(1500);
-await caption([key('Ctrl'), plus, key('.'), text('Quick Fix')], await at('lineEnd', 32));
-await sleep(800);
-await v.press('ctrl+.');
-await waitFor(() => visible('.action-widget'), 4000);
-await sleep(350);
-await caption([key('Ctrl'), plus, key('.'), text('Quick Fix')], await at('lineEnd', 32));
-const row = await at('rect', '.action-widget .monaco-list-row', 'Add Set');
-await moveTo(row.x + 40, row.y + row.h / 2, 800);
-await sleep(300);
+await caption([text('Hover docs, even for code in an #include')], fpRight);
+await sleep(1700);
+await caption([key('Ctrl'), plus, key('Click'), text('Go to Definition')], fpRight);
+await v.keyDown('Control');
+await v.mouseMove(pointer.x, pointer.y, 2);
+await sleep(900);
 hideCaption();
-await click();
-await sleep(600);
-await caption([text('Set added for you')], await at('lineEnd', 32));
-await sleep(1100);
+crossfade(280);
+log({ type: 'click', at: { ...pointer } });
+await v.click(pointer.x, pointer.y, 2);
+await v.keyUp('Control');
+await waitFor(() => v.evaluate('document.title').then(t => /helpers\.asp/.test(t)), 4000);
+await sleep(500);
+await moveTo(700, 300, 600);
+await caption([text('Jumps into helpers.asp, right to the Function')], await at('lineEnd', 3));
+await sleep(1900);
+hideCaption();
+crossfade(280);
+await v.press('alt+Left');
+await waitFor(() => v.evaluate('document.title').then(t => /products\.asp/.test(t)), 4000);
+await sleep(500);
 
 // ── 4. Rename ──────────────────────────────────────────────────────────────────
 hideCaption();
-const rs = await at('find', 8, 'rs');
+const rs = await at('find', 9, 'rs');
 await moveTo(rs.x + rs.w / 2, rs.y + rs.h / 2, 900);
 await click();
 await sleep(200);
@@ -226,7 +228,7 @@ hideCaption();
 await v.press('Enter');
 await sleep(250);
 await moveTo(860, 300, 700);
-await caption([text('Renamed everywhere rs was used')], await at('lineEnd', 8));
+await caption([text('Renamed everywhere rs was used')], await at('lineEnd', 9));
 await sleep(2200);
 
 // ── 5. Any theme ───────────────────────────────────────────────────────────────
@@ -241,7 +243,7 @@ for (const [theme, label] of [
     crossfade(380);
     setTheme(theme);
     await sleep(500);
-    await caption([text('Looks right in any theme'), { sub: label }], await at('lineEnd', 15));
+    await caption([text('Looks right in any theme'), { sub: label }], await at('lineEnd', 16));
     await sleep(1100);
 }
 // The last theme gets the same time as the others before the end card.
