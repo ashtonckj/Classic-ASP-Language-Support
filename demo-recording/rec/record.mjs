@@ -225,7 +225,6 @@ await sleep(350);
 hideCaption();
 await v.press('Enter');
 await sleep(250);
-await v.press('End');
 await moveTo(860, 300, 700);
 await caption([text('Renamed everywhere rs was used')], await at('lineEnd', 8));
 await sleep(2200);
@@ -245,7 +244,8 @@ for (const [theme, label] of [
     await caption([text('Looks right in any theme'), { sub: label }], await at('lineEnd', 15));
     await sleep(1100);
 }
-await sleep(400);
+// The last theme gets the same time as the others before the end card.
+log({ type: 'end' });
 
 await v.stopScreencast();
 await sleep(300);

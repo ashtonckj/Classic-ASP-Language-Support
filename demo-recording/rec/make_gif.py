@@ -14,6 +14,7 @@ OUT = sys.argv[1] if len(sys.argv) > 1 else 'demo.gif'
 FPS = 25
 STEP = 1000 / FPS
 FAST = 4.0          # how much faster a marked wait plays
+GLOW = (110, 170, 255)  # caption border and glow
 
 F = 'C:/Windows/Fonts/'
 SEMI = ImageFont.truetype(F + 'seguisb.ttf', 17)
@@ -24,7 +25,8 @@ data = json.load(open('cast.json'))
 t0 = data['t0']
 frames = [(f['t'] - t0, f['file']) for f in data['frames']]
 events = sorted(({**e, 't': e['t'] - t0} for e in data['timeline']), key=lambda e: e['t'])
-END_REAL = max(frames[-1][0], events[-1]['t']) + 600
+end_ev = next((e for e in events if e['type'] == 'end'), None)
+END_REAL = end_ev['t'] if end_ev else max(frames[-1][0], events[-1]['t']) + 600
 
 
 def ease(k):
@@ -179,14 +181,16 @@ def caption_image(parts):
             pieces.append(('sub', x + 2, w, p['sub'])); x += w + 10
     pad_x, pad_y, h_in = 13, 9, 26
     w, h = int(x - 8 + pad_x * 2), h_in + pad_y * 2
-    shadow_pad = 12
-    img = Image.new('RGBA', (w + shadow_pad * 2, h + shadow_pad * 2), (0, 0, 0, 0))
-    sh = Image.new('L', img.size, 0)
-    ImageDraw.Draw(sh).rounded_rectangle([shadow_pad, shadow_pad + 3, shadow_pad + w, shadow_pad + h + 3], radius=11, fill=110)
-    img.putalpha(sh.filter(ImageFilter.GaussianBlur(6)))
+    shadow_pad = 14
+    size = (w + shadow_pad * 2, h + shadow_pad * 2)
+    # A soft blue glow around the box, so it stands out on dark and light themes alike.
+    glow = Image.new('L', size, 0)
+    ImageDraw.Draw(glow).rounded_rectangle([shadow_pad - 1, shadow_pad - 1, shadow_pad + w + 1, shadow_pad + h + 1], radius=12, fill=200)
+    img = Image.new('RGBA', size, GLOW + (0,))
+    img.putalpha(glow.filter(ImageFilter.GaussianBlur(5)))
     d = ImageDraw.Draw(img)
     ox, oy = shadow_pad, shadow_pad
-    d.rounded_rectangle([ox, oy, ox + w, oy + h], radius=11, fill=(28, 28, 34, 242), outline=(255, 255, 255, 34))
+    d.rounded_rectangle([ox, oy, ox + w, oy + h], radius=11, fill=(26, 27, 34, 250), outline=GLOW + (255,), width=2)
     cy = oy + h / 2
     for piece in pieces:
         kind, px = piece[0], ox + pad_x + piece[1]
