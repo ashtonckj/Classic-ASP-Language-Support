@@ -568,8 +568,10 @@ export function emitSqlTokensForGroup(
         claimed.fill(1, start, start + len);
     }
     function isClaimed(start: number, len: number): boolean {
-        const found = claimed.indexOf(1, start);
-        return found !== -1 && found < start + len;
+        // Only the range itself: a search from start runs on to the end of
+        // the query whenever nothing after it is claimed, once per token.
+        for (let i = start; i < start + len; i++) { if (claimed[i]) { return true; } }
+        return false;
     }
 
     function emit(stitchedStart: number, len: number, tokenType: number): void {
