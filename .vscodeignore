@@ -6,15 +6,17 @@ out/test/**
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md
+PARSER-PLAN.md
 **/tsconfig.json
 **/eslint.config.mjs
 **/*.map
 **/.vscode-test.*
 test-files/**
+demo-recording/**
 
-# GIFs — only used in README, host them on GitHub instead (saves ~35 MB)
-images/format.gif
-images/sql.gif
+# README and GitHub-only images, served from GitHub instead
+images/demo.gif
+images/social-preview.png
 
 # Dev-only node_modules
 node_modules/@typescript-eslint/**
