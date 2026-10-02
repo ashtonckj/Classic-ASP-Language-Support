@@ -102,6 +102,15 @@ describe('SQL colouring reads a joined string as one', () => {
         const tokens = sqlTokens(page);
         assert.ok(tokens.includes('sqlDml:SELECT') && tokens.filter(t => t === 'sqlLogical:AND').length === 2000, `got ${tokens.length} tokens`);
     });
+
+    // Each token is checked against the ones already coloured. That check
+    // once read on to the end of the query, so a long query took time in
+    // the square of its length: 50,000 pieces ran past the test timeout,
+    // and take well under a second now.
+    it('colours a query of tens of thousands of pieces in time linear in its length', () => {
+        const page = `<%\nsql = "SELECT a FROM t WHERE b = " & id${' & " AND c = " & f(d)'.repeat(50000)}\n%>\n`;
+        assert.strictEqual(sqlTokens(page).filter(t => t === 'sqlLogical:AND').length, 50000);
+    });
 });
 
 describe('SQL colouring tells a function name from a table or column of that name', () => {
