@@ -1,0 +1,11 @@
+# Made by a recording run
+demo/products.asp
+rec/cast/
+rec/cast.json
+rec/*.gif
+rec/*.png
+vsc/ext/
+vsc/ud/*
+!vsc/ud/User/
+vsc/ud/User/*
+!vsc/ud/User/settings.json

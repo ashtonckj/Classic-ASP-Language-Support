@@ -27,8 +27,9 @@ g.ellipse([480, -260, 1000, 200], fill=(85, 50, 80))
 img = Image.blend(img, glow.filter(ImageFilter.GaussianBlur(160)), 0.85)
 
 # A real frame of the extension at work, as a floating window on the right.
-frames = json.load(open('frames.json'))
-shot = Image.open(next(f['file'] for f in frames if f['scene'] == 'format')).convert('RGB')
+# The last frame of the recording: the finished page, in Catppuccin Mocha.
+frames = json.load(open('cast.json'))['frames']
+shot = Image.open(frames[-1]['file']).convert('RGB')
 shot = shot.crop((0, 0, 720, 590))
 sw, sh = 600, 492
 shot = shot.resize((sw, sh), Image.LANCZOS)

@@ -33,8 +33,10 @@ export async function launch(file, { width = 960, height = 800 } = {}) {
     await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
     let id = 0;
     const pending = new Map();
+    const listeners = new Map();
     ws.onmessage = ev => {
         const msg = JSON.parse(ev.data);
+        if (msg.method && listeners.has(msg.method)) { listeners.get(msg.method)(msg.params); }
         if (msg.id && pending.has(msg.id)) {
             const { res, rej } = pending.get(msg.id);
             pending.delete(msg.id);
@@ -83,6 +85,20 @@ export async function launch(file, { width = 960, height = 800 } = {}) {
         }
     }
 
+    async function mouseMove(x, y) {
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+    }
+
+    /** Streams every frame VS Code paints to onFrame(pngBuffer, receivedAtMs). */
+    async function startScreencast(onFrame) {
+        listeners.set('Page.screencastFrame', p => {
+            onFrame(Buffer.from(p.data, 'base64'), Date.now());
+            void send('Page.screencastFrameAck', { sessionId: p.sessionId });
+        });
+        await send('Page.startScreencast', { format: 'png', maxWidth: width, maxHeight: height, everyNthFrame: 1 });
+    }
+    const stopScreencast = () => send('Page.stopScreencast');
+
     async function shot(file) {
         const { data } = await send('Page.captureScreenshot', { format: 'png', fromSurface: true });
         fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -94,5 +110,5 @@ export async function launch(file, { width = 960, height = 800 } = {}) {
         ws.close();
     }
 
-    return { send, evaluate, press, typeChar, click, shot, close };
+    return { send, evaluate, press, typeChar, click, mouseMove, startScreencast, stopScreencast, shot, close };
 }
