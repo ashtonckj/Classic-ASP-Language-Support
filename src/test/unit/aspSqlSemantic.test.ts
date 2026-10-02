@@ -94,6 +94,14 @@ describe('SQL colouring reads a joined string as one', () => {
         assert.ok(tokens.includes('sqlDml:UNION') || tokens.includes('sqlKeyword:UNION'), `got ${JSON.stringify(tokens)}`);
         assert.strictEqual(tokens.filter(t => t === 'sqlDml:SELECT').length, 2, `got ${JSON.stringify(tokens)}`);
     });
+
+    // The parser builds a join as a tree as deep as the join is long.
+    it('colours a query joined from thousands of pieces', () => {
+        const page = `<%\nsql = "SELECT a FROM t WHERE b = " & id${' & " AND c = " & c'.repeat(2000)}\nx = "a"${' & "a"'.repeat(50000)}\n%>\n`;
+        assert.strictEqual(colourAspPage({ id: 1, text: page, docPath: PAGE_PATH, includeSymbols: EMPTY_INCLUDES }).failed, undefined);
+        const tokens = sqlTokens(page);
+        assert.ok(tokens.includes('sqlDml:SELECT') && tokens.filter(t => t === 'sqlLogical:AND').length === 2000, `got ${tokens.length} tokens`);
+    });
 });
 
 describe('SQL colouring tells a function name from a table or column of that name', () => {
