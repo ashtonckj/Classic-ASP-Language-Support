@@ -233,7 +233,10 @@ def place(w, h, anchor, obstacles, pointer):
     return best or want
 
 
-captions = []   # resolved: (t, image, x, y, key) or (t, None)
+captions = []   # each: t, img, moves [(t, x, y)], key, lead — or t with img None
+snapshots = [(e['t'], e['obstacles']) for e in events if e['type'] == 'obstacles']
+MOVE_MS = 280
+
 for e in events:
     if e['type'] != 'caption':
         continue
@@ -244,10 +247,40 @@ for e in events:
     prev = captions[-1] if captions else None
     if prev and prev['img'] is not None and prev['lead'] == e['parts'][0]:
         # A caption that only changes its ending (the theme name) stays put.
-        x, y = prev['x'] + pad, prev['y'] + pad
+        x, y = prev['moves'][-1][1] + pad, prev['moves'][-1][2] + pad
     else:
         x, y = place(w, h, e['anchor'], e['obstacles'], pointer_at(e['t']))
-    captions.append({'t': e['t'], 'img': img, 'x': x - pad, 'y': y - pad, 'key': json.dumps(e['parts']), 'lead': e['parts'][0]})
+    captions.append({'t': e['t'], 'img': img, 'moves': [(e['t'], x - pad, y - pad)], 'key': json.dumps(e['parts']),
+                     'lead': e['parts'][0], 'w': w, 'h': h, 'pad': pad, 'anchor': e['anchor']})
+
+# While a caption is up, step it aside whenever a popup opens, or a line grows, under it.
+for i, c in enumerate(captions):
+    if c['img'] is None:
+        continue
+    until = captions[i + 1]['t'] if i + 1 < len(captions) else float('inf')
+    last_snap = c['t']
+    for ts, obs in snapshots:
+        if ts <= c['t'] or ts >= until:
+            continue
+        _, x, y = c['moves'][-1]
+        box = (x + c['pad'], y + c['pad'], c['w'], c['h'])
+        if any(overlaps(box, r, 4) for r in obs['rects']):
+            nx, ny = place(c['w'], c['h'], c['anchor'], obs, pointer_at(ts))
+            # The popup appeared after the previous sample: start moving then, not after.
+            start = max(last_snap, c['moves'][-1][0] + MOVE_MS, c['t'])
+            c['moves'].append((start, nx - c['pad'], ny - c['pad']))
+        last_snap = ts
+
+
+def caption_pos(c, t):
+    moves = c['moves']
+    j = max(k for k, m in enumerate(moves) if m[0] <= t) if t >= moves[0][0] else 0
+    _, x, y = moves[j]
+    if j > 0 and t - moves[j][0] < MOVE_MS:
+        k = ease((t - moves[j][0]) / MOVE_MS)
+        px, py = moves[j - 1][1], moves[j - 1][2]
+        return px + (x - px) * k, py + (y - py) * k
+    return x, y
 
 
 def draw_captions(img, t):
@@ -261,13 +294,17 @@ def draw_captions(img, t):
     same = prev and prev['img'] is not None and cur['img'] is not None and prev['key'] == cur['key']
     if same:
         k = ease(since / 300)
-        layers.append((cur['img'], prev['x'] + (cur['x'] - prev['x']) * k, prev['y'] + (cur['y'] - prev['y']) * k, 1.0))
+        px, py = caption_pos(prev, t)
+        cx, cy = caption_pos(cur, t)
+        layers.append((cur['img'], px + (cx - px) * k, py + (cy - py) * k, 1.0))
     else:
         if prev and prev['img'] is not None and since < 160:
-            layers.append((prev['img'], prev['x'], prev['y'], 1 - since / 160))
+            px, py = caption_pos(prev, cur['t'])
+            layers.append((prev['img'], px, py, 1 - since / 160))
         if cur['img'] is not None:
             k = ease((since - 60) / 200)
-            layers.append((cur['img'], cur['x'], cur['y'] + 6 * (1 - k), k))
+            cx, cy = caption_pos(cur, t)
+            layers.append((cur['img'], cx, cy + 6 * (1 - k), k))
     for im, x, y, a in layers:
         if a <= 0:
             continue

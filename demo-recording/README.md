@@ -18,8 +18,10 @@ How it works:
    Mouse moves are real and eased, so hover effects match. Every move, click and caption
    goes into a timeline (`rec/cast.json`), along with where the code and popups were at that
    moment.
-3. `rec/make_gif.py` renders the GIF at 25 fps. It draws the pointer and the click ripples,
-   places each caption next to the action where it covers no code or popup, and cross-fades
+3. `rec/make_gif.py` renders the GIF at 25 fps. It draws the pointer and the click ripples, and
+   places each caption next to the action where it covers no code or popup. The script samples
+   where the code and popups are about ten times a second, so a caption glides aside when a
+   popup opens or a line grows under it. It also cross-fades
    the format, file and theme changes. Any wait marked as fast plays four times
    quicker. Last comes the end card.
 4. `rec/social.py` builds the 1280×640 share image from the last frame (the finished page in Catppuccin Mocha).

@@ -70,8 +70,9 @@ const HELPERS = `window.__demo = window.__demo || {
         if (rc.width && rc.height && getComputedStyle(e).visibility !== 'hidden' && getComputedStyle(e).display !== 'none') out.push([rc.left, rc.top, rc.width, rc.height]);
       }
     }
-    const ed = document.querySelector('.monaco-editor .overflow-guard').getBoundingClientRect();
-    const gutter = document.querySelector('.monaco-editor .margin').getBoundingClientRect();
+    const guard = document.querySelector('.monaco-editor .overflow-guard'), margin = document.querySelector('.monaco-editor .margin');
+    if (!guard || !margin) return null;   // between editors, when a tab changes
+    const ed = guard.getBoundingClientRect(), gutter = margin.getBoundingClientRect();
     return { rects: out, area: [gutter.right + 8, ed.top + 6, ed.right - 24, ed.bottom - 6] };
   },
 };`;
@@ -139,6 +140,17 @@ await v.startScreencast((png, t) => {
 await sleep(300);
 log({ type: 'pointer', at: { ...pointer } });
 const t0 = Date.now();
+
+// Where the code and popups are, about ten times a second, so a caption can
+// step aside when a popup opens or a line grows under it.
+let polling = true;
+const poller = (async () => {
+    while (polling) {
+        const obstacles = await at('obstacles').catch(() => null);
+        if (obstacles) { log({ type: 'obstacles', obstacles }); }
+        await sleep(80);
+    }
+})();
 
 // ── 1. Format Document ─────────────────────────────────────────────────────────
 await caption([text('A messy Classic ASP page')], await at('lineEnd', 4));
@@ -249,6 +261,8 @@ for (const [theme, label] of [
 // The last theme gets the same time as the others before the end card.
 log({ type: 'end' });
 
+polling = false;
+await poller;
 await v.stopScreencast();
 await sleep(300);
 setTheme('Default Dark Modern');
