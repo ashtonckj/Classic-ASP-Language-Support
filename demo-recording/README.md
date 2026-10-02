@@ -29,10 +29,10 @@ How it works:
 The profile needs the extension and the Catppuccin theme. Run these from the repo folder:
 
 ```bash
-mkdir -p test-files/demo-recording/vsc/ext
-cp -r ~/.vscode/extensions/catppuccin.catppuccin-vsc-* test-files/demo-recording/vsc/ext/
+mkdir -p demo-recording/vsc/ext
+cp -r ~/.vscode/extensions/catppuccin.catppuccin-vsc-* demo-recording/vsc/ext/
 npm run compile && npx @vscode/vsce package
-.vscode-test/vscode-win32-x64-archive-1.139.1/bin/code.cmd --user-data-dir test-files/demo-recording/vsc/ud --extensions-dir test-files/demo-recording/vsc/ext --install-extension classic-asp-language-support-X.Y.Z.vsix
+.vscode-test/vscode-win32-x64-archive-1.139.1/bin/code.cmd --user-data-dir demo-recording/vsc/ud --extensions-dir demo-recording/vsc/ext --install-extension classic-asp-language-support-X.Y.Z.vsix
 ```
 
 If `.vscode-test` holds a newer VS Code, change the version in `rec/cdp.mjs` (`CODE`) and in the command above.
@@ -40,14 +40,14 @@ If `.vscode-test` holds a newer VS Code, change the version in `rec/cdp.mjs` (`C
 ## Recording
 
 ```bash
-cd test-files/demo-recording/rec
+cd demo-recording/rec
 node record.mjs
-python make_gif.py ../../../images/demo.gif
-python social.py ../../../images/social-preview.png
+python make_gif.py ../../images/demo.gif
+python social.py ../../images/social-preview.png
 ```
 
 A VS Code window appears for about 50 seconds. Don't type into it or move the mouse over it while it records.
-Close it afterwards: the scripts leave it open. Everything a run creates is listed in `.gitignore`.
+Close it afterwards: the scripts leave it open. Everything a run creates is listed in `.gitignore`, and the whole folder is in `.vscodeignore`, so none of it ships in the extension.
 
 ## Changing it
 

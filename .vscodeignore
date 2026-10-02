@@ -12,6 +12,7 @@ PARSER-PLAN.md
 **/*.map
 **/.vscode-test.*
 test-files/**
+demo-recording/**
 
 # README and GitHub-only images, served from GitHub instead
 images/demo.gif
