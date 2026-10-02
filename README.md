@@ -20,9 +20,9 @@
 ---
 
 <p align="center">
-    <img src="https://raw.githubusercontent.com/ashtonckj/Classic-ASP-Language-Support/main/images/demo.gif" width="720" alt="Format Document tidying a messy Classic ASP page, IntelliSense listing Recordset members, a missing Set fixed in one click, and F2 renaming a variable everywhere">
+    <img src="https://raw.githubusercontent.com/ashtonckj/Classic-ASP-Language-Support/main/images/demo.gif" alt="Format Document tidying a messy Classic ASP page, IntelliSense listing Recordset members, a missing Set fixed in one click, F2 renaming a variable everywhere, and the same page in four colour themes">
     <br>
-    <sub>Recorded in VS Code with the <a href="https://github.com/catppuccin/vscode">Catppuccin Mocha</a> theme</sub>
+    <sub>Recorded in VS Code · Dark Modern, Light Modern, Monokai and <a href="https://github.com/catppuccin/vscode">Catppuccin</a></sub>
 </p>
 
 ---
