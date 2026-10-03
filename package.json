@@ -59,7 +59,8 @@
                 ],
                 "extensions": [
                     ".asp",
-                    ".inc"
+                    ".inc",
+                    ".asa"
                 ],
                 "configuration": "./language-configuration.json"
             }
