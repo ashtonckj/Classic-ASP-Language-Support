@@ -6,9 +6,11 @@
 
 <p align="center">
     <strong>Format, navigate and error-check Classic ASP in VS Code.</strong><br>
-    One keystroke tidies your VBScript, HTML, CSS, JavaScript and SQL together.<br>
-    IntelliSense, hover docs and parameter hints for ASP objects, ADODB and your own Subs and Functions.<br>
-    Go to Definition, Find All References and Rename follow your <code>#include</code> files, and mistakes are caught before IIS sees them.
+    <small>
+        One keystroke tidies your VBScript, HTML, CSS, JavaScript and SQL together.<br>
+        IntelliSense, hover docs and parameter hints for ASP objects, ADODB and your own Subs and Functions.<br>
+        Go to Definition, Find All References and Rename follow your <code>#include</code> files, and mistakes are caught before IIS sees them.
+    </small>
 </p>
 
 <p align="center">
@@ -48,7 +50,7 @@ Then open any `.asp` or `.inc` file and press `Alt + Shift + F`.
 
 ### Coming from another Classic ASP extension?
 
-This extension includes syntax highlighting and snippets, so it can replace **[Classic ASP Syntaxes and Snippets][Classic ASP Syntaxes & Snippets]** and **[ASP Classic Support][ASP Classic Support]**. Two extensions that claim the same `.asp` files fight over colours and completions, so when it finds one of them it offers to uninstall it for you, or to open it in the Extensions view so you can disable it. Your files are not touched either way.
+This extension includes syntax highlighting and snippets, so it can replace **[Classic ASP Syntaxes and Snippets][Classic ASP Syntaxes & Snippets]** and **[ASP Classic Support][ASP Classic Support]**. Two extensions that reads the same `.asp` files fight over colours and completions, so when it finds one of them it offers to uninstall it for you, or to open it in the Extensions view so you can disable it. Your files are not touched either way.
 
 ---
 
@@ -233,14 +235,6 @@ This extension includes syntax highlighting and snippets, so it can replace **[C
 | <img src="images/ext-asp-classic-support.png" width="40"> | [ASP Classic Support] | Its highlighting is included. Running both makes the two fight over colours, so uninstall it |
 | <img src="images/ext-classic-asp-syntaxes.png" width="40"> | [Classic ASP Syntaxes & Snippets] | Its highlighting and snippets are included. Running both makes the two fight over colours, so uninstall it |
 
-**Use with care**
-
-| | Extension | Note |
-|:---:|-----------|------|
-| <img src="images/ext-html-css-support.png" width="40"> | [HTML CSS Support] | Can show its HTML completions alongside this extension's own. Usually fine, but disable it if the list doubles up |
-
-> 💡 **Bracket pair colourisation** works natively with ASP files — enable it via `editor.bracketPairColorization.enabled` and `editor.guides.bracketPairs` in VS Code settings.
-
 ---
 
 ## 📋 Known Limitations
@@ -249,7 +243,7 @@ This extension includes syntax highlighting and snippets, so it can replace **[C
 - **Format Document and Format Selection are refused while a file has structure diagnostics.** Fix the orange squiggles first — formatting a file with unbalanced tags or blocks would rearrange the wrong things
 - Complex mixed HTML/ASP structures may occasionally require manual adjustment after formatting
 - `#include virtual="..."` and root-relative `href`/`src` paths resolve from `classicAsp.virtualRoot`, or the first workspace folder root when that is empty
-- **Syntax highlighting breaks for a `<%= %>` that emits an HTML tag inside a JavaScript event-handler attribute** — e.g. `onclick="alert('<%= Replace(x, vbCrLf, "<br>") %>')"`. VS Code's built-in HTML and JavaScript grammars own attribute-value parsing, so an extension cannot re-scope it. The code still runs correctly; only the colours are wrong. (For the same reason the closing `"` of a `style=""` value is coloured as CSS — that affects plain HTML files too.)
+- **Syntax highlighting breaks for a `<%= %>` that emits an HTML tag inside a JavaScript event-handler attribute** — e.g. `onclick="alert('<%= Replace(x, vbCrLf, "<br>") %>')"`. VS Code's built-in HTML and JavaScript grammars own attribute-value parsing, so an extension cannot re-scope it. The code still runs correctly; only the colours are wrong.
 - Smart Enter/Tab indent follows the editor's `editor.tabSize`, while Format Document follows `classicAsp.prettier.tabWidth`. Set them to the same value if you want typing and formatting to agree
 
 ---
@@ -314,6 +308,5 @@ If you find this extension helpful, please consider leaving a ⭐ on GitHub and 
 [Auto Rename Tag]: https://marketplace.visualstudio.com/items?itemName=formulahendry.auto-rename-tag
 [Indent Rainbow]: https://marketplace.visualstudio.com/items?itemName=oderwat.indent-rainbow
 [ASP HTML Tag Matcher]: https://marketplace.visualstudio.com/items?itemName=sabahweb.asp-html-tag-matcher
-[HTML CSS Support]: https://marketplace.visualstudio.com/items?itemName=ecmel.vscode-html-css
 [ASP Classic Support]: https://marketplace.visualstudio.com/items?itemName=zbecknell.asp-classic-support
 [Classic ASP Syntaxes & Snippets]: https://marketplace.visualstudio.com/items?itemName=jtjoo.classic-asp-html
