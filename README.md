@@ -6,11 +6,9 @@
 
 <p align="center">
     <strong>Format, navigate and error-check Classic ASP in VS Code.</strong><br>
-    <span style="font-size: 0.8em;">
-        One keystroke tidies your VBScript, HTML, CSS, JavaScript and SQL together.<br>
-        IntelliSense, hover docs and parameter hints for ASP objects, ADODB and your own Subs and Functions.<br>
-        Go to Definition, Find All References and Rename follow your <code>#include</code> files, and mistakes are caught before IIS sees them.
-    </spam>
+    One keystroke tidies your VBScript, HTML, CSS, JavaScript and SQL together.<br>
+    IntelliSense, hover docs and parameter hints for ASP objects, ADODB and your own Subs and Functions.<br>
+    Go to Definition, Find All References and Rename follow your <code>#include</code> files, while catching mistakes before IIS sees them.
 </p>
 
 <p align="center">
