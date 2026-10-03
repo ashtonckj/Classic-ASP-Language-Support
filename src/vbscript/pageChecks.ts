@@ -13,7 +13,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { checkPage, objectTagIds, type Check } from './checks';
+import { checkPage, globalAsaChecks, objectTagIds, type Check } from './checks';
 import { findMissingSet, type MissingSet } from './pageAnalysis';
 import { bindAt } from './references';
 import type { ScopeHost } from './scriptScope';
@@ -75,12 +75,15 @@ export function checkPageFiles(request: ChecksRequest, parse: (fsPath: string, t
         parse,
         defaultIncludes: () => request.defaultIncludes,
     };
+    // global.asa has rules of its own.
+    const asaChecks = /\.asa$/i.test(docPath) ? globalAsaChecks(text) : [];
+
     const bound = bindAt(host, docPath);
-    if (!bound) { return { missingSet, checks: [] }; }
+    if (!bound) { return { missingSet, checks: asaChecks }; }
 
     // An <object runat="server"> in global.asa gives every page that object.
     const globalAsa = read(path.join(rootOf(docPath), 'global.asa'));
     const builtins = globalAsa ? new Set([...BUILTIN_NAMES, ...objectTagIds(globalAsa)]) : BUILTIN_NAMES;
 
-    return { missingSet, checks: checkPage(bound, docPath, builtins) };
+    return { missingSet, checks: [...asaChecks, ...checkPage(bound, docPath, builtins)] };
 }

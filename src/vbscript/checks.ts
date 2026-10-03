@@ -28,14 +28,40 @@ import type { Declaration, Reference, Scope } from './binder';
 import { statementExpressions, walkExpression } from './expressions';
 import type { BoundPage } from './references';
 import { serverObjects, walkStatements } from './symbols';
+import { getAspBlockRanges } from '../utils/zoneUtils';
 
-export type CheckCode = 'name-redefined' | 'undeclared' | 'wrong-arguments' | 'unused' | 'unreachable';
+export type CheckCode = 'name-redefined' | 'undeclared' | 'wrong-arguments' | 'unused' | 'unreachable' | 'global-asa';
 
 export interface Check {
     code: CheckCode;
     start: number;
     end: number;
     message: string;
+}
+
+/**
+ * What IIS refuses in a global.asa: script outside `<script runat="Server">`
+ * — a `<% %>` block — and an `<object>` that is not Application- or
+ * Session-scoped. global.asa only ever runs its event Subs; it is never sent
+ * to a browser.
+ */
+export function globalAsaChecks(text: string): Check[] {
+    const checks: Check[] = [];
+    for (const block of getAspBlockRanges(text)) {
+        checks.push({
+            code: 'global-asa', start: block.start, end: Math.min(block.start + 2, block.end),
+            message: 'global.asa cannot hold <% %> blocks: IIS reports an error for the file. ' +
+                'Put the code in a Sub inside <script language="VBScript" runat="Server">.',
+        });
+    }
+    for (const object of serverObjects(text)) {
+        if (/^(application|session)$/i.test(object.scope ?? '')) { continue; }
+        checks.push({
+            code: 'global-asa', start: object.start, end: object.end,
+            message: `An <object> in global.asa needs scope="Application" or scope="Session"${object.scope ? ` (this one is "${object.scope}")` : ''}, or IIS reports an error for the file.`,
+        });
+    }
+    return checks.sort((a, b) => a.start - b.start);
 }
 
 /**
