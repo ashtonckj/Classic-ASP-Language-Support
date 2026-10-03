@@ -28,6 +28,37 @@ export interface ParsedPage {
     lineStarts: number[];
 }
 
+/** A `<object runat="server" id="…">` tag: an object the page's scripts use without declaring it. */
+export interface ServerObject {
+    /** As written. */
+    id: string;
+    /** As written, or null for an object given by classid. */
+    progId: string | null;
+    /** As written — Page, Session or Application — or null. */
+    scope: string | null;
+    /** The whole tag. */
+    start: number;
+    end: number;
+}
+
+/** Every `<object runat="server">` tag with an id, in page order. */
+export function serverObjects(text: string): ServerObject[] {
+    const objects: ServerObject[] = [];
+    const attr = (tag: string, name: string) => new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(tag);
+    for (const m of text.matchAll(/<object\b[^>]*>/gi)) {
+        const tag = m[0];
+        if (!/^server$/i.test(valueOf(attr(tag, 'runat')) ?? '')) { continue; }
+        const id = valueOf(attr(tag, 'id'));
+        if (!id || !/^[A-Za-z_]\w*$/.test(id)) { continue; }
+        objects.push({ id, progId: valueOf(attr(tag, 'progid')), scope: valueOf(attr(tag, 'scope')), start: m.index, end: m.index + tag.length });
+    }
+    return objects;
+}
+
+function valueOf(match: RegExpExecArray | null): string | null {
+    return match ? (match[1] ?? match[2] ?? match[3]) : null;
+}
+
 export function parsePage(text: string): ParsedPage {
     const programs = pagePrograms(text).map(p => parseProgram(text, p.segments, p.server));
     const lineStarts = [0];
@@ -162,8 +193,13 @@ export function symbolsOfPage(page: ParsedPage, filePath: string): FileSymbols {
         }
     }
 
-    // COM types: every `Set x = CreateObject("…")` first, then the variables
-    // assigned from a typed object's method, `Set f = fso.GetFile(p)`, in order.
+    // COM types: every `<object runat="server" progid="…">` and `Set x =
+    // CreateObject("…")` first, then the variables assigned from a typed
+    // object's method, `Set f = fso.GetFile(p)`, in order.
+    for (const object of serverObjects(text)) {
+        if (!object.progId) { continue; }
+        result.comVariables.push({ name: object.id, progId: normalizeProgId(object.progId), line: line(object.start), filePath });
+    }
     const sets = statements.filter((s): s is A.AssignStmt => s.kind === 'Assign' && s.set && s.target.kind === 'Ident');
     for (const s of sets) {
         const v = s.value;

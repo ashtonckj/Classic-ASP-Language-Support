@@ -27,7 +27,7 @@ import type * as A from './ast';
 import type { Declaration, Reference, Scope } from './binder';
 import { statementExpressions, walkExpression } from './expressions';
 import type { BoundPage } from './references';
-import { walkStatements } from './symbols';
+import { serverObjects, walkStatements } from './symbols';
 
 export type CheckCode = 'name-redefined' | 'undeclared' | 'wrong-arguments' | 'unused' | 'unreachable';
 
@@ -43,13 +43,7 @@ export interface Check {
  * global.asa: each makes an object every page can use without declaring it.
  */
 export function objectTagIds(text: string): string[] {
-    const ids: string[] = [];
-    for (const tag of text.match(/<object\b[^>]*>/gi) ?? []) {
-        if (!/\brunat\s*=\s*["']?server\b/i.test(tag)) { continue; }
-        const id = /\bid\s*=\s*["']?([A-Za-z_]\w*)/i.exec(tag);
-        if (id) { ids.push(id[1].toLowerCase()); }
-    }
-    return ids;
+    return serverObjects(text).map(object => object.id.toLowerCase());
 }
 
 /**
