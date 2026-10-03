@@ -542,3 +542,50 @@ describe('the formatter debug channel', () => {
         }
     });
 });
+
+// A global.asa is all VBScript in <script language="VBScript" runat="Server">.
+// Prettier reads such a block as JavaScript, so the bodies are kept from it and
+// formatted as a <% %> block would be.
+describe('formatCompleteAspFile — VBScript <script> blocks', () => {
+    it('formats a global.asa, its VBScript one level inside the tag', async () => {
+        const input = [
+            '<object runat="Server" scope="Application" id="AppDict" progid="Scripting.Dictionary"></object>',
+            '<script language="VBScript" runat="Server">',
+            'sub Session_OnStart',
+            'dim n',
+            '      n=1',
+            'if n>0 then',
+            'session("x")=n',
+            'end if',
+            'end sub',
+            '</script>',
+            '',
+        ].join('\n');
+        const out = await formatCompleteAspFile(input);
+        const script = out.slice(out.indexOf('<script'));
+        assert.strictEqual(script, [
+            '<script language="VBScript" runat="Server">',
+            '  Sub Session_OnStart',
+            '    Dim n',
+            '    n = 1',
+            '    If n > 0 Then',
+            '      Session("x") = n',
+            '    End If',
+            '  End Sub',
+            '</script>',
+            '',
+        ].join('\n'));
+        assert.strictEqual(await formatCompleteAspFile(out), out, 'settles on the first format');
+    });
+
+    it('never adds JavaScript semicolons to client-side VBScript', async () => {
+        const out = await formatCompleteAspFile('<script language="vbscript">\nx = 1\ny = x + 2\n</script>\n');
+        assert.ok(!out.includes(';'), out);
+    });
+
+    it('leaves a body with <% %> in it as it was', async () => {
+        const out = await formatCompleteAspFile('<div>\n<script language="vbscript">\nx = "<%= v %>"\n</script>\n</div>\n');
+        assert.ok(out.includes('\nx = "<%= v %>"\n'), out);
+        assert.ok(!out.includes(';'), out);
+    });
+});

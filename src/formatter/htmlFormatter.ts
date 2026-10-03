@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type * as prettier from 'prettier';
-import { formatSingleAspBlock, getAspSettings, delimitersAtColumnZero } from './aspFormatter';
-import { findNextRealTag, findTagEnd, findClosingTag } from '../utils/zoneUtils';
+import { formatSingleAspBlock, getAspSettings, delimitersAtColumnZero, type AspFormatterSettings } from './aspFormatter';
+import { findNextRealTag, findTagEnd, findClosingTag, getVbScriptBlockRanges } from '../utils/zoneUtils';
 import { analyseHtmlStructure } from '../providers/htmlStructureDiagnosticsProvider';
 import { VOID_ELEMENTS } from '../constants/htmlTags';
 
@@ -593,6 +593,61 @@ function findInOrder(text: string, needles: readonly string[]): number[] {
     });
 }
 
+// ─── VBScript <script> blocks ──────────────────────────────────────────────
+// Prettier picks a script's language from its `type` alone, so it reads
+// `<script language="vbscript">` as JavaScript: it moves the code about and,
+// where the VBScript happens to parse as JavaScript, adds semicolons that break
+// it. The bodies are taken out before Prettier runs and put back afterwards,
+// formatted the way a `<% %>` block is — which is all the code of a global.asa.
+
+/** Takes out the body of every closed VBScript `<script>` block, in page order. */
+function takeVbScriptBodies(code: string): { masked: string; bodies: string[] } {
+    const bodies: string[] = [];
+    let masked = '';
+    let last = 0;
+    for (const { start, end } of getVbScriptBlockRanges(code)) {
+        if (!/^<\/script/i.test(code.slice(end, end + 8))) { continue; }
+        bodies.push(code.slice(start, end));
+        masked += code.slice(last, start);
+        last = end;
+    }
+    return { masked: masked + code.slice(last), bodies };
+}
+
+/**
+ * Puts the bodies back into the emptied blocks, one level inside each tag.
+ * Null when the blocks no longer line up with the bodies. A body with
+ * `<% %>` in it is not one piece of VBScript, so it goes back as it was.
+ */
+function putBackVbScriptBodies(code: string, bodies: string[], settings: AspFormatterSettings): string | null {
+    const empty = getVbScriptBlockRanges(code).filter(r => r.start === r.end);
+    if (empty.length !== bodies.length) { return null; }
+
+    const unit = settings.useTabs ? '\t' : ' '.repeat(settings.indentSize);
+    const lower = code.toLowerCase();
+    let out = '';
+    let last = 0;
+    empty.forEach(({ start }, i) => {
+        const body = bodies[i];
+        out += code.slice(last, start);
+        last = start;
+        const tagAt = lower.lastIndexOf('<script', start);
+        const tagIndent = /^[ \t]*/.exec(code.slice(code.lastIndexOf('\n', tagAt) + 1, tagAt))![0];
+        if (!body.trim() || body.includes('<%')) {
+            // As it was, but with `</script>` lined up under its tag.
+            out += body.replace(/\n[ \t]*$/, '\n' + tagIndent);
+            return;
+        }
+
+        // The line breaks after the tag and before `</script>` are the tag's, not the code's.
+        const vbscript = body.replace(/^[ \t]*\r?\n/, '').replace(/\r?\n[ \t]*$/, '');
+        const formatted = formatSingleAspBlock(`<%\n${vbscript}\n%>`, { ...settings, aspTagsOnSameLine: false }).formatted;
+        const lines = formatted.split('\n').slice(1, -1).map(line => line.trim() ? tagIndent + unit + line : '');
+        out += '\n' + lines.join('\n') + '\n' + tagIndent;
+    });
+    return out + code.slice(last);
+}
+
 export async function formatCompleteAspFile(code: string): Promise<string> {
     // A token's number is part of its length, and Prettier lays a line out by
     // its length. Counting on across the whole session meant the same page
@@ -615,7 +670,8 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     // ── Step 1: Mask JS event-handler attribute values ───────────────────────
     // Must happen BEFORE ASP masking so values like onclick="doA('<%= val %>'); doB()"
     // are captured whole — including embedded ASP expressions — as one opaque token.
-    const { masked: jsPreMasked, masks: jsAttrMasks } = maskJsEventAttrs(code);
+    const vbscriptBodies = takeVbScriptBodies(code);
+    const { masked: jsPreMasked, masks: jsAttrMasks } = maskJsEventAttrs(vbscriptBodies.masked);
 
     // <script>/<style> body ranges — ASP blocks inside them need a JS/CSS-safe
     // identifier placeholder, not an HTML comment (which Prettier would parse as
@@ -1326,5 +1382,8 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         '$1$2$3$4'
     );
 
-    return restoredCode;
+    // ── Step 7: Put back the VBScript <script> bodies, formatted ────────────
+    // Should Prettier have dropped or added a block, nothing is changed rather
+    // than a body landing in the wrong one.
+    return putBackVbScriptBodies(restoredCode, vbscriptBodies.bodies, aspSettings) ?? code;
 }
