@@ -36,7 +36,7 @@ Open the Extensions view (`Ctrl + Shift + X`), search for **Classic ASP Language
 ext install ashtonckj.classic-asp-language-support
 ```
 
-Then open any `.asp` or `.inc` file and press `Alt + Shift + F`.
+Then open any `.asp`, `.inc` or `.asa` file and press `Alt + Shift + F`.
 
 ## 🎯 Why This One
 
