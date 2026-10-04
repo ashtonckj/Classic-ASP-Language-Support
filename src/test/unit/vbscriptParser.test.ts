@@ -359,3 +359,10 @@ describe('symbolsFromTree', () => {
         assert.strictEqual(s.functions[0].endLine, 3);
     });
 });
+
+describe('symbolsFromTree — <object runat="server"> tags', () => {
+    it('reads an object a tag declares as a typed COM variable, so its members are offered', () => {
+        const text = '<object runat="Server" scope="Session" id="UserCart" progid="Scripting.Dictionary.1"></object>\n<object id="player" classid="x"></object>';
+        assert.deepStrictEqual(symbolsFromTree(text, 'global.asa').comVariables.map(v => `${v.name} ${v.progId}`), ['UserCart scripting.dictionary']);
+    });
+});

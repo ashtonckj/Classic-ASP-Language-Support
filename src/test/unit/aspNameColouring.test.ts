@@ -66,3 +66,11 @@ describe('VBScript name colouring', () => {
         assert.ok(found.includes('1:OpenDb function') && found.includes('1:DB_NAME enumMember'), JSON.stringify(found));
     });
 });
+
+// global.asa, and some pages, declare objects with tags rather than Dim.
+describe('VBScript name colouring — <object runat="server"> tags', () => {
+    it('colours an object a tag declares as a variable', () => {
+        const page = '<object runat="Server" scope="Application" id="AppDict" progid="Scripting.Dictionary"></object>\n<script language="VBScript" runat="Server">\nSub Application_OnStart\n  AppDict.Add "a", 1\nEnd Sub\n</script>';
+        assert.ok(names(page).includes('3:AppDict variable'), JSON.stringify(names(page)));
+    });
+});

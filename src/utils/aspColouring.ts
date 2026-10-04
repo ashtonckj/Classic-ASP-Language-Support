@@ -25,7 +25,7 @@ import {
     SqlStringGroup, emitSqlTokensForGroup, TokenSink,
 } from '../providers/sqlSemanticProvider';
 import type * as A from '../vbscript/ast';
-import { parsePage, symbolsOfPage, walkStatements } from '../vbscript/symbols';
+import { parsePage, serverObjects, symbolsOfPage, walkStatements } from '../vbscript/symbols';
 import { bindPage, type Scope } from '../vbscript/binder';
 import {
     concatOperands, isConcat, isStringLiteral, statementExpressions, stringValue, walkExpression,
@@ -426,6 +426,7 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
     // not names, so nothing needs stripping first. A name the page declares
     // nowhere takes its colour from what the includes declare.
     const binding = bindPage(docPath, page);
+    const pageObjects = new Set(serverObjects(fullText).map(object => object.id.toLowerCase()));
     const serverScope = binding.scopes[0];
     const rootOf = (scope: Scope): Scope => { let s = scope; while (s.parent) { s = s.parent; } return s; };
     for (const r of binding.references) {
@@ -443,6 +444,8 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
         }
         // Includes are pasted into the page's server code only, and `Me.x` names a member.
         if (rootOf(r.scope) !== serverScope || fullText[r.span.start - 1] === '.') { continue; }
+        // An object an `<object runat="server">` tag declares, as in global.asa.
+        if (pageObjects.has(r.name)) { builder.push(line, col, length, T_VARIABLE, 0); continue; }
         const fn = includeFunctions.get(r.name);
         if (fn !== undefined) { builder.push(line, col, length, fn, 0); }
         else if (includeConstants.has(r.name)) { builder.push(line, col, length, T_CONSTANT, M_READONLY); }

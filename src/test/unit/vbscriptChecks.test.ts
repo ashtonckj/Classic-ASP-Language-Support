@@ -3,7 +3,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { checkPage, objectTagIds, type CheckCode } from '../../vbscript/checks';
+import { checkPage, globalAsaChecks, objectTagIds, type CheckCode } from '../../vbscript/checks';
 import { bindAt, type WorkspaceHost } from '../../vbscript/references';
 import { lineAt, parsePage } from '../../vbscript/symbols';
 import { resolveIncludeDirective } from '../../utils/includeDirectives';
@@ -167,5 +167,35 @@ describe('checkPageFiles — the checks with the includes read from disk', () =>
         const includeComVariables = [{ name: 'conn', progId: 'adodb.connection' }];
         const result = checkPageFiles(request(text, { includeComVariables }), (_p, t) => parsePage(t));
         assert.deepStrictEqual(result.missingSet.map(m => m.target), ['rs']);
+    });
+});
+
+// IIS's own rules for global.asa: code only in <script runat="Server">, and
+// objects only with Application or Session scope.
+describe('global.asa rules', () => {
+    const asa = (text: string) => globalAsaChecks(text).map(c => text.slice(c.start, c.end).slice(0, 12));
+
+    it('says nothing about a well-formed global.asa', () => {
+        const text = '<object runat="Server" scope="Application" id="A" progid="Scripting.Dictionary"></object>\n' +
+            '<script language="VBScript" runat="Server">\nSub Application_OnStart\n  A.Add "x", 1\nEnd Sub\n</script>';
+        assert.deepStrictEqual(asa(text), []);
+    });
+
+    it('flags a <% %> block', () => {
+        assert.deepStrictEqual(asa('<% Application("x") = 1 %>'), ['<%']);
+    });
+
+    it('flags an object with no scope, or the page scope', () => {
+        assert.deepStrictEqual(asa('<object runat="Server" id="A" progid="x">\n<object runat=server scope=Page id=B progid=y>'),
+            ['<object runa', '<object runa']);
+    });
+
+    it('is only for global.asa, not for a page', () => {
+        const request = (docPath: string) => ({
+            text: '<% x = 1 %>', docPath, configuredRoot: undefined, defaultIncludes: [], openFiles: {}, includeComVariables: [],
+        });
+        const codes = (docPath: string) => checkPageFiles(request(docPath), (_p, t) => parsePage(t)).checks.map(c => c.code);
+        assert.deepStrictEqual(codes(path.join(os.tmpdir(), 'global.asa')), ['global-asa']);
+        assert.deepStrictEqual(codes(path.join(os.tmpdir(), 'page.asp')), []);
     });
 });

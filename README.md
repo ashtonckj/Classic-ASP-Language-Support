@@ -70,7 +70,7 @@ This extension includes syntax highlighting and snippets, so it can replace **[C
 
 ## ✨ Features
 
-> Applies to `.asp` and `.inc` files.
+> Applies to `.asp` and `.inc` files, and to `global.asa` (`.asa`): its `<script runat="Server">` VBScript gets the same features, plus warnings for what IIS refuses there.
 
 ### 🎨 Smart Formatting
 - **Multi-language** — VBScript, HTML, CSS, JavaScript, and SQL in a single keystroke
@@ -96,7 +96,7 @@ This extension includes syntax highlighting and snippets, so it can replace **[C
 - **Parameter hints** — signature help for VBScript's built-in functions (`Mid`, `InStr`, `Replace`…), your own Subs and Functions, and JavaScript in `<script>` blocks
 - **Linked editing** — with `editor.linkedEditing` on, editing a tag name edits its closing tag too, ASP between them or not
 - **Outline & breadcrumbs** — Subs, Functions, Classes and Consts (plus JavaScript functions) in the Outline view and `Ctrl + Shift + O`
-- **Workspace symbol search** — `Ctrl + T` finds VBScript symbols across every `.asp` / `.inc` in the workspace
+- **Workspace symbol search** — `Ctrl + T` finds VBScript symbols across every `.asp` / `.inc` / `.asa` in the workspace
 - **Document links** — `Ctrl + Click` navigation on `#include` paths and local file attributes, including root-relative (`/images/logo.gif`) ones
 
 ### 🌈 Syntax Highlighting
