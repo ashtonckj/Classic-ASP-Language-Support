@@ -3,7 +3,8 @@ import { otherSetting } from '../platform/settings';
 import { log } from '../platform/log';
 import { isInlineTag, isSelfClosingTag } from '../constants/htmlTags';
 import { ASP_OBJECT_NAMES } from '../constants/aspKeywords';
-import { getZone, Zone } from '../core/zoneUtils';
+import type { Zone } from '../core/zoneUtils';
+import { zonesFor } from '../platform/documentState';
 
 // ── VBScript block keyword constants ───────────────────────────────────────
 
@@ -674,19 +675,16 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
         const changes = event.contentChanges;
         const typed   = changes[0].text;
 
-        // getText() is only paid for once a cheap text check has already passed —
-        // an ordinary keystroke must not allocate the whole document.
-        let cachedText: string | undefined;
-        const fullText = () => (cachedText ??= event.document.getText());
-
         // True when EVERY cursor typed the same single character over an empty
         // selection. Anything else is a paste, a snippet, or a mixed edit, and none
         // of the handlers below apply to it.
         const everyCursorTyped = (ch: string) =>
             changes.every(c => c.text === ch && c.rangeLength === 0);
 
+        // The zones are only read once a cheap text check has already passed —
+        // an ordinary keystroke must not scan the whole document.
         const zoneAtPosition = (line: number, character: number) =>
-            getZone(fullText(), event.document.offsetAt(new vscode.Position(line, character)));
+            zonesFor(event.document).zoneAt(event.document.offsetAt(new vscode.Position(line, character)));
 
         // Applies the auto-insertions and puts every caret back.
         //
@@ -860,7 +858,6 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
 
         const position        = editor.selection.active;
         const document        = editor.document;
-        const fullText        = document.getText();
         const line            = document.lineAt(position.line);
         const textBefore      = line.text.substring(0, position.character);
         const textAfter       = line.text.substring(position.character);
@@ -884,7 +881,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             return;
         }
 
-        const zone = getZone(fullText, document.offsetAt(position));
+        const zone = zonesFor(document).zoneAt(document.offsetAt(position));
 
         // ── JSDoc continuation ───────────────────────────────────────────
         // A plain .js file gets this from the TypeScript extension's own
@@ -1325,7 +1322,7 @@ async function expandAbbreviationOrTab(
         || looksLikeAbbreviation(tokenBefore(lineText, position.character));
 
     if (worthTrying) {
-        const zone = getZone(editor.document.getText(), editor.document.offsetAt(position));
+        const zone = zonesFor(editor.document).zoneAt(editor.document.offsetAt(position));
         if (zone === 'html' || zone === 'css') {
             const outcome = await tryEmmetExpansion(editor, zone);
             if (outcome === 'expanded') { return; }
@@ -1503,10 +1500,6 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
             return vscode.commands.executeCommand('tab');
         }
 
-        // Fetch document text once — only reached on blank lines where smart
-        // indent actually runs, so this allocation is never wasted on normal tabs.
-        const fullText = editor.document.getText();
-
         const indentUnit = getIndentUnit(editor);
 
         // Find nearest non-empty line above
@@ -1522,7 +1515,9 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
         }
 
         const currentIndent = lineText.match(/^(\s*)/)?.[1] ?? '';
-        const inAsp = getZone(fullText, editor.document.offsetAt(position)) === 'asp';
+        // Only reached on blank lines where smart indent actually runs, so the
+        // zones are never read for an ordinary Tab.
+        const inAsp = zonesFor(editor.document).zoneAt(editor.document.offsetAt(position)) === 'asp';
 
         let targetIndent: string;
         if (prevLineText === '%>') {
@@ -1706,9 +1701,9 @@ export function registerVbScriptQuoteGuard(context: vscode.ExtensionContext): vo
             // An auto-closed quote arrives as one edit inserting both quotes.
             const pairs = event.contentChanges.filter(c => c.text === "''" && c.rangeLength === 0);
             if (pairs.length > 0) {
-                const fullText = document.getText();
+                const zones = zonesFor(document);
                 const inVbScript = insertedPairPositions(pairs.map(c => c.range.start)).filter(p =>
-                    getZone(fullText, document.offsetAt(new vscode.Position(p.line, p.character))) === 'asp');
+                    zones.zoneAt(document.offsetAt(new vscode.Position(p.line, p.character))) === 'asp');
                 set(candidates, key, inVbScript);
                 const editor = vscode.window.visibleTextEditors.find(e => e.document === document);
                 if (editor) { decide(document, editor.selections, false); }

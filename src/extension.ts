@@ -220,7 +220,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Trigger chars are limited to punctuation that genuinely starts or
     // continues a CSS token.  The a-z letters are intentionally removed —
-    // getZone() inside CssCompletionProvider already guards every call, so
+    // the zone check inside CssCompletionProvider already guards every call, so
     // VS Code's word-based activation is enough to keep completions flowing
     // while the user is typing a property or value name.  Keeping letter
     // triggers caused the provider to be invoked on every keystroke anywhere
