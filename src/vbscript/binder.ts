@@ -150,6 +150,7 @@ class Binder {
         for (const { file, stmt } of server) { this.declare([stmt], script, file.path); }
         this.redimmed.clear();
         for (const { file, stmt } of server) { this.declareImplicitGlobals([stmt], script, file.path); }
+        for (const { file, stmt } of server) { this.declareProcedureLocals([stmt], file.path); }
         for (const { file, stmt } of server) { this.resolve([stmt], script, file.path); }
         for (const file of this.scriptScope.files) {
             for (const program of file.page.programs) {
@@ -165,6 +166,7 @@ class Binder {
                 this.declare(program.body, own, file.path);
                 this.redimmed.clear();
                 this.declareImplicitGlobals(program.body, own, file.path);
+                this.declareProcedureLocals(program.body, file.path);
                 this.resolve(program.body, own, file.path);
                 this.resolveSkipped(program, own, file.path);
             }
@@ -188,8 +190,8 @@ class Binder {
                     for (const d of s.declarators) {
                         if (!d.name.name) { continue; }
                         // ReDim of a name this scope already has resizes it; otherwise it declares one.
-                        // Inside a procedure that waits for the resolve pass, as the name may be a
-                        // page variable declared further down or only ever assigned.
+                        // Inside a procedure that waits for declareProcedureLocals, as the name may
+                        // be a page variable declared further down or only ever assigned.
                         if (s.keyword === 'redim' && scope.kind === 'procedure') { this.redimmedIn(scope).add(d.name.name); continue; }
                         if (s.keyword === 'redim' && this.declaredHere(scope, d.name.name)) { continue; }
                         this.add(scope, file, d.name, 'variable', false);
@@ -226,6 +228,37 @@ class Binder {
             if (name && !script.declarations.has(name.name)) { this.add(script, file, name, 'variable', true); }
             for (const body of childBodies(s)) { this.declareImplicitGlobals(body, script, file); }
         }
+    }
+
+    /**
+     * The locals each procedure makes without a Dim: a ReDim of a name nothing
+     * else declares, and, without Option Explicit, a name only assigned or used
+     * as a loop variable. VBScript makes them when it compiles the procedure,
+     * so a use written above the line that makes one is the same local.
+     */
+    private declareProcedureLocals(stmts: A.Stmt[], file: string): void {
+        for (const s of stmts) {
+            if (s.kind === 'Procedure') {
+                const scope = this.binding.scopeOf.get(s)!;
+                walkBody(s.body, inner => this.declareLocal(inner, scope, file));
+            } else if (s.kind === 'Class') {
+                this.declareProcedureLocals(s.members, file);
+            } else {
+                for (const body of childBodies(s)) { this.declareProcedureLocals(body, file); }
+            }
+        }
+    }
+
+    private declareLocal(s: A.Stmt, scope: Scope, file: string): void {
+        if (s.kind === 'Dim' && s.keyword === 'redim') {
+            for (const d of s.declarators) {
+                if (d.name.name && !this.lookup(scope, d.name.name)) { this.add(scope, file, d.name, 'variable', false); }
+            }
+            return;
+        }
+        if (this.binding.optionExplicit) { return; }
+        const name = implicitTarget(s);
+        if (name?.name && !this.lookup(scope, name.name)) { this.add(scope, file, name, 'variable', true); }
     }
 
     private redimmedIn(scope: Scope): Set<string> {
@@ -301,13 +334,9 @@ class Binder {
         return null;
     }
 
-    private use(scope: Scope, file: string, name: A.Name, write: boolean): void {
+    private use(scope: Scope, file: string, name: A.Name): void {
         if (!name.name) { return; }
         const target = this.lookup(scope, name.name);
-        if (!target && write && scope.kind === 'procedure' && !this.binding.optionExplicit) {
-            this.add(scope, file, name, 'variable', true);
-            return;
-        }
         // Its own declaration, already recorded when it was declared.
         if (target?.span.start === name.start && target.file === file) { return; }
         this.binding.references.push({ name: name.name, file, span: { start: name.start, end: name.end }, scope, target, declaration: false });
@@ -318,7 +347,7 @@ class Binder {
             switch (s.kind) {
                 case 'Dim':
                     for (const d of s.declarators) {
-                        if (s.keyword === 'redim') { this.redim(scope, file, d.name); }
+                        if (s.keyword === 'redim') { this.use(scope, file, d.name); }
                         for (const b of d.bounds ?? []) { this.expr(b, scope, file); }
                     }
                     break;
@@ -350,14 +379,14 @@ class Binder {
                     }
                     break;
                 case 'For':
-                    this.use(scope, file, s.counter, true);
+                    this.use(scope, file, s.counter);
                     this.expr(s.from, scope, file);
                     this.expr(s.to, scope, file);
                     if (s.step) { this.expr(s.step, scope, file); }
                     this.resolve(s.body, scope, file);
                     break;
                 case 'ForEach':
-                    this.use(scope, file, s.variable, true);
+                    this.use(scope, file, s.variable);
                     this.expr(s.collection, scope, file);
                     this.resolve(s.body, scope, file);
                     break;
@@ -390,19 +419,6 @@ class Binder {
         }
     }
 
-    /**
-     * ReDim resizes the array a name already refers to, as an assignment
-     * would, and inside a procedure declares a local when the name refers to
-     * nothing, even under Option Explicit.
-     */
-    private redim(scope: Scope, file: string, name: A.Name): void {
-        if (scope.kind === 'procedure' && name.name && !this.lookup(scope, name.name)) {
-            this.add(scope, file, name, 'variable', false);
-        } else {
-            this.use(scope, file, name, true);
-        }
-    }
-
     /** Names the parser skipped after an error, read in the procedure or class they sit in. */
     private resolveSkipped(program: A.Program, script: Scope, file: string): void {
         for (const n of program.skippedNames) {
@@ -410,7 +426,7 @@ class Binder {
             if (n.member) {
                 this.binding.members.push({ name: n.name, file, span: { start: n.start, end: n.end }, scope });
             } else {
-                this.use(scope, file, n, false);
+                this.use(scope, file, n);
             }
         }
     }
@@ -430,7 +446,7 @@ class Binder {
 
     /** The left side of an assignment: a bare name is written, anything else is read. */
     private target(e: A.Expr, scope: Scope, file: string): void {
-        if (e.kind === 'Ident') { this.use(scope, file, e.name, true); } else { this.expr(e, scope, file); }
+        if (e.kind === 'Ident') { this.use(scope, file, e.name); } else { this.expr(e, scope, file); }
     }
 
     /**
@@ -449,7 +465,7 @@ class Binder {
             }
             switch (e.kind) {
                 case 'Ident':
-                    this.use(scope, file, e.name, false);
+                    this.use(scope, file, e.name);
                     break;
                 case 'Member':
                     if (e.object?.kind === 'Me') {
@@ -460,7 +476,7 @@ class Binder {
                     }
                     break;
                 case 'New':
-                    this.use(scope, file, e.className, false);
+                    this.use(scope, file, e.className);
                     break;
                 default: {
                     const children = childExpressions(e);
@@ -493,6 +509,14 @@ function childBodies(s: A.Stmt): A.Stmt[][] {
         case 'While':
         case 'With':    return [s.body];
         default:        return [];
+    }
+}
+
+/** Calls `visit` on every statement of a procedure body, nested blocks included, in source order. */
+function walkBody(stmts: A.Stmt[], visit: (s: A.Stmt) => void): void {
+    for (const s of stmts) {
+        visit(s);
+        for (const body of childBodies(s)) { walkBody(body, visit); }
     }
 }
 

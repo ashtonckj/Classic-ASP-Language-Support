@@ -83,6 +83,16 @@ describe('binder — what a name refers to', () => {
         assert.strictEqual(`${temp.scope.kind}@${lineOf(temp.span.start)} ${temp.implicit}`, 'procedure@6 true');
     });
 
+    it('finds a local of a Sub from a use written above the line that makes it', () => {
+        // Checked against cscript.exe: the read sees the Sub's own local, Empty on every call.
+        const loop = 'Sub S\n  Do While i < 10\n    i = i + 1\n  Loop\nEnd Sub';
+        assert.strictEqual(resolved(loop, 'i', 2), 'variable (implicit) procedure@3');
+        const redim = 'Option Explicit\nSub S\n  n = UBound(b)\n  ReDim b(2)\nEnd Sub';
+        assert.strictEqual(resolved(redim, 'b', 3), 'variable procedure@4');
+        // A page variable of that name, even one made further down, is still the one used.
+        assert.strictEqual(resolved('Sub S\n  Response.Write i\n  i = 1\nEnd Sub\ni = 0', 'i', 2), 'variable (implicit) script@5');
+    });
+
     it("reads a Function's own name inside it as the Function", () => {
         assert.strictEqual(resolved(code, 'twice', 9), 'function script@8');
     });
