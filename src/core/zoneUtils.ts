@@ -539,7 +539,7 @@ export function getJsBlockRanges(text: string): Array<{ start: number; end: numb
 
 /** Binary search over sorted, non-overlapping ranges. */
 export function inRanges(
-    ranges: Array<{ start: number; end: number }>,
+    ranges: ReadonlyArray<{ start: number; end: number }>,
     offset: number,
     exclusive: boolean,
 ): boolean {
@@ -559,6 +559,11 @@ export function inRanges(
 
 export interface ZoneResolver {
     zoneAt(offset: number): Zone;
+    /** The ranges the zones are read from, each sorted and non-overlapping, bounds as their functions document. */
+    readonly aspBlocks:  ReadonlyArray<{ start: number; end: number }>;
+    readonly cssBlocks:  ReadonlyArray<{ start: number; end: number }>;
+    readonly vbsScripts: ReadonlyArray<{ start: number; end: number }>;
+    readonly jsBlocks:   ReadonlyArray<{ start: number; end: number }>;
 }
 
 /**
@@ -575,6 +580,7 @@ export function createZoneResolver(text: string): ZoneResolver {
     const jsBlocks   = getJsBlockRanges(text);
 
     return {
+        aspBlocks, cssBlocks, vbsScripts, jsBlocks,
         zoneAt(offset: number): Zone {
             if (inRanges(aspBlocks, offset, true))   { return 'asp'; }
             if (inRanges(cssBlocks, offset, false))  { return 'css'; }
