@@ -19,6 +19,7 @@
  */
 
 import * as vscode from 'vscode';
+import { makeDiagnostic } from '../platform/diagnostics';
 import { analyseEmbeddedJs } from '../workers/analysisClient';
 import { tsSeverityToVs } from './jsTsKinds';
 import { inRanges } from '../core/zoneUtils';
@@ -71,17 +72,12 @@ async function getDiagnosticsForDocument(document: vscode.TextDocument): Promise
         // inclusive at both ends.
         if (!inRanges(jsRanges, docStart, false)) { continue; }
 
-        const diag = new vscode.Diagnostic(
-            new vscode.Range(
-                document.positionAt(docStart),
-                document.positionAt(docStart + d.length)
-            ),
+        diagnostics.push(makeDiagnostic(
+            new vscode.Range(document.positionAt(docStart), document.positionAt(docStart + d.length)),
             d.message,
-            tsSeverityToVs(d.category)
-        );
-        diag.source = 'Classic ASP (JS)';
-        diag.code   = d.code;
-        diagnostics.push(diag);
+            tsSeverityToVs(d.category),
+            d.code,
+        ));
     }
 
     return diagnostics;

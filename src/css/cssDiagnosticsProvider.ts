@@ -5,6 +5,13 @@
  */
 
 import * as vscode from 'vscode';
+import { cssCode, makeDiagnostic } from '../platform/diagnostics';
+
+/** The CSS service's code for a problem (a string, a number or { value }), as one of ours. */
+function codeOf(d: { code?: unknown }): `css-${string}` {
+    const value = typeof d.code === 'object' && d.code !== null ? (d.code as { value: string | number }).value : d.code;
+    return cssCode(typeof value === 'string' || typeof value === 'number' ? value : 'validation');
+}
 import type { DiagnosticSeverity as LsSeverity } from 'vscode-css-languageservice';
 import { getInlineStyleContext, buildInlineCssDoc, cssLanguageService, cssLanguageServiceModule } from './cssUtils';
 import { getParsedCssBlocks, pagePosition } from './cssPageStylesheet';
@@ -108,28 +115,15 @@ function validateDocument(
             const s = pagePosition(blockStart, d.range.start);
             const e = pagePosition(blockStart, d.range.end);
 
-            const diagnostic = new vscode.Diagnostic(
+            diagnostics.push(makeDiagnostic(
                 new vscode.Range(
                     new vscode.Position(s.line, s.character),
                     new vscode.Position(e.line, e.character),
                 ),
                 d.message,
-                mapSeverity(d.severity)
-            );
-
-            diagnostic.source = 'Classic ASP (CSS)';
-
-            // Safely handle d.code which can be string, number, or { value, target }
-            if (d.code !== undefined && d.code !== null) {
-                if (typeof d.code === 'object') {
-                    const codeObj = d.code as { value: string | number };
-                    diagnostic.code = String(codeObj.value);
-                } else {
-                    diagnostic.code = String(d.code);
-                }
-            }
-
-            diagnostics.push(diagnostic);
+                mapSeverity(d.severity),
+                codeOf(d),
+            ));
         }
     }
 
@@ -190,18 +184,7 @@ function validateDocument(
                     realCol + (d.range.end.character - d.range.start.character)
                 );
 
-                const diagnostic = new vscode.Diagnostic(
-                    new vscode.Range(start, end),
-                    d.message,
-                    mapSeverity(d.severity)
-                );
-                diagnostic.source = 'Classic ASP (inline CSS)';
-                if (d.code !== undefined && d.code !== null) {
-                    diagnostic.code = typeof d.code === 'object'
-                        ? String((d.code as { value: string | number }).value)
-                        : String(d.code);
-                }
-                diagnostics.push(diagnostic);
+                diagnostics.push(makeDiagnostic(new vscode.Range(start, end), d.message, mapSeverity(d.severity), codeOf(d)));
             }
 
             searchCol = valueEnd + 1;

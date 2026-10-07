@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { Check, CheckCode } from '../vbscript/checks';
+import { makeDiagnostic } from '../platform/diagnostics';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The checks the parser makes possible (src/vbscript/checks.ts): a name
@@ -16,14 +17,12 @@ const FADED: ReadonlySet<CheckCode> = new Set(['unused', 'unreachable']);
 export function parserCheckDiagnostics(document: vscode.TextDocument, checks: Check[]): vscode.Diagnostic[] {
     return checks.map(check => {
         const faded = FADED.has(check.code);
-        const diagnostic = new vscode.Diagnostic(
+        return makeDiagnostic(
             new vscode.Range(document.positionAt(check.start), document.positionAt(check.end)),
             check.message,
             faded ? vscode.DiagnosticSeverity.Hint : vscode.DiagnosticSeverity.Warning,
+            check.code,
+            faded ? [vscode.DiagnosticTag.Unnecessary] : undefined,
         );
-        if (faded) { diagnostic.tags = [vscode.DiagnosticTag.Unnecessary]; }
-        diagnostic.source = 'Classic ASP';
-        diagnostic.code = check.code;
-        return diagnostic;
     });
 }

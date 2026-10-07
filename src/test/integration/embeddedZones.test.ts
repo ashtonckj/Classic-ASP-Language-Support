@@ -265,7 +265,7 @@ suite('Semantic colouring comes back from the worker threads (integration)', () 
         }
         assert.ok(tokens.some(t => t === '10:function:showTotal'), `the JavaScript should be coloured too; got ${JSON.stringify(tokens)}`);
 
-        const warnings = vscode.languages.getDiagnostics(doc.uri).filter(d => d.source === 'ASP SQL');
+        const warnings = vscode.languages.getDiagnostics(doc.uri).filter(d => d.code === 'sql-highlighting');
         assert.strictEqual(warnings.length, 1, `got ${JSON.stringify(warnings.map(w => w.message))}`);
         assert.strictEqual(warnings[0].range.start.line, 3);
         assert.ok(/'userName' is concatenated into SQL variable 'sql'/.test(warnings[0].message));

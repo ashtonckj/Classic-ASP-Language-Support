@@ -27,7 +27,7 @@ suite('SQL warnings leave with the page (integration)', () => {
         });
         await vscode.window.showTextDocument(doc);
         const uri = doc.uri;
-        const sqlWarnings = () => vscode.languages.getDiagnostics(uri).filter(d => d.source === 'ASP SQL');
+        const sqlWarnings = () => vscode.languages.getDiagnostics(uri).filter(d => d.code === 'sql-highlighting');
 
         assert.ok(await waitFor(() => sqlWarnings().length > 0), 'the page should have a SQL warning');
 

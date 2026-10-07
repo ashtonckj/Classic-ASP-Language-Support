@@ -120,6 +120,7 @@ export class Range {
 }
 
 export const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Hint: 3 };
+export const DiagnosticTag = { Unnecessary: 1, Deprecated: 2 };
 
 export class Diagnostic {
     public source?: string;

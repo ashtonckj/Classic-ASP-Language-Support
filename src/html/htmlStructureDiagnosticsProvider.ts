@@ -20,6 +20,7 @@
  */
 
 import * as vscode from 'vscode';
+import { DiagnosticCode, makeDiagnostic } from '../platform/diagnostics';
 import { pageBlocks, type BlockEvent } from '../vbscript/pageAnalysis';
 import { parsePage } from '../vbscript/symbols';
 import { analysedPage } from '../asp/vbscriptWorkspace';
@@ -39,7 +40,6 @@ export const STRUCTURAL_TAGS = new Set([
     'article', 'aside', 'header', 'footer', 'main', 'dialog',
 ]);
 
-export const VOID_ELEMENT_DIAGNOSTIC_CODE = 'voidElementClosingTag';
 
 // Sticky (/y) close-tag matchers for the raw-text elements. Anchoring at
 // lastIndex tests in place; the previous `fullText.slice(i)` built a copy of the
@@ -467,14 +467,13 @@ export function analyseHtmlStructure(fullText: string, events?: BlockEvent[]): H
 
 export function scanHtmlStructure(document: vscode.TextDocument, events?: BlockEvent[]): vscode.Diagnostic[] {
     return analyseHtmlStructure(document.getText(), events).issues.map(issue => {
-        const diagnostic = new vscode.Diagnostic(
+        const isVoid = issue.kind === 'void';
+        return makeDiagnostic(
             new vscode.Range(document.positionAt(issue.start), document.positionAt(issue.end)),
             issue.message,
-            issue.kind === 'void' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning,
+            isVoid ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning,
+            isVoid ? DiagnosticCode.htmlVoidClosingTag : DiagnosticCode.htmlTag,
         );
-        diagnostic.source = 'Classic ASP (HTML)';
-        if (issue.kind === 'void') { diagnostic.code = VOID_ELEMENT_DIAGNOSTIC_CODE; }
-        return diagnostic;
     });
 }
 
@@ -490,7 +489,7 @@ export class VoidElementQuickFixProvider implements vscode.CodeActionProvider {
         context:  vscode.CodeActionContext,
     ): vscode.CodeAction[] {
         return context.diagnostics
-            .filter(d => d.code === VOID_ELEMENT_DIAGNOSTIC_CODE)
+            .filter(d => d.code === DiagnosticCode.htmlVoidClosingTag)
             .map(diag => {
                 const tagText = document.getText(diag.range);
                 const action  = new vscode.CodeAction(

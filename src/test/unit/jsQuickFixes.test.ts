@@ -17,7 +17,7 @@ import { disposeJsLanguageService } from '../../js/jsUtils';
 
 after(() => { disposeJsLanguageService(); });
 
-const JS_SOURCE = 'Classic ASP (JS)';
+const JS_SOURCE = 'Classic ASP';
 
 function fakeDoc(text: string): vscode.TextDocument {
     const lineStarts = [0];
@@ -146,10 +146,10 @@ describe('Quick fixes are only offered where they belong', () => {
         );
     });
 
-    // A diagnostic from another provider (the HTML structure scanner, say) says
-    // nothing about the JS, and its code numbers mean something else entirely.
-    it('ignores a diagnostic this extension did not publish for the JS', () => {
-        const { actions } = fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551, 'Classic ASP (HTML)');
+    // A diagnostic from another extension (a linter, say) says nothing about
+    // the JS this extension checks, and its code numbers mean something else.
+    it('ignores a diagnostic this extension did not publish', () => {
+        const { actions } = fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551, 'some linter');
         assert.deepStrictEqual(actions, []);
     });
 

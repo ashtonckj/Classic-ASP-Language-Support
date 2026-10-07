@@ -23,6 +23,7 @@ import { onSettingsChange } from '../platform/settings';
 import * as fs from 'fs';
 import { aspTagProblems } from '../core/zoneUtils';
 import { textOf, zonesFor } from '../platform/documentState';
+import { DiagnosticCode, makeDiagnostic } from '../platform/diagnostics';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../core/includeDirectives';
 import { parsePage } from '../vbscript/symbols';
 import { pageBlocks, type BlockWarning, type MissingSet } from '../vbscript/pageAnalysis';
@@ -38,9 +39,9 @@ import { parserCheckDiagnostics } from './aspChecksProvider';
 
 /** The warnings as diagnostics on `document`, whose text they were read from. */
 export function blockDiagnostics(document: vscode.TextDocument, warnings: BlockWarning[]): vscode.Diagnostic[] {
-    return warnings.map(w => Object.assign(
-        new vscode.Diagnostic(new vscode.Range(document.positionAt(w.start), document.positionAt(w.end)), w.message, vscode.DiagnosticSeverity.Warning),
-        { source: 'Classic ASP (VBScript)' },
+    return warnings.map(w => makeDiagnostic(
+        new vscode.Range(document.positionAt(w.start), document.positionAt(w.end)), w.message,
+        vscode.DiagnosticSeverity.Warning, DiagnosticCode.vbscriptBlock,
     ));
 }
 
@@ -59,13 +60,10 @@ export function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] 
     const diagnostics: vscode.Diagnostic[] = [];
 
     for (const problem of aspTagProblems(textOf(document), zonesFor(document))) {
-        diagnostics.push(Object.assign(
-            new vscode.Diagnostic(
-                new vscode.Range(document.positionAt(problem.offset), document.positionAt(problem.offset + 2)),
-                problem.kind === 'stray' ? `Unexpected '%>' — no opening '<%' found` : `Unclosed '<%' — no matching '%>' found`,
-                vscode.DiagnosticSeverity.Warning
-            ),
-            { source: 'Classic ASP (tags)' }
+        diagnostics.push(makeDiagnostic(
+            new vscode.Range(document.positionAt(problem.offset), document.positionAt(problem.offset + 2)),
+            problem.kind === 'stray' ? `Unexpected '%>' — no opening '<%' found` : `Unclosed '<%' — no matching '%>' found`,
+            vscode.DiagnosticSeverity.Warning, DiagnosticCode.aspTag,
         ));
     }
 
@@ -124,13 +122,10 @@ export function findMissingIncludes(
 export function scanIncludes(document: vscode.TextDocument): vscode.Diagnostic[] {
     if (document.uri.scheme !== 'file') { return []; }
     return findMissingIncludes(textOf(document), document.uri.fsPath, configuredVirtualRoot())
-        .map(found => Object.assign(
-            new vscode.Diagnostic(
-                new vscode.Range(document.positionAt(found.start), document.positionAt(found.end)),
-                found.message,
-                vscode.DiagnosticSeverity.Warning,
-            ),
-            { source: 'Classic ASP (includes)' },
+        .map(found => makeDiagnostic(
+            new vscode.Range(document.positionAt(found.start), document.positionAt(found.end)),
+            found.message,
+            vscode.DiagnosticSeverity.Warning, DiagnosticCode.missingInclude,
         ));
 }
 
@@ -138,18 +133,13 @@ export function scanIncludes(document: vscode.TextDocument): vscode.Diagnostic[]
 
 /** The Missing-Set warnings as diagnostics on `document`, whose text they were found in. */
 export function missingSetDiagnostics(document: vscode.TextDocument, missingSet: MissingSet[]): vscode.Diagnostic[] {
-    return missingSet.map(found => Object.assign(
-        new vscode.Diagnostic(
-            new vscode.Range(document.positionAt(found.start), document.positionAt(found.end)),
-            `Missing Set: an object is assigned here, so this needs \`Set ${found.target} = …\`. ` +
-            `Without Set, VBScript tries to copy the object's default value instead, which fails when the page runs.`,
-            vscode.DiagnosticSeverity.Warning,
-        ),
-        { source: 'Classic ASP', code: MISSING_SET_CODE },
+    return missingSet.map(found => makeDiagnostic(
+        new vscode.Range(document.positionAt(found.start), document.positionAt(found.end)),
+        `Missing Set: an object is assigned here, so this needs \`Set ${found.target} = …\`. ` +
+        `Without Set, VBScript tries to copy the object's default value instead, which fails when the page runs.`,
+        vscode.DiagnosticSeverity.Warning, DiagnosticCode.missingSet,
     ));
 }
-
-const MISSING_SET_CODE = 'missing-set';
 
 /** The quick fix: `Set` in front of the name, or in place of a `Let`. */
 class AddSetQuickFix implements vscode.CodeActionProvider {
@@ -161,7 +151,7 @@ class AddSetQuickFix implements vscode.CodeActionProvider {
         context: vscode.CodeActionContext,
     ): vscode.CodeAction[] {
         return context.diagnostics
-            .filter(diagnostic => diagnostic.code === MISSING_SET_CODE)
+            .filter(diagnostic => diagnostic.code === DiagnosticCode.missingSet)
             .map(diagnostic => {
                 const start  = diagnostic.range.start;
                 const before = document.lineAt(start.line).text.slice(0, start.character);

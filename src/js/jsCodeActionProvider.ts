@@ -25,9 +25,8 @@
 import * as vscode from 'vscode';
 import { toDocumentSpan } from './jsUtils';
 import { jsQueryAt } from './jsDocument';
+import { DIAGNOSTIC_SOURCE } from '../platform/diagnostics';
 
-/** The diagnostic source jsDiagnosticsProvider stamps on everything it reports. */
-const JS_DIAGNOSTIC_SOURCE = 'Classic ASP (JS)';
 
 export class JsCodeActionProvider implements vscode.CodeActionProvider {
 
@@ -42,7 +41,8 @@ export class JsCodeActionProvider implements vscode.CodeActionProvider {
 
         const errorCodes = [...new Set(
             context.diagnostics
-                .filter(d => d.source === JS_DIAGNOSTIC_SOURCE && typeof d.code === 'number')
+                // Ours, and a TypeScript number rather than one of our words: a JavaScript problem.
+                .filter(d => d.source === DIAGNOSTIC_SOURCE && typeof d.code === 'number')
                 .map(d => d.code as number),
         )];
         if (!errorCodes.length) { return undefined; }

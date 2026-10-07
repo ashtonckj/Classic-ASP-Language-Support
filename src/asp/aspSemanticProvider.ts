@@ -6,6 +6,7 @@ import { colourAspPage, SqlWarning } from '../workers/analysisClient';
 // one identical legend. VS Code maps token indices through whichever legend is
 // registered first; using a different legend here would corrupt all colours.
 import { COMBINED_SEMANTIC_LEGEND } from '../js/jsSemanticProvider';
+import { DiagnosticCode, makeDiagnostic } from '../platform/diagnostics';
 
 /**
  * The VBScript and SQL colouring, and the SQL warnings.
@@ -63,14 +64,13 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
 }
 
 function toDiagnostic(warning: SqlWarning): vscode.Diagnostic {
-    const diagnostic = new vscode.Diagnostic(
+    return makeDiagnostic(
         new vscode.Range(
             new vscode.Position(warning.line, warning.character),
             new vscode.Position(warning.line, warning.character + warning.length),
         ),
         warning.message,
         vscode.DiagnosticSeverity.Warning,
+        DiagnosticCode.sql,
     );
-    diagnostic.source = 'ASP SQL';
-    return diagnostic;
 }
