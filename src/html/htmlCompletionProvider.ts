@@ -6,7 +6,7 @@ import {
     isInsideAttrValue,
     isInsideTagForAttributes
 } from '../platform/documentHelper';
-import { getZone } from '../core/zoneUtils';
+import { textOf, zonesFor } from '../platform/documentState';
 import { attributeHasValues, htmlAttributeValueCompletions } from './htmlLanguageFeatures';
 
 
@@ -77,7 +77,7 @@ function findUnclosedTag(
     document: vscode.TextDocument,
     position: vscode.Position
 ): { tag: string; openerIndent: string } | null {
-    const fullText = document.getText();
+    const fullText = textOf(document);
     const cursorOffset = document.offsetAt(position);
 
     // We only scan up to the cursor position
@@ -146,9 +146,8 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
         context: vscode.CompletionContext
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
-        const fullText = document.getText();
         const offset = document.offsetAt(position);
-        if (getZone(fullText, offset) !== 'html') { return []; }
+        if (zonesFor(document).zoneAt(offset) !== 'html') { return []; }
 
         const textBefore = document.lineAt(position.line).text.substring(0, position.character);
         const currentIndent = textBefore.match(/^([ \t]*)/)?.[1] ?? '';

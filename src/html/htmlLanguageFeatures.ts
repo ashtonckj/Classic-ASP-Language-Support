@@ -12,7 +12,8 @@ import * as vscode from 'vscode';
 import { otherSetting } from '../platform/settings';
 import type * as HtmlLs from 'vscode-html-languageservice';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-import { getAspBlockRanges, getZone } from '../core/zoneUtils';
+import { getAspBlockRanges } from '../core/zoneUtils';
+import { textOf, zonesFor } from '../platform/documentState';
 import type { BlockEvent } from '../vbscript/pageAnalysis';
 import { analysedPage } from '../asp/vbscriptWorkspace';
 
@@ -50,7 +51,7 @@ function parse(document: vscode.TextDocument): ParsedPage {
     if (cached && cached.version === document.version) { return cached; }
 
     const lsDocument = LsTextDocument.create(
-        document.uri.toString(), 'html', document.version, maskAspBlocks(document.getText()),
+        document.uri.toString(), 'html', document.version, maskAspBlocks(textOf(document)),
     );
     const page = { version: document.version, document: lsDocument, html: htmlService().parseHTMLDocument(lsDocument) };
     _parsed.set(document, page);
@@ -74,7 +75,7 @@ function toMarkdown(contents: HtmlLs.MarkupContent | HtmlLs.MarkedString | HtmlL
 
 /** True when `position` is in the page's markup, not its VBScript, JavaScript or CSS. */
 function inMarkup(document: vscode.TextDocument, position: vscode.Position): boolean {
-    return getZone(document.getText(), document.offsetAt(position)) === 'html';
+    return zonesFor(document).zoneAt(document.offsetAt(position)) === 'html';
 }
 
 // ── Hover ─────────────────────────────────────────────────────────────────────
@@ -171,7 +172,7 @@ export class HtmlLinkedEditingProvider implements vscode.LinkedEditingRangeProvi
         const version = document.version;
         const vbscript = await analysedPage(document, token);
         if (!vbscript || vbscript.version !== version) { return undefined; }
-        if (!vbScriptBalancedBetween(document.getText(), document.offsetAt(first.end), document.offsetAt(second.start), vbscript.blocks.events)) {
+        if (!vbScriptBalancedBetween(textOf(document), document.offsetAt(first.end), document.offsetAt(second.start), vbscript.blocks.events)) {
             return undefined;
         }
         return new vscode.LinkedEditingRanges([first, second]);

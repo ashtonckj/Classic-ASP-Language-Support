@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { otherSetting } from '../platform/settings';
 import type { VSCodeEmmetConfig } from '@vscode/emmet-helper';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-import { getZone } from '../core/zoneUtils';
+import { textOf, zonesFor } from '../platform/documentState';
 
 /**
  * Emmet abbreviations in the suggest widget, offered only where the caret is
@@ -100,7 +100,7 @@ export class EmmetCompletionProvider implements vscode.CompletionItemProvider {
         // around the caret. `asp` is VBScript and `js` belongs to the embedded
         // TypeScript service — expanding an abbreviation in either would
         // replace working code with markup.
-        const zone = getZone(document.getText(), document.offsetAt(position));
+        const zone = zonesFor(document).zoneAt(document.offsetAt(position));
         if (zone !== 'html' && zone !== 'css') { return; }
         const syntax = zone === 'css' ? 'css' : 'html';
 
@@ -108,7 +108,7 @@ export class EmmetCompletionProvider implements vscode.CompletionItemProvider {
         // to tell a stylesheet from markup, so it is given the ZONE's syntax
         // rather than `asp`, which it has never heard of.
         const lsDocument = LsTextDocument.create(
-            document.uri.toString(), syntax, document.version, document.getText(),
+            document.uri.toString(), syntax, document.version, textOf(document),
         );
 
         // Loaded on the first completion rather than when the extension starts.

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { CompletionItemKind as LsKind } from 'vscode-css-languageservice';
 import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, cssLanguageService, cssLanguageServiceModule } from './cssUtils';
-import { getZone } from '../core/zoneUtils';
+import { textOf, zonesFor } from '../platform/documentState';
 
 function mapKind(lsKind: LsKind | undefined): vscode.CompletionItemKind {
     const { CompletionItemKind: LsKind } = cssLanguageServiceModule();
@@ -81,13 +81,14 @@ export class CssCompletionProvider implements vscode.CompletionItemProvider {
         _token: vscode.CancellationToken,
         _context: vscode.CompletionContext
     ): vscode.CompletionItem[] {
-        const fullText = document.getText();
+        const fullText = textOf(document);
         const offset = document.offsetAt(position);
+        const zone = zonesFor(document).zoneAt(offset);
 
         // ── Inline style="" attribute ──────────────────────────────────────────
         // Run inline detection for html, asp, and js zones — style="" can appear anywhere in the HTML markup regardless of what other zones are nearby.
         // Crucially we do NOT run this for the css zone (inside <style> blocks) because style="" never appears inside a <style> block.
-        if (getZone(fullText, offset) !== 'css') {
+        if (zone !== 'css') {
             const inlineCtx = getInlineStyleContext(fullText, offset);
             if (inlineCtx) {
                 const lsDoc = buildInlineCssDoc(
@@ -114,7 +115,7 @@ export class CssCompletionProvider implements vscode.CompletionItemProvider {
         }
 
         // ── <style> block ──────────────────────────────────────────────────────
-        if (getZone(fullText, offset) !== 'css') return [];
+        if (zone !== 'css') return [];
 
         const lsDoc = buildCssDoc(document.uri.toString(), fullText, document.version, offset);
         if (!lsDoc) return [];

@@ -1,15 +1,15 @@
 import * as vscode from 'vscode';
 import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, cssLanguageService } from './cssUtils';
-import { getZone } from '../core/zoneUtils';
+import { textOf, zonesFor } from '../platform/documentState';
 
 export class CssHoverProvider implements vscode.HoverProvider {
     provideHover(
         document: vscode.TextDocument,
         position: vscode.Position
     ): vscode.Hover | null {
-        const fullText = document.getText();
+        const fullText = textOf(document);
         const offset  = document.offsetAt(position);
-        const zone    = getZone(fullText, offset);
+        const zone    = zonesFor(document).zoneAt(offset);
 
         // ── Inline style="" attribute hover ───────────────────────────────────
         // Run for all non-css zones — style="" can appear in HTML, ASP, or JS zones.
