@@ -16,7 +16,8 @@
 
 import * as vscode from 'vscode';
 import { createZoneResolver, type Zone, type ZoneResolver } from '../core/zoneUtils';
-import { isInsideVbStringOrComment } from './documentHelper';
+import { isInVbStringOrComment } from '../core/vbLexical';
+import { aspCodeStartOnLine } from './documentHelper';
 
 interface State {
     version: number;
@@ -57,6 +58,8 @@ export interface CaretContext {
 export function contextAt(document: vscode.TextDocument, position: vscode.Position): CaretContext {
     const offset = document.offsetAt(position);
     const zone = zonesFor(document).zoneAt(offset);
-    const inVbStringOrComment = zone === 'asp' && isInsideVbStringOrComment(document.lineAt(position.line).text, position.character);
+    const line = document.lineAt(position.line).text;
+    const inVbStringOrComment = zone === 'asp'
+        && isInVbStringOrComment(line, position.character, aspCodeStartOnLine(line, position.character));
     return { offset, zone, inVbStringOrComment };
 }

@@ -15,6 +15,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { aspCodeStartOnLine } from '../platform/documentHelper';
+import { scanVbLine } from '../core/vbLexical';
 import { BUILTIN_FUNCTION_DOCS, BuiltinSignature, builtinSignature } from '../constants/aspKeywords';
 import { declarationsOf, resolveAt } from '../vbscript/references';
 import type * as A from '../vbscript/ast';
@@ -52,22 +53,18 @@ export function findActiveCall(
     textBefore: string,
     from: number = 0,
 ): { openParenCol: number; activeParam: number } | null {
+    const scan = scanVbLine(textBefore, from);
+    if (scan.codeEnd < textBefore.length) { return null; } // the caret is in a comment
+
     const parenStack: number[] = [];
     const commaCounts: number[] = [];
-    let inStr = false;
+    let string = 0;
 
     for (let i = from; i < textBefore.length; i++) {
+        const literal = scan.strings[string];
+        if (literal && i === literal.start) { i = literal.end - 1; string++; continue; }
         const ch = textBefore[i];
-        if (inStr) {
-            if (ch === '"') {
-                if (textBefore[i + 1] === '"') { i++; continue; } // "" escaped quote
-                inStr = false;
-            }
-            continue;
-        }
-        if (ch === '"')      { inStr = true; }
-        else if (ch === "'") { return null; } // rest of the line is a comment
-        else if (ch === '(') { parenStack.push(i); commaCounts.push(0); }
+        if (ch === '(') { parenStack.push(i); commaCounts.push(0); }
         else if (ch === ')') { parenStack.pop(); commaCounts.pop(); }
         else if (ch === ',' && parenStack.length > 0) { commaCounts[commaCounts.length - 1]++; }
     }

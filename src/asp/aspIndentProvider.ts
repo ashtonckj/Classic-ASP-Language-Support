@@ -5,6 +5,7 @@ import { isInlineTag, isSelfClosingTag } from '../constants/htmlTags';
 import { ASP_OBJECT_NAMES } from '../constants/aspKeywords';
 import type { Zone } from '../core/zoneUtils';
 import { zonesFor } from '../platform/documentState';
+import { endsWithContinuation, splitCodeAndComment } from '../core/vbLexical';
 
 // ── VBScript block keyword constants ───────────────────────────────────────
 
@@ -68,25 +69,6 @@ export function isBlockOpener(line: string): boolean {
     return !isSingleLineIf;
 }
 
-/**
- * Removes a trailing VBScript comment ( ' … ) from a line, respecting string
- * literals ( "" escapes a quote ). Used when matching opener/closer keywords so
- * that `If b Then   ' note` is still recognised as an If opener.
- */
-export function stripTrailingComment(line: string): string {
-    let inStr = false;
-    for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"') {
-            if (line[i + 1] === '"') { i++; continue; } // "" escaped quote
-            inStr = !inStr;
-        } else if (!inStr && ch === "'") {
-            return line.slice(0, i);
-        }
-    }
-    return line;
-}
-
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /**
@@ -100,39 +82,6 @@ function getIndentUnit(editor: vscode.TextEditor): string {
 }
 
 // ── Line-continuation helpers ──────────────────────────────────────────────
-
-/**
- * Returns true when the physical line ends with a VBScript line-continuation
- * marker (_ preceded by whitespace).  Strips inline comments before checking
- * so that a comment-only tail like  `someExpr And _  ' note`  still counts.
- */
-function lineEndsContinuation(lineText: string): boolean {
-    // Fast exit: if the line doesn't end with whitespace+_ at all, bail immediately.
-    // This is true for the vast majority of lines and avoids the character loop entirely.
-    if (!/\s_\s*$/.test(lineText)) { return false; }
-
-    // The line LOOKS like it ends with _ — now verify the _ is not inside a string
-    // literal or after a VBScript comment marker (').
-    let inStr = false;
-    let lastUnderscoreOutside = -1;
-    for (let i = 0; i < lineText.length; i++) {
-        const ch = lineText[i];
-        if (inStr) {
-            if (ch === '"') {
-                if (i + 1 < lineText.length && lineText[i + 1] === '"') { i++; continue; }
-                inStr = false;
-            }
-            continue;
-        }
-        if (ch === '"') { inStr = true; continue; }
-        if (ch === "'") { break; } // rest of line is comment — stop here
-        if (ch === '_') { lastUnderscoreOutside = i; }
-    }
-
-    if (lastUnderscoreOutside === -1) { return false; }
-    // The _ must be preceded by whitespace (not part of an identifier)
-    return lastUnderscoreOutside > 0 && /\s/.test(lineText[lastUnderscoreOutside - 1]);
-}
 
 /**
  * Given a physical line index `physLine`, walks backward to collect the full
@@ -167,7 +116,7 @@ function getLogicalLineEndingAt(
         if (t.trim() === '') {
             continue; // blank line — skip, keep walking backward
         }
-        if (lineEndsContinuation(t)) {
+        if (endsWithContinuation(t)) {
             chainLines.unshift(t);
             startLine = i;
         } else {
@@ -240,12 +189,12 @@ function findMatchingOpenerIndent(
         // A line is part of a chain if it ITSELF ends with _ (it's a mid/opener line),
         // OR if the line immediately above it ends with _ (it's the tail of a chain).
         // Both cases need getLogicalLineEndingAt to join the physical lines correctly.
-        const prevLineEnds = i > 0 && lineEndsContinuation(document.lineAt(i - 1).text);
+        const prevLineEnds = i > 0 && endsWithContinuation(document.lineAt(i - 1).text);
 
-        if (lineEndsContinuation(rawLine) || prevLineEnds) {
+        if (endsWithContinuation(rawLine) || prevLineEnds) {
             // Part of a continuation chain — resolve the full logical line.
             const resolved = getLogicalLineEndingAt(document, i);
-            text = stripTrailingComment(resolved.text).trim();
+            text = splitCodeAndComment(resolved.text).code.trim();
             startLine = resolved.startLine;
             // Jump i past the earlier physical lines of this chain so the outer
             // loop doesn't re-process them.
@@ -255,7 +204,7 @@ function findMatchingOpenerIndent(
         } else {
             // Fast path — plain line with no continuation involved. Strip a trailing
             // ' comment so `If b Then   ' note` still matches the If opener.
-            text = stripTrailingComment(rawLine).trim();
+            text = splitCodeAndComment(rawLine).code.trim();
             startLine = i;
         }
 
@@ -440,10 +389,9 @@ const LINE_CONTINUATION_BEFORE_PATTERNS: RegExp[] = [
  *      known line-continuation context patterns above.
  */
 function isLineContinuation(lineTextUpToCursor: string): boolean {
-    // Must have whitespace immediately before the trailing _
-    if (!/\s_\s*$/.test(lineTextUpToCursor)) { return false; }
+    if (!endsWithContinuation(lineTextUpToCursor)) { return false; }
 
-    const beforeUnderscore = lineTextUpToCursor.replace(/\s_\s*$/, '').trimEnd();
+    const beforeUnderscore = lineTextUpToCursor.replace(/_\s*$/, '').trimEnd();
 
     // A line that is ONLY _ (or indented _) with nothing before it:
     // e.g. the user is on a blank line and typed _ — treat as continuation.
@@ -495,7 +443,7 @@ function findContinuationChainBaseIndent(
         const text = document.lineAt(i).text;
         // Blank line = statement boundary — the previous chain line is the opener.
         if (!text.trim()) { return lastChainLineIndent; }
-        const isContinuation = /(?:^|\s)_\s*$/.test(text.trim());
+        const isContinuation = endsWithContinuation(text);
         if (!skippedFromLine) {
             skippedFromLine = true; // fromLine itself — skip it
             continue;
@@ -1086,7 +1034,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             // DID (i.e. we are on the last line of a continuation chain), snap
             // back to the base-statement indent so the next statement starts
             // at the correct column.
-            if (/(?:^|\s)_\s*$/.test(currentLineText)) {
+            if (endsWithContinuation(currentLineText)) {
                 // Lines ending with & _ or + _ (string concatenation continuation)
                 const isStringConcat = /[&+]\s*_\s*$/.test(currentLineText);
                 if (isStringConcat) {
@@ -1126,7 +1074,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
                     const t = document.lineAt(i).text;
                     if (t.trim()) { prevNonEmpty = t; break; }
                 }
-                if (/(?:^|\s)_\s*$/.test(prevNonEmpty.trim())) {
+                if (endsWithContinuation(prevNonEmpty)) {
                     const baseIndent = findContinuationChainBaseIndent(document, position.line);
                     editor.edit(eb => eb.insert(position, '\n' + baseIndent)).then(() => {
                         const p = new vscode.Position(position.line + 1, baseIndent.length);

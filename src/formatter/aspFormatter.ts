@@ -1,4 +1,4 @@
-import { isRemAt, removeStrings } from '../platform/documentHelper';
+import { codeWithoutStrings, splitCodeAndComment, vbStatements, vbStringSegments } from '../core/vbLexical';
 import type { FormatterSettings, PrettierSettings } from '../platform/settings';
 
 // ─── Settings ──────────────────────────────────────────────────────────────
@@ -357,7 +357,7 @@ export function applyIndentBefore(
     level:            number,
     selectCaseStack:  number[],
 ): { level: number } {
-    const lower = removeStrings(line).toLowerCase().trim();
+    const lower = codeWithoutStrings(line).toLowerCase().trim();
 
     // End Select — pop the Select Case stack.
     if (/^\s*end\s+select\b/.test(lower)) {
@@ -395,7 +395,7 @@ export function applyIndentAfter(
     level:           number,
     selectCaseStack: number[],
 ): number {
-    const lower = removeStrings(line).toLowerCase().trim();
+    const lower = codeWithoutStrings(line).toLowerCase().trim();
 
     // Single-line If ... Then <statement> — no indent change.
     if (/\bif\b.*\bthen\b\s+\S/.test(lower)) return level;
@@ -445,24 +445,7 @@ export function applyIndentAfter(
  * segment.
  */
 function splitStatements(line: string): string[] {
-    const { code } = splitOffComment(line);
-    const parts: string[] = [];
-    let cur   = '';
-    let inStr = false;
-
-    for (let i = 0; i < code.length; i++) {
-        const ch = code[i];
-        if (ch === '"') {
-            if (code[i + 1] === '"') { cur += '""'; i++; continue; } // "" escaped quote
-            inStr = !inStr;
-            cur += ch;
-            continue;
-        }
-        if (ch === ':' && !inStr) { parts.push(cur); cur = ''; continue; }
-        cur += ch;
-    }
-    parts.push(cur);
-
+    const parts = vbStatements(line);
     const nonEmpty = parts.filter(p => p.trim().length > 0);
     return nonEmpty.length > 0 ? nonEmpty : [''];
 }
@@ -587,61 +570,7 @@ function inferLevelFromIndent(indent: string, useTabs: boolean, indentSize: numb
 
 function isSQLStatement(line: string): boolean {
     return /\b(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|ORDER\s+BY|GROUP\s+BY|UNION|CREATE|DROP|ALTER|INNER|LEFT|RIGHT|OUTER|HAVING|DISTINCT|VALUES|INTO)\b/i
-        .test(removeStrings(line));
-}
-
-/**
- * Splits a VBScript code string into alternating non-string / string segments
- * so that keyword and operator transforms are never applied inside literals.
- */
-function splitByStrings(code: string): Array<{ text: string; isString: boolean }> {
-    const parts: Array<{ text: string; isString: boolean }> = [];
-    let   current  = '';
-    let   inString = false;
-
-    for (let i = 0; i < code.length; i++) {
-        if (code[i] === '"') {
-            if (i + 1 < code.length && code[i + 1] === '"') {
-                current += '""';
-                i++;
-                continue;
-            }
-            if (inString) {
-                current += '"';
-                parts.push({ text: current, isString: true });
-                current  = '';
-                inString = false;
-            } else {
-                if (current) parts.push({ text: current, isString: false });
-                current  = '"';
-                inString = true;
-            }
-        } else {
-            current += code[i];
-        }
-    }
-
-    if (current) parts.push({ text: current, isString: inString });
-    return parts;
-}
-
-/**
- * Splits a line into its code portion and a trailing VBScript comment (`' …`),
- * respecting string literals so an apostrophe inside "…" is not mistaken for the
- * start of a comment. `comment` includes its leading `'` (or is '' when none).
- */
-function splitOffComment(line: string): { code: string; comment: string } {
-    let inString = false;
-    for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"') {
-            if (line[i + 1] === '"') { i++; continue; } // "" = escaped quote
-            inString = !inString;
-        } else if (!inString && (ch === "'" || isRemAt(line, i))) {
-            return { code: line.slice(0, i), comment: line.slice(i) };
-        }
-    }
-    return { code: line, comment: '' };
+        .test(codeWithoutStrings(line));
 }
 
 // ─── Keyword casing ────────────────────────────────────────────────────────
@@ -794,8 +723,8 @@ export function applyKeywordCase(code: string, caseStyle: string): string {
     // comma spacing must never touch comment text. Previously a comment such as
     // `' loop through next items` was keyword-cased to `' Loop through Next items`
     // and a URL like `' see http://x/y` became `' see http: / / x/y`.
-    const { code: codeOnly, comment } = splitOffComment(code);
-    const formatted = splitByStrings(codeOnly).map(part => {
+    const { code: codeOnly, comment } = splitCodeAndComment(code);
+    const formatted = vbStringSegments(codeOnly).map(part => {
         if (part.isString) return part.text;
         let s = applyKeywordCaseToText(part.text, caseStyle);
         s = formatOperators(s);

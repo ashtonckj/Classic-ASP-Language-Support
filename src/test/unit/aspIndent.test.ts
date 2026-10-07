@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import {
-    isBlockOpener, stripTrailingComment, tagToAutoClose, continuesOpenJsDocComment,
+    isBlockOpener, tagToAutoClose, continuesOpenJsDocComment,
 } from '../../asp/aspIndentProvider';
 import { Zone } from '../../core/zoneUtils';
 
@@ -31,22 +31,6 @@ describe('isBlockOpener', () => {
         assert.strictEqual(isBlockOpener('Dim x'), false);
         assert.strictEqual(isBlockOpener('x = 1'), false);
         assert.strictEqual(isBlockOpener('Public Balance'), false); // a field, not a block
-    });
-});
-
-// A trailing ' comment must be stripped before opener matching, but
-// an apostrophe inside a string is data, not a comment.
-describe('stripTrailingComment', () => {
-    it('removes a trailing comment so the opener can be matched', () => {
-        assert.strictEqual(stripTrailingComment("If b Then   ' note").trim(), 'If b Then');
-    });
-
-    it('keeps an apostrophe that lives inside a string literal', () => {
-        assert.strictEqual(stripTrailingComment('x = "a \' b"'), 'x = "a \' b"');
-    });
-
-    it('leaves a comment-free line unchanged', () => {
-        assert.strictEqual(stripTrailingComment('For i = 1 To 10'), 'For i = 1 To 10');
     });
 });
 

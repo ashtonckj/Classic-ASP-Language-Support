@@ -5,7 +5,8 @@ import { COM_MEMBER_DOCS } from '../constants/comObjects';
 import {
     ASP_MEMBER_DOCS, ASP_OBJECTS, ASP_OBJECT_NAMES, AspObjectDef, BUILTIN_FUNCTION_DOCS, VBSCRIPT_CONSTANTS, VBSCRIPT_KEYWORDS_SET,
 } from '../constants/aspKeywords';
-import { aspCodeStartOnLine, isInsideVbString } from '../platform/documentHelper';
+import { aspCodeStartOnLine } from '../platform/documentHelper';
+import { isInVbString, isInVbStringOrComment } from '../core/vbLexical';
 import * as path from 'path';
 import { declarationsOf, resolveAt, type BoundPage, type Target } from '../vbscript/references';
 import type { Declaration } from '../vbscript/binder';
@@ -219,7 +220,7 @@ export class AspHoverProvider implements vscode.HoverProvider {
         // If the cursor lands inside a string the word is a value, not an
         // identifier — so Case "Active", Response.Write "msg", etc. must never
         // show variable/function/keyword hovers.
-        if (isInsideVbString(lineText, position.character, codeStart)) { return null; }
+        if (isInVbString(lineText, position.character, codeStart)) { return null; }
 
         const allSymbols = collectAllSymbols(document);
 
@@ -300,14 +301,10 @@ export class AspHoverProvider implements vscode.HoverProvider {
             return new vscode.Hover(new vscode.MarkdownString(BUILTIN_FUNCTION_DOCS[wordKey]));
         }
 
-        // Suppress hover inside comments. Strip string literals first so a quote
-        // inside a string isn't mistaken for a comment delimiter, and search only
-        // from the start of this line's VBScript so an apostrophe in surrounding
-        // HTML text or a single-quoted attribute never counts as a comment marker.
-        const codePart           = lineText.slice(codeStart);
-        const strippedForComment = codePart.replace(/"[^"]*"/g, m => ' '.repeat(m.length));
-        const commentIdx         = strippedForComment.indexOf("'");
-        if (commentIdx !== -1 && position.character > codeStart + commentIdx) return null;
+        // Suppress hover inside comments, read from the start of this line's
+        // VBScript so an apostrophe in surrounding HTML text or a single-quoted
+        // attribute never counts as a comment marker.
+        if (isInVbStringOrComment(lineText, position.character, codeStart)) return null;
 
         // Extract words immediately before and after the hovered word so we can
         // assemble 2-word and 3-word compound keys and return the correct doc
