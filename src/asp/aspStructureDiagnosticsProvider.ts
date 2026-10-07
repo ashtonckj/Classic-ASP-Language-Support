@@ -21,7 +21,7 @@
 import * as vscode from 'vscode';
 import { onSettingsChange } from '../platform/settings';
 import * as fs from 'fs';
-import { aspTagProblems } from '../core/zoneUtils';
+import { aspTagProblems } from '../core/zoneUtils';
 import { textOf, zonesFor } from '../platform/documentState';
 import { CHECK_DELAY, DiagnosticCode, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../core/includeDirectives';
