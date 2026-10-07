@@ -2,9 +2,9 @@ import * as assert from 'assert';
 import {
     buildVirtualJsContent, cutAtStatementColon, disposeJsLanguageService,
     getJsLanguageService, substituteAspBlock,
-} from '../../utils/jsUtils';
-import { getJsBlockRanges } from '../../utils/zoneUtils';
-import { SUPPRESSED_CODES } from '../../providers/jsDiagnosticsProvider';
+} from '../../js/jsUtils';
+import { getJsBlockRanges } from '../../core/zoneUtils';
+import { SUPPRESSED_CODES } from '../../js/jsDiagnosticsProvider';
 
 // A Const value must keep a colon that lives inside a string (e.g. a URL) so it
 // is typed by its literal, but still cut at a real statement-separating colon.

@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { HtmlAttributeLinkProvider, resolveHtmlLink } from '../../providers/linkProvider';
+import { HtmlAttributeLinkProvider, resolveHtmlLink } from '../../html/linkProvider';
 
 // href / src links follow the rules VS Code's HTML support uses in a .html file.
 // A root-relative `/images/x.gif` was resolved against the DRIVE root, so it never

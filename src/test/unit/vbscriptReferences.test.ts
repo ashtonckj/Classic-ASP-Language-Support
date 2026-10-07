@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as path from 'path';
 import { definitionSites, findSites, resolveAt, type WorkspaceHost } from '../../vbscript/references';
-import { parseIncludeDirectives, resolveIncludeDirective } from '../../utils/includeDirectives';
+import { parseIncludeDirectives, resolveIncludeDirective } from '../../core/includeDirectives';
 
 /** A workspace over an in-memory site, with the site root as the virtual root. */
 function site(files: Record<string, string>): WorkspaceHost {

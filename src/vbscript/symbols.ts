@@ -19,7 +19,7 @@
 import type * as A from './ast';
 import { parseProgram } from './parser';
 import { pagePrograms } from './pageSegments';
-import type { FileSymbols } from '../utils/symbolParser';
+import type { FileSymbols } from './symbolParser';
 import { COM_METHOD_RETURN_TYPES, normalizeProgId } from '../constants/comObjects';
 
 export interface ParsedPage {

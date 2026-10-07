@@ -16,7 +16,7 @@
  * the editor (open buffers first), a worker thread and the tests share it.
  */
 
-import { parseIncludeDirectives, type IncludeDirective } from '../utils/includeDirectives';
+import { parseIncludeDirectives, type IncludeDirective } from '../core/includeDirectives';
 import { parsePage, type ParsedPage } from './symbols';
 
 export interface ScopeFile {

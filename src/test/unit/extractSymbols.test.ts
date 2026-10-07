@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { extractSymbols } from '../../utils/symbolParser';
+import { extractSymbols } from '../../vbscript/symbolParser';
 
 // Class / Property Get/Let/Set are now extracted as symbols.
 // Inline `<% Dim x %>` declarations are captured.

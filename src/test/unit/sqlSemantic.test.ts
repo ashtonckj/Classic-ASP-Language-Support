@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { isSql } from '../../providers/sqlSemanticProvider';
+import { isSql } from '../../vbscript/sqlTokens';
 
 // SQL-in-string detection must not light up plain English that happens to
 // contain SQL keywords, while still recognising real SQL (including UPDATE…SET

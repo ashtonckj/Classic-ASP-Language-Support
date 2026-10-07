@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { CssColorProvider } from '../../providers/cssColorProvider';
+import { CssColorProvider } from '../../css/cssColorProvider';
 
 // Colour swatches in an ASP page, in <style> blocks and in style="" attributes.
 //

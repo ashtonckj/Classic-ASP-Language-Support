@@ -6,14 +6,14 @@
  * object of each With block, and every assignment that needs Set.
  *
  * Results are offsets into the page, not editor positions, and nothing here
- * imports vscode, so the VBScript worker thread (utils/vbscriptWorker.ts) can
+ * imports vscode, so the VBScript worker thread (workers/vbscriptWorker.ts) can
  * run it as well as the extension host.
  */
 
 import type * as A from './ast';
 import { sourceOf, symbolsOfPage, walkStatements, type ParsedPage } from './symbols';
 import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
-import type { FileSymbols } from '../utils/symbolParser';
+import type { FileSymbols } from './symbolParser';
 
 /**
  * What completion, the outline, the matching-keyword highlight and the

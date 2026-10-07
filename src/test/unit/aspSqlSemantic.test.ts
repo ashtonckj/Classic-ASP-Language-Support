@@ -1,10 +1,10 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { AspSemanticTokensProvider } from '../../providers/aspSemanticProvider';
-import { colourAspPage } from '../../utils/aspColouring';
-import { colourAspPage as colourOnWorker, disposeAnalysisWorkers } from '../../utils/analysisClient';
-import { COMBINED_SEMANTIC_LEGEND } from '../../providers/jsSemanticProvider';
-import type { FileSymbols } from '../../utils/symbolParser';
+import { AspSemanticTokensProvider } from '../../asp/aspSemanticProvider';
+import { colourAspPage } from '../../vbscript/aspColouring';
+import { colourAspPage as colourOnWorker, disposeAnalysisWorkers } from '../../workers/analysisClient';
+import { COMBINED_SEMANTIC_LEGEND } from '../../js/jsSemanticProvider';
+import type { FileSymbols } from '../../vbscript/symbolParser';
 
 // SQL colouring follows a variable: once `sql` is seen holding a SELECT, later
 // fragments appended to it are coloured too. The passes that track which

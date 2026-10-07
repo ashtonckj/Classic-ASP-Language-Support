@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as path from 'path';
-import { movedPathLookup, rewriteIncludesAfterMove } from '../../utils/includeDirectives';
+import { movedPathLookup, rewriteIncludesAfterMove } from '../../core/includeDirectives';
 
 // Moving a file left every #include that named it pointing at nothing. These
 // work out what each directive has to say instead.

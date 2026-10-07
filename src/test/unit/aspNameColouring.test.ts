@@ -1,7 +1,7 @@
 import * as assert from 'assert';
-import { colourAspPage } from '../../utils/aspColouring';
-import { COMBINED_SEMANTIC_LEGEND } from '../../providers/jsSemanticProvider';
-import type { FileSymbols } from '../../utils/symbolParser';
+import { colourAspPage } from '../../vbscript/aspColouring';
+import { COMBINED_SEMANTIC_LEGEND } from '../../js/jsSemanticProvider';
+import type { FileSymbols } from '../../vbscript/symbolParser';
 
 // VBScript names are coloured from the binder: each is coloured as what it
 // refers to in VBScript's own scopes, not by matching the word against every

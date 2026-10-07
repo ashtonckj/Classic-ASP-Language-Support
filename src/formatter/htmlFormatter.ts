@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import type * as prettier from 'prettier';
 import { formatSingleAspBlock, getAspSettings, delimitersAtColumnZero, type AspFormatterSettings } from './aspFormatter';
-import { findNextRealTag, findTagEnd, findClosingTag, getVbScriptBlockRanges } from '../utils/zoneUtils';
-import { analyseHtmlStructure } from '../providers/htmlStructureDiagnosticsProvider';
+import { findNextRealTag, findTagEnd, findClosingTag, getVbScriptBlockRanges } from '../core/zoneUtils';
+import { analyseHtmlStructure } from '../html/htmlStructureDiagnosticsProvider';
 import { VOID_ELEMENTS } from '../constants/htmlTags';
 import { pageLanguage } from '../vbscript/pageSegments';
 

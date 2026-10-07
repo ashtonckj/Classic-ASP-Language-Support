@@ -3,7 +3,7 @@
  * watch.js
  *
  * The development watch: regenerates the baked DOM declarations whenever
- * src/utils/asp-dom.d.ts changes, and runs `tsc -watch` alongside it.
+ * src/js/asp-dom.d.ts changes, and runs `tsc -watch` alongside it.
  *
  * Why a wrapper rather than two npm scripts joined by an operator: `&` and `&&`
  * behave differently across cmd.exe, PowerShell and sh, and `&&` would only run

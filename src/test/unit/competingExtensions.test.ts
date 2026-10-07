@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { claimsAsp, competitorsToMention, findCompetitors } from '../../competingExtensions';
+import { claimsAsp, competitorsToMention, findCompetitors } from '../../platform/competingExtensions';
 
 // Two other Classic ASP extensions register the same language and grammar as
 // this one, and then fight it over how .asp files are coloured. These pick

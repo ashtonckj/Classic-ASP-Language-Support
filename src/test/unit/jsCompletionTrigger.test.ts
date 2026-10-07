@@ -5,7 +5,7 @@ import {
     disposeJsLanguageService,
     getJsLanguageService,
     isTsTriggerCharacter,
-} from '../../utils/jsUtils';
+} from '../../js/jsUtils';
 
 // Typing '(' in a <script> block halted the Extension Development Host.
 //

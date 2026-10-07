@@ -5,7 +5,7 @@ import {
     insertedPairPositions,
     shiftQuotePositions,
     type AutoInsertSite,
-} from '../../providers/aspIndentProvider';
+} from '../../asp/aspIndentProvider';
 import * as vscode from 'vscode';
 
 // Auto-close used to read only contentChanges[0] and then assign a single

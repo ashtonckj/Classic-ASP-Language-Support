@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { getZone, createZoneResolver, Zone } from '../../utils/zoneUtils';
+import { getZone, createZoneResolver, Zone } from '../../core/zoneUtils';
 
 // createZoneResolver exists purely to make classifying EVERY line of a document
 // affordable — getZone rescans from offset 0 on each call, so asking it per line

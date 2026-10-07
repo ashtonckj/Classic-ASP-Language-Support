@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { getZone, findTagEnd, findNextRealTag, getVbScriptBlockRanges } from '../../utils/zoneUtils';
+import { getZone, findTagEnd, findNextRealTag, getVbScriptBlockRanges } from '../../core/zoneUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ASP block-scanning is LEXICAL (verified against a live IIS/ASP engine):

@@ -2,9 +2,9 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as ts from 'typescript';
-import { analyseEmbeddedJs, disposeAnalysisWorkers } from '../../utils/analysisClient';
-import { buildVirtualJsContent, getJsLanguageService } from '../../utils/jsUtils';
-import { getJsBlockRanges } from '../../utils/zoneUtils';
+import { analyseEmbeddedJs, disposeAnalysisWorkers } from '../../workers/analysisClient';
+import { buildVirtualJsContent, getJsLanguageService } from '../../js/jsUtils';
+import { getJsBlockRanges } from '../../core/zoneUtils';
 
 // The two always-on JavaScript features — type-aware colouring and the error
 // squiggles — are computed on a worker thread instead of the extension host,

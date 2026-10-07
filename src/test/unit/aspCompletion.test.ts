@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { enclosingWithObject } from '../../providers/aspCompletionProvider';
+import { enclosingWithObject } from '../../asp/aspCompletionProvider';
 
 // Inside `With rs … End With`, a statement can start with a bare `.` that means
 // rs. Completion has to know which object that is to offer its members.

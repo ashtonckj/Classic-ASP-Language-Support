@@ -1,8 +1,8 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { JsCodeActionProvider } from '../../providers/jsCodeActionProvider';
-import { SUPPRESSED_CODES } from '../../providers/jsDiagnosticsProvider';
-import { disposeJsLanguageService } from '../../utils/jsUtils';
+import { JsCodeActionProvider } from '../../js/jsCodeActionProvider';
+import { SUPPRESSED_CODES } from '../../js/jsDiagnosticsProvider';
+import { disposeJsLanguageService } from '../../js/jsUtils';
 
 // Quick Fixes for the JS squiggles a page already shows. The one that earns its
 // keep is the misspelt member: TS2551's message ends "Did you mean

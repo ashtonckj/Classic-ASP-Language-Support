@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { isRemAt, removeStrings } from '../utils/documentHelper';
+import { isRemAt, removeStrings } from '../platform/documentHelper';
 
 // ─── Settings ──────────────────────────────────────────────────────────────
 

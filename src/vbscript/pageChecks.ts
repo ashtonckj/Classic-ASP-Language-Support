@@ -7,7 +7,7 @@
  * arguments, a local never used, code after an Exit).
  *
  * Nothing here imports vscode, so the VBScript worker thread
- * (utils/vbscriptWorker.ts) runs it. The editor sends what only it knows:
+ * (workers/vbscriptWorker.ts) runs it. The editor sends what only it knows:
  * the text of every file open with unsaved changes, and the settings.
  */
 
@@ -18,7 +18,7 @@ import { findMissingSet, type MissingSet } from './pageAnalysis';
 import { bindAt } from './references';
 import type { ScopeHost } from './scriptScope';
 import { symbolsOfPage, type ParsedPage } from './symbols';
-import { resolveIncludeDirective } from '../utils/includeDirectives';
+import { resolveIncludeDirective } from '../core/includeDirectives';
 import { ASP_OBJECT_NAMES, VBSCRIPT_CONSTANTS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
 
 export interface ChecksRequest {

@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { affectsRegionHighlight, editorsToPaint, hasNonEmptySelection, overlapWithSelections } from '../../highlight';
+import { affectsRegionHighlight, editorsToPaint, hasNonEmptySelection, overlapWithSelections } from '../../asp/highlight';
 
 // Reported upstream: a TextEditorDecorationType's backgroundColor paints on the
 // same layer as the text, above VS Code's own selection highlight, so a

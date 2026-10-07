@@ -6,7 +6,7 @@ import * as path from 'path';
 import { checkPage, globalAsaChecks, objectTagIds, type CheckCode } from '../../vbscript/checks';
 import { bindAt, type WorkspaceHost } from '../../vbscript/references';
 import { lineAt, parsePage } from '../../vbscript/symbols';
-import { resolveIncludeDirective } from '../../utils/includeDirectives';
+import { resolveIncludeDirective } from '../../core/includeDirectives';
 import { checkPageFiles, type ChecksRequest, type PageChecks } from '../../vbscript/pageChecks';
 import { VBSCRIPT_CONSTANTS } from '../../constants/aspKeywords';
 

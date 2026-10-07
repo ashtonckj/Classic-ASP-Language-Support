@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { findMissingIncludes, scanAspStructure } from '../../providers/aspStructureDiagnosticsProvider';
+import { findMissingIncludes, scanAspStructure } from '../../asp/aspStructureDiagnosticsProvider';
 import { findMissingSet, pageBlocks, type Keyword } from '../../vbscript/pageAnalysis';
 import { lineAt, parsePage } from '../../vbscript/symbols';
 import * as fs from 'fs';

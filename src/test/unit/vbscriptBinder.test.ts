@@ -4,7 +4,7 @@ import * as path from 'path';
 import { bindPage, bindScriptScope, type Binding } from '../../vbscript/binder';
 import { buildScriptScope, type ScopeHost } from '../../vbscript/scriptScope';
 import { lineAt, parsePage } from '../../vbscript/symbols';
-import { resolveIncludeDirective } from '../../utils/includeDirectives';
+import { resolveIncludeDirective } from '../../core/includeDirectives';
 
 // The "Name redefined" cases below were checked against cscript.exe.
 

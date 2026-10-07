@@ -28,7 +28,7 @@ import type { Declaration, Reference, Scope } from './binder';
 import { statementExpressions, walkExpression } from './expressions';
 import type { BoundPage } from './references';
 import { serverObjects, walkStatements } from './symbols';
-import { getAspBlockRanges } from '../utils/zoneUtils';
+import { getAspBlockRanges } from '../core/zoneUtils';
 
 export type CheckCode = 'name-redefined' | 'undeclared' | 'wrong-arguments' | 'unused' | 'unreachable' | 'global-asa';
 

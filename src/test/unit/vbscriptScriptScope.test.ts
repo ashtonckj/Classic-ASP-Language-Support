@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as path from 'path';
 import { buildScriptScope, type ScopeHost } from '../../vbscript/scriptScope';
-import { resolveIncludeDirective } from '../../utils/includeDirectives';
+import { resolveIncludeDirective } from '../../core/includeDirectives';
 
 /** A host over an in-memory site, with the site root as the virtual root. */
 function site(files: Record<string, string>): ScopeHost & { reads: string[] } {

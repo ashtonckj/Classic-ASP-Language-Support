@@ -1,9 +1,9 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { JsDefinitionProvider } from '../../providers/jsDefinitionProvider';
-import { JsReferenceProvider, JsDocumentHighlightProvider } from '../../providers/jsReferenceProvider';
-import { JsRenameProvider } from '../../providers/jsRenameProvider';
-import { disposeJsLanguageService } from '../../utils/jsUtils';
+import { JsDefinitionProvider } from '../../js/jsDefinitionProvider';
+import { JsReferenceProvider, JsDocumentHighlightProvider } from '../../js/jsReferenceProvider';
+import { JsRenameProvider } from '../../js/jsRenameProvider';
+import { disposeJsLanguageService } from '../../js/jsUtils';
 
 // F12, Shift+F12 and F2 inside a <script> block. A plain .html file gets these
 // from the TypeScript server; a Classic ASP page has to ask, because its JS is

@@ -4,9 +4,9 @@ import {
     collectCrossFrameNames,
     disposeJsLanguageService,
     getJsLanguageService,
-} from '../../utils/jsUtils';
-import { getJsBlockRanges } from '../../utils/zoneUtils';
-import { SUPPRESSED_CODES } from '../../providers/jsDiagnosticsProvider';
+} from '../../js/jsUtils';
+import { getJsBlockRanges } from '../../core/zoneUtils';
+import { SUPPRESSED_CODES } from '../../js/jsDiagnosticsProvider';
 
 // A Classic ASP modal reaching back into the page that opened it —
 // window.parent.RefreshGrid(...) — was reported as "property does not exist",

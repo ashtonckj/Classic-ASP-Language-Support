@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { AspDocumentSymbolProvider } from '../../providers/aspDocumentSymbolProvider';
-import { disposeAnalysisWorkers } from '../../utils/analysisClient';
+import { AspDocumentSymbolProvider } from '../../asp/aspDocumentSymbolProvider';
+import { disposeAnalysisWorkers } from '../../workers/analysisClient';
 
 // Minimal TextDocument for the outline provider: it reads getText, lineCount,
 // lineAt(...).text and lineAt(...).range.end, and the version the worker's

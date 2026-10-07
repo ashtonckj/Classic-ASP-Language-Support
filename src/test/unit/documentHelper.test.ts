@@ -7,7 +7,7 @@ import {
     isInsideVbString,
     isInsideTagForAttributes,
     getCurrentTagName,
-} from '../../utils/documentHelper';
+} from '../../platform/documentHelper';
 
 // Minimal TextDocument stand-in: the tag scanners only need getText/offsetAt.
 function docAt(text: string): { document: vscode.TextDocument; posOf: (marker: string) => vscode.Position } {

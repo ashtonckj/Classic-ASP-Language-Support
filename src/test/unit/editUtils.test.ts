@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { alignLines, computeLineEdits, computeRangeEdits, documentEol, resolveEol, toLf } from '../../utils/editUtils';
+import { alignLines, computeLineEdits, computeRangeEdits, documentEol, resolveEol, toLf } from '../../platform/editUtils';
 
 // Minimal TextDocument stand-in: computeLineEdits only reads lineCount, lineAt,
 // and eol.

@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { JsDocumentSymbolProvider } from '../../providers/jsDocumentSymbolProvider';
-import { disposeJsLanguageService } from '../../utils/jsUtils';
+import { JsDocumentSymbolProvider } from '../../js/jsDocumentSymbolProvider';
+import { disposeJsLanguageService } from '../../js/jsUtils';
 
 // The Outline is rebuilt on every keystroke, over a half-typed document, from an
 // AST full of TypeScript's error-recovery nodes. Typing `function(` produces a

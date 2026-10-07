@@ -7,7 +7,7 @@ import * as stub from './_vscodeStub';
 import {
     globToRegExp, isAspFile, findAspFilesInFolder, AssociationRule,
     AspWorkspaceSymbolProvider, disposeWorkspaceIndex,
-} from '../../providers/aspWorkspaceSymbolProvider';
+} from '../../asp/aspWorkspaceSymbolProvider';
 
 // Workspace symbol search (Ctrl+T) used to find files by a hardcoded
 // /\.(asp|inc)$/i extension check, so a codebase that keeps its Classic ASP

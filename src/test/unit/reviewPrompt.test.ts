@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import {
     afterAnswer, countFormat, FIRST_WAIT_DAYS, FORMATS_NEEDED, initialState, isTimeToAsk,
     LATER_WAIT_DAYS, MAX_ASKS, ratingPage, ReviewState,
-} from '../../reviewPrompt';
+} from '../../platform/reviewPrompt';
 
 // The rating request has to stay rare: a week in, after five formats that
 // worked, and at most twice ever.

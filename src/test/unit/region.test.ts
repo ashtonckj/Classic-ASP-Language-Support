@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { findAspRegionOffsets } from '../../utils/region';
+import { findAspRegionOffsets } from '../../asp/region';
 
 // The <% %> background-highlight regions are found by pairing each
 // opener with its FIRST %> (like the ASP engine). A stray `%>` in HTML text must

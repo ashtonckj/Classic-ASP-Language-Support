@@ -29,7 +29,7 @@
  * Includes are not followed here. An `<!-- #include -->` is just HTML.
  */
 
-import { getAspBlockRanges, getVbScriptBlockRanges } from '../utils/zoneUtils';
+import { getAspBlockRanges, getVbScriptBlockRanges } from '../core/zoneUtils';
 
 export type SegmentKind = 'code' | 'output' | 'html';
 
