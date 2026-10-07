@@ -4,6 +4,7 @@ import { formatSingleAspBlock, getAspSettings, delimitersAtColumnZero, type AspF
 import { findNextRealTag, findTagEnd, findClosingTag, getVbScriptBlockRanges } from '../utils/zoneUtils';
 import { analyseHtmlStructure } from '../providers/htmlStructureDiagnosticsProvider';
 import { VOID_ELEMENTS } from '../constants/htmlTags';
+import { pageLanguage } from '../vbscript/pageSegments';
 
 // ─── Prettier settings ─────────────────────────────────────────────────────
 
@@ -660,6 +661,15 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     if (hasUnclosedAspTags(code)) {
         vscode.window.showWarningMessage(
             'Formatting skipped — unclosed <% or stray %> detected. Fix the ASP tag mismatch first.'
+        );
+        return code;
+    }
+
+    // The block formatter knows VBScript only. Recasing and re-indenting a
+    // JScript page's code by VBScript's rules would break it.
+    if (pageLanguage(code) === 'jscript') {
+        vscode.window.showInformationMessage(
+            "Formatting skipped — this page's server code is JScript, and the formatter only formats VBScript."
         );
         return code;
     }

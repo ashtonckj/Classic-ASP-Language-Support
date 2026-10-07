@@ -13,6 +13,10 @@
  *     between `Select Case` and the first `Case` is an error. A chunk of only
  *     whitespace is just a line break.
  *
+ * A page whose `<%@ Language=… %>` directive names JScript has no page flow
+ * program: its `<% %>` code is JScript, and reading it as VBScript filled the
+ * page with false errors.
+ *
  * Each `<script language="vbscript">` body (the blocks getZone reports as the
  * asp zone) is a program of its own. A client-side one runs in the browser,
  * and even a `runat="server"` one is not part of the page flow, so a Sub in it
@@ -44,6 +48,17 @@ export interface ProgramSource {
     server: boolean;
 }
 
+/**
+ * The language a page's `<% %>` code is in, from its `<%@ Language=… %>`
+ * directive: VBScript unless the directive names JScript (or JavaScript,
+ * which IIS runs as JScript).
+ */
+export function pageLanguage(text: string): 'vbscript' | 'jscript' {
+    const directive = /<%@([\s\S]*?)%>/.exec(text);
+    const language = directive && /\blanguage\s*=\s*["']?\s*([a-z]+)/i.exec(directive[1]);
+    return language && /^(?:jscript|javascript)$/i.test(language[1]) ? 'jscript' : 'vbscript';
+}
+
 export function pagePrograms(text: string): ProgramSource[] {
     const aspBlocks = getAspBlockRanges(text).map(r => ({ start: r.start, end: Math.min(r.end, text.length) }));
     const scriptBodies = getVbScriptBlockRanges(text);
@@ -53,6 +68,29 @@ export function pagePrograms(text: string): ProgramSource[] {
         return /^\s*</.test(text) ? [] : [{ segments: [{ kind: 'code', start: 0, end: text.length }], server: true }];
     }
 
+    const programs: ProgramSource[] = [];
+    // A JScript page's `<% %>` code is not VBScript; only its VBScript script blocks are.
+    if (pageLanguage(text) === 'vbscript') { programs.push({ segments: pageFlow(text, aspBlocks), server: true }); }
+
+    // Each script body, less any `<% %>` block written inside it: that block
+    // belongs to the page flow, and splits the script around it.
+    for (const body of scriptBodies) {
+        const pieces: Segment[] = [];
+        let from = body.start;
+        for (const block of aspBlocks) {
+            if (block.end <= from || block.start >= body.end) { continue; }
+            if (block.start > from) { pieces.push({ kind: 'code', start: from, end: block.start }); }
+            from = Math.max(from, block.end);
+        }
+        if (from < body.end) { pieces.push({ kind: 'code', start: from, end: body.end }); }
+        if (pieces.length > 0) { programs.push({ segments: pieces, server: runsAtServer(text, body.start) }); }
+    }
+
+    return programs;
+}
+
+/** The page flow: each `<% %>` block's code or `<%= %>` expression, and the HTML between them. */
+function pageFlow(text: string, aspBlocks: { start: number; end: number }[]): Segment[] {
     const flow: Segment[] = [];
     let pos = 0;
     for (const block of aspBlocks) {
@@ -75,24 +113,7 @@ export function pagePrograms(text: string): ProgramSource[] {
     }
 
     if (pos < text.length) { pushGap(text, pos, text.length, flow); }
-
-    const programs: ProgramSource[] = [{ segments: flow, server: true }];
-
-    // Each script body, less any `<% %>` block written inside it: that block
-    // belongs to the page flow, and splits the script around it.
-    for (const body of scriptBodies) {
-        const pieces: Segment[] = [];
-        let from = body.start;
-        for (const block of aspBlocks) {
-            if (block.end <= from || block.start >= body.end) { continue; }
-            if (block.start > from) { pieces.push({ kind: 'code', start: from, end: block.start }); }
-            from = Math.max(from, block.end);
-        }
-        if (from < body.end) { pieces.push({ kind: 'code', start: from, end: body.end }); }
-        if (pieces.length > 0) { programs.push({ segments: pieces, server: runsAtServer(text, body.start) }); }
-    }
-
-    return programs;
+    return flow;
 }
 
 /** True when the `<script>` tag whose body starts at `bodyStart` has `runat="server"`. */

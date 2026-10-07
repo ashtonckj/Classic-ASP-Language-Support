@@ -54,6 +54,13 @@ describe('formatCompleteAspFile — table with omitted end tags', () => {
     });
 });
 
+describe('formatCompleteAspFile — a JScript page', () => {
+    it('leaves the page as it is, as the block formatter knows VBScript only', async () => {
+        const input = '<%@ Language="JScript" %>\n<div><p>x</p></div>\n<%\nif (x) { Response.Write("a"); }\nfunction f(a) { return a; }\n%>';
+        assert.strictEqual(await formatCompleteAspFile(input), input);
+    });
+});
+
 // Void-element closing tags (</br>, </input>, …) that Prettier rejects are
 // stripped from the HTML, but that strip must NOT reach into VBScript strings or
 // ASP blocks (it used to run on the raw file and delete `</br>` from strings —
