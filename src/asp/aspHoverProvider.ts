@@ -5,13 +5,13 @@ import { COM_MEMBER_DOCS } from '../constants/comObjects';
 import {
     ASP_MEMBER_DOCS, ASP_OBJECTS, ASP_OBJECT_NAMES, AspObjectDef, BUILTIN_FUNCTION_DOCS, VBSCRIPT_CONSTANTS, VBSCRIPT_KEYWORDS_SET,
 } from '../constants/aspKeywords';
-import { getZone } from '../core/zoneUtils';
 import { aspCodeStartOnLine, isInsideVbString } from '../platform/documentHelper';
 import * as path from 'path';
 import { declarationsOf, resolveAt, type BoundPage, type Target } from '../vbscript/references';
 import type { Declaration } from '../vbscript/binder';
 import { sourceOf, walkStatements, type ParsedPage } from '../vbscript/symbols';
 import { editorWorkspace } from './vbscriptWorkspace';
+import { contextAt, textOf } from '../platform/documentState';
 import { enclosingWithObject } from './aspCompletionProvider';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -193,14 +193,13 @@ export class AspHoverProvider implements vscode.HoverProvider {
         position: vscode.Position
     ): vscode.ProviderResult<vscode.Hover> {
 
-        const fullText = document.getText();
-        const offset = document.offsetAt(position);
         const lineText = document.lineAt(position.line).text;
 
         // Suppress hover inside HTML file-link attributes (href, src, etc.)
         if (isCursorInHtmlFileLinkAttribute(lineText, position.character)) return null;
 
-        if (getZone(fullText, offset) !== 'asp') return null;
+        if (contextAt(document, position).zone !== 'asp') return null;
+        const fullText = textOf(document);
 
         const wordRange = document.getWordRangeAtPosition(position, /\w+/);
         if (!wordRange) return null;

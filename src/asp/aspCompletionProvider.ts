@@ -3,11 +3,11 @@ import {
     ASP_OBJECTS, ASP_OBJECT_NAMES, VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS, VBSCRIPT_CONSTANTS,
     BUILTIN_FUNCTION_DOCS, builtinSignature,
 } from '../constants/aspKeywords';
-import { getTextBeforeCursor, isInsideVbStringOrComment } from '../platform/documentHelper';
+import { getTextBeforeCursor } from '../platform/documentHelper';
+import { contextAt, textOf } from '../platform/documentState';
 import { areIncludeSymbolsReady, collectAllSymbols, preloadIncludeSymbols, withIncludeSymbols } from './includeProvider';
 import { analysedPage } from './vbscriptWorkspace';
 import { COM_METHOD_RETURN_TYPES, COM_TYPE_MAP } from '../constants/comObjects';
-import { getZone } from '../core/zoneUtils';
 import { callIsWholeExpression } from '../vbscript/symbolParser';
 import { parsePage } from '../vbscript/symbols';
 import { pageBlocks, withObjectAt } from '../vbscript/pageAnalysis';
@@ -50,17 +50,14 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         context: vscode.CompletionContext
     ): Promise<vscode.CompletionItem[] | vscode.CompletionList | undefined> {
 
-        const fullText = document.getText();
+        const fullText = textOf(document);
         const version  = document.version;
-        const offset = document.offsetAt(position);
 
-        // Only provide ASP completions inside ASP blocks
-        if (getZone(fullText, offset) !== 'asp') return [];
-
-        // …and not when the caret is inside a VBScript string literal or a comment
+        // Only inside VBScript, and not in a VBScript string literal or a comment
         // (e.g. `x = "rs."` or after a `'`), where the token is data, not code.
-        const fullLine = document.lineAt(position.line).text;
-        if (isInsideVbStringOrComment(fullLine, position.character)) return [];
+        const caret = contextAt(document, position);
+        if (caret.zone !== 'asp' || caret.inVbStringOrComment) return [];
+        const offset = caret.offset;
 
         const textBefore   = getTextBeforeCursor(document, position);
         const lineText     = document.lineAt(position.line).text.substring(0, position.character);

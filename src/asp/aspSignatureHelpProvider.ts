@@ -14,12 +14,12 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { getZone } from '../core/zoneUtils';
 import { aspCodeStartOnLine } from '../platform/documentHelper';
 import { BUILTIN_FUNCTION_DOCS, BuiltinSignature, builtinSignature } from '../constants/aspKeywords';
 import { declarationsOf, resolveAt } from '../vbscript/references';
 import type * as A from '../vbscript/ast';
 import { editorWorkspace } from './vbscriptWorkspace';
+import { contextAt } from '../platform/documentState';
 
 /** Parameter hints for a built-in function, from its doc. */
 function builtinHelp(builtin: BuiltinSignature, activeParam: number): vscode.SignatureHelp {
@@ -85,11 +85,8 @@ export class AspSignatureHelpProvider implements vscode.SignatureHelpProvider {
         _context:  vscode.SignatureHelpContext
     ): vscode.ProviderResult<vscode.SignatureHelp> {
 
-        const fullText = document.getText();
-        const offset  = document.offsetAt(position);
-
         // Only inside ASP blocks (both <% %> and <script language="vbscript"> zones)
-        if (getZone(fullText, offset) !== 'asp') { return null; }
+        if (contextAt(document, position).zone !== 'asp') { return null; }
 
         const lineText   = document.lineAt(position.line).text;
         const textBefore = lineText.substring(0, position.character);

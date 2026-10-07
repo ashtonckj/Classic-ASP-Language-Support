@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { isCursorInHtmlFileLinkAttribute } from '../html/htmlLinkUtils';
-import { getZone } from '../core/zoneUtils';
-import { isInsideVbStringOrComment } from '../platform/documentHelper';
+import { contextAt } from '../platform/documentState';
 import { definitionSites, resolveAt } from '../vbscript/references';
 import { editorWorkspace } from './vbscriptWorkspace';
 
@@ -36,10 +35,8 @@ export class AspDefinitionProvider implements vscode.DefinitionProvider {
         // Without this, Ctrl+Click on a matching word in plain HTML text, in a
         // client-side <script> (a JS variable), or inside a VBScript string/comment
         // wrongly jumped to the VBScript definition.
-        const fullText = document.getText();
-        const offset   = document.offsetAt(position);
-        if (getZone(fullText, offset) !== 'asp') return null;
-        if (isInsideVbStringOrComment(lineText, position.character)) return null;
+        const caret = contextAt(document, position);
+        if (caret.zone !== 'asp' || caret.inVbStringOrComment) return null;
 
         const wordRange = document.getWordRangeAtPosition(position, /\w+/);
         if (!wordRange) return null;

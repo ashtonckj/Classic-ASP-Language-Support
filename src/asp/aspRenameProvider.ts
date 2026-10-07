@@ -4,9 +4,8 @@ import * as path from 'path';
 import { getVirtualRoot, readIncludeText } from './includeProvider';
 import { movedPathLookup, rewriteIncludesAfterMove } from '../core/includeDirectives';
 import { getWorkspaceAspFiles } from './aspWorkspaceSymbolProvider';
-import { getZone } from '../core/zoneUtils';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
-import { isInsideVbStringOrComment } from '../platform/documentHelper';
+import { contextAt } from '../platform/documentState';
 import { findSites, resolveAt } from '../vbscript/references';
 import { editorWorkspace } from './vbscriptWorkspace';
 
@@ -40,11 +39,12 @@ function wordAt(
     if (!range) { return { reason: 'No symbol found at cursor position.' }; }
     const word = document.getText(range);
 
-    // getZone covers both <% %> blocks and <script language="vbscript"> blocks.
-    if (getZone(document.getText(), document.offsetAt(position)) !== 'asp') {
+    // The asp zone is both <% %> blocks and <script language="vbscript"> blocks.
+    const caret = contextAt(document, range.start);
+    if (caret.zone !== 'asp') {
         return { reason: 'Rename is only supported for VBScript symbols inside ASP blocks.' };
     }
-    if (isInsideVbStringOrComment(document.lineAt(range.start.line).text, range.start.character)) {
+    if (caret.inVbStringOrComment) {
         return { reason: `"${word}" is inside a string or a comment, not code.` };
     }
     if (VBSCRIPT_KEYWORDS_SET.has(word.toLowerCase())) {
