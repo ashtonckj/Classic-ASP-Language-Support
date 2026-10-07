@@ -285,7 +285,7 @@
                 },
                 {
                     "name": "support.type.vb.asp",
-                    "match": "(?i)\\b(vbArray|vbBinaryCompare|vbBoolean|vbByte|vbCr|vbCrLf|vbCurrency|vbDataObject|vbDate|vbDecimal|vbDouble|vbEmpty|vbError|vbFalse|vbFirstFourDays|vbFirstFullWeek|vbFirstJan1|vbFormFeed|vbFriday|vbGeneralDate|vbInteger|vbLf|vbLong|vbLongDate|vbLongTime|vbMonday|vbNewLine|vbNull|vbNullChar|vbNullString|vbObject|vbObjectError|vbSaturday|vbShortDate|vbShortTime|vbSingle|vbString|vbSunday|vbTab|vbTextCompare|vbThursday|vbTrue|vbTuesday|vbUseDefault|vbUseSystemDayOfWeek|vbVariant|vbVerticalTab|vbWednesday)\\b"
+                    "match": "(?i)\\b(vbAbort|vbAbortRetryIgnore|vbApplicationModal|vbArray|vbBinaryCompare|vbBlack|vbBlue|vbBoolean|vbByte|vbCancel|vbCr|vbCritical|vbCrLf|vbCurrency|vbCyan|vbDataObject|vbDate|vbDecimal|vbDefaultButton1|vbDefaultButton2|vbDefaultButton3|vbDefaultButton4|vbDouble|vbEmpty|vbError|vbExclamation|vbFalse|vbFirstFourDays|vbFirstFullWeek|vbFirstJan1|vbFormFeed|vbFriday|vbGeneralDate|vbGreen|vbIgnore|vbInformation|vbInteger|vbLf|vbLong|vbLongDate|vbLongTime|vbMagenta|vbMonday|vbMsgBoxHelpButton|vbMsgBoxRight|vbMsgBoxRtlReading|vbMsgBoxSetForeground|vbNewLine|vbNo|vbNull|vbNullChar|vbNullString|vbObject|vbObjectError|vbOK|vbOKCancel|vbOKOnly|vbQuestion|vbRed|vbRetry|vbRetryCancel|vbSaturday|vbShortDate|vbShortTime|vbSingle|vbString|vbSunday|vbSystemModal|vbTab|vbTextCompare|vbThursday|vbTrue|vbTuesday|vbUseDefault|vbUseSystem|vbUseSystemDayOfWeek|vbVariant|vbVerticalTab|vbWednesday|vbWhite|vbYellow|vbYes|vbYesNo|vbYesNoCancel)\\b"
                 }
             ]
         },

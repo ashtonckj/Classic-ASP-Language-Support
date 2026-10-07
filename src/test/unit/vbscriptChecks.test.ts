@@ -8,6 +8,7 @@ import { bindAt, type WorkspaceHost } from '../../vbscript/references';
 import { lineAt, parsePage } from '../../vbscript/symbols';
 import { resolveIncludeDirective } from '../../utils/includeDirectives';
 import { checkPageFiles, type ChecksRequest, type PageChecks } from '../../vbscript/pageChecks';
+import { VBSCRIPT_CONSTANTS } from '../../constants/aspKeywords';
 
 // The engine's behaviour behind each check was confirmed with cscript.exe:
 // a wrong argument count is error 450, an undeclared name under Option
@@ -160,6 +161,28 @@ describe('checkPageFiles — the checks with the includes read from disk', () =>
         } finally {
             fs.rmSync(file('global.asa'));
         }
+    });
+
+    it("knows every constant the VBScript engine defines, so none is called undeclared", () => {
+        // The engine's whole set, read from cscript.exe one name at a time under Option Explicit.
+        const engine = [
+            'vbCrLf', 'vbCr', 'vbLf', 'vbNewLine', 'vbTab', 'vbNullChar', 'vbNullString', 'vbFormFeed', 'vbVerticalTab',
+            'vbObjectError', 'vbBinaryCompare', 'vbTextCompare', 'vbTrue', 'vbFalse', 'vbUseDefault',
+            'vbSunday', 'vbMonday', 'vbTuesday', 'vbWednesday', 'vbThursday', 'vbFriday', 'vbSaturday',
+            'vbUseSystemDayOfWeek', 'vbFirstJan1', 'vbFirstFourDays', 'vbFirstFullWeek', 'vbUseSystem',
+            'vbGeneralDate', 'vbLongDate', 'vbShortDate', 'vbLongTime', 'vbShortTime',
+            'vbEmpty', 'vbNull', 'vbInteger', 'vbLong', 'vbSingle', 'vbDouble', 'vbCurrency', 'vbDate', 'vbString',
+            'vbObject', 'vbError', 'vbBoolean', 'vbVariant', 'vbDataObject', 'vbDecimal', 'vbByte', 'vbArray',
+            'vbBlack', 'vbRed', 'vbGreen', 'vbYellow', 'vbBlue', 'vbMagenta', 'vbCyan', 'vbWhite',
+            'vbOKOnly', 'vbOKCancel', 'vbAbortRetryIgnore', 'vbYesNoCancel', 'vbYesNo', 'vbRetryCancel',
+            'vbCritical', 'vbQuestion', 'vbExclamation', 'vbInformation',
+            'vbDefaultButton1', 'vbDefaultButton2', 'vbDefaultButton3', 'vbDefaultButton4',
+            'vbApplicationModal', 'vbSystemModal', 'vbMsgBoxHelpButton', 'vbMsgBoxSetForeground', 'vbMsgBoxRight',
+            'vbMsgBoxRtlReading', 'vbOK', 'vbCancel', 'vbAbort', 'vbRetry', 'vbIgnore', 'vbYes', 'vbNo',
+        ];
+        assert.deepStrictEqual(VBSCRIPT_CONSTANTS.map(c => c.name).sort(), [...engine].sort());
+        const text = `<%\nOption Explicit\nDim x\n${engine.map(name => `x = ${name}`).join('\n')}\n%>`;
+        assert.deepStrictEqual(codes(checkPageFiles(request(text), (_p, t) => parsePage(t))), []);
     });
 
     it('finds a Missing Set on an object whose type an include declares', () => {

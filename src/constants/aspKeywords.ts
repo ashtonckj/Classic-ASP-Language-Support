@@ -434,9 +434,11 @@ export function builtinSignature(doc: string): BuiltinSignature | undefined {
 // ─────────────────────────────────────────────────────────────────────────────
 // VBScript's built-in constants.
 //
-// The grammar already colours these; this list is what makes them completable.
-// The MsgBox and colour families are deliberately absent — neither a dialog nor
-// a colour means anything in a page rendered on a server.
+// The whole set the VBScript 5.x engine defines, checked against cscript.exe:
+// the grammar colours them, completion offers them, and the checks must know
+// every one, or a page with Option Explicit is told a built-in is undeclared.
+// The MsgBox and colour families are useless on a server, like MsgBox itself,
+// but they are part of the language and client-side VBScript uses them.
 // ─────────────────────────────────────────────────────────────────────────────
 export const VBSCRIPT_CONSTANTS: { name: string; doc: string }[] = [
     { name: 'vbCrLf',               doc: 'Carriage return + line feed — `Chr(13) & Chr(10)`.' },
@@ -465,6 +467,7 @@ export const VBSCRIPT_CONSTANTS: { name: string; doc: string }[] = [
     { name: 'vbFirstJan1',          doc: '`1` — the week containing January 1st is week one.' },
     { name: 'vbFirstFourDays',      doc: '`2` — the first week with at least four days in the new year is week one.' },
     { name: 'vbFirstFullWeek',      doc: '`3` — the first whole week of the new year is week one.' },
+    { name: 'vbUseSystem',          doc: '`0` — use the system setting. A FirstWeekOfYear value for DatePart and DateDiff.' },
     { name: 'vbGeneralDate',        doc: '`0` — date and time in the locale format. A FormatDateTime constant.' },
     { name: 'vbLongDate',           doc: '`1` — the long date format. A FormatDateTime constant.' },
     { name: 'vbShortDate',          doc: '`2` — the short date format. A FormatDateTime constant.' },
@@ -487,6 +490,41 @@ export const VBSCRIPT_CONSTANTS: { name: string; doc: string }[] = [
     { name: 'vbDecimal',            doc: '`14`. A VarType return value.' },
     { name: 'vbByte',               doc: '`17`. A VarType return value.' },
     { name: 'vbArray',              doc: '`8192` — added to the element type. A VarType return value.' },
+    { name: 'vbBlack',              doc: '`&h00` — black. A colour constant.' },
+    { name: 'vbRed',                doc: '`&hFF` — red. A colour constant.' },
+    { name: 'vbGreen',              doc: '`&hFF00` — green. A colour constant.' },
+    { name: 'vbYellow',             doc: '`&hFFFF` — yellow. A colour constant.' },
+    { name: 'vbBlue',               doc: '`&hFF0000` — blue. A colour constant.' },
+    { name: 'vbMagenta',            doc: '`&hFF00FF` — magenta. A colour constant.' },
+    { name: 'vbCyan',               doc: '`&hFFFF00` — cyan. A colour constant.' },
+    { name: 'vbWhite',              doc: '`&hFFFFFF` — white. A colour constant.' },
+    { name: 'vbOKOnly',             doc: '`0` — an OK button only. A MsgBox buttons value.' },
+    { name: 'vbOKCancel',           doc: '`1` — OK and Cancel. A MsgBox buttons value.' },
+    { name: 'vbAbortRetryIgnore',   doc: '`2` — Abort, Retry and Ignore. A MsgBox buttons value.' },
+    { name: 'vbYesNoCancel',        doc: '`3` — Yes, No and Cancel. A MsgBox buttons value.' },
+    { name: 'vbYesNo',              doc: '`4` — Yes and No. A MsgBox buttons value.' },
+    { name: 'vbRetryCancel',        doc: '`5` — Retry and Cancel. A MsgBox buttons value.' },
+    { name: 'vbCritical',           doc: '`16` — the critical-message icon. Added to a MsgBox buttons value.' },
+    { name: 'vbQuestion',           doc: '`32` — the question icon. Added to a MsgBox buttons value.' },
+    { name: 'vbExclamation',        doc: '`48` — the warning icon. Added to a MsgBox buttons value.' },
+    { name: 'vbInformation',        doc: '`64` — the information icon. Added to a MsgBox buttons value.' },
+    { name: 'vbDefaultButton1',     doc: '`0` — the first button is the default. Added to a MsgBox buttons value.' },
+    { name: 'vbDefaultButton2',     doc: '`256` — the second button is the default. Added to a MsgBox buttons value.' },
+    { name: 'vbDefaultButton3',     doc: '`512` — the third button is the default. Added to a MsgBox buttons value.' },
+    { name: 'vbDefaultButton4',     doc: '`768` — the fourth button is the default. Added to a MsgBox buttons value.' },
+    { name: 'vbApplicationModal',   doc: '`0` — the user must answer before going on in this application. A MsgBox value.' },
+    { name: 'vbSystemModal',        doc: '`4096` — every application waits for the answer. A MsgBox value.' },
+    { name: 'vbMsgBoxHelpButton',   doc: '`16384` — adds a Help button. A MsgBox value.' },
+    { name: 'vbMsgBoxSetForeground', doc: '`65536` — brings the message box to the front. A MsgBox value.' },
+    { name: 'vbMsgBoxRight',        doc: '`524288` — right-aligns the text. A MsgBox value.' },
+    { name: 'vbMsgBoxRtlReading',   doc: '`1048576` — right-to-left reading order. A MsgBox value.' },
+    { name: 'vbOK',                 doc: '`1` — OK was clicked. A MsgBox return value.' },
+    { name: 'vbCancel',             doc: '`2` — Cancel was clicked. A MsgBox return value.' },
+    { name: 'vbAbort',              doc: '`3` — Abort was clicked. A MsgBox return value.' },
+    { name: 'vbRetry',              doc: '`4` — Retry was clicked. A MsgBox return value.' },
+    { name: 'vbIgnore',             doc: '`5` — Ignore was clicked. A MsgBox return value.' },
+    { name: 'vbYes',                doc: '`6` — Yes was clicked. A MsgBox return value.' },
+    { name: 'vbNo',                 doc: '`7` — No was clicked. A MsgBox return value.' },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
