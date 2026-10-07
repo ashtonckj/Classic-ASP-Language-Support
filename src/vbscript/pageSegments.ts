@@ -118,8 +118,14 @@ function pageFlow(text: string, aspBlocks: { start: number; end: number }[]): Se
 
 /** True when the `<script>` tag whose body starts at `bodyStart` has `runat="server"`. */
 function runsAtServer(text: string, bodyStart: number): boolean {
-    const tagStart = text.slice(0, bodyStart).toLowerCase().lastIndexOf('<script');
-    return tagStart !== -1 && /\brunat\s*=\s*["']?server\b/i.test(text.slice(tagStart, bodyStart));
+    // Back to the tag's own `<script`, past any `<` inside its attribute values,
+    // rather than copying the whole page before every script block.
+    for (let at = text.lastIndexOf('<', bodyStart - 1); at !== -1; at = text.lastIndexOf('<', at - 1)) {
+        if (text.slice(at, at + 7).toLowerCase() === '<script') {
+            return /\brunat\s*=\s*["']?server\b/i.test(text.slice(at, bodyStart));
+        }
+    }
+    return false;
 }
 
 /**
