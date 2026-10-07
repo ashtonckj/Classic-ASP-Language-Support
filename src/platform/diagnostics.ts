@@ -70,6 +70,8 @@ export function makeDiagnostic(
 
 /** How long after the last edit each check runs, in milliseconds. */
 export const CHECK_DELAY = {
+    /** Re-reading the page for a highlight that follows the caret, such as the matching keyword. */
+    highlight: 200,
     /** CSS validation, a quick local parse. */
     css:       400,
     /** JavaScript, checked by TypeScript on a worker thread. */

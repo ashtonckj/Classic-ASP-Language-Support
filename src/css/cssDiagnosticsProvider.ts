@@ -5,7 +5,7 @@
  */
 
 import * as vscode from 'vscode';
-import { cssCode, makeDiagnostic } from '../platform/diagnostics';
+import { CHECK_DELAY, cssCode, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
 
 /** The CSS service's code for a problem (a string, a number or { value }), as one of ours. */
 function codeOf(d: { code?: unknown }): `css-${string}` {
@@ -198,63 +198,12 @@ export function registerCssDiagnostics(context: vscode.ExtensionContext): void {
     const collection = vscode.languages.createDiagnosticCollection('classic-asp-css');
     context.subscriptions.push(collection);
 
-    // Debounce validation so a burst of keystrokes triggers a single re-parse of
-    // the document's <style> blocks instead of one per character (it used to run
-    // synchronously on every change). Keyed by document URI, so editing one file
-    // never cancels another file's pending scan.
-    const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-    const DEBOUNCE_MS = 400;
-
-    function scheduleValidation(document: vscode.TextDocument): void {
-        // onDidChangeTextDocument fires for every document in the window, so
-        // without this an edit to settings.json, a git commit message, or the
-        // output panel armed a 400 ms timer whose only job was to call
-        // validateDocument and have it bail on the languageId check.
-        if (document.languageId !== 'asp') { return; }
-
-        const key = document.uri.toString();
-        const existing = debounceTimers.get(key);
-        if (existing) { clearTimeout(existing); }
-        debounceTimers.set(key, setTimeout(() => {
-            debounceTimers.delete(key);
-            validateDocument(document, collection);
-        }, DEBOUNCE_MS));
-    }
-
-    // Validate all already-open .asp documents on activation (immediately)
-    for (const document of vscode.workspace.textDocuments) {
-        validateDocument(document, collection);
-    }
-
-    // Validate as you type — debounced
-    context.subscriptions.push(
-        vscode.workspace.onDidChangeTextDocument(e => {
-            scheduleValidation(e.document);
-        })
-    );
-
-    // Validate when a new document is opened (immediately)
-    context.subscriptions.push(
-        vscode.workspace.onDidOpenTextDocument(document => {
-            validateDocument(document, collection);
-        })
-    );
-
-    // Clear diagnostics and any pending timer when a document is closed
-    context.subscriptions.push(
-        vscode.workspace.onDidCloseTextDocument(document => {
-            const key = document.uri.toString();
-            const existing = debounceTimers.get(key);
-            if (existing) { clearTimeout(existing); debounceTimers.delete(key); }
-            collection.delete(document.uri);
-        })
-    );
-
-    // Cancel all pending timers on deactivate
-    context.subscriptions.push({
-        dispose: () => {
-            for (const timer of debounceTimers.values()) { clearTimeout(timer); }
-            debounceTimers.clear();
-        },
+    // A burst of keystrokes re-parses the <style> blocks once, not once per
+    // character; a page just opened is checked at once.
+    watchAspDocuments(context, {
+        delay: CHECK_DELAY.css,
+        check: document => validateDocument(document, collection),
+        checkOnOpen: true,
+        collections: [collection],
     });
 }

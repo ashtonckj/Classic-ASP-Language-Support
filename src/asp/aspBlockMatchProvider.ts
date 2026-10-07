@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { CHECK_DELAY, DocumentDebouncer } from '../platform/diagnostics';
 import { analysedPage } from './vbscriptWorkspace';
 
 /** A block's opener and the closer it was matched with, as they read in the editor. */
@@ -73,44 +74,29 @@ export function registerAspBlockMatch(context: vscode.ExtensionContext): void {
         editor.setDecorations(decoration, match ? [match.opener, match.closer] : []);
     }
 
-    const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-    function scheduleRescan(document: vscode.TextDocument): void {
-        if (document.languageId !== 'asp') { return; }
-        const key = document.uri.toString();
-        const existing = debounceTimers.get(key);
-        if (existing) { clearTimeout(existing); }
-        debounceTimers.set(key, setTimeout(() => {
-            debounceTimers.delete(key);
-            void refreshPairs(document).then(() => {
-                const editor = vscode.window.activeTextEditor;
-                if (editor && editor.document === document) { applyFromCache(editor); }
-            });
-        }, 200));
-    }
+    const rescans = new DocumentDebouncer(CHECK_DELAY.highlight, document => {
+        void refreshPairs(document).then(() => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && editor.document === document) { applyFromCache(editor); }
+        });
+    });
 
     context.subscriptions.push(
         decoration,
+        rescans,
         vscode.window.onDidChangeActiveTextEditor(editor => {
             if (!editor || editor.document.languageId !== 'asp') { return; }
             void refreshPairs(editor.document).then(() => applyFromCache(vscode.window.activeTextEditor));
         }),
         vscode.window.onDidChangeTextEditorSelection(e => applyFromCache(e.textEditor)),
-        vscode.workspace.onDidChangeTextDocument(e => scheduleRescan(e.document)),
+        vscode.workspace.onDidChangeTextDocument(e => {
+            if (e.document.languageId === 'asp') { rescans.schedule(e.document); }
+        }),
         vscode.workspace.onDidCloseTextDocument(doc => {
-            const key = doc.uri.toString();
-            _pairCache.delete(key);
-            const timer = debounceTimers.get(key);
-            if (timer) { clearTimeout(timer); debounceTimers.delete(key); }
+            _pairCache.delete(doc.uri.toString());
+            rescans.cancel(doc);
         }),
     );
-
-    context.subscriptions.push({
-        dispose: () => {
-            for (const timer of debounceTimers.values()) { clearTimeout(timer); }
-            debounceTimers.clear();
-        },
-    });
 
     // Run immediately on whatever's already open, same as
     // registerAspStructureDiagnostics does for its own initial scan.

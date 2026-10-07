@@ -23,7 +23,7 @@ import { onSettingsChange } from '../platform/settings';
 import * as fs from 'fs';
 import { aspTagProblems } from '../core/zoneUtils';
 import { textOf, zonesFor } from '../platform/documentState';
-import { DiagnosticCode, makeDiagnostic } from '../platform/diagnostics';
+import { CHECK_DELAY, DiagnosticCode, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../core/includeDirectives';
 import { parsePage } from '../vbscript/symbols';
 import { pageBlocks, type BlockWarning, type MissingSet } from '../vbscript/pageAnalysis';
@@ -206,10 +206,6 @@ export function registerAspStructureDiagnostics(
         });
     }
 
-    // Per-document debounce timers, keyed by URI, so editing one open .asp file
-    // never cancels another file's pending scan (a single shared timer did).
-    const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
     function scanNow(document: vscode.TextDocument): void {
         void analysedPage(document).then(page => {
             if (!page || document.isClosed || document.version !== page.version) { return; }
@@ -226,17 +222,6 @@ export function registerAspStructureDiagnostics(
         }
     }
 
-    function schedule(document: vscode.TextDocument): void {
-        if (document.languageId !== 'asp') { return; }
-        const key = document.uri.toString();
-        const existing = debounceTimers.get(key);
-        if (existing) { clearTimeout(existing); }
-        debounceTimers.set(key, setTimeout(() => {
-            debounceTimers.delete(key);
-            scanNow(document);
-        }, 1500));
-    }
-
     // An include can appear or go without the page being edited — created,
     // deleted or renamed in the Explorer, or a different site root set.
     function recheckIncludes(): void {
@@ -245,21 +230,9 @@ export function registerAspStructureDiagnostics(
         }
     }
 
-    // Run immediately on already-open documents
-    for (const doc of vscode.workspace.textDocuments) {
-        if (doc.languageId === 'asp') { scanNow(doc); }
-    }
+    watchAspDocuments(context, { delay: CHECK_DELAY.structure, check: scanNow, collections: [collection, checksCollection] });
 
     context.subscriptions.push(
-        vscode.workspace.onDidOpenTextDocument(schedule),
-        vscode.workspace.onDidChangeTextDocument(e => schedule(e.document)),
-        vscode.workspace.onDidCloseTextDocument(doc => {
-            const key = doc.uri.toString();
-            const existing = debounceTimers.get(key);
-            if (existing) { clearTimeout(existing); debounceTimers.delete(key); }
-            collection.delete(doc.uri);
-            checksCollection.delete(doc.uri);
-        }),
         vscode.workspace.onDidCreateFiles(recheckIncludes),
         vscode.workspace.onDidDeleteFiles(recheckIncludes),
         vscode.workspace.onDidRenameFiles(recheckIncludes),
@@ -271,14 +244,6 @@ export function registerAspStructureDiagnostics(
             if (editor?.document.languageId === 'asp') { scanChecks(editor.document); }
         }),
     );
-
-    // Cancel any pending timers on deactivate.
-    context.subscriptions.push({
-        dispose: () => {
-            for (const timer of debounceTimers.values()) { clearTimeout(timer); }
-            debounceTimers.clear();
-        },
-    });
 
     return collection;
 }

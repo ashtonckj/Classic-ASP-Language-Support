@@ -20,7 +20,7 @@
  */
 
 import * as vscode from 'vscode';
-import { DiagnosticCode, makeDiagnostic } from '../platform/diagnostics';
+import { CHECK_DELAY, DiagnosticCode, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
 import { pageBlocks, type BlockEvent } from '../vbscript/pageAnalysis';
 import { parsePage } from '../vbscript/symbols';
 import { analysedPage } from '../asp/vbscriptWorkspace';
@@ -514,49 +514,18 @@ export function registerHtmlStructureDiagnostics(
     const collection = vscode.languages.createDiagnosticCollection('classic-asp-html-structure');
     context.subscriptions.push(collection);
 
-    // Per-document debounce timers, keyed by URI, so editing one open .asp file
-    // never cancels another file's pending scan (a single shared timer did).
-    const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-    function schedule(document: vscode.TextDocument): void {
-        if (document.languageId !== 'asp') { return; }
-        const key = document.uri.toString();
-        const existing = debounceTimers.get(key);
-        if (existing) { clearTimeout(existing); }
-        debounceTimers.set(key, setTimeout(() => {
-            debounceTimers.delete(key);
+    watchAspDocuments(context, {
+        delay: CHECK_DELAY.structure,
+        check: document => {
             // The VBScript blocks come from the worker, so the page is not parsed here.
             void analysedPage(document).then(page => {
                 if (!page || document.isClosed || document.version !== page.version) { return; }
                 collection.set(document.uri, scanHtmlStructure(document, page.blocks.events));
             });
-        }, 1500));
-    }
-
-    // Run immediately on already-open documents
-    for (const doc of vscode.workspace.textDocuments) {
-        if (doc.languageId === 'asp') {
-            collection.set(doc.uri, scanHtmlStructure(doc));
-        }
-    }
-
-    context.subscriptions.push(
-        vscode.workspace.onDidOpenTextDocument(schedule),
-        vscode.workspace.onDidChangeTextDocument(e => schedule(e.document)),
-        vscode.workspace.onDidCloseTextDocument(doc => {
-            const key = doc.uri.toString();
-            const existing = debounceTimers.get(key);
-            if (existing) { clearTimeout(existing); debounceTimers.delete(key); }
-            collection.delete(doc.uri);
-        }),
-    );
-
-    // Cancel any pending timers on deactivate.
-    context.subscriptions.push({
-        dispose: () => {
-            for (const timer of debounceTimers.values()) { clearTimeout(timer); }
-            debounceTimers.clear();
         },
+        // At start-up the worker may not be running yet; these pages are parsed here.
+        initial: document => collection.set(document.uri, scanHtmlStructure(document)),
+        collections: [collection],
     });
 
     return collection;
