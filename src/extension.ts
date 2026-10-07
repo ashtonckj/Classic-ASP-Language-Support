@@ -40,6 +40,7 @@ import { ReviewPrompt } from './platform/reviewPrompt';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache, disposeWorkspaceIndex } from './asp/aspWorkspaceSymbolProvider';
 import { AspSignatureHelpProvider } from './asp/aspSignatureHelpProvider';
 import { computeLineEdits, computeRangeEdits, resolveEol, toLf } from './platform/editUtils';
+import { prettierSettings } from './platform/settings';
 
 // Shared structure issue check used by both the formatter and the preview.
 //
@@ -165,11 +166,7 @@ export function activate(context: vscode.ExtensionContext) {
             const result = await formatForDocument(document);
             if (!result) { return []; }
 
-            const eol = resolveEol(
-                vscode.workspace.getConfiguration('classicAsp.prettier')
-                    .get<string>('endOfLine', 'auto'),
-                document,
-            );
+            const eol = resolveEol(prettierSettings().endOfLine, document);
             return computeLineEdits(document, result.fullText, result.formatted, eol);
         }
     });
@@ -182,11 +179,7 @@ export function activate(context: vscode.ExtensionContext) {
             const result = await formatForDocument(document);
             if (!result) { return []; }
 
-            const eol = resolveEol(
-                vscode.workspace.getConfiguration('classicAsp.prettier')
-                    .get<string>('endOfLine', 'auto'),
-                document,
-            );
+            const eol = resolveEol(prettierSettings().endOfLine, document);
             const edits = computeRangeEdits(document, result.fullText, result.formatted, eol, range);
             if (!edits) {
                 vscode.window.showInformationMessage(

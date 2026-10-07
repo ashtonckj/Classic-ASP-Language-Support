@@ -4,15 +4,24 @@
 // The real module only exists inside the Extension Host, so _mochaSetup.ts
 // redirects require('vscode') here. We expose just enough surface for the PURE
 // logic under test to run:
-//   • workspace.getConfiguration(...).get(key, default) → returns the default, so
-//     getAspSettings()/getPrettierSettings() yield the documented defaults.
+//   • workspace.getConfiguration(...).get(key, default) → returns the default it
+//     is given, so platform/settings.ts falls back to package.json's defaults.
 //   • window.* → no-ops (warnings, progress, output channels) so formatting can
 //     run headlessly; withProgress simply invokes and returns its task.
 // Anything that needs real editor behaviour must run in the Extension Host.
 
+/**
+ * Settings a unit test has set, by full name (`classicAsp.htmlIndentMode`).
+ * Every other setting reads as the default the caller passes, or none.
+ */
+export const testSettings = new Map<string, unknown>();
+
 export const workspace = {
-    getConfiguration: () => ({
-        get: (_key: string, defaultValue?: unknown) => defaultValue,
+    getConfiguration: (section?: string) => ({
+        get: (key: string, defaultValue?: unknown) => {
+            const name = section ? `${section}.${key}` : key;
+            return testSettings.has(name) ? testSettings.get(name) : defaultValue;
+        },
     }),
     // Mutable so a test can stand in a workspace root (getVirtualRoot reads it).
     workspaceFolders: undefined as { uri: { fsPath: string } }[] | undefined,

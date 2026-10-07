@@ -1,5 +1,5 @@
-import * as vscode from 'vscode';
 import { isRemAt, removeStrings } from '../platform/documentHelper';
+import type { FormatterSettings, PrettierSettings } from '../platform/settings';
 
 // ─── Settings ──────────────────────────────────────────────────────────────
 
@@ -28,15 +28,14 @@ export function delimitersAtColumnZero(settings: AspFormatterSettings): boolean 
     return settings.htmlIndentMode === 'flat';
 }
 
-export function getAspSettings(): AspFormatterSettings {
-    const config         = vscode.workspace.getConfiguration('classicAsp');
-    const prettierConfig = vscode.workspace.getConfiguration('classicAsp.prettier');
+/** The block formatter's settings: the VBScript ones, with the indent unit Prettier uses. */
+export function aspFormatterSettings(formatter: FormatterSettings, prettier: PrettierSettings): AspFormatterSettings {
     return {
-        keywordCase:       config.get<string>('keywordCase',             'PascalCase'),
-        useTabs:           prettierConfig.get<boolean>('useTabs',        false),
-        indentSize:        prettierConfig.get<number>('tabWidth',        2),
-        aspTagsOnSameLine: config.get<boolean>('aspTagsOnSameLine',      false),
-        htmlIndentMode:    config.get<string>('htmlIndentMode',          'continuation'),
+        keywordCase:       formatter.keywordCase,
+        useTabs:           prettier.useTabs,
+        indentSize:        prettier.tabWidth,
+        aspTagsOnSameLine: formatter.aspTagsOnSameLine,
+        htmlIndentMode:    formatter.htmlIndentMode,
     };
 }
 

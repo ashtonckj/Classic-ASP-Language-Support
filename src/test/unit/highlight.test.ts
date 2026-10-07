@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { affectsRegionHighlight, editorsToPaint, hasNonEmptySelection, overlapWithSelections } from '../../asp/highlight';
+import { editorsToPaint, hasNonEmptySelection, overlapWithSelections } from '../../asp/highlight';
 
 // Reported upstream: a TextEditorDecorationType's backgroundColor paints on the
 // same layer as the text, above VS Code's own selection highlight, so a
@@ -146,24 +146,7 @@ describe('overlapWithSelections — bracket-sized ranges', () => {
     });
 });
 
-// The region colours were rebuilt on every settings change and painted on the
-// focused editor only, whatever its language.
-describe('affectsRegionHighlight', () => {
-    const change = (...touched: string[]) => ({
-        affectsConfiguration: (section: string) => touched.some(t => t === section || t.startsWith(section + '.')),
-    });
-
-    it('is true for the on/off switch and each colour', () => {
-        assert.strictEqual(affectsRegionHighlight(change('classicAsp.highlightAspRegions')), true);
-        assert.strictEqual(affectsRegionHighlight(change('classicAsp.codeBlockDarkColor')), true);
-    });
-
-    it('is false for any other setting, this extension\'s included', () => {
-        assert.strictEqual(affectsRegionHighlight(change('editor.fontSize')), false);
-        assert.strictEqual(affectsRegionHighlight(change('classicAsp.keywordCase')), false);
-    });
-});
-
+// The region colours were painted on the focused editor only, whatever its language.
 describe('editorsToPaint', () => {
     const editor = (languageId: string) => ({ document: { languageId } });
 

@@ -4,6 +4,7 @@ import * as path from 'path';
 import { Worker } from 'node:worker_threads';
 import { extractSymbols, FileSymbols } from '../vbscript/symbolParser';
 import { parseIncludeDirectives, resolveIncludeDirective, resolveIncludePathsIn } from '../core/includeDirectives';
+import { defaultIncludesSetting, virtualRootSetting } from '../platform/settings';
 // Type only: the worker's own declaration of what it posts back, so the two
 // sides cannot drift. `import type` is erased at compile time, so requiring
 // this module here never loads the worker script into the extension host.
@@ -30,8 +31,7 @@ export function getVirtualRoot(documentPath: string): string {
  * is just a guess.
  */
 export function configuredVirtualRoot(): string | undefined {
-    const config      = vscode.workspace.getConfiguration('classicAsp');
-    const userSetting = config.get<string>('virtualRoot', '').trim();
+    const userSetting = virtualRootSetting();
 
     if (userSetting) {
         // Expand a leading ~/ on macOS/Linux for convenience
@@ -53,8 +53,7 @@ let _virtualRootWarningShown = false;
  * resolve and no explicit virtualRoot setting has been configured.
  */
 function notifyVirtualRootUnresolved(includePath: string): void {
-    const config      = vscode.workspace.getConfiguration('classicAsp');
-    const userSetting = config.get<string>('virtualRoot', '').trim();
+    const userSetting = virtualRootSetting();
 
     // Only notify when the user hasn't already set a root
     if (userSetting || _virtualRootWarningShown) return;
@@ -197,9 +196,7 @@ function mergeSymbols(target: FileSymbols, source: FileSymbols): void {
  * which keeps the completion hot path free of synchronous disk access.
  */
 export function defaultIncludeCandidates(virtualRoot: string): string[] {
-    const configured = vscode.workspace
-        .getConfiguration('classicAsp')
-        .get<string[]>('defaultIncludes', []);
+    const configured = defaultIncludesSetting();
 
     return configured.map(entry => path.isAbsolute(entry)
         ? entry

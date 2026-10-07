@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { otherSetting } from '../platform/settings';
 import { isInlineTag, isSelfClosingTag } from '../constants/htmlTags';
 import { ASP_OBJECT_NAMES } from '../constants/aspKeywords';
 import { getZone, Zone } from '../core/zoneUtils';
@@ -1316,9 +1317,7 @@ async function expandAbbreviationOrTab(
     editor:   vscode.TextEditor,
     position: vscode.Position,
 ): Promise<void> {
-    const triggerOnTab = vscode.workspace
-        .getConfiguration('emmet', editor.document.uri)
-        .get<boolean>('triggerExpansionOnTab', false);
+    const triggerOnTab = otherSetting<boolean>('emmet', 'triggerExpansionOnTab', editor.document.uri) ?? false;
 
     const lineText = editor.document.lineAt(position.line).text;
     const worthTrying = triggerOnTab

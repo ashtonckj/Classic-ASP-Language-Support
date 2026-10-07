@@ -13,6 +13,7 @@
  */
 
 import * as vscode from 'vscode';
+import { onSettingsChange, otherSetting } from '../platform/settings';
 import * as fs from 'fs';
 import * as path from 'path';
 import { extractSymbols } from '../vbscript/symbolParser';
@@ -62,7 +63,7 @@ export function globToRegExp(glob: string): RegExp {
 
 /** The `files.associations` entries that map to the "asp" language, each compiled once per scan rather than once per file. A pattern containing a path separator matches against the file's path relative to the workspace folder; a bare pattern (the common case — `"*.html"`) matches against the file name only. */
 function getAspAssociationRules(): AssociationRule[] {
-    const associations = vscode.workspace.getConfiguration('files').get<Record<string, string>>('associations', {});
+    const associations = otherSetting<Record<string, string>>('files', 'associations') ?? {};
     const rules: AssociationRule[] = [];
     for (const [pattern, languageId] of Object.entries(associations)) {
         if (languageId !== 'asp') { continue; }
@@ -159,9 +160,7 @@ function watchWorkspace(): void {
         watcher.onDidDelete(uri => fileDeleted(uri.fsPath)),
         watcher.onDidChange(uri => { _wsCache.delete(uri.fsPath); }),
         vscode.workspace.onDidChangeWorkspaceFolders(() => { _index = undefined; _wsCache.clear(); }),
-        vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('files.associations')) { _index = undefined; }
-        }),
+        onSettingsChange(['files.associations'], () => { _index = undefined; }),
     );
 }
 

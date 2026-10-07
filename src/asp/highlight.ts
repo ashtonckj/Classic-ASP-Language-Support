@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { getAspRegions } from "./region";
+import { onSettingsChange, REGION_SETTING_KEYS, regionSettings, type RegionSettings } from "../platform/settings";
 
 /** A line/character pair — matches the shape of vscode.Position exactly. */
 interface Pos { line: number; character: number; }
@@ -61,23 +62,6 @@ export function hasNonEmptySelection(selections: readonly { isEmpty: boolean }[]
     return selections.some(selection => !selection.isEmpty);
 }
 
-const REGION_SETTINGS = [
-    'classicAsp.highlightAspRegions',
-    'classicAsp.bracketLightColor',
-    'classicAsp.bracketDarkColor',
-    'classicAsp.codeBlockLightColor',
-    'classicAsp.codeBlockDarkColor',
-];
-
-/**
- * True when a settings change touches the region colours or switches them on
- * or off. Every settings change, of any kind, used to throw away and rebuild
- * the decoration types.
- */
-export function affectsRegionHighlight(event: { affectsConfiguration(section: string): boolean }): boolean {
-    return REGION_SETTINGS.some(setting => event.affectsConfiguration(setting));
-}
-
 /**
  * The editors the region colours go on: every Classic ASP page on screen. It
  * used to be the focused editor only — whatever its language — so with the
@@ -116,11 +100,11 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
         applyDecorations(event.textEditor);
     }, null, context.subscriptions);
 
-    vscode.workspace.onDidChangeConfiguration((event) => {
-        if (!affectsRegionHighlight(event)) { return; }
+    // Only the region settings rebuild the decoration types; any other change leaves them alone.
+    context.subscriptions.push(onSettingsChange(REGION_SETTING_KEYS, () => {
         configurationDidChange = true;
         triggerUpdateDecorations();
-    }, null, context.subscriptions);
+    }));
 
     vscode.workspace.onDidChangeTextDocument((event) => {
         if (event.document.languageId === 'asp' && vscode.window.visibleTextEditors.some(e => e.document === event.document)) {
@@ -181,14 +165,14 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
         editor.setDecorations(selectionOverlayDecorationType, overlay);
     }
 
-    function setDecorationTypes(config: vscode.WorkspaceConfiguration) {
+    function setDecorationTypes(colours: RegionSettings) {
         bracketDecorationType = vscode.window.createTextEditorDecorationType({
-            light: { backgroundColor: config.get<string>("bracketLightColor") },
-            dark:  { backgroundColor: config.get<string>("bracketDarkColor") },
+            light: { backgroundColor: colours.bracketLight },
+            dark:  { backgroundColor: colours.bracketDark },
         });
         codeBlockDecorationType = vscode.window.createTextEditorDecorationType({
-            light: { backgroundColor: config.get<string>("codeBlockLightColor") },
-            dark:  { backgroundColor: config.get<string>("codeBlockDarkColor") },
+            light: { backgroundColor: colours.codeBlockLight },
+            dark:  { backgroundColor: colours.codeBlockDark },
         });
         // A ThemeColor resolves to whatever the ACTIVE theme's real selection
         // colour is, light or dark alike, so there is no separate light/dark
@@ -199,8 +183,8 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
     }
 
     function updateDecorations() {
-        const config = vscode.workspace.getConfiguration("classicAsp");
-        const highlightAspRegions = config.get<boolean>("highlightAspRegions", true);
+        const settings = regionSettings();
+        const highlightAspRegions = settings.enabled;
 
         // Only a settings change needs new decoration types (the colours are baked
         // into them). Disposing a type clears it from every editor, so the pages
@@ -213,7 +197,7 @@ export function addRegionHighlights(context: vscode.ExtensionContext) {
             configurationDidChange = false;
         }
         if (!bracketDecorationType || !codeBlockDecorationType || !selectionOverlayDecorationType) {
-            setDecorationTypes(config);
+            setDecorationTypes(settings);
         }
 
         for (const editor of aspEditors()) {

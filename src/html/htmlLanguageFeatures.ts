@@ -9,6 +9,7 @@
  */
 
 import * as vscode from 'vscode';
+import { otherSetting } from '../platform/settings';
 import type * as HtmlLs from 'vscode-html-languageservice';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
 import { getAspBlockRanges, getZone } from '../core/zoneUtils';
@@ -83,11 +84,10 @@ export class HtmlHoverProvider implements vscode.HoverProvider {
         if (!inMarkup(document, position)) { return undefined; }
 
         // The same switches a .html file answers to.
-        const settings = vscode.workspace.getConfiguration('html', document);
         const page  = parse(document);
         const hover = htmlService().doHover(page.document, position, page.html, {
-            documentation: settings.get<boolean>('hover.documentation', true),
-            references:    settings.get<boolean>('hover.references', true),
+            documentation: otherSetting<boolean>('html', 'hover.documentation', document) ?? true,
+            references:    otherSetting<boolean>('html', 'hover.references', document) ?? true,
         });
         if (!hover) { return undefined; }
         return new vscode.Hover(toMarkdown(hover.contents), hover.range ? toRange(hover.range) : undefined);

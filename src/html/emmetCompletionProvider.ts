@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { otherSetting } from '../platform/settings';
 import type { VSCodeEmmetConfig } from '@vscode/emmet-helper';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
 import { getZone } from '../core/zoneUtils';
@@ -39,15 +40,15 @@ import { getZone } from '../core/zoneUtils';
 
 /** Reads the Emmet settings the helper understands, for this document. */
 function emmetConfig(uri: vscode.Uri): VSCodeEmmetConfig {
-    const config = vscode.workspace.getConfiguration('emmet', uri);
+    const emmet = <T>(key: string) => otherSetting<T>('emmet', key, uri);
     return {
-        showExpandedAbbreviation:    config.get<string>('showExpandedAbbreviation'),
-        showAbbreviationSuggestions: config.get<boolean>('showAbbreviationSuggestions'),
-        showSuggestionsAsSnippets:   config.get<boolean>('showSuggestionsAsSnippets'),
-        syntaxProfiles:              config.get<object>('syntaxProfiles'),
-        variables:                   config.get<object>('variables'),
-        preferences:                 config.get<object>('preferences'),
-        excludeLanguages:            config.get<string[]>('excludeLanguages'),
+        showExpandedAbbreviation:    emmet<string>('showExpandedAbbreviation'),
+        showAbbreviationSuggestions: emmet<boolean>('showAbbreviationSuggestions'),
+        showSuggestionsAsSnippets:   emmet<boolean>('showSuggestionsAsSnippets'),
+        syntaxProfiles:              emmet<object>('syntaxProfiles'),
+        variables:                   emmet<object>('variables'),
+        preferences:                 emmet<object>('preferences'),
+        excludeLanguages:            emmet<string[]>('excludeLanguages'),
     };
 }
 

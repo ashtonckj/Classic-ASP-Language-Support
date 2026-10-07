@@ -1,48 +1,11 @@
 import * as vscode from 'vscode';
 import type * as prettier from 'prettier';
-import { formatSingleAspBlock, getAspSettings, delimitersAtColumnZero, type AspFormatterSettings } from './aspFormatter';
+import { formatSingleAspBlock, aspFormatterSettings, delimitersAtColumnZero, type AspFormatterSettings } from './aspFormatter';
 import { findNextRealTag, findTagEnd, findClosingTag, getVbScriptBlockRanges } from '../core/zoneUtils';
 import { analyseHtmlStructure } from '../html/htmlStructureDiagnosticsProvider';
 import { VOID_ELEMENTS } from '../constants/htmlTags';
 import { pageLanguage } from '../vbscript/pageSegments';
-
-// ─── Prettier settings ─────────────────────────────────────────────────────
-
-/**
- * Prettier formatting options surfaced under the
- * `classicAsp.prettier.*` configuration namespace.
- *
- * HTML, CSS, and JavaScript formatting is delegated entirely to Prettier
- * (https://prettier.io). These settings map 1-to-1 to Prettier's own options.
- */
-export interface PrettierSettings {
-    printWidth:                number;
-    tabWidth:                  number;
-    useTabs:                   boolean;
-    semi:                      boolean;
-    singleQuote:               boolean;
-    bracketSameLine:           boolean;
-    arrowParens:               string;
-    trailingComma:             string;
-    endOfLine:                 string;
-    htmlWhitespaceSensitivity: string;
-}
-
-export function getPrettierSettings(): PrettierSettings {
-    const config = vscode.workspace.getConfiguration('classicAsp.prettier');
-    return {
-        printWidth:                config.get<number>('printWidth',                80),
-        tabWidth:                  config.get<number>('tabWidth',                  2),
-        useTabs:                   config.get<boolean>('useTabs',                  false),
-        semi:                      config.get<boolean>('semi',                     true),
-        singleQuote:               config.get<boolean>('singleQuote',              false),
-        bracketSameLine:           config.get<boolean>('bracketSameLine',          false),
-        arrowParens:               config.get<string>('arrowParens',               'always'),
-        trailingComma:             config.get<string>('trailingComma',             'es5'),
-        endOfLine:                 config.get<string>('endOfLine',                 'auto'),
-        htmlWhitespaceSensitivity: config.get<string>('htmlWhitespaceSensitivity', 'css'),
-    };
-}
+import { formatterSettings, prettierSettings as readPrettierSettings } from '../platform/settings';
 
 // ─── ASP block types ───────────────────────────────────────────────────────
 
@@ -674,8 +637,8 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         return code;
     }
 
-    const aspSettings      = getAspSettings();
-    const prettierSettings = getPrettierSettings();
+    const prettierSettings = readPrettierSettings();
+    const aspSettings      = aspFormatterSettings(formatterSettings(), prettierSettings);
 
     // ── Step 1: Mask JS event-handler attribute values ───────────────────────
     // Must happen BEFORE ASP masking so values like onclick="doA('<%= val %>'); doB()"

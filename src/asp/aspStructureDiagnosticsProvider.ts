@@ -19,6 +19,7 @@
  */
 
 import * as vscode from 'vscode';
+import { onSettingsChange } from '../platform/settings';
 import * as fs from 'fs';
 import { createZoneResolver } from '../core/zoneUtils';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../core/includeDirectives';
@@ -297,9 +298,7 @@ export function registerAspStructureDiagnostics(
         vscode.workspace.onDidDeleteFiles(recheckIncludes),
         vscode.workspace.onDidRenameFiles(recheckIncludes),
         vscode.workspace.onDidChangeWorkspaceFolders(recheckIncludes),
-        vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('classicAsp.virtualRoot')) { recheckIncludes(); }
-        }),
+        onSettingsChange(['classicAsp.virtualRoot'], recheckIncludes),
         // Anything done outside VS Code (a git checkout, a build step) raises
         // none of the above; coming back to the page picks it up.
         vscode.window.onDidChangeActiveTextEditor(editor => {

@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { formatCompleteAspFile, insertImpliedTableEndTags } from '../../formatter/htmlFormatter';
+import { testSettings } from './_vscodeStub';
 
 // Classic ASP tables routinely omit the optional </td> </tr> … end tags. Prettier
 // does not apply the implied-end-tag rules, so these must be inserted before it or
@@ -466,17 +467,8 @@ describe('formatCompleteAspFile — elements on separate lines stay apart', () =
 // one line came out with a run of spaces between them — which the next format
 // broke the line at.
 describe('formatCompleteAspFile — aspTagsOnSameLine leaves a block where it is', () => {
-    const realGetConfiguration = vscode.workspace.getConfiguration;
-
-    before(() => {
-        (vscode.workspace as { getConfiguration: unknown }).getConfiguration = () => ({
-            get: (key: string, defaultValue?: unknown) => (key === 'aspTagsOnSameLine' ? true : defaultValue),
-        });
-    });
-
-    after(() => {
-        (vscode.workspace as { getConfiguration: unknown }).getConfiguration = realGetConfiguration;
-    });
+    before(() => { testSettings.set('classicAsp.aspTagsOnSameLine', true); });
+    after(() => { testSettings.delete('classicAsp.aspTagsOnSameLine'); });
 
     it('keeps two blocks on one line together, and settles', async () => {
         const once = await formatCompleteAspFile(
