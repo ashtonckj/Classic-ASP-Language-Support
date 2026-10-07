@@ -204,6 +204,17 @@ describe('binder — chains thousands long', () => {
 
     // In the test run the binder is usually compiled to machine code by now,
     // with smaller stack frames, so only a fresh process shows the worst case.
+    it('binds a page with 10,000 broken lines without slowing down', () => {
+        // Every name on a broken line is looked up in the statement around it,
+        // which was once a scan of the whole page per name.
+        const code = Array.from({ length: 10000 }, (_, i) => `x${i} = ) a b c`).join('\n');
+        const parsed = parsePage(page(code));
+        const started = Date.now();
+        const binding = bindPage('page.asp', parsed);
+        assert.ok(binding.references.filter(r => r.name === 'a').length === 10000);
+        assert.ok(Date.now() - started < 800, `took ${Date.now() - started} ms`);
+    });
+
     it('survives long chains in a fresh process, before the binder is compiled', () => {
         const symbols = path.join(__dirname, '../../vbscript/symbols.js');
         const binder = path.join(__dirname, '../../vbscript/binder.js');

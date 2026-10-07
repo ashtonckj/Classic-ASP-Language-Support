@@ -449,7 +449,7 @@ class Binder {
 
     /** The scope of the innermost procedure or class around `offset`. */
     private scopeAt(stmts: A.Stmt[], offset: number, scope: Scope): Scope {
-        const s = stmts.find(st => st.start <= offset && offset < st.end);
+        const s = statementAt(stmts, offset);
         if (!s) { return scope; }
         if (s.kind === 'Procedure') { return this.scopeAt(s.body, offset, this.binding.scopeOf.get(s)!); }
         if (s.kind === 'Class') { return this.scopeAt(s.members, offset, this.binding.scopeOf.get(s)!); }
@@ -526,6 +526,22 @@ function childBodies(s: A.Stmt): A.Stmt[][] {
         case 'With':    return [s.body];
         default:        return [];
     }
+}
+
+/**
+ * The statement of `stmts` that holds `offset`, found by binary search: the
+ * statements are in source order, and a page with many errors asks once per
+ * skipped name.
+ */
+function statementAt(stmts: A.Stmt[], offset: number): A.Stmt | undefined {
+    let lo = 0;
+    let hi = stmts.length - 1;
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (stmts[mid].start <= offset) { lo = mid; } else { hi = mid - 1; }
+    }
+    const s = stmts[lo];
+    return s && s.start <= offset && offset < s.end ? s : undefined;
 }
 
 /** Calls `visit` on every statement of a procedure body, nested blocks included, in source order. */
