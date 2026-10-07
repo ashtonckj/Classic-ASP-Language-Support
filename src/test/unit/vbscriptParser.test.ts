@@ -316,6 +316,15 @@ describe('VBScript page programs', () => {
 });
 
 describe('symbolsFromTree', () => {
+    it('lists the variables of a page with 20,000 assignments without slowing down', () => {
+        // Each assignment once looked through every variable found so far.
+        const lines = Array.from({ length: 20000 }, (_, i) => `v${i} = ${i}`);
+        const started = Date.now();
+        const symbols = symbolsFromTree(`<%\n${lines.join('\n')}\n%>`, 'x.asp');
+        assert.strictEqual(symbols.variables.length, 20000);
+        assert.ok(Date.now() - started < 1500, `took ${Date.now() - started} ms`);
+    });
+
     it('reads every kind of symbol from a typical page', () => {
         const text = [
             '<%@ Language="VBScript" %>',

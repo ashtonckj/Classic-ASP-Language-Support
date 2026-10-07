@@ -140,19 +140,25 @@ export function symbolsOfPage(page: ParsedPage, filePath: string): FileSymbols {
 
     const line = (offset: number) => lineAt(page, offset);
     const hasOptionExplicit = statements.some(s => s.kind === 'OptionExplicit');
-    const seen = (name: string) => result.variables.some(v => v.name.toLowerCase() === name);
+    // Lower-cased names already in result.variables: a Set, as a page can assign thousands of times.
+    const variableNames = new Set<string>();
+    const seen = (name: string) => variableNames.has(name);
+    const addVariable = (variable: FileSymbols['variables'][number]) => {
+        result.variables.push(variable);
+        variableNames.add(variable.name.toLowerCase());
+    };
 
     for (const s of statements) {
         switch (s.kind) {
             case 'Dim':
                 for (const d of s.declarators) {
-                    result.variables.push({ name: d.name.text, line: line(s.start), filePath });
+                    addVariable({ name: d.name.text, line: line(s.start), filePath });
                 }
                 break;
 
             case 'ForEach':
                 if (s.variable.name && !seen(s.variable.name)) {
-                    result.variables.push({ name: s.variable.text, line: line(s.start), filePath, implicit: true });
+                    addVariable({ name: s.variable.text, line: line(s.start), filePath, implicit: true });
                 }
                 break;
 
@@ -160,7 +166,7 @@ export function symbolsOfPage(page: ParsedPage, filePath: string): FileSymbols {
                 if (s.set || hasOptionExplicit || s.target.kind !== 'Ident' || seen(s.target.name.name)) { break; }
                 const owner = owners.get(s);
                 if (owner && owner.procKind !== 'sub' && owner.name.name === s.target.name.name) { break; }
-                result.variables.push({ name: s.target.name.text, line: line(s.start), filePath, implicit: true });
+                addVariable({ name: s.target.name.text, line: line(s.start), filePath, implicit: true });
                 break;
             }
 
