@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { otherSetting } from '../platform/settings';
+import { log } from '../platform/log';
 import { isInlineTag, isSelfClosingTag } from '../constants/htmlTags';
 import { ASP_OBJECT_NAMES } from '../constants/aspKeywords';
 import { getZone, Zone } from '../core/zoneUtils';
@@ -1460,13 +1461,13 @@ let warnedAboutEmmet = false;
  * would be far worse than a Tab that just indents — but it leaves no trace at
  * all, and "Emmet is turned off" is not something anyone would guess from a
  * silent no-op. The log is where that belongs: no interruption, and still
- * findable from Help > Toggle Developer Tools when someone goes looking.
+ * findable in the "Classic ASP" output channel when someone goes looking.
  */
 function warnEmmetUnavailableOnce(): void {
     if (warnedAboutEmmet) { return; }
     warnedAboutEmmet = true;
-    console.warn(
-        '[ASP] Emmet did not respond, so Tab inserted an indent instead of '
+    log.warn(
+        'Emmet did not respond, so Tab inserted an indent instead of '
         + 'expanding an abbreviation. Emmet is a built-in extension and may be '
         + 'disabled — check the Extensions view with the filter "@builtin emmet".',
     );

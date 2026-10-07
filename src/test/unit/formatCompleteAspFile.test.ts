@@ -524,8 +524,9 @@ describe('formatCompleteAspFile — a tag each branch of an If opens', () => {
 });
 
 // Each Prettier failure used to create a new "ASP Formatter Debug" channel, so
-// the Output list gained another entry of the same name every time.
-describe('the formatter debug channel', () => {
+// the Output list gained another entry of the same name every time. Failures
+// now go to the one "Classic ASP" log.
+describe('the log a Prettier failure is written to', () => {
     it('is created once and reused when Prettier fails again', async () => {
         const window = vscode.window as unknown as { createOutputChannel: (name: string) => unknown };
         const original = window.createOutputChannel;

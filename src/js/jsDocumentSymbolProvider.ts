@@ -33,6 +33,7 @@ import {
     VIRTUAL_FILENAME,
 } from './jsUtils';
 import { getJsBlockRanges } from '../core/zoneUtils';
+import { log } from '../platform/log';
 
 // TypeScript, loaded by provideDocumentSymbols on the first page that has a
 // <script> block rather than when this module is: a page without one has no
@@ -437,7 +438,7 @@ export class JsDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
                 ));
             }
         } catch (err) {
-            console.error('[ASP] JS document symbols failed:', err);
+            log.error('JavaScript outline failed', err);
             return [];
         }
 

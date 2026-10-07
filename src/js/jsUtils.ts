@@ -788,14 +788,13 @@ export class JsLanguageService {
 // ─────────────────────────────────────────────────────────────────────────────
 let _service: JsLanguageService | undefined;
 
+/**
+ * The one service of this thread. This file also runs on the JS worker, where
+ * there is no vscode module and so no log: a failure to start is thrown, and
+ * the provider that asked logs it.
+ */
 export function getJsLanguageService(): JsLanguageService {
-    if (!_service) {
-        try { _service = new JsLanguageService(); }
-        catch (err) {
-            console.error('[ASP] Failed to create JsLanguageService:', err);
-            throw err;
-        }
-    }
+    _service ??= new JsLanguageService();
     return _service;
 }
 

@@ -76,8 +76,17 @@ export const window = {
         appendLine: () => { /* no-op */ },
         show: () => { /* no-op */ },
         dispose: () => { /* no-op */ },
+        // A log channel's levels; what they are given is kept in testLog.
+        trace: (message: string) => { testLog.push(`trace ${message}`); },
+        debug: (message: string) => { testLog.push(`debug ${message}`); },
+        info:  (message: string) => { testLog.push(`info ${message}`); },
+        warn:  (message: string) => { testLog.push(`warn ${message}`); },
+        error: (message: string) => { testLog.push(`error ${message}`); },
     }),
 };
+
+/** Every line written to a log channel, "level message", for a test to check. */
+export const testLog: string[] = [];
 
 export const ProgressLocation = { SourceControl: 1, Window: 10, Notification: 15 };
 

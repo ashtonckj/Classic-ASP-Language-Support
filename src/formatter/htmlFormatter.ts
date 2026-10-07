@@ -6,6 +6,7 @@ import { analyseHtmlStructure } from '../html/htmlStructureDiagnosticsProvider';
 import { VOID_ELEMENTS } from '../constants/htmlTags';
 import { pageLanguage } from '../vbscript/pageSegments';
 import { formatterSettings, prettierSettings as readPrettierSettings } from '../platform/settings';
+import { log, showLog } from '../platform/log';
 
 // ─── ASP block types ───────────────────────────────────────────────────────
 
@@ -100,15 +101,6 @@ function tokenCollisions(source: string, prefix: string): Map<string, number> {
 // formatCompleteAspFile. Ids stay unique because they also carry a timestamp and
 // a random part; the number is what goes into a token's width.
 let _placeholderCounter = 0;
-
-// Created the first time Prettier fails, then reused: making a new one each
-// time left another "ASP Formatter Debug" entry in the Output list per failure.
-let _debugChannel: vscode.OutputChannel | undefined;
-
-export function disposeFormatterDebugChannel(): void {
-    _debugChannel?.dispose();
-    _debugChannel = undefined;
-}
 
 // A closing tag for a void element — `</br>`, `</img>` — which HTML has no
 // such thing as.
@@ -871,24 +863,19 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         const lineMatch = msg.match(/\((\d+):(\d+)\)/);
         const location  = lineMatch ? ` (line ${lineMatch[1]}, col ${lineMatch[2]})` : '';
 
-        // ── Debug: log the masked code so we can see what Prettier choked on ──
-        const channel = (_debugChannel ??= vscode.window.createOutputChannel('ASP Formatter Debug'));
-        channel.clear();
-        channel.appendLine('=== Prettier parse error' + location + ' ===');
-        channel.appendLine('Error: ' + msg);
-        channel.appendLine('');
-        channel.appendLine('=== Masked code sent to Prettier ===');
-        channel.appendLine(maskedCode);
-        channel.appendLine('');
-        channel.appendLine('=== ASP blocks classified ===');
-        for (const b of aspBlocks) {
-            channel.appendLine(`  line ${b.lineNumber + 1}  kind=${b.kind}  ${b.code.slice(0, 60).replace(/\n/g, '\\n')}`);
-        }
-        channel.show(true);
+        // The masked code is what Prettier choked on, so it goes in the log with the error.
+        log.error([
+            `Prettier could not parse the page${location}: ${msg}`,
+            '=== Masked code sent to Prettier ===',
+            maskedCode,
+            '=== ASP blocks classified ===',
+            ...aspBlocks.map(b => `  line ${b.lineNumber + 1}  kind=${b.kind}  ${b.code.slice(0, 60).replace(/\n/g, '\\n')}`),
+        ].join('\n'));
+        showLog();
 
         vscode.window.showWarningMessage(
             `Formatting skipped — Prettier could not parse the HTML${location}. ` +
-            `Check the "ASP Formatter Debug" output channel to see the masked code.`
+            `Check the "Classic ASP" output channel to see the masked code.`
         );
         return code;
     }

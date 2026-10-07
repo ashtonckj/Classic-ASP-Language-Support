@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { disposeFormatterDebugChannel, formatCompleteAspFile } from './formatter/htmlFormatter';
+import { formatCompleteAspFile } from './formatter/htmlFormatter';
 import { HtmlCompletionProvider } from './html/htmlCompletionProvider';
 import { registerAutoClosingTag, registerEnterKeyHandler, registerTabKeyHandler, registerVbScriptQuoteGuard, registerLineContinuationGuard } from './asp/aspIndentProvider';
 import { AspCompletionProvider } from './asp/aspCompletionProvider';
@@ -41,6 +41,7 @@ import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache, disposeWorkspace
 import { AspSignatureHelpProvider } from './asp/aspSignatureHelpProvider';
 import { computeLineEdits, computeRangeEdits, resolveEol, toLf } from './platform/editUtils';
 import { prettierSettings } from './platform/settings';
+import { disposeLog, log } from './platform/log';
 
 // Shared structure issue check used by both the formatter and the preview.
 //
@@ -108,7 +109,7 @@ function preloadIncludes(document: vscode.TextDocument | undefined): void {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('Classic ASP Language Support is now active!');
+    log.info('Classic ASP Language Support is now active.');
 
     // Settings kept under their pre-0.7.0 names move to the new ones.
     void migrateOldSettingsAndTell(context);
@@ -568,5 +569,5 @@ export function deactivate(): void {
     disposeAnalysisWorkers();
     disposeIncludeWatchers();
     disposeWorkspaceIndex();
-    disposeFormatterDebugChannel();
+    disposeLog();
 }
