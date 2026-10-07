@@ -537,6 +537,29 @@ export function getJsBlockRanges(text: string): Array<{ start: number; end: numb
     return ranges;
 }
 
+/** A `%>` outside every block, or a `<%` that is never closed. */
+export interface AspTagProblem {
+    offset: number;
+    kind: 'stray' | 'unclosed';
+}
+
+/**
+ * The `<%` / `%>` mistakes in a page, by the same lexical rule IIS uses: a
+ * block runs from `<%` to the first `%>` after it, even one in a string or a
+ * comment. A `%>` in a VBScript `<script>` body is part of that script, not
+ * stray. In page order.
+ */
+export function aspTagProblems(text: string, zones: ZoneResolver = createZoneResolver(text)): AspTagProblem[] {
+    const problems: AspTagProblem[] = [];
+    for (let at = text.indexOf('%>'); at !== -1; at = text.indexOf('%>', at + 2)) {
+        if (zones.zoneAt(at) !== 'asp') { problems.push({ offset: at, kind: 'stray' }); }
+    }
+    // Only the last block can be unclosed: an unclosed one runs to the end of the page.
+    const last = zones.aspBlocks[zones.aspBlocks.length - 1];
+    if (last && last.end === Number.MAX_SAFE_INTEGER) { problems.push({ offset: last.start, kind: 'unclosed' }); }
+    return problems.sort((a, b) => a.offset - b.offset);
+}
+
 /** Binary search over sorted, non-overlapping ranges. */
 export function inRanges(
     ranges: ReadonlyArray<{ start: number; end: number }>,

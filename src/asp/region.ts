@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { getAspBlockRanges } from '../core/zoneUtils';
 
 interface AspRegion {
     openingBracket: vscode.Range;
@@ -13,25 +14,19 @@ export interface AspRegionOffsets {
 }
 
 /**
- * Lexical scan of <% … %> regions, matching the ASP engine (and isInsideAspBlock):
- * each <% / <%= opener is paired with its FIRST %>. A stray `%>` sitting in plain
- * HTML text (e.g. inside "50%>") is NOT an opener, so — unlike the old
- * blind "pair every bracket two at a time" logic — it can no longer shift the
- * pairing of every real block after it.
+ * The <% … %> regions, from the same lexical scan as the zones (getAspBlockRanges):
+ * each <% / <%= opener is paired with its FIRST %>, so a stray `%>` in plain HTML
+ * text (e.g. inside "50%>") cannot shift the pairing of every real block after it.
+ * A block still being typed, with no %> yet, is not tinted: it would tint the
+ * rest of the page for as long as the %> is missing.
  */
 export function findAspRegionOffsets(text: string): AspRegionOffsets[] {
     const regions: AspRegionOffsets[] = [];
-    const opener = /<%=?/g;
-    let m: RegExpExecArray | null;
-
-    while ((m = opener.exec(text)) !== null) {
-        const openStart = m.index;
-        const openEnd   = m.index + m[0].length;
-        const close     = text.indexOf('%>', openEnd);
-        if (close === -1) { break; } // unterminated block — no more regions
-        const closeEnd  = close + 2;
-        regions.push({ open: [openStart, openEnd], code: [openEnd, close], close: [close, closeEnd] });
-        opener.lastIndex = closeEnd; // resume after this block's %>
+    for (const block of getAspBlockRanges(text)) {
+        if (block.end === Number.MAX_SAFE_INTEGER) { break; }
+        const openEnd = block.start + (text[block.start + 2] === '=' ? 3 : 2);
+        const close   = block.end - 2;
+        regions.push({ open: [block.start, openEnd], code: [openEnd, close], close: [close, block.end] });
     }
     return regions;
 }

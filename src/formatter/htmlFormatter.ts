@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type * as prettier from 'prettier';
 import { formatSingleAspBlock, aspFormatterSettings, delimitersAtColumnZero, type AspFormatterSettings } from './aspFormatter';
-import { findNextRealTag, findTagEnd, findClosingTag, getVbScriptBlockRanges } from '../core/zoneUtils';
+import { aspTagProblems, findNextRealTag, findTagEnd, findClosingTag, getVbScriptBlockRanges } from '../core/zoneUtils';
 import { analyseHtmlStructure } from '../html/htmlStructureDiagnosticsProvider';
 import { VOID_ELEMENTS } from '../constants/htmlTags';
 import { pageLanguage } from '../vbscript/pageSegments';
@@ -154,75 +154,13 @@ function restoreJsEventAttrs(code: string, masks: JsAttrMask[]): string {
 // ─── Safety check ─────────────────────────────────────────────────────────
 
 /**
- * Returns true if the source has unmatched <% or %> tags.
- * An unclosed <% would cause the masking regex to consume everything after it.
- *
- * Skips:
- *  - HTML comments  <!-- ... -->  entirely (ASP tags inside them are not real)
- *  - VBScript comment lines (first non-whitespace char is ') inside ASP blocks
- *  - %> inside string literals inside ASP blocks
+ * True when the page has a `<%` that is never closed or a `%>` outside every
+ * block, by the same lexical rule IIS uses: the first `%>` ends a block, even
+ * one at the end of a comment, so `<% 'Response.Write x %>` is a whole block.
+ * An unclosed `<%` would run the masking to the end of the page.
  */
 function hasUnclosedAspTags(code: string): boolean {
-    let depth   = 0;
-    let i       = 0;
-    let inHtmlComment = false;
-
-    while (i < code.length) {
-        // ── HTML comment open  <!-- ──────────────────────────────────────────
-        if (!inHtmlComment && depth === 0 &&
-            code[i] === '<' && code.slice(i, i + 4) === '<!--') {
-            inHtmlComment = true;
-            i += 4;
-            continue;
-        }
-        // ── HTML comment close  --> ──────────────────────────────────────────
-        if (inHtmlComment) {
-            if (code.slice(i, i + 3) === '-->') { inHtmlComment = false; i += 3; }
-            else { i++; }
-            continue;
-        }
-
-        // ── ASP open  <% ─────────────────────────────────────────────────────
-        if (code[i] === '<' && code[i + 1] === '%') {
-            depth++;
-            i += 2;
-            continue;
-        }
-
-        // ── Inside ASP block: scan line-by-line ──────────────────────────────
-        if (depth > 0) {
-            const lineEnd  = code.indexOf('\n', i);
-            const lineText = lineEnd === -1 ? code.slice(i) : code.slice(i, lineEnd + 1);
-            const end      = lineEnd === -1 ? code.length   : lineEnd + 1;
-
-            // VBScript comment line — no %> on this line counts
-            if (lineText.trimStart().startsWith("'")) {
-                i = end;
-                continue;
-            }
-
-            // Scan line for %> outside string literals
-            let j = i, inStr = false, found = false;
-            while (j < end) {
-                if (code[j] === '"') {
-                    if (inStr && j + 1 < end && code[j + 1] === '"') { j += 2; continue; }
-                    inStr = !inStr; j++; continue;
-                }
-                if (!inStr && code[j] === '%' && j + 1 < code.length && code[j + 1] === '>') {
-                    depth--;
-                    if (depth < 0) { return true; }
-                    j += 2; found = true; i = j; break;
-                }
-                j++;
-            }
-            if (!found) { i = end; }
-            continue;
-        }
-
-        i++;
-    }
-
-    return depth !== 0;
+    return aspTagProblems(code).length > 0;
 }
 
 // ─── ASP block classifier ─────────────────────────────────────────────────
@@ -742,29 +680,10 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
         // Leading horizontal whitespace on this line, for indent tracking.
         const leadingWS = lineLeading;
 
-        // Find the matching %> (using the same comment-aware logic so a '
-        // comment line inside the block can't close it prematurely)
-        let end = pos + 2;
-        while (end < jsPreMasked.length) {
-            if (jsPreMasked[end] === '%' && jsPreMasked[end + 1] === '>') {
-                // Check whether this %> is on a VBScript comment line.
-                // A VBScript comment starts with ' as the first non-whitespace
-                // character INSIDE the ASP block — not just anywhere on the
-                // HTML line.  We scan from the later of: the start of the
-                // current line, or the opening <% tag itself, so that a JS
-                // single-quote that precedes the ASP block on the same line
-                // (e.g.  '<%= code %>'  ) cannot trip the comment check.
-                const lineBegin      = jsPreMasked.lastIndexOf('\n', end - 1) + 1;
-                const aspContentStart = pos + 2; // first char after <%
-                const scanFrom       = Math.max(lineBegin, aspContentStart);
-                const lineUpToClose  = jsPreMasked.slice(scanFrom, end).trimStart();
-                if (!lineUpToClose.startsWith("'")) {
-                    end += 2; // include the %>
-                    break;
-                }
-            }
-            end++;
-        }
+        // The block ends at the first %>, as IIS ends it, even one at the end of
+        // a ' comment. hasUnclosedAspTags has already made sure there is one.
+        const close = jsPreMasked.indexOf('%>', pos + 2);
+        const end   = close === -1 ? jsPreMasked.length : close + 2;
 
         const aspBlock = jsPreMasked.slice(pos, end);
         // A block inside a <script>/<style> body is raw-text; otherwise decide

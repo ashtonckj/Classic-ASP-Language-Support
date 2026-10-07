@@ -55,6 +55,15 @@ describe('formatCompleteAspFile — table with omitted end tags', () => {
     });
 });
 
+// IIS ends a block at its first %>, even one at the end of a ' comment. The
+// formatter read such a %> as part of the comment, and refused the whole page.
+describe('formatCompleteAspFile — a block that ends in a comment', () => {
+    it("formats a page with a commented-out one-line block", async () => {
+        const out = await formatCompleteAspFile("<% 'Response.Write x %>\n<div><p>x</p></div>\n");
+        assert.strictEqual(out, "<%\n'Response.Write x\n%>\n<div><p>x</p></div>\n");
+    });
+});
+
 describe('formatCompleteAspFile — a JScript page', () => {
     it('leaves the page as it is, as the block formatter knows VBScript only', async () => {
         const input = '<%@ Language="JScript" %>\n<div><p>x</p></div>\n<%\nif (x) { Response.Write("a"); }\nfunction f(a) { return a; }\n%>';

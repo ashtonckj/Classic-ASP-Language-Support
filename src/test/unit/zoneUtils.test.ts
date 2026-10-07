@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { getZone, findTagEnd, findNextRealTag, getVbScriptBlockRanges } from '../../core/zoneUtils';
+import { aspTagProblems, getZone, findTagEnd, findNextRealTag, getVbScriptBlockRanges } from '../../core/zoneUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ASP block-scanning is LEXICAL (verified against a live IIS/ASP engine):
@@ -345,5 +345,25 @@ describe('getVbScriptBlockRanges', () => {
     it('returns each block when there are several', () => {
         const text = '<script language="vbscript">a</script>\n<p>x</p>\n<script type="text/vbscript">b</script>\n';
         assert.deepStrictEqual(bodies(text), ['a', 'b']);
+    });
+});
+
+// The structure check and the formatter both ask this, so they agree on what
+// IIS would reject. The formatter used to read a %> at the end of a comment
+// as part of the comment, and refused every page with <% 'Response.Write x %>.
+describe('aspTagProblems', () => {
+    const problems = (text: string) => aspTagProblems(text).map(p => `${p.kind}@${p.offset}`);
+
+    it('finds nothing wrong with blocks that close, a comment-ending one included', () => {
+        assert.deepStrictEqual(problems("<% 'Response.Write x %>\n<p>a</p>\n<% If x Then ' note %>b<% End If %>"), []);
+    });
+
+    it('finds a %> outside every block, but not one inside a VBScript <script> body', () => {
+        assert.deepStrictEqual(problems('<p>50%> off</p>'), ['stray@5']);
+        assert.deepStrictEqual(problems('<script language="vbscript">x = "%>"</script>'), []);
+    });
+
+    it('finds a <% that is never closed', () => {
+        assert.deepStrictEqual(problems('<p>a</p><% x = 1'), ['unclosed@8']);
     });
 });

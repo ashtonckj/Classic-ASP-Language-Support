@@ -21,7 +21,8 @@
 import * as vscode from 'vscode';
 import { onSettingsChange } from '../platform/settings';
 import * as fs from 'fs';
-import { createZoneResolver } from '../core/zoneUtils';
+import { aspTagProblems } from '../core/zoneUtils';
+import { textOf, zonesFor } from '../platform/documentState';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../core/includeDirectives';
 import { parsePage } from '../vbscript/symbols';
 import { pageBlocks, type BlockWarning, type MissingSet } from '../vbscript/pageAnalysis';
@@ -44,7 +45,7 @@ export function blockDiagnostics(document: vscode.TextDocument, warnings: BlockW
 }
 
 export function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
-    return blockDiagnostics(document, pageBlocks(parsePage(document.getText())).warnings);
+    return blockDiagnostics(document, pageBlocks(parsePage(textOf(document))).warnings);
 }
 
 // ── ASP tag balance scanner ───────────────────────────────────────────────────
@@ -55,42 +56,17 @@ export function scanAspStructure(document: vscode.TextDocument): vscode.Diagnost
 //   Stray %>   — no matching <% above it  →  Warning on the %>  (2 chars)
 //   Unclosed <% — no matching %> in file  →  Warning on the <%  (2 chars)
 export function scanAspTags(document: vscode.TextDocument): vscode.Diagnostic[] {
-    const fullText = document.getText();
-    const zones    = createZoneResolver(fullText);
     const diagnostics: vscode.Diagnostic[] = [];
 
-    // Find every %> — if getZone at its position is not 'asp', it's a stray closer.
-    const closeRegex = /%>/g;
-    let m: RegExpExecArray | null;
-    while ((m = closeRegex.exec(fullText)) !== null) {
-        if (zones.zoneAt(m.index) !== 'asp') {
-            const pos = document.positionAt(m.index);
-            diagnostics.push(Object.assign(
-                new vscode.Diagnostic(
-                    new vscode.Range(pos, document.positionAt(m.index + 2)),
-                    `Unexpected '%>' — no opening '<%' found`,
-                    vscode.DiagnosticSeverity.Warning
-                ),
-                { source: 'Classic ASP (tags)' }
-            ));
-        }
-    }
-
-    // Find every <% — if getZone just inside the block (offset+2) is not 'asp',
-    // the block was never properly closed.
-    const openRegex = /<%/g;
-    while ((m = openRegex.exec(fullText)) !== null) {
-        if (zones.zoneAt(m.index + 2) !== 'asp') {
-            const pos = document.positionAt(m.index);
-            diagnostics.push(Object.assign(
-                new vscode.Diagnostic(
-                    new vscode.Range(pos, document.positionAt(m.index + 2)),
-                    `Unclosed '<%' — no matching '%>' found`,
-                    vscode.DiagnosticSeverity.Warning
-                ),
-                { source: 'Classic ASP (tags)' }
-            ));
-        }
+    for (const problem of aspTagProblems(textOf(document), zonesFor(document))) {
+        diagnostics.push(Object.assign(
+            new vscode.Diagnostic(
+                new vscode.Range(document.positionAt(problem.offset), document.positionAt(problem.offset + 2)),
+                problem.kind === 'stray' ? `Unexpected '%>' — no opening '<%' found` : `Unclosed '<%' — no matching '%>' found`,
+                vscode.DiagnosticSeverity.Warning
+            ),
+            { source: 'Classic ASP (tags)' }
+        ));
     }
 
     return diagnostics;
@@ -147,7 +123,7 @@ export function findMissingIncludes(
 /** Missing-include warnings for a saved page; an untitled one has no folder to look in. */
 export function scanIncludes(document: vscode.TextDocument): vscode.Diagnostic[] {
     if (document.uri.scheme !== 'file') { return []; }
-    return findMissingIncludes(document.getText(), document.uri.fsPath, configuredVirtualRoot())
+    return findMissingIncludes(textOf(document), document.uri.fsPath, configuredVirtualRoot())
         .map(found => Object.assign(
             new vscode.Diagnostic(
                 new vscode.Range(document.positionAt(found.start), document.positionAt(found.end)),
