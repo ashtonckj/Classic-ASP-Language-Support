@@ -150,6 +150,42 @@ describe('binder — what a name refers to', () => {
         const text = '<% Dim x %>\n<script language="vbscript">\nDim x\n</script>';
         assert.deepStrictEqual(bindPage('page.asp', parsePage(text)).diagnostics, []);
     });
+
+    it('lets client-side VBScript blocks use each other, as one browser engine runs them all', () => {
+        // Checked with a .wsf of two script blocks under cscript.exe: the second
+        // block's Hello is the one that runs, a Sub sees a variable a later block
+        // makes, and Dim x in both blocks is no error.
+        const text = [
+            '<script language="vbscript">',   // 0
+            'Dim x',                          // 1
+            'Sub Hello()',                    // 2
+            '  Show y',                       // 3
+            'End Sub',                        // 4
+            '</script>',                      // 5
+            '<script language="vbscript">',   // 6
+            'Dim x',                          // 7
+            'y = 5',                          // 8
+            'Sub Show(v)',                    // 9
+            'End Sub',                        // 10
+            'Hello',                          // 11
+            '</script>',
+        ].join('\n');
+        const parsed = parsePage(text);
+        const binding = bindPage('page.asp', parsed);
+        const target = (name: string, line: number) => {
+            const ref = binding.references.find(r => !r.declaration && r.name === name && lineAt(parsed, r.span.start) === line);
+            return ref?.target ? `${ref.target.kind} ${lineAt(parsed, ref.target.span.start)}` : null;
+        };
+        assert.strictEqual(target('show', 3), 'sub 9');
+        assert.strictEqual(target('y', 3), 'variable 8');
+        assert.strictEqual(target('hello', 11), 'sub 2');
+        assert.deepStrictEqual(binding.diagnostics, []);
+    });
+
+    it('still reports a name declared twice inside one client-side block', () => {
+        const text = '<script language="vbscript">\nDim x\nDim x\n</script>';
+        assert.deepStrictEqual(bindPage('page.asp', parsePage(text)).diagnostics.map(d => d.message), ['Name redefined']);
+    });
 });
 
 // VBScript accepts a chain of & or . or (…) of any length, and the parser

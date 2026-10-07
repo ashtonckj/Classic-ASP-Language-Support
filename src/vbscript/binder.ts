@@ -19,8 +19,11 @@
  * makes a local, unless the page already has a variable of that name, which
  * is then the one assigned. `F = …` inside Function F sets its return value.
  *
- * A client-side `<script language="vbscript">` runs in the browser, so each
- * one is a script scope of its own.
+ * A client-side `<script language="vbscript">` runs in the browser, apart from
+ * the server code. The page's client-side blocks share one script scope, as
+ * one browser engine runs them all, but each is compiled on its own, so a name
+ * declared in two of them is not "Name redefined" (checked with a .wsf file of
+ * two script blocks under cscript.exe).
  *
  * A name in the part of a statement the parser skipped after an error is
  * still looked up, as a read in the procedure or class it sits in, so a
@@ -129,6 +132,10 @@ class Binder {
     /** The names each procedure has ReDim'd so far, in the declare pass. */
     private readonly redimmed = new Map<Scope, Set<string>>();
 
+    /** The client-side script block being declared, and the block each of its declarations came from. */
+    private block: A.Program | null = null;
+    private readonly blockOf = new WeakMap<Declaration, A.Program>();
+
     constructor(private readonly scriptScope: ScriptScope) {}
 
     bind(): Binding {
@@ -158,18 +165,24 @@ class Binder {
             }
         }
 
-        // Each client-side script on its own.
-        for (const file of this.scriptScope.files) {
-            for (const program of file.page.programs) {
-                if (program.server) { continue; }
-                const own = this.newScope('script', null, null);
-                this.declare(program.body, own, file.path);
-                this.redimmed.clear();
-                this.declareImplicitGlobals(program.body, own, file.path);
-                this.declareProcedureLocals(program.body, file.path);
-                this.resolve(program.body, own, file.path);
-                this.resolveSkipped(program, own, file.path);
+        // The browser runs every client-side script block of the page in one
+        // engine, so they share one scope: a Sub in one block is called from
+        // another. Each block is compiled on its own, though, so a name declared
+        // in two blocks is not declared twice.
+        const client = this.scriptScope.files.flatMap(file =>
+            file.page.programs.filter(program => !program.server).map(program => ({ file: file.path, program })));
+        if (client.length > 0) {
+            const scope = this.newScope('script', null, null);
+            for (const { file, program } of client) {
+                this.block = program;
+                this.declare(program.body, scope, file);
             }
+            this.block = null;
+            this.redimmed.clear();
+            for (const { file, program } of client) { this.declareImplicitGlobals(program.body, scope, file); }
+            for (const { file, program } of client) { this.declareProcedureLocals(program.body, file); }
+            for (const { file, program } of client) { this.resolve(program.body, scope, file); }
+            for (const { file, program } of client) { this.resolveSkipped(program, scope, file); }
         }
         return this.binding;
     }
@@ -294,6 +307,7 @@ class Binder {
         if (!name.name) { return null; }
         const decl: Declaration = { name: name.name, text: name.text, kind, file, span: { start: name.start, end: name.end }, scope, implicit };
         if (node) { decl.node = node; }
+        if (this.block) { this.blockOf.set(decl, this.block); }
 
         if (!implicit && this.redefines(scope, decl, node)) {
             this.binding.diagnostics.push({ file, start: name.start, end: name.end, message: 'Name redefined' });
@@ -311,7 +325,9 @@ class Binder {
         // A Dim after a ReDim of the name in the same procedure, even when the ReDim resized a page array.
         if (scope.kind === 'procedure' && decl.kind === 'variable' && this.redimmed.get(scope)?.has(decl.name)) { return true; }
 
-        const earlier = (scope.declarations.get(decl.name) ?? []).filter(d => !d.implicit);
+        // Only declarations of the same client-side block count: each block is compiled on its own.
+        const earlier = (scope.declarations.get(decl.name) ?? [])
+            .filter(d => !d.implicit && (!this.block || this.blockOf.get(d) === this.block));
         if (earlier.length === 0) { return false; }
 
         const isProcedure = (k: DeclarationKind) => k === 'sub' || k === 'function';
