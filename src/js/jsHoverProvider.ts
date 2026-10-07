@@ -11,7 +11,7 @@
  */
 
 import * as vscode from 'vscode';
-import { prepareJsQuery } from './jsUtils';
+import { jsQueryAt } from './jsDocument';
 
 export class JsHoverProvider implements vscode.HoverProvider {
 
@@ -21,7 +21,7 @@ export class JsHoverProvider implements vscode.HoverProvider {
         token:    vscode.CancellationToken
     ): vscode.ProviderResult<vscode.Hover> {
 
-        const query = prepareJsQuery(document.getText(), document.offsetAt(position));
+        const query = jsQueryAt(document, position);
         if (!query || token.isCancellationRequested) { return undefined; }
         const { svc, virtualOffset, preambleLength } = query;
 

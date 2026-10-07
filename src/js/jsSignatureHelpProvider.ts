@@ -14,7 +14,7 @@
  */
 
 import * as vscode from 'vscode';
-import { prepareJsQuery } from './jsUtils';
+import { jsQueryAt } from './jsDocument';
 
 export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
 
@@ -24,7 +24,7 @@ export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
         token:    vscode.CancellationToken
     ): vscode.ProviderResult<vscode.SignatureHelp> {
 
-        const query = prepareJsQuery(document.getText(), document.offsetAt(position));
+        const query = jsQueryAt(document, position);
         if (!query || token.isCancellationRequested) { return undefined; }
 
         const items = query.svc.getSignatureHelp(query.virtualOffset);

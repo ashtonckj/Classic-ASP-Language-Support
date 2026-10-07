@@ -14,12 +14,8 @@
  */
 
 import * as vscode from 'vscode';
-import { prepareJsQuery, toDocumentSpan } from './jsUtils';
-
-/** The service positioned on `position`, or undefined outside a <script> block. */
-function prepare(document: vscode.TextDocument, position: vscode.Position) {
-    return prepareJsQuery(document.getText(), document.offsetAt(position));
-}
+import { toDocumentSpan } from './jsUtils';
+import { jsQueryAt } from './jsDocument';
 
 export class JsReferenceProvider implements vscode.ReferenceProvider {
 
@@ -30,7 +26,7 @@ export class JsReferenceProvider implements vscode.ReferenceProvider {
         token:    vscode.CancellationToken,
     ): vscode.ProviderResult<vscode.Location[]> {
 
-        const ready = prepare(document, position);
+        const ready = jsQueryAt(document, position);
         if (!ready || token.isCancellationRequested) { return undefined; }
 
         // ReferenceEntry does not say which hit is the declaration, so when the
@@ -65,7 +61,7 @@ export class JsDocumentHighlightProvider implements vscode.DocumentHighlightProv
         token:    vscode.CancellationToken,
     ): vscode.ProviderResult<vscode.DocumentHighlight[]> {
 
-        const ready = prepare(document, position);
+        const ready = jsQueryAt(document, position);
         if (!ready || token.isCancellationRequested) { return undefined; }
 
         const highlights: vscode.DocumentHighlight[] = [];

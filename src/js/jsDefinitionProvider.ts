@@ -13,7 +13,8 @@
  */
 
 import * as vscode from 'vscode';
-import { prepareJsQuery, toDocumentSpan } from './jsUtils';
+import { toDocumentSpan } from './jsUtils';
+import { jsQueryAt } from './jsDocument';
 
 export class JsDefinitionProvider implements vscode.DefinitionProvider {
 
@@ -23,7 +24,7 @@ export class JsDefinitionProvider implements vscode.DefinitionProvider {
         token:    vscode.CancellationToken,
     ): vscode.ProviderResult<vscode.Location[]> {
 
-        const query = prepareJsQuery(document.getText(), document.offsetAt(position));
+        const query = jsQueryAt(document, position);
         if (!query || token.isCancellationRequested) { return undefined; }
         const { svc, virtualOffset, preambleLength } = query;
 

@@ -73,7 +73,7 @@
 
 import * as path from 'path';
 import type * as ts from 'typescript';
-import { getJsBlockRanges, getZone } from '../core/zoneUtils';
+import { getJsBlockRanges, getZone, type ZoneResolver } from '../core/zoneUtils';
 import { parseConstDeclarators } from '../vbscript/symbolParser';
 import { ASP_DOM_TYPES } from './aspDomTypes.generated';
 
@@ -248,7 +248,7 @@ function collectVbsConsts(content: string): Map<string, string> {
  */
 function collectExprSentinels(
     content: string,
-    jsRanges: Array<{ start: number; end: number }>
+    jsRanges: ReadonlyArray<{ start: number; end: number }>
 ): Map<number, string> {
     const seen: Map<string, string> = new Map();
     const exprSentinels: Map<number, string> = new Map();
@@ -327,7 +327,7 @@ const WINDOW_OWN_MEMBERS = new Set([
  */
 export function collectCrossFrameNames(
     content: string,
-    jsRanges: Array<{ start: number; end: number }>,
+    jsRanges: ReadonlyArray<{ start: number; end: number }>,
 ): Set<string> {
     const names = new Set<string>();
     const frameChain =
@@ -357,7 +357,7 @@ export function collectCrossFrameNames(
  */
 function buildPreamble(
     content: string,
-    jsRanges: Array<{ start: number; end: number }>
+    jsRanges: ReadonlyArray<{ start: number; end: number }>
 ): PreambleResult {
     const vbsConsts = collectVbsConsts(content);
     const exprSentinels = collectExprSentinels(content, jsRanges);
@@ -460,8 +460,11 @@ export function substituteAspBlock(asp: string, sentinel: string | undefined): s
 // ─────────────────────────────────────────────────────────────────────────────
 // buildVirtualJsContent — public entry point
 // ─────────────────────────────────────────────────────────────────────────────
-export function buildVirtualJsContent(content: string, offset: number): VirtualJsResult {
-    const jsRanges = getJsBlockRanges(content);
+export function buildVirtualJsContent(
+    content: string,
+    offset: number,
+    jsRanges: ReadonlyArray<{ start: number; end: number }> = getJsBlockRanges(content),
+): VirtualJsResult {
     const isInScript = jsRanges.some(r => offset >= r.start && offset <= r.end);
 
     // ── Pass 1: build preamble + sentinel map ────────────────────────────────
@@ -811,12 +814,13 @@ export interface JsQuery {
 /**
  * What every JavaScript feature does first: check the offset is in a
  * <script> block, build the virtual file around it, and load that into the
- * language service. Undefined when the offset is not JavaScript.
+ * language service. Undefined when the offset is not JavaScript. `zones` is
+ * the page's zone map, when the caller already has one.
  */
-export function prepareJsQuery(fullText: string, offset: number): JsQuery | undefined {
-    if (getZone(fullText, offset) !== 'js') { return undefined; }
+export function prepareJsQuery(fullText: string, offset: number, zones?: ZoneResolver): JsQuery | undefined {
+    if ((zones ? zones.zoneAt(offset) : getZone(fullText, offset)) !== 'js') { return undefined; }
 
-    const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset);
+    const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset, zones?.jsBlocks);
     if (!isInScript) { return undefined; }
 
     const svc = getJsLanguageService();

@@ -25,11 +25,8 @@
  */
 
 import * as vscode from 'vscode';
-import { JsQuery, prepareJsQuery, toDocumentSpan, VIRTUAL_FILENAME } from './jsUtils';
-
-function prepare(document: vscode.TextDocument, position: vscode.Position): JsQuery | undefined {
-    return prepareJsQuery(document.getText(), document.offsetAt(position));
-}
+import { toDocumentSpan, VIRTUAL_FILENAME } from './jsUtils';
+import { jsQueryAt } from './jsDocument';
 
 export class JsRenameProvider implements vscode.RenameProvider {
 
@@ -43,7 +40,7 @@ export class JsRenameProvider implements vscode.RenameProvider {
         token:    vscode.CancellationToken,
     ): vscode.ProviderResult<vscode.Range> {
 
-        const ready = prepare(document, position);
+        const ready = jsQueryAt(document, position);
         if (!ready || token.isCancellationRequested) { return undefined; }
 
         const info = ready.svc.getRenameInfo(ready.virtualOffset);
@@ -73,7 +70,7 @@ export class JsRenameProvider implements vscode.RenameProvider {
         token:    vscode.CancellationToken,
     ): vscode.ProviderResult<vscode.WorkspaceEdit> {
 
-        const ready = prepare(document, position);
+        const ready = jsQueryAt(document, position);
         if (!ready || token.isCancellationRequested) { return undefined; }
 
         const locations = ready.svc.findRenameLocations(ready.virtualOffset);

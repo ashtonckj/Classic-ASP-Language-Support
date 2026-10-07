@@ -26,7 +26,8 @@
  */
 
 import * as vscode from 'vscode';
-import { getJsLanguageService, prepareJsQuery } from './jsUtils';
+import { getJsLanguageService } from './jsUtils';
+import { jsQueryAt } from './jsDocument';
 import { tsKindToVsKind } from './jsTsKinds';
 
 interface ItemData {
@@ -51,7 +52,7 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         context:  vscode.CompletionContext,
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
-        const query = prepareJsQuery(document.getText(), document.offsetAt(position));
+        const query = jsQueryAt(document, position);
         if (!query || token.isCancellationRequested) { return undefined; }
         const { svc, virtualContent, virtualOffset } = query;
 

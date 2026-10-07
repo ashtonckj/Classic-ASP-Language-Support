@@ -23,7 +23,8 @@
  */
 
 import * as vscode from 'vscode';
-import { prepareJsQuery, toDocumentSpan } from './jsUtils';
+import { toDocumentSpan } from './jsUtils';
+import { jsQueryAt } from './jsDocument';
 
 /** The diagnostic source jsDiagnosticsProvider stamps on everything it reports. */
 const JS_DIAGNOSTIC_SOURCE = 'Classic ASP (JS)';
@@ -49,7 +50,7 @@ export class JsCodeActionProvider implements vscode.CodeActionProvider {
         const start = document.offsetAt(range.start);
         const end   = document.offsetAt(range.end);
 
-        const query = prepareJsQuery(document.getText(), start);
+        const query = jsQueryAt(document, start);
         if (!query || token.isCancellationRequested) { return undefined; }
         const { svc, preambleLength } = query;
 
