@@ -547,6 +547,15 @@ export const VBSCRIPT_BUILTIN_VALUES: ReadonlySet<string> = new Set([
     ...VBSCRIPT_CONSTANTS.map(constant => constant.name.toLowerCase()),
 ]);
 
+/**
+ * True for a lower-cased name VBScript or ASP provides — a function, constant
+ * or intrinsic object — which a page rarely declares itself. Hover, F12 and
+ * signature help do not ask the pages that include this one about it.
+ */
+export function isBuiltinName(wordKey: string): boolean {
+    return VBSCRIPT_BUILTIN_VALUES.has(wordKey) || ASP_OBJECT_NAMES.has(wordKey);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // VBSCRIPT_KEYWORDS_SET
 //

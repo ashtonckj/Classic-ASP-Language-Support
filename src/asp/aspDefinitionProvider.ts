@@ -3,6 +3,7 @@ import { isCursorInHtmlFileLinkAttribute } from '../html/htmlLinkUtils';
 import { contextAt } from '../platform/documentState';
 import { definitionSites, resolveAt } from '../vbscript/references';
 import { editorWorkspace, siteToLocation } from './vbscriptWorkspace';
+import { isBuiltinName } from '../constants/aspKeywords';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AspDefinitionProvider
@@ -41,7 +42,12 @@ export class AspDefinitionProvider implements vscode.DefinitionProvider {
         const wordRange = document.getWordRangeAtPosition(position, /\w+/);
         if (!wordRange) return null;
 
-        const resolved = resolveAt(editorWorkspace(document), document.uri.fsPath, document.offsetAt(wordRange.start));
+        // A built-in, or a member after a dot (`rs.MoveNext`), is not something
+        // a page that includes this one declares, so those pages are not asked:
+        // F12 runs on every Ctrl+hover.
+        const afterDot = wordRange.start.character > 0 && lineText[wordRange.start.character - 1] === '.';
+        const askIncluders = !afterDot && !isBuiltinName(lineText.slice(wordRange.start.character, wordRange.end.character).toLowerCase());
+        const resolved = resolveAt(editorWorkspace(document), document.uri.fsPath, document.offsetAt(wordRange.start), askIncluders);
         if (!resolved) return null;
 
         return definitionSites(resolved.bound, resolved.target).map(site => siteToLocation(document, site));

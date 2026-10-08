@@ -3,7 +3,7 @@ import { withIncludeSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../html/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
 import {
-    ASP_MEMBER_DOCS, ASP_OBJECTS, ASP_OBJECT_NAMES, AspObjectDef, BUILTIN_FUNCTION_DOCS, VBSCRIPT_CONSTANTS, VBSCRIPT_KEYWORDS_SET,
+    ASP_MEMBER_DOCS, ASP_OBJECTS, ASP_OBJECT_NAMES, AspObjectDef, BUILTIN_FUNCTION_DOCS, VBSCRIPT_CONSTANTS, VBSCRIPT_KEYWORDS_SET, isBuiltinName,
 } from '../constants/aspKeywords';
 import * as path from 'path';
 import { declarationsOf, resolveAt, type BoundPage, type Target } from '../vbscript/references';
@@ -167,12 +167,6 @@ function describeAspObject(object: AspObjectDef): string {
         if (names.length > 0) { sections.push(`**${heading}:** ${names.join(', ')}`); }
     }
     return sections.join('\n\n');
-}
-
-/** True for a name VBScript or ASP provides, which a page rarely declares itself. */
-function isBuiltinName(wordKey: string): boolean {
-    return ASP_OBJECT_NAMES.has(wordKey) || wordKey in BUILTIN_FUNCTION_DOCS
-        || VBSCRIPT_CONSTANTS.some(constant => constant.name.toLowerCase() === wordKey);
 }
 
 /** The declaration a hover describes: the one that runs, for a Sub written twice. */

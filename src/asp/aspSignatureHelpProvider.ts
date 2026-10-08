@@ -16,7 +16,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { aspCodeStartOnLine } from '../platform/documentHelper';
 import { scanVbLine } from '../core/vbLexical';
-import { BUILTIN_FUNCTION_DOCS, BuiltinSignature, builtinSignature } from '../constants/aspKeywords';
+import { BUILTIN_FUNCTION_DOCS, BuiltinSignature, builtinSignature, isBuiltinName } from '../constants/aspKeywords';
 import { declarationsOf, resolveAt } from '../vbscript/references';
 import type * as A from '../vbscript/ast';
 import { PROCEDURE_WORD } from '../vbscript/symbols';
@@ -104,7 +104,7 @@ export class AspSignatureHelpProvider implements vscode.SignatureHelpProvider {
         // What the parser says the name means. Only a procedure has parameters
         // to show; a variable of that name is an array being indexed.
         const nameOffset = document.offsetAt(new vscode.Position(position.line, nameMatch.index!));
-        const resolved   = resolveAt(editorWorkspace(document), document.uri.fsPath, nameOffset, !(funcName in BUILTIN_FUNCTION_DOCS));
+        const resolved   = resolveAt(editorWorkspace(document), document.uri.fsPath, nameOffset, !afterDot && !isBuiltinName(funcName));
         const decls      = resolved ? declarationsOf(resolved.bound.binding, resolved.target) : [];
         const procedure  = decls.map(d => d.node).reverse().find((n): n is A.ProcedureStmt => n?.kind === 'Procedure');
         if (!procedure) {
