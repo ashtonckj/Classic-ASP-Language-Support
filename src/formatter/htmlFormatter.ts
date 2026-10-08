@@ -6,6 +6,7 @@ import { VOID_ELEMENTS } from '../constants/htmlTags';
 import { pageLanguage } from '../vbscript/pageSegments';
 import { formatterSettings, prettierSettings as readPrettierSettings, type PrettierSettings } from '../platform/settings';
 import { loadPrettier } from '../core/lazyModule';
+import { lineOf, OffsetMap, offsetOf, replaceRecorded, toOriginal } from './offsetMap';
 
 // ─── ASP block types ───────────────────────────────────────────────────────
 
@@ -142,15 +143,15 @@ const JS_EVENT_ATTR_RE = /\b(on\w+)\s*=\s*("([^"]*\([^"]*)"|'([^']*\([^']*)')/gi
 /** Replaces inline JS event-handler values with opaque tokens so Prettier
  *  cannot see the parentheses and apply its JS-expression line-wrap logic.
  *  Returns the rewritten string and a map needed to undo the masking. */
-function maskJsEventAttrs(code: string, names: PlaceholderNames): { masked: string; masks: JsAttrMask[] } {
+function maskJsEventAttrs(code: string, names: PlaceholderNames, map: OffsetMap): { masked: string; masks: JsAttrMask[] } {
     const masks: JsAttrMask[] = [];
-    const masked = code.replace(JS_EVENT_ATTR_RE, (_, attrName, _fullVal, dq, sq) => {
+    const masked = replaceRecorded(code, JS_EVENT_ATTR_RE, (_, attrName, _fullVal, dq, sq) => {
         const inner = dq ?? sq;
         const quote = dq !== undefined ? '"' : "'";
         const token = `JSEVT${names.number()}_${names.tag}`;
         masks.push({ token, original: inner, quote });
         return `${attrName}=${quote}${token}${quote}`;
-    });
+    }, map);
     return { masked, masks };
 }
 
@@ -323,7 +324,7 @@ function isInRawText(pos: number, ranges: Array<[number, number]>): boolean {
  * comments are skipped opaquely, so masked ASP placeholder comments are untouched,
  * and the pass is a no-op on markup that already has explicit end tags.
  */
-export function insertImpliedTableEndTags(html: string): string {
+export function insertImpliedTableEndTags(html: string, map?: OffsetMap): string {
     const CLOSEABLE = new Set(['td', 'th', 'tr', 'thead', 'tbody', 'tfoot']);
     const stack: string[] = [];
     let out = '';
@@ -335,7 +336,9 @@ export function insertImpliedTableEndTags(html: string): string {
     const closeWhile = (shouldClose: (top: string) => boolean): void => {
         while (stack.length && stack[stack.length - 1] !== 'table'
                && shouldClose(stack[stack.length - 1])) {
-            out += '</' + stack.pop() + '>';
+            const closer = '</' + stack.pop() + '>';
+            map?.replaced(i, i, out.length, out.length + closer.length);
+            out += closer;
         }
     };
 
@@ -435,10 +438,13 @@ function isInlinePlaced(before: string): boolean {
  */
 class TextBuilder {
     private readonly pieces: string[] = [];
+    private size = 0;
 
     push(text: string): void {
-        if (text) { this.pieces.push(text); }
+        if (text) { this.pieces.push(text); this.size += text.length; }
     }
+
+    get length(): number { return this.size; }
 
     /** The text after the last newline, and whether a newline comes before it. */
     currentLine(): { text: string; afterNewline: boolean } {
@@ -456,8 +462,8 @@ class TextBuilder {
     dropEnd(count: number): void {
         while (count > 0 && this.pieces.length > 0) {
             const last = this.pieces[this.pieces.length - 1];
-            if (last.length <= count) { count -= last.length; this.pieces.pop(); }
-            else { this.pieces[this.pieces.length - 1] = last.slice(0, last.length - count); count = 0; }
+            if (last.length <= count) { count -= last.length; this.size -= last.length; this.pieces.pop(); }
+            else { this.pieces[this.pieces.length - 1] = last.slice(0, last.length - count); this.size -= count; count = 0; }
         }
     }
 
@@ -467,6 +473,7 @@ class TextBuilder {
             const last = this.pieces[this.pieces.length - 1];
             let keep = last.length;
             while (keep > 0 && test(last[keep - 1])) { keep--; }
+            this.size -= last.length - keep;
             if (keep > 0) { this.pieces[this.pieces.length - 1] = last.slice(0, keep); return; }
             this.pieces.pop();
         }
@@ -516,7 +523,7 @@ function findInOrder(text: string, needles: readonly string[]): number[] {
 // formatted the way a `<% %>` block is — which is all the code of a global.asa.
 
 /** Takes out the body of every closed VBScript `<script>` block, in page order. */
-function takeVbScriptBodies(code: string): { masked: string; bodies: string[] } {
+function takeVbScriptBodies(code: string, map: OffsetMap): { masked: string; bodies: string[] } {
     const bodies: string[] = [];
     let masked = '';
     let last = 0;
@@ -524,6 +531,7 @@ function takeVbScriptBodies(code: string): { masked: string; bodies: string[] } 
         if (!/^<\/script/i.test(code.slice(end, end + 8))) { continue; }
         bodies.push(code.slice(start, end));
         masked += code.slice(last, start);
+        map.replaced(start, end, masked.length, masked.length);
         last = end;
     }
     return { masked: masked + code.slice(last), bodies };
@@ -580,6 +588,8 @@ export type FormatResult =
         severity: 'warning' | 'info';
         /** More for the log, when there is more. */
         details?: string;
+        /** The page's 0-based line the problem is on, when known. */
+        line?: number;
     };
 
 /** The page formatted, or the page as it was when formatting refused (the reason is lost: use formatPage). */
@@ -623,8 +633,11 @@ export async function formatPage(code: string): Promise<FormatResult> {
     // ── Step 1: Mask JS event-handler attribute values ───────────────────────
     // Must happen BEFORE ASP masking so values like onclick="doA('<%= val %>'); doB()"
     // are captured whole — including embedded ASP expressions — as one opaque token.
-    const vbscriptBodies = takeVbScriptBodies(code);
-    const { masked: jsPreMasked, masks: jsAttrMasks } = maskJsEventAttrs(vbscriptBodies.masked, run.names);
+    // Each stage records what it replaced, so a Prettier error can be traced to the user's line.
+    const bodiesMap = new OffsetMap();
+    const jsAttrMap = new OffsetMap();
+    const vbscriptBodies = takeVbScriptBodies(code, bodiesMap);
+    const { masked: jsPreMasked, masks: jsAttrMasks } = maskJsEventAttrs(vbscriptBodies.masked, run.names, jsAttrMap);
 
     // <script>/<style> body ranges — ASP blocks inside them need a JS/CSS-safe
     // identifier placeholder, not an HTML comment (which Prettier would parse as
@@ -633,6 +646,7 @@ export async function formatPage(code: string): Promise<FormatResult> {
 
     // ── Step 2: Mask all ASP blocks ──────────────────────────────────────────
     const page = maskAspBlocks(run, jsPreMasked, rawRanges);
+    page.maps.unshift(bodiesMap, jsAttrMap);
 
     // ── Step 3: Run Prettier on the masked HTML ──────────────────────────────
     let prettifiedCode: string;
@@ -640,16 +654,23 @@ export async function formatPage(code: string): Promise<FormatResult> {
         prettifiedCode = await run.format(page.maskedCode, run.options);
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
+        // Where Prettier stopped, in the masked text, and so in the page.
+        const loc = (error as { loc?: { start?: { line: number; column: number } } }).loc?.start;
         const lineMatch = msg.match(/\((\d+):(\d+)\)/);
-        const location  = lineMatch ? ` (line ${lineMatch[1]}, col ${lineMatch[2]})` : '';
+        const maskedLine   = loc?.line ?? (lineMatch ? Number(lineMatch[1]) : undefined);
+        const maskedColumn = loc?.column ?? (lineMatch ? Number(lineMatch[2]) : 1);
+        const line = maskedLine === undefined
+            ? undefined
+            : lineOf(code, toOriginal(offsetOf(page.maskedCode, maskedLine, maskedColumn), page.maps));
+        const near = line === undefined ? '' : ` near line ${line + 1}`;
 
         return {
-            ok: false, reason: 'prettier', severity: 'warning',
-            message: `Formatting skipped — Prettier could not parse the HTML${location}. `
-                + `Check the "Classic ASP" output channel to see the masked code.`,
+            ok: false, reason: 'prettier', severity: 'warning', line,
+            message: `Couldn't format this page: Prettier could not read the HTML${near}.`,
             // The masked code is what Prettier choked on, so it goes in the log with the error.
             details: [
-                `Prettier could not parse the page${location}: ${msg}`,
+                `Prettier could not parse the page${near}: ${msg}`,
+                maskedLine === undefined ? '' : `(That is line ${maskedLine} of the masked code below.)`,
                 '=== Masked code sent to Prettier ===',
                 page.maskedCode,
                 '=== ASP blocks classified ===',
@@ -699,6 +720,8 @@ interface MaskedPage {
     maskedCode: string;
     aspBlocks:  AspBlock[];
     hiddenTags: HiddenTagPlaceholder[];
+    /** What each rewrite before Prettier replaced, oldest first: see offsetMap.ts. */
+    maps:       OffsetMap[];
 }
 
 /** Where each placeholder is in Prettier's output (-1 when it was dropped). */
@@ -744,6 +767,7 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
 
     const aspBlocks: AspBlock[] = [];
     const masked    = new TextBuilder();
+    const blocksMap = new OffsetMap();
     const context   = new EmittedContext();
 
     // Tags Prettier must not see: one branch's copy of a tag another branch of
@@ -813,7 +837,9 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
             const { end, dedent } = hidden[nextHidden++];
             const id = run.names.id('ASPTAG', hiddenTags.length);
             hiddenTags.push({ id, text: jsPreMasked.slice(pos, end), dedent });
+            const from = masked.length;
             emit(`<!--${id}-->`);
+            blocksMap.replaced(pos, end, from, masked.length);
             pos = end;
             continue;
         }
@@ -870,12 +896,15 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
         // Replace leading whitespace + block with the placeholder
         // (strip the leadingWS we already emitted so the placeholder
         //  takes its place cleanly)
+        let replacedFrom = pos;
         if (leadingWS && lineTrailing.endsWith(leadingWS)) {
+            replacedFrom -= leadingWS.length;
             masked.dropEnd(leadingWS.length);
             lineTrailing = lineTrailing.slice(0, lineTrailing.length - leadingWS.length);
             if (!lineHasContent) { lineLeading = lineLeading.slice(0, lineLeading.length - leadingWS.length); }
         }
 
+        const placedAt = masked.length;
         switch (kind) {
             case 'text':    emit(token!);           break;
             case 'inline':  emit(token!);           break;
@@ -883,6 +912,7 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
             case 'rawtext': emit(rawTokenFor(id));  break;
             default:        emit(`<!--${id}-->`);   break;
         }
+        blocksMap.replaced(replacedFrom, end, placedAt, masked.length);
         pos = end;
     }
 
@@ -894,13 +924,15 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
     // placeholder here and is preserved — the previous raw-text strip silently
     // deleted it. Real HTML void closers are still removed; the structure
     // diagnostic continues to flag them for the user to fix.
-    maskedCode = maskedCode.replace(VOID_CLOSING_TAG_RE, '');
+    const voidMap = new OffsetMap();
+    maskedCode = replaceRecorded(maskedCode, VOID_CLOSING_TAG_RE, () => '', voidMap);
 
     // Insert implied </td> </tr> … closers so Prettier doesn't mis-nest tables
     // whose optional end tags were omitted (very common in Classic ASP).
-    maskedCode = insertImpliedTableEndTags(maskedCode);
+    const tableMap = new OffsetMap();
+    maskedCode = insertImpliedTableEndTags(maskedCode, tableMap);
 
-    return { maskedCode, aspBlocks, hiddenTags };
+    return { maskedCode, aspBlocks, hiddenTags, maps: [blocksMap, voidMap, tableMap] };
 }
 
 async function layOutAsWritten(run: FormatRun, page: MaskedPage, firstPass: string): Promise<string> {

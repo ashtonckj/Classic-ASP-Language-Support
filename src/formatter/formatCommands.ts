@@ -41,17 +41,30 @@ function structureIssueCount(document: vscode.TextDocument, deps: FormattingDeps
     return htmlIssues.length + aspIssues.length;
 }
 
-/** Tells the user why a page was not formatted. */
-function reportRefusal(result: Exclude<FormatResult, { ok: true }>): void {
-    if (result.details) {
-        log.error(result.details);
-        showLog();
-    }
-    if (result.severity === 'info') {
-        void vscode.window.showInformationMessage(result.message);
-    } else {
-        void vscode.window.showWarningMessage(result.message);
-    }
+/** Puts the caret at the start of `line` of `document`, scrolled into view. */
+async function goToLine(document: vscode.TextDocument, line: number): Promise<void> {
+    const editor = await vscode.window.showTextDocument(document);
+    const at = new vscode.Position(Math.min(line, document.lineCount - 1), 0);
+    editor.selection = new vscode.Selection(at, at);
+    editor.revealRange(new vscode.Range(at, at), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+}
+
+/**
+ * Tells the user why a page was not formatted. The details (Prettier's own
+ * error and the text it was given) go to the log, which opens only from the
+ * Show Details button.
+ */
+function reportRefusal(document: vscode.TextDocument, result: Exclude<FormatResult, { ok: true }>): void {
+    if (result.details) { log.error(result.details); }
+
+    const goTo = 'Go to Line';
+    const details = 'Show Details';
+    const buttons = [...(result.line !== undefined ? [goTo] : []), ...(result.details ? [details] : [])];
+    const show = result.severity === 'info' ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
+    void show(result.message, ...buttons).then(choice => {
+        if (choice === goTo) { void goToLine(document, result.line!); }
+        if (choice === details) { showLog(); }
+    });
 }
 
 /**
@@ -84,7 +97,7 @@ async function formatForDocument(
         () => formatPage(fullText),
     );
     if (!result.ok) {
-        reportRefusal(result);
+        reportRefusal(document, result);
         return undefined;
     }
 

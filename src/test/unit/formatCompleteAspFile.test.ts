@@ -639,3 +639,28 @@ describe('PlaceholderNames — the same page, the same names', () => {
         for (let i = 0; i < 5; i++) { assert.strictEqual(await formatCompleteAspFile(page), first); }
     });
 });
+
+// Prettier's line and column are the masked text's, where every multi-line
+// <% %> block is one line; the message must name the user's own line.
+describe('formatPage — a Prettier error names the page\'s own line', () => {
+    const block = '<%\n' + Array.from({ length: 30 }, (_, i) => `x${i} = ${i}`).join('\n') + '\n%>\n';
+
+    it('after a 30-line <% %> block', async () => {
+        const page = '<p>a</p>\n' + block + '<div>\n<p class="a" "b">x</p>\n</div>\n';
+        const result = await formatPage(page);
+        assert.ok(!result.ok && result.reason === 'prettier');
+        assert.strictEqual(result.line, 34, result.message);
+        assert.match(result.message, /near line 35/);
+    });
+
+    it('after a VBScript <script> body, an event handler and a table without end tags', async () => {
+        const page = [
+            '<script language="vbscript">', 'Sub A', '  x = 1', '  y = 2', 'End Sub', '</script>',
+            '<button onclick="go(1,\n 2)">b</button>',
+            '<table><tr><td>a<td>b</table>',
+        ].join('\n') + '\n' + block + '<div>\n<span>x</div></span>\n';
+        const result = await formatPage(page);
+        assert.ok(!result.ok && result.reason === 'prettier');
+        assert.strictEqual(page.split('\n')[result.line!], '<span>x</div></span>');
+    });
+});
