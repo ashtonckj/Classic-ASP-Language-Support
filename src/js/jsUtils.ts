@@ -73,7 +73,8 @@
 
 import * as path from 'path';
 import type * as ts from 'typescript';
-import { getJsBlockRanges, getZone, type ZoneResolver } from '../core/zoneUtils';
+import { getAspBlockRanges, getJsBlockRanges, type ZoneResolver } from '../core/zoneUtils';
+import { endsWithContinuation, vbStatements } from '../core/vbLexical';
 import { parseConstDeclarators } from '../vbscript/symbolParser';
 import { ASP_DOM_TYPES } from './aspDomTypes.generated';
 
@@ -185,46 +186,37 @@ function inferVbsConstType(value: string): string {
  *
  * Future improvement: extend this to track Dim + single-assignment patterns,
  * or map VBScript subtype functions (CStr, CInt, CBool) to TS types.
+ *
+ * A light scan rather than the VBScript parser: this runs on the JavaScript
+ * worker after every edit, and parsing a large page there cost ~200 ms. The
+ * statements are read with the parser's lexical rules (vbLexical), so a `:`
+ * or `'` inside a string is text, a comment ends the value, and a Const after
+ * a `:` is found.
  */
-// Returns the part of `s` before the first `:` that sits OUTSIDE a string literal
-// (a VBScript statement separator). A `:` inside "…" (e.g. a URL) is kept.
-export function cutAtStatementColon(s: string): string {
-    let inStr = false;
-    for (let i = 0; i < s.length; i++) {
-        const ch = s[i];
-        if (ch === '"') {
-            if (s[i + 1] === '"') { i++; continue; } // "" escaped quote
-            inStr = !inStr;
-        } else if (ch === ':' && !inStr) {
-            return s.slice(0, i);
-        }
-    }
-    return s;
-}
-
 function collectVbsConsts(content: string): Map<string, string> {
     const seen = new Set<string>();
     const consts = new Map<string, string>(); // original-cased name → TS type
 
-    // Only statement blocks — not expression blocks
-    const aspRegex = /<%(?!=)([\s\S]*?)%>/g;
-    let m: RegExpExecArray | null;
-    while ((m = aspRegex.exec(content)) !== null) {
-        const block = m[1].replace(/ _\r?\n/g, ' ');
+    for (const block of getAspBlockRanges(content)) {
+        // Closed statement blocks only: an expression block (`<%= … %>`) holds no Const.
+        if (block.end > content.length || content[block.start + 2] === '=') { continue; }
+        const lines = content.slice(block.start + 2, block.end - 2).split(/\r?\n/);
 
-        // Matches:  Const NAME = <value to end of line>. The value is then cut at a
-        // statement-separating `:` that is OUTSIDE a string, so a URL literal like
-        // "http://x" keeps its `:` (and is typed `string`) instead of being
-        // truncated to "http (which fell back to `any`).
-        const constRegex = /^\s*(?:Public\s+|Private\s+)?Const\s+(.+)$/gim;
-        let c: RegExpExecArray | null;
-        while ((c = constRegex.exec(block)) !== null) {
-            // `Const A = 1, B = "x"` declares both.
-            for (const { name, value } of parseConstDeclarators(cutAtStatementColon(c[1]))) {
-                const key = name.toLowerCase();
-                if (seen.has(key)) { continue; }
-                seen.add(key);
-                consts.set(name, inferVbsConstType(value));
+        // A `_` continuation joins a line to the next, as the engine reads it.
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i];
+            while (endsWithContinuation(line) && i + 1 < lines.length) { line = line.replace(/_\s*$/, ' ') + lines[++i]; }
+
+            for (const statement of vbStatements(line)) {
+                const constant = /^\s*(?:(?:Public|Private)\s+)?Const\s+(.+)$/i.exec(statement);
+                if (!constant) { continue; }
+                // `Const A = 1, B = "x"` declares both.
+                for (const { name, value } of parseConstDeclarators(constant[1])) {
+                    const key = name.toLowerCase();
+                    if (seen.has(key)) { continue; }
+                    seen.add(key);
+                    consts.set(name, inferVbsConstType(value));
+                }
             }
         }
     }
@@ -815,12 +807,12 @@ export interface JsQuery {
  * What every JavaScript feature does first: check the offset is in a
  * <script> block, build the virtual file around it, and load that into the
  * language service. Undefined when the offset is not JavaScript. `zones` is
- * the page's zone map, when the caller already has one.
+ * the page's zone map (documentState's zonesFor).
  */
-export function prepareJsQuery(fullText: string, offset: number, zones?: ZoneResolver): JsQuery | undefined {
-    if ((zones ? zones.zoneAt(offset) : getZone(fullText, offset)) !== 'js') { return undefined; }
+export function prepareJsQuery(fullText: string, offset: number, zones: ZoneResolver): JsQuery | undefined {
+    if (zones.zoneAt(offset) !== 'js') { return undefined; }
 
-    const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset, zones?.jsBlocks);
+    const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset, zones.jsBlocks);
     if (!isInScript) { return undefined; }
 
     const svc = getJsLanguageService();

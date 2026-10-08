@@ -1,19 +1,37 @@
 import * as assert from 'assert';
 import {
-    buildVirtualJsContent, cutAtStatementColon, disposeJsLanguageService,
+    buildVirtualJsContent, disposeJsLanguageService,
     getJsLanguageService, substituteAspBlock,
 } from '../../js/jsUtils';
 import { getJsBlockRanges } from '../../core/zoneUtils';
 import { SUPPRESSED_CODES } from '../../js/jsDiagnosticsProvider';
 
-// A Const value must keep a colon that lives inside a string (e.g. a URL) so it
-// is typed by its literal, but still cut at a real statement-separating colon.
-describe('cutAtStatementColon', () => {
+// A VBScript Const is typed in the JavaScript by its value. The statements are
+// read with the engine's rules: a colon inside a string (a URL) is text, a real
+// one separates statements, and a comment is not part of the value.
+describe('buildVirtualJsContent — VBScript Consts read by statement', () => {
+    const preambleOf = (page: string) => {
+        const { virtualContent, preambleLength } = buildVirtualJsContent(page, page.indexOf('var y'));
+        return virtualContent.slice(0, preambleLength);
+    };
+    const script = '\n<script>\nvar y = 1;\n</script>\n';
+
     it('keeps a colon inside a string literal', () => {
-        assert.strictEqual(cutAtStatementColon('"http://example.com/app"'), '"http://example.com/app"');
+        assert.ok(preambleOf('<% Const URL = "http://example.com/app" %>' + script).includes('var _asp_URL: string;'));
     });
-    it('cuts at a statement-separating colon outside a string', () => {
-        assert.strictEqual(cutAtStatementColon('1 : Const B = 2').trim(), '1');
+    it('cuts the value at a statement-separating colon, and finds a Const after one', () => {
+        const preamble = preambleOf('<% Const A = 1 : Const B = "x" %>' + script);
+        assert.ok(preamble.includes('var _asp_A: number;') && preamble.includes('var _asp_B: string;'), preamble);
+    });
+    it('leaves a trailing comment out of the value', () => {
+        assert.ok(preambleOf("<% Const MAX = 10 ' the most %>" + script).includes('var _asp_MAX: number;'));
+    });
+    it('joins a line continued with _', () => {
+        assert.ok(preambleOf('<%\nConst NAME = _\n    "joined"\n%>' + script).includes('var _asp_NAME: string;'));
+    });
+    it('reads no Const from an expression block or a commented-out line', () => {
+        const preamble = preambleOf("<%= Const %>\n<%\n' Const OLD = 1\n%>" + script);
+        assert.ok(!preamble.includes('_asp_OLD'), preamble);
     });
 });
 
