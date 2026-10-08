@@ -1,77 +1,15 @@
 import * as vscode from 'vscode';
-import type { CompletionItemKind as LsKind } from 'vscode-css-languageservice';
-import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, cssLanguageService, cssLanguageServiceModule } from './cssUtils';
+import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, cssLanguageService } from './cssUtils';
 import { textOf, zonesFor } from '../platform/documentState';
-
-function mapKind(lsKind: LsKind | undefined): vscode.CompletionItemKind {
-    const { CompletionItemKind: LsKind } = cssLanguageServiceModule();
-    switch (lsKind) {
-        case LsKind.Text:          return vscode.CompletionItemKind.Text;
-        case LsKind.Method:        return vscode.CompletionItemKind.Method;
-        case LsKind.Function:      return vscode.CompletionItemKind.Function;
-        case LsKind.Constructor:   return vscode.CompletionItemKind.Constructor;
-        case LsKind.Field:         return vscode.CompletionItemKind.Field;
-        case LsKind.Variable:      return vscode.CompletionItemKind.Variable;
-        case LsKind.Class:         return vscode.CompletionItemKind.Class;
-        case LsKind.Interface:     return vscode.CompletionItemKind.Interface;
-        case LsKind.Module:        return vscode.CompletionItemKind.Module;
-        case LsKind.Property:      return vscode.CompletionItemKind.Property;
-        case LsKind.Unit:          return vscode.CompletionItemKind.Unit;
-        case LsKind.Value:         return vscode.CompletionItemKind.Value;
-        case LsKind.Enum:          return vscode.CompletionItemKind.Enum;
-        case LsKind.Keyword:       return vscode.CompletionItemKind.Keyword;
-        case LsKind.Snippet:       return vscode.CompletionItemKind.Snippet;
-        case LsKind.Color:         return vscode.CompletionItemKind.Color;
-        case LsKind.File:          return vscode.CompletionItemKind.File;
-        case LsKind.Reference:     return vscode.CompletionItemKind.Reference;
-        default:                   return vscode.CompletionItemKind.Property;
-    }
-}
+import { fromLspCompletion, type LspCompletionItem } from '../platform/lspConvert';
 
 /**
- * Extracts the insert text from a CSS completion item.
- * The CSS language service puts the actual text in textEdit.newText, not in insertText, so we need to check both places.
+ * The CSS service's items as VS Code's, for a <style> block and an inline
+ * style alike. Their ranges are left out: an inline style is read from a
+ * document built around it, whose positions are not the page's.
  */
-function getInsertText(item: any): string | undefined {
-    if (item.textEdit) {
-        const newText = item.textEdit.newText ?? item.textEdit.insert?.newText;
-        if (newText) return newText;
-    }
-    if (typeof item.insertText === 'string') return item.insertText;
-    return typeof item.label === 'string' ? item.label : undefined;
-}
-
-/**
- * Converts a list of CSS language service completion items to VS Code completion items.
- * Shared between <style> block and inline style="" completions.
- */
-function convertItems(lsItems: any[]): vscode.CompletionItem[] {
-    return lsItems.map(item => {
-        const vsItem = new vscode.CompletionItem(
-            typeof item.label === 'string' ? item.label : (item.label as any).label,
-            mapKind(item.kind)
-        );
-
-        if (item.detail) vsItem.detail = item.detail;
-
-        if (item.documentation) {
-            vsItem.documentation = typeof item.documentation === 'string'
-                ? item.documentation
-                : new vscode.MarkdownString(item.documentation.value);
-        }
-
-        const insertText = getInsertText(item);
-        if (insertText) {
-            vsItem.insertText = item.insertTextFormat === cssLanguageServiceModule().InsertTextFormat.Snippet
-                ? new vscode.SnippetString(insertText)
-                : insertText;
-        }
-
-        if (item.filterText) vsItem.filterText = item.filterText;
-        if (item.sortText) vsItem.sortText = item.sortText;
-
-        return vsItem;
-    });
+function convertItems(lsItems: LspCompletionItem[]): vscode.CompletionItem[] {
+    return lsItems.map(item => fromLspCompletion(item, { kind: vscode.CompletionItemKind.Property }));
 }
 
 export class CssCompletionProvider implements vscode.CompletionItemProvider {

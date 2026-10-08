@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, cssLanguageService } from './cssUtils';
 import { textOf, zonesFor } from '../platform/documentState';
+import { fromLspMarkdown } from '../platform/lspConvert';
 
 export class CssHoverProvider implements vscode.HoverProvider {
     provideHover(
@@ -27,7 +28,7 @@ export class CssHoverProvider implements vscode.HoverProvider {
                 const lsPosition = lsDoc.positionAt(inlineCtx.wrappedOffset);
                 const hover      = cssLanguageService().doHover(lsDoc, lsPosition, stylesheet);
                 if (!hover) return null;
-                return new vscode.Hover(lsHoverToMarkdown(hover.contents));
+                return new vscode.Hover(fromLspMarkdown(hover.contents));
             }
             return null;
         }
@@ -41,30 +42,6 @@ export class CssHoverProvider implements vscode.HoverProvider {
         const hover      = cssLanguageService().doHover(lsDoc, lsPosition, stylesheet);
         if (!hover) return null;
 
-        return new vscode.Hover(lsHoverToMarkdown(hover.contents));
+        return new vscode.Hover(fromLspMarkdown(hover.contents));
     }
-}
-
-/**
- * Converts the CSS language service hover contents (which can be a string,
- * a MarkedString { language, value }, a MarkupContent { kind, value },
- * or an array of any of the above) into a single VS Code MarkdownString.
- *
- * Using `any` for the parameter avoids the version-skew between the LS
- * types (MarkupContent | MarkedString | MarkedString[]) and VS Code's own
- * hover content types — both shapes have a `.value` string property so
- * the runtime behaviour is identical regardless of the declared type.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function lsHoverToMarkdown(raw: any): vscode.MarkdownString {
-    if (!raw) { return new vscode.MarkdownString(); }
-    if (typeof raw === 'string') { return new vscode.MarkdownString(raw); }
-    if (Array.isArray(raw)) {
-        const parts = (raw as any[]).map((c: any) =>
-            typeof c === 'string' ? c : (c.value ?? '')
-        );
-        return new vscode.MarkdownString(parts.join('\n\n'));
-    }
-    // MarkupContent { kind, value } or MarkedString { language, value }
-    return new vscode.MarkdownString(raw.value ?? '');
 }

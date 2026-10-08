@@ -3,6 +3,7 @@ import { otherSetting } from '../platform/settings';
 import type { VSCodeEmmetConfig } from '@vscode/emmet-helper';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
 import { textOf, zonesFor } from '../platform/documentState';
+import { fromLspCompletion, type LspCompletionItem } from '../platform/lspConvert';
 
 /**
  * Emmet abbreviations in the suggest widget, offered only where the caret is
@@ -53,36 +54,13 @@ function emmetConfig(uri: vscode.Uri): VSCodeEmmetConfig {
 }
 
 /**
- * Converts one of the helper's LSP completion items to a VS Code one.
- *
- * Every item Emmet produces is a snippet, and the text lives in `textEdit`
- * rather than in `insertText` — the range matters, because an abbreviation
- * extends back over characters the widget does not consider part of the word.
+ * One of the helper's items as VS Code's. Every one is a snippet, shown as
+ * one, and its range matters: an abbreviation reaches back over characters
+ * the suggest widget does not count as part of the word.
  */
-function toCompletionItem(item: any): vscode.CompletionItem {
-    const label = typeof item.label === 'string' ? item.label : item.label.label;
-    const converted = new vscode.CompletionItem(label, vscode.CompletionItemKind.Snippet);
-
-    const edit = item.textEdit;
-    const newText = edit?.newText ?? item.insertText ?? label;
-    converted.insertText = new vscode.SnippetString(newText);
-
-    if (edit?.range) {
-        converted.range = new vscode.Range(
-            edit.range.start.line, edit.range.start.character,
-            edit.range.end.line,   edit.range.end.character,
-        );
-    }
-
-    if (item.detail)        { converted.detail        = item.detail; }
-    if (item.documentation) {
-        converted.documentation = typeof item.documentation === 'string'
-            ? item.documentation
-            : item.documentation.value;
-    }
-    if (item.filterText)    { converted.filterText    = item.filterText; }
-    if (item.sortText)      { converted.sortText      = item.sortText; }
-
+function toCompletionItem(item: LspCompletionItem): vscode.CompletionItem {
+    const converted = fromLspCompletion(item, { kind: vscode.CompletionItemKind.Snippet, useRange: true, snippet: true });
+    converted.kind = vscode.CompletionItemKind.Snippet;
     return converted;
 }
 

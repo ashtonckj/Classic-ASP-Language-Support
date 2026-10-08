@@ -195,6 +195,18 @@ export class CompletionList {
     constructor(public readonly items: CompletionItem[] = [], public readonly isIncomplete = false) {}
 }
 
+export class SnippetString {
+    constructor(public readonly value: string) {}
+}
+
+/** Keeps what was appended as one Markdown string, as the real class does. */
+export class MarkdownString {
+    constructor(public value = '') {}
+    appendMarkdown(text: string): this { this.value += text; return this; }
+    appendText(text: string): this { this.value += text.replace(/[\\`*_{}[\]()#+\-.!<>]/g, '\\$&'); return this; }
+    appendCodeblock(code: string, language = ''): this { this.value += `\n\`\`\`${language}\n${code}\n\`\`\`\n`; return this; }
+}
+
 // ── Colours ──────────────────────────────────────────────────────────────────
 // Channels are 0..1 floats, as the real API defines them.
 

@@ -16,6 +16,7 @@ import { getAspBlockRanges } from '../core/zoneUtils';
 import { textOf, zonesFor } from '../platform/documentState';
 import type { BlockEvent } from '../vbscript/pageAnalysis';
 import { analysedPage } from '../asp/vbscriptWorkspace';
+import { fromLspCompletion, fromLspMarkdown, fromLspRange } from '../platform/lspConvert';
 
 let _htmlLs:  typeof HtmlLs | undefined;
 let _service: HtmlLs.LanguageService | undefined;
@@ -58,21 +59,6 @@ function parse(document: vscode.TextDocument): ParsedPage {
     return page;
 }
 
-const toRange = (range: HtmlLs.Range) =>
-    new vscode.Range(range.start.line, range.start.character, range.end.line, range.end.character);
-
-function toMarkdown(contents: HtmlLs.MarkupContent | HtmlLs.MarkedString | HtmlLs.MarkedString[]): vscode.MarkdownString {
-    const markdown = new vscode.MarkdownString();
-    const parts = Array.isArray(contents) ? contents : [contents];
-    parts.forEach((part, index) => {
-        if (index > 0) { markdown.appendMarkdown('\n\n'); }
-        if (typeof part === 'string') { markdown.appendMarkdown(part); }
-        else if ('kind' in part) { if (part.kind === 'markdown') { markdown.appendMarkdown(part.value); } else { markdown.appendText(part.value); } }
-        else { markdown.appendCodeblock(part.value, part.language); }
-    });
-    return markdown;
-}
-
 /** True when `position` is in the page's markup, not its VBScript, JavaScript or CSS. */
 function inMarkup(document: vscode.TextDocument, position: vscode.Position): boolean {
     return zonesFor(document).zoneAt(document.offsetAt(position)) === 'html';
@@ -91,7 +77,7 @@ export class HtmlHoverProvider implements vscode.HoverProvider {
             references:    otherSetting<boolean>('html', 'hover.references', document) ?? true,
         });
         if (!hover) { return undefined; }
-        return new vscode.Hover(toMarkdown(hover.contents), hover.range ? toRange(hover.range) : undefined);
+        return new vscode.Hover(fromLspMarkdown(hover.contents), hover.range ? fromLspRange(hover.range) : undefined);
     }
 }
 
@@ -103,22 +89,9 @@ export function htmlAttributeValueCompletions(
     position: vscode.Position,
 ): vscode.CompletionItem[] {
     const page = parse(document);
-    return htmlService().doComplete(page.document, position, page.html).items.map(value => {
-        // LSP numbers its kinds from 1, VS Code from 0.
-        const item = new vscode.CompletionItem(value.label, value.kind ? value.kind - 1 : vscode.CompletionItemKind.Value);
-        const edit = value.textEdit;
-        if (edit && 'range' in edit) {
-            item.range      = toRange(edit.range);
-            item.insertText = edit.newText;
-        }
-        if (value.documentation) {
-            item.documentation = typeof value.documentation === 'string'
-                ? value.documentation
-                : toMarkdown(value.documentation);
-        }
-        item.sortText = value.sortText;
-        return item;
-    });
+    // The service read the page line for line, so its ranges are the page's.
+    return htmlService().doComplete(page.document, position, page.html).items
+        .map(value => fromLspCompletion(value, { kind: vscode.CompletionItemKind.Value, useRange: true }));
 }
 
 /** True when the HTML data lists values for this attribute, so picking it should show them. */
@@ -167,7 +140,7 @@ export class HtmlLinkedEditingProvider implements vscode.LinkedEditingRangeProvi
         const ranges = htmlService().findLinkedEditingRanges(page.document, position, page.html);
         if (!ranges || ranges.length !== 2) { return undefined; }
 
-        const [first, second] = ranges.map(toRange).sort((a, b) => document.offsetAt(a.start) - document.offsetAt(b.start));
+        const [first, second] = ranges.map(fromLspRange).sort((a, b) => document.offsetAt(a.start) - document.offsetAt(b.start));
         // The VBScript blocks between the two tags come from the worker.
         const version = document.version;
         const vbscript = await analysedPage(document, token);
