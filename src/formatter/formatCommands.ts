@@ -31,22 +31,75 @@ export interface FormattingDeps {
 // formatted inside the debounce window was formatted even though it was broken,
 // and a file whose last problem had just been fixed was still refused, quoting
 // an issue that no longer existed.
-function structureIssueCount(document: vscode.TextDocument, deps: FormattingDeps): number {
+//
+// They block formatting even where an asp-ignore comment hides them from the
+// Problems panel: a page whose tags or blocks do not pair up is put back in the
+// wrong places, whatever the panel shows.
+function structureIssues(document: vscode.TextDocument, deps: FormattingDeps): vscode.Diagnostic[] {
     const htmlIssues = scanHtmlStructure(document);
     const aspIssues  = [...scanAspTags(document), ...scanAspStructure(document)];
 
     deps.htmlStructure.set(document.uri, htmlIssues);
     deps.aspStructure.set(document.uri,  aspIssues);
 
-    return htmlIssues.length + aspIssues.length;
+    return [...htmlIssues, ...aspIssues].sort((a, b) => a.range.start.compareTo(b.range.start));
+}
+
+// ── Format on save says nothing ──────────────────────────────────────────────
+// A refusal during format-on-save would pop up on every Ctrl+S of a page that
+// cannot be formatted yet, which is most of the time spent fixing it. VS Code
+// does not tell a formatter why it was asked, so a refusal waits a moment and
+// is not shown when the page was saved meanwhile.
+
+/** When each page last started saving, by URI. */
+const savingSince = new Map<string, number>();
+const SAVE_WINDOW_MS = 2000;
+
+function watchSaves(context: vscode.ExtensionContext): void {
+    context.subscriptions.push(
+        vscode.workspace.onWillSaveTextDocument(event => { savingSince.set(event.document.uri.toString(), Date.now()); }),
+        vscode.workspace.onDidSaveTextDocument(document => { savingSince.set(document.uri.toString(), Date.now()); }),
+    );
+}
+
+/** Runs `tell` shortly, unless `document` was being saved: the format came from format-on-save. */
+function unlessSaving(document: vscode.TextDocument, tell: () => void): void {
+    setTimeout(() => {
+        const saved = savingSince.get(document.uri.toString());
+        if (saved !== undefined && Date.now() - saved < SAVE_WINDOW_MS) { return; }
+        tell();
+    }, 300);
+}
+
+/** Says which problem stops the format, and where, with a button to go to it. */
+function reportStructure(document: vscode.TextDocument, issues: vscode.Diagnostic[]): void {
+    const first = issues[0];
+    const more  = issues.length - 1;
+    const goTo  = 'Go to Issue';
+    const panel = 'Show Problems';
+    unlessSaving(document, () => {
+        void vscode.window.showWarningMessage(
+            `Couldn't format this page: line ${first.range.start.line + 1}: ${first.message}`
+            + (more > 0 ? ` (and ${more} more problem${more === 1 ? '' : 's'} like it)` : ''),
+            goTo, panel,
+        ).then(choice => {
+            if (choice === goTo) { void goToRange(document, first.range); }
+            if (choice === panel) { void vscode.commands.executeCommand('workbench.actions.view.problems'); }
+        });
+    });
+}
+
+/** Selects `range` of `document`, scrolled into view. */
+async function goToRange(document: vscode.TextDocument, range: vscode.Range): Promise<void> {
+    const editor = await vscode.window.showTextDocument(document);
+    editor.selection = new vscode.Selection(range.start, range.end);
+    editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
 }
 
 /** Puts the caret at the start of `line` of `document`, scrolled into view. */
-async function goToLine(document: vscode.TextDocument, line: number): Promise<void> {
-    const editor = await vscode.window.showTextDocument(document);
+function goToLine(document: vscode.TextDocument, line: number): Promise<void> {
     const at = new vscode.Position(Math.min(line, document.lineCount - 1), 0);
-    editor.selection = new vscode.Selection(at, at);
-    editor.revealRange(new vscode.Range(at, at), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+    return goToRange(document, new vscode.Range(at, at));
 }
 
 /**
@@ -61,9 +114,11 @@ function reportRefusal(document: vscode.TextDocument, result: Exclude<FormatResu
     const details = 'Show Details';
     const buttons = [...(result.line !== undefined ? [goTo] : []), ...(result.details ? [details] : [])];
     const show = result.severity === 'info' ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
-    void show(result.message, ...buttons).then(choice => {
-        if (choice === goTo) { void goToLine(document, result.line!); }
-        if (choice === details) { showLog(); }
+    unlessSaving(document, () => {
+        void show(result.message, ...buttons).then(choice => {
+            if (choice === goTo) { void goToLine(document, result.line!); }
+            if (choice === details) { showLog(); }
+        });
     });
 }
 
@@ -77,17 +132,9 @@ async function formatForDocument(
     document: vscode.TextDocument,
     deps: FormattingDeps,
 ): Promise<{ fullText: string; formatted: string } | undefined> {
-    const total = structureIssueCount(document, deps);
-    if (total > 0) {
-        void vscode.window.showWarningMessage(
-            `Formatting skipped — ${total} structure issue${total === 1 ? '' : 's'} found. `
-            + 'Fix the highlighted warnings first.',
-            'Show Problems',
-        ).then(choice => {
-            if (choice === 'Show Problems') {
-                void vscode.commands.executeCommand('workbench.actions.view.problems');
-            }
-        });
+    const issues = structureIssues(document, deps);
+    if (issues.length > 0) {
+        reportStructure(document, issues);
         return undefined;
     }
 
@@ -137,6 +184,8 @@ async function openFormattingPreview(
 }
 
 export function registerFormatting(context: vscode.ExtensionContext, deps: FormattingDeps): void {
+    watchSaves(context);
+
     const formatter = vscode.languages.registerDocumentFormattingEditProvider('asp', guarded('Format Document', {
         async provideDocumentFormattingEdits(document: vscode.TextDocument): Promise<vscode.TextEdit[]> {
             const result = await formatForDocument(document, deps);
