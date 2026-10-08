@@ -5,8 +5,6 @@ import { COM_MEMBER_DOCS } from '../constants/comObjects';
 import {
     ASP_MEMBER_DOCS, ASP_OBJECTS, ASP_OBJECT_NAMES, AspObjectDef, BUILTIN_FUNCTION_DOCS, VBSCRIPT_CONSTANTS, VBSCRIPT_KEYWORDS_SET,
 } from '../constants/aspKeywords';
-import { aspCodeStartOnLine } from '../platform/documentHelper';
-import { isInVbString, isInVbStringOrComment } from '../core/vbLexical';
 import * as path from 'path';
 import { declarationsOf, resolveAt, type BoundPage, type Target } from '../vbscript/references';
 import type { Declaration } from '../vbscript/binder';
@@ -199,7 +197,12 @@ export class AspHoverProvider implements vscode.HoverProvider {
         // Suppress hover inside HTML file-link attributes (href, src, etc.)
         if (isCursorInHtmlFileLinkAttribute(lineText, position.character)) return null;
 
-        if (contextAt(document, position).zone !== 'asp') return null;
+        // A word inside a VBScript string or comment is text, not a name, so
+        // `Case "Active"` and `' uses Split here` get no hover. The line is read
+        // from where its VBScript starts, so an apostrophe in the HTML around a
+        // block (`<div class='box'><% If x Then %>`) is not taken for a comment.
+        const caret = contextAt(document, position);
+        if (caret.zone !== 'asp' || caret.inVbStringOrComment) return null;
         const fullText = textOf(document);
 
         const wordRange = document.getWordRangeAtPosition(position, /\w+/);
@@ -207,20 +210,6 @@ export class AspHoverProvider implements vscode.HoverProvider {
 
         const word    = document.getText(wordRange);
         const wordKey = word.toLowerCase();
-
-        // Where this line's VBScript starts. A line can mix HTML and script
-        // (`<div class='box'><% If x Then %>`), and both scans below would
-        // otherwise read the HTML — an apostrophe there looked like the start of
-        // a VBScript comment and suppressed every hover after it.
-        const codeStart = aspCodeStartOnLine(lineText, position.character);
-
-        // ── Suppress hover when cursor is inside a string literal ────────────
-        // VBScript strings are delimited by ".  Scan the line up to the cursor,
-        // tracking open/close quotes ("" is an escaped quote inside a string).
-        // If the cursor lands inside a string the word is a value, not an
-        // identifier — so Case "Active", Response.Write "msg", etc. must never
-        // show variable/function/keyword hovers.
-        if (isInVbString(lineText, position.character, codeStart)) { return null; }
 
         // The page's own symbols as the VBScript worker read them, as completion
         // takes them, rather than parsing the page again here; then its includes'.
@@ -305,11 +294,6 @@ export class AspHoverProvider implements vscode.HoverProvider {
         if (BUILTIN_FUNCTION_DOCS[wordKey]) {
             return new vscode.Hover(new vscode.MarkdownString(BUILTIN_FUNCTION_DOCS[wordKey]));
         }
-
-        // Suppress hover inside comments, read from the start of this line's
-        // VBScript so an apostrophe in surrounding HTML text or a single-quoted
-        // attribute never counts as a comment marker.
-        if (isInVbStringOrComment(lineText, position.character, codeStart)) return null;
 
         // Extract words immediately before and after the hovered word so we can
         // assemble 2-word and 3-word compound keys and return the correct doc

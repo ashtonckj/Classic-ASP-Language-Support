@@ -55,4 +55,11 @@ suite('Hover on VBScript names (integration)', () => {
         const text = await hoverTextAt(PAGE, 8, 'EOF');
         assert.ok(/EOF/.test(text) && !text.includes('keyword'), `got ${JSON.stringify(text)}`);
     });
+
+    test('a word in a comment or a string is text, with no hover', async () => {
+        const page = '<%\nDim total\n\' uses Split on total\nx = "Split total"\n%>\n';
+        assert.strictEqual(await hoverTextAt(page, 2, 'Split'), '');
+        assert.strictEqual(await hoverTextAt(page, 2, 'total'), '');
+        assert.strictEqual(await hoverTextAt(page, 3, 'Split'), '');
+    });
 });
