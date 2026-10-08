@@ -17,7 +17,7 @@ import { registerCssDiagnostics } from './css/cssDiagnosticsProvider';
 import { registerJsDiagnostics } from './js/jsDiagnosticsProvider';
 import { addRegionHighlights } from './asp/highlight';
 import { disposeIncludeWatchers } from './asp/includeProvider';
-import { disposeWorkspaceIndex } from './asp/aspWorkspaceSymbolProvider';
+import { disposeWorkspaceIndex } from './platform/workspaceIndex';
 import { disposeJsLanguageService } from './js/jsUtils';
 import { disposeAnalysisWorkers } from './workers/analysisClient';
 import { migrateOldSettingsAndTell } from './platform/settingsMigration';

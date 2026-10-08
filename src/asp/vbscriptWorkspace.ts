@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { collectIncludeSymbols, configuredVirtualRoot, defaultIncludeCandidates, getVirtualRoot, readIncludeText, resolveDirectIncludes } from './includeProvider';
-import { getWorkspaceAspFiles } from './aspWorkspaceSymbolProvider';
+import { getWorkspaceAspFiles } from '../platform/workspaceIndex';
 import { resolveIncludeDirective } from '../core/includeDirectives';
 import type { ParsedPage } from '../vbscript/symbols';
 import { ParseCache } from '../vbscript/parseCache';

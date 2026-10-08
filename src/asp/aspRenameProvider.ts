@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { getVirtualRoot, readIncludeText } from './includeProvider';
 import { movedPathLookup, rewriteIncludesAfterMove } from '../core/includeDirectives';
-import { getWorkspaceAspFiles } from './aspWorkspaceSymbolProvider';
+import { getWorkspaceAspFiles } from '../platform/workspaceIndex';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import { contextAt } from '../platform/documentState';
 import { findSites, resolveAt } from '../vbscript/references';

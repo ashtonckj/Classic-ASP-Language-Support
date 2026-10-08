@@ -4,10 +4,10 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import * as stub from './_vscodeStub';
+import { AspWorkspaceSymbolProvider } from '../../asp/aspWorkspaceSymbolProvider';
 import {
-    globToRegExp, isAspFile, findAspFilesInFolder, AssociationRule,
-    AspWorkspaceSymbolProvider, disposeWorkspaceIndex,
-} from '../../asp/aspWorkspaceSymbolProvider';
+    globToRegExp, isAspFile, findAspFilesInFolder, AssociationRule, aspIndexSettled, disposeWorkspaceIndex,
+} from '../../platform/workspaceIndex';
 
 // Workspace symbol search (Ctrl+T) used to find files by a hardcoded
 // /\.(asp|inc)$/i extension check, so a codebase that keeps its Classic ASP
@@ -209,6 +209,7 @@ describe('AspWorkspaceSymbolProvider — the workspace file index', () => {
         fs.mkdirSync(folder);
         fs.writeFileSync(path.join(folder, 'four.asp'), lib('RenderFour'));
         stub.fireFileEvent('create', folder);
+        await aspIndexSettled();
 
         assert.deepStrictEqual(await names(), ['RenderFour', 'RenderOne', 'RenderTwo']);
     });
