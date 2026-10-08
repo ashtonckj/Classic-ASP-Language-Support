@@ -96,10 +96,32 @@ function tokenCollisions(source: string, prefix: string): Map<string, number> {
     return longest;
 }
 
-// Numbers the placeholders of one format, from 0 each time — see
-// formatCompleteAspFile. Ids stay unique because they also carry a timestamp and
-// a random part; the number is what goes into a token's width.
-let _placeholderCounter = 0;
+/**
+ * The names of one format's placeholders. Each is numbered from 0, and carries
+ * a tag the page does not contain, so none can be mistaken for the page's own
+ * text. Both are worked out from the page alone: the same page gets the same
+ * names, so the same widths, and Prettier lays it out the same way every time.
+ * (The tag was a timestamp and a random string, whose length varied, and with
+ * it, now and then, where a long line wrapped.)
+ */
+export class PlaceholderNames {
+    private next = 0;
+    /** Eight characters; with `tail`, sixteen. */
+    readonly tag: string;
+    readonly tail = 'aspfmt0';
+
+    constructor(page: string) {
+        let n = 0;
+        while (page.includes(`_${n.toString(36).padStart(8, '0')}`)) { n++; }
+        this.tag = n.toString(36).padStart(8, '0');
+    }
+
+    /** The next number. */
+    number(): number { return this.next++; }
+
+    /** A placeholder id: `ASPPH3_00000000_aspfmt0`. */
+    id(prefix: string, number: number): string { return `${prefix}${number}_${this.tag}_${this.tail}`; }
+}
 
 // A closing tag for a void element — `</br>`, `</img>` — which HTML has no
 // such thing as.
@@ -120,12 +142,12 @@ const JS_EVENT_ATTR_RE = /\b(on\w+)\s*=\s*("([^"]*\([^"]*)"|'([^']*\([^']*)')/gi
 /** Replaces inline JS event-handler values with opaque tokens so Prettier
  *  cannot see the parentheses and apply its JS-expression line-wrap logic.
  *  Returns the rewritten string and a map needed to undo the masking. */
-function maskJsEventAttrs(code: string): { masked: string; masks: JsAttrMask[] } {
+function maskJsEventAttrs(code: string, names: PlaceholderNames): { masked: string; masks: JsAttrMask[] } {
     const masks: JsAttrMask[] = [];
     const masked = code.replace(JS_EVENT_ATTR_RE, (_, attrName, _fullVal, dq, sq) => {
         const inner = dq ?? sq;
         const quote = dq !== undefined ? '"' : "'";
-        const token = `JSEVT${_placeholderCounter++}_${Date.now().toString(36)}`;
+        const token = `JSEVT${names.number()}_${names.tag}`;
         masks.push({ token, original: inner, quote });
         return `${attrName}=${quote}${token}${quote}`;
     });
@@ -567,14 +589,6 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 }
 
 export async function formatPage(code: string): Promise<FormatResult> {
-    // A token's number is part of its length, and Prettier lays a line out by
-    // its length. Counting on across the whole session meant the same page
-    // wrapped differently once enough formats had gone before it — a page that
-    // no longer settled, and format-on-save that moved lines back and forth.
-    // Every placeholder is allocated before the first await, so a format that
-    // starts while another awaits Prettier cannot disturb it.
-    _placeholderCounter = 0;
-
     if (hasUnclosedAspTags(code)) {
         return {
             ok: false, reason: 'asp-tags', severity: 'warning',
@@ -594,6 +608,10 @@ export async function formatPage(code: string): Promise<FormatResult> {
     const prettierSettings = readPrettierSettings();
     const run: FormatRun = {
         code,
+        // A token's number is part of its length, and Prettier lays a line out
+        // by its length, so the numbers start again for every page — see
+        // PlaceholderNames.
+        names:    new PlaceholderNames(code),
         prettier: prettierSettings,
         asp:      { ...aspFormatterSettings(formatterSettings(), prettierSettings), pageNames: pageNames(code) },
         options:  prettierOptionsFor(prettierSettings),
@@ -606,7 +624,7 @@ export async function formatPage(code: string): Promise<FormatResult> {
     // Must happen BEFORE ASP masking so values like onclick="doA('<%= val %>'); doB()"
     // are captured whole — including embedded ASP expressions — as one opaque token.
     const vbscriptBodies = takeVbScriptBodies(code);
-    const { masked: jsPreMasked, masks: jsAttrMasks } = maskJsEventAttrs(vbscriptBodies.masked);
+    const { masked: jsPreMasked, masks: jsAttrMasks } = maskJsEventAttrs(vbscriptBodies.masked, run.names);
 
     // <script>/<style> body ranges — ASP blocks inside them need a JS/CSS-safe
     // identifier placeholder, not an HTML comment (which Prettier would parse as
@@ -669,6 +687,7 @@ export async function formatPage(code: string): Promise<FormatResult> {
 interface FormatRun {
     /** The page as it was given. */
     code:     string;
+    names:    PlaceholderNames;
     prettier: PrettierSettings;
     asp:      AspFormatterSettings;
     options:  prettier.Options;
@@ -792,7 +811,7 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
         // ── A hidden tag ───────────────────────────────────────────────────
         if (next === tag) {
             const { end, dedent } = hidden[nextHidden++];
-            const id = `ASPTAG${hiddenTags.length}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+            const id = run.names.id('ASPTAG', hiddenTags.length);
             hiddenTags.push({ id, text: jsPreMasked.slice(pos, end), dedent });
             emit(`<!--${id}-->`);
             pos = end;
@@ -827,8 +846,8 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
         for (let i = countedTo; i < pos; i++) { if (jsPreMasked[i] === '\n') { lineNumber++; } }
         countedTo = pos;
 
-        const index = _placeholderCounter++;
-        const id    = `ASPPH${index}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+        const index = run.names.number();
+        const id    = run.names.id('ASPPH', index);
 
         // A `<%= … %>` in page content is an expression whose output is part
         // of the text around it, so it is masked as text rather than as a

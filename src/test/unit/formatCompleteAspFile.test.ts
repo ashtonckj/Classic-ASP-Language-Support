@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { formatCompleteAspFile, formatPage, insertImpliedTableEndTags } from '../../formatter/htmlFormatter';
+import { formatCompleteAspFile, formatPage, insertImpliedTableEndTags, PlaceholderNames } from '../../formatter/htmlFormatter';
 import { testSettings } from './_vscodeStub';
 
 // Classic ASP tables routinely omit the optional </td> </tr> … end tags. Prettier
@@ -613,5 +613,29 @@ describe('formatCompleteAspFile — VBScript <script> blocks', () => {
         const out = await formatCompleteAspFile('<div>\n<script language="vbscript">\nx = "<%= v %>"\n</script>\n</div>\n');
         assert.ok(out.includes('\nx = "<%= v %>"\n'), out);
         assert.ok(!out.includes(';'), out);
+    });
+});
+
+// The placeholders' names are part of their width, and Prettier lays a line out
+// by its width; a name with a timestamp and a random part in it now and then
+// wrapped the same page differently.
+describe('PlaceholderNames — the same page, the same names', () => {
+    it('names the placeholders from the page alone', () => {
+        const page = '<% x = 1 %>';
+        const a = new PlaceholderNames(page);
+        const b = new PlaceholderNames(page);
+        assert.strictEqual(a.id('ASPPH', a.number()), b.id('ASPPH', b.number()));
+        assert.strictEqual(a.id('ASPPH', a.number()), 'ASPPH1_00000000_aspfmt0');
+    });
+
+    it('takes a tag the page does not already contain', () => {
+        const names = new PlaceholderNames('<!-- ASPPH0_00000000_aspfmt0 --> _00000001');
+        assert.strictEqual(names.tag, '00000002');
+    });
+
+    it('formats a page the same way every time', async () => {
+        const page = '<table>\n<tr><td><% If a Then %>' + 'x'.repeat(70) + '<% End If %></td></tr>\n</table>\n';
+        const first = await formatCompleteAspFile(page);
+        for (let i = 0; i < 5; i++) { assert.strictEqual(await formatCompleteAspFile(page), first); }
     });
 });
