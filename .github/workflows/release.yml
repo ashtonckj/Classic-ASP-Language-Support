@@ -1,0 +1,76 @@
+# Publishes a release to the VS Code Marketplace and to Open VSX when a version
+# tag is pushed:
+#
+#     git tag v0.8.0
+#     git push origin v0.8.0
+#
+# The tag must match "version" in package.json, or nothing is published.
+#
+# Needs two repository secrets (Settings → Secrets and variables → Actions):
+#   VSCE_PAT  An Azure DevOps personal access token: Organization "All accessible
+#             organizations", Scopes → Custom defined → Marketplace → Manage.
+#             (The old workflow's token was missing or lacked this scope: every
+#             run ended "TF400813: The user 'aaaaaaaa-…' is not authorized".)
+#   OVSX_PAT  An access token from https://open-vsx.org/user-settings/tokens.
+#
+# Either secret can be left out; that store is then skipped.
+
+name: Release
+
+on:
+    push:
+        tags: ["v*.*.*"]
+    workflow_dispatch:
+
+jobs:
+    publish:
+        runs-on: windows-latest
+        timeout-minutes: 30
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+                  cache: npm
+
+            - name: Install
+              run: npm ci
+
+            - name: Tag matches package.json
+              if: github.ref_type == 'tag'
+              shell: bash
+              run: |
+                  version=$(node -p "require('./package.json').version")
+                  if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+                      echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version"
+                      exit 1
+                  fi
+
+            - name: Unit tests
+              run: |
+                  npm run compile
+                  npx mocha
+
+            # One package, so both stores get exactly the same file.
+            - name: Package
+              run: npx --yes @vscode/vsce@3 package --out extension.vsix
+
+            - name: Publish to the VS Code Marketplace
+              if: env.VSCE_PAT != ''
+              env:
+                  VSCE_PAT: ${{ secrets.VSCE_PAT }}
+              run: npx --yes @vscode/vsce@3 publish --packagePath extension.vsix
+
+            - name: Publish to Open VSX
+              if: env.OVSX_PAT != ''
+              env:
+                  OVSX_PAT: ${{ secrets.OVSX_PAT }}
+              run: npx --yes ovsx@0.10 publish extension.vsix
+
+            - name: Keep the package
+              uses: actions/upload-artifact@v4
+              with:
+                  name: extension-vsix
+                  path: extension.vsix
