@@ -138,12 +138,16 @@ async function formatForDocument(
         return undefined;
     }
 
+    const version  = document.version;
     const fullText = toLf(document.getText());
     const result = await vscode.window.withProgress(
         // In the status bar: a notification for every format, on save too, was noise.
         { location: vscode.ProgressLocation.Window, title: 'Formatting…' },
         () => formatPage(fullText),
     );
+    // Typed into while Prettier ran: edits worked out from the old text would
+    // undo what was typed, so this format is dropped and the next one will do.
+    if (document.isClosed || document.version !== version) { return undefined; }
     if (!result.ok) {
         reportRefusal(document, result);
         return undefined;
