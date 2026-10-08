@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { collectIncludeSymbols, configuredVirtualRoot, defaultIncludeCandidates, getVirtualRoot, readIncludeText, resolveDirectIncludes } from './includeProvider';
 import { getWorkspaceAspFiles } from './aspWorkspaceSymbolProvider';
 import { resolveIncludeDirective } from '../core/includeDirectives';
-import { parsePage, type ParsedPage } from '../vbscript/symbols';
+import type { ParsedPage } from '../vbscript/symbols';
+import { ParseCache } from '../vbscript/parseCache';
 import type { Site, WorkspaceHost } from '../vbscript/references';
 import { pathKey, samePath } from '../core/paths';
 import { openBuffers } from '../platform/documentState';
@@ -20,19 +21,8 @@ import { analyseVbscriptPage, checkVbscriptPage, vbscriptWorkerUsable } from '..
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Recently parsed files, so asking twice about one page does not parse its includes twice. */
-const parsed = new Map<string, ParsedPage>();
-const PARSED_LIMIT = 300;
-
-function parseCached(fsPath: string, text: string): ParsedPage {
-    const key = pathKey(fsPath);
-    const known = parsed.get(key);
-    if (known && known.text === text) { return known; }
-    const page = parsePage(text);
-    parsed.delete(key);
-    parsed.set(key, page);
-    if (parsed.size > PARSED_LIMIT) { parsed.delete(parsed.keys().next().value!); }
-    return page;
-}
+const parsed = new ParseCache(300, 8_000_000);
+const parseCached = (fsPath: string, text: string): ParsedPage => parsed.parse(fsPath, text);
 
 /**
  * Which files include which, over the whole workspace, keyed by lower-cased

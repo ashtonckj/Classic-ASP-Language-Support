@@ -20,11 +20,11 @@
  * Nothing here may import vscode — a worker thread has no access to it.
  */
 
-import { parsePage, type ParsedPage } from '../vbscript/symbols';
+import type { ParsedPage } from '../vbscript/symbols';
+import { ParseCache } from '../vbscript/parseCache';
 import { analysePage, type PageAnalysis } from '../vbscript/pageAnalysis';
 import { checkPageFiles, type ChecksRequest as PageChecksRequest, type PageChecks } from '../vbscript/pageChecks';
 import { serveWorker, type WorkerAnswer } from './serveWorker';
-import { pathKey } from '../core/paths';
 
 export interface PageRequest {
     id:      number;
@@ -39,19 +39,8 @@ export type PageResult   = PageAnalysis & WorkerAnswer;
 export type ChecksResult = PageChecks & WorkerAnswer;
 
 /** The last parse of each recent file, so a second question about the same text parses nothing. */
-const parsed = new Map<string, ParsedPage>();
-const PARSED_LIMIT = 50;
-
-function parseCached(fsPath: string, text: string): ParsedPage {
-    const key = pathKey(fsPath);
-    const known = parsed.get(key);
-    if (known && known.text === text) { return known; }
-    const page = parsePage(text);
-    parsed.delete(key);
-    parsed.set(key, page);
-    if (parsed.size > PARSED_LIMIT) { parsed.delete(parsed.keys().next().value!); }
-    return page;
-}
+const parsed = new ParseCache(50, 4_000_000);
+const parseCached = (fsPath: string, text: string): ParsedPage => parsed.parse(fsPath, text);
 
 function answer(request: PageRequest | ChecksRequest): PageResult | ChecksResult {
     return request.kind === 'page'

@@ -8,7 +8,8 @@
 
 import * as fs from 'node:fs/promises';
 import type { FileSymbols } from '../vbscript/symbolParser';
-import { symbolsFromTree } from '../vbscript/symbols';
+import { symbolsOfPage } from '../vbscript/symbols';
+import { ParseCache } from '../vbscript/parseCache';
 import { resolveIncludePathsIn } from '../core/includeDirectives';
 import { serveWorker, type WorkerAnswer } from './serveWorker';
 import { pathKey } from '../core/paths';
@@ -33,6 +34,12 @@ export interface IncludeWorkerResult extends WorkerAnswer {
     /** Every file of the tree, each once, in the order it was reached. */
     entries: IncludeWorkerEntry[];
 }
+
+/**
+ * The last parse of each include, so loading the same tree again — for the next
+ * page that includes it, or after one include changed — parses only what changed.
+ */
+const parsed = new ParseCache(200, 4_000_000);
 
 async function loadTree(
     filePath: string,
@@ -63,7 +70,7 @@ async function loadTree(
     const children = resolveIncludePathsIn(text, filePath, virtualRoot);
     results.push({
         filePath,
-        symbols: symbolsFromTree(text, filePath),
+        symbols: symbolsOfPage(parsed.parse(filePath, text), filePath),
         children,
     });
 
