@@ -7,8 +7,8 @@
 import type * as CssLs from 'vscode-css-languageservice';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
 import { findNextRealTag, findTagEnd, findClosingTag } from '../core/zoneUtils';
+import { loadCssService } from '../core/lazyModule';
 
-let _cssLs:      typeof CssLs | undefined;
 let _cssService: CssLs.LanguageService | undefined;
 
 /**
@@ -17,7 +17,7 @@ let _cssService: CssLs.LanguageService | undefined;
  * needs it.
  */
 export function cssLanguageServiceModule(): typeof CssLs {
-    return (_cssLs ??= require('vscode-css-languageservice') as typeof CssLs);
+    return loadCssService();
 }
 
 /** The one CSS language service every CSS feature shares. Each used to create its own as it loaded. */

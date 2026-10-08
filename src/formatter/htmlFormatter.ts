@@ -5,6 +5,7 @@ import { analyseHtmlStructure } from '../core/htmlStructure';
 import { VOID_ELEMENTS } from '../constants/htmlTags';
 import { pageLanguage } from '../vbscript/pageSegments';
 import { formatterSettings, prettierSettings as readPrettierSettings, type PrettierSettings } from '../platform/settings';
+import { loadPrettier } from '../core/lazyModule';
 
 // ─── ASP block types ───────────────────────────────────────────────────────
 
@@ -598,7 +599,7 @@ export async function formatPage(code: string): Promise<FormatResult> {
         options:  prettierOptionsFor(prettierSettings),
         // Loaded on the first format rather than when the extension starts: nothing
         // else needs it, and loading it added ~40 ms to every window's startup.
-        format:   (require('prettier') as typeof prettier).format,
+        format:   loadPrettier().format,
     };
 
     // ── Step 1: Mask JS event-handler attribute values ───────────────────────

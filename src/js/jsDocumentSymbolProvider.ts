@@ -34,6 +34,7 @@ import {
 } from './jsUtils';
 import { getJsBlockRanges } from '../core/zoneUtils';
 import { log } from '../platform/log';
+import { loadTypeScript } from '../core/lazyModule';
 
 // TypeScript, loaded by provideDocumentSymbols on the first page that has a
 // <script> block rather than when this module is: a page without one has no
@@ -401,7 +402,7 @@ export class JsDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
         const jsRanges = getJsBlockRanges(fullText);
         if (jsRanges.length === 0 || token.isCancellationRequested) { return []; }
 
-        ts ??= require('typescript') as typeof TS;
+        ts ??= loadTypeScript();
 
         const { virtualContent, preambleLength } = buildVirtualJsContent(fullText, 0);
 

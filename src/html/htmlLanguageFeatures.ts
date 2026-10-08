@@ -17,13 +17,13 @@ import { textOf, zonesFor } from '../platform/documentState';
 import type { BlockEvent } from '../vbscript/pageAnalysis';
 import { analysedPage } from '../asp/vbscriptWorkspace';
 import { fromLspCompletion, fromLspMarkdown, fromLspRange } from '../platform/lspConvert';
+import { loadHtmlService } from '../core/lazyModule';
 
-let _htmlLs:  typeof HtmlLs | undefined;
 let _service: HtmlLs.LanguageService | undefined;
 
 /** The library, loaded on first use: a page nobody hovers never needs it. */
 function htmlLanguageServiceModule(): typeof HtmlLs {
-    return (_htmlLs ??= require('vscode-html-languageservice') as typeof HtmlLs);
+    return loadHtmlService();
 }
 
 function htmlService(): HtmlLs.LanguageService {

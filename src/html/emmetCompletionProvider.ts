@@ -4,6 +4,7 @@ import type { VSCodeEmmetConfig } from '@vscode/emmet-helper';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
 import { textOf, zonesFor } from '../platform/documentState';
 import { fromLspCompletion, type LspCompletionItem } from '../platform/lspConvert';
+import { loadEmmetHelper } from '../core/lazyModule';
 
 /**
  * Emmet abbreviations in the suggest widget, offered only where the caret is
@@ -90,7 +91,7 @@ export class EmmetCompletionProvider implements vscode.CompletionItemProvider {
         );
 
         // Loaded on the first completion rather than when the extension starts.
-        const { doComplete } = require('@vscode/emmet-helper') as typeof import('@vscode/emmet-helper');
+        const { doComplete } = loadEmmetHelper();
         const list = doComplete(
             lsDocument, { line: position.line, character: position.character }, syntax, config,
         );

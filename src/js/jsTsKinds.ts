@@ -11,13 +11,14 @@
 
 import * as vscode from 'vscode';
 import type * as ts from 'typescript';
+import { loadTypeScript } from '../core/lazyModule';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ts.ScriptElementKind → vscode.CompletionItemKind
 // ─────────────────────────────────────────────────────────────────────────────
 export function tsKindToVsKind(kind: string): vscode.CompletionItemKind {
     // Only JavaScript completion calls this, and it has TypeScript loaded already.
-    const ts = require('typescript') as typeof import('typescript');
+    const ts = loadTypeScript();
     switch (kind) {
         case ts.ScriptElementKind.functionElement:
         case ts.ScriptElementKind.localFunctionElement:

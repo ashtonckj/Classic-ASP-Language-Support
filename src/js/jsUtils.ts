@@ -77,6 +77,7 @@ import { getAspBlockRanges, getJsBlockRanges, type ZoneResolver } from '../core/
 import { endsWithContinuation, vbStatements } from '../core/vbLexical';
 import { parseConstDeclarators } from '../vbscript/symbolParser';
 import { ASP_DOM_TYPES } from './aspDomTypes.generated';
+import { loadTypeScript } from '../core/lazyModule';
 
 export const VIRTUAL_FILENAME    = 'asp-embedded.js';
 export const ASP_DOM_TYPES_FILENAME = 'asp-dom.d.ts';
@@ -510,7 +511,7 @@ export function buildVirtualJsContent(
  * carries (~190 ms to load), and a page with no <script> never needs it.
  */
 function typescript(): typeof ts {
-    return require('typescript') as typeof ts;
+    return loadTypeScript();
 }
 
 function makeBrowserCompilerOptions(): ts.CompilerOptions {
