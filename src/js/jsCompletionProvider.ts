@@ -34,6 +34,13 @@ interface ItemData {
     name:    string;
     /** Offset already adjusted to virtual-file space (i.e. raw offset + preambleLength). */
     offset:  number;
+    /**
+     * The virtual file the list was worked out from. The one language service
+     * serves every page, so by the time an item is resolved it may hold another
+     * page's script, or a later version of this one; the details are asked of
+     * the text the item came from.
+     */
+    content: string;
     source?: string;
     /** True when the entry kind is Function or Method — used in resolveCompletionItem
      *  to decide whether to inject a call-snippet. */
@@ -100,7 +107,7 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
             // Store the virtual-file offset (already preamble-shifted) so
             // resolveCompletionItem can pass it straight to the TS service.
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (item as any).data = { name: entry.name, offset: virtualOffset, source: entry.source, isFunctionLike } satisfies ItemData;
+            (item as any).data = { name: entry.name, offset: virtualOffset, content: virtualContent, source: entry.source, isFunctionLike } satisfies ItemData;
 
             return item;
         });
@@ -123,7 +130,9 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         if (!data || token.isCancellationRequested) { return item; }
 
         // data.offset is already in virtual-file space — pass it directly.
-        const details = getJsLanguageService().getCompletionDetails(data.name, data.offset, data.source);
+        const svc = getJsLanguageService();
+        svc.updateContent(data.content);
+        const details = svc.getCompletionDetails(data.name, data.offset, data.source);
         if (!details || token.isCancellationRequested) { return item; }
 
         const displayText = details.displayParts?.map(p => p.text).join('') ?? '';
