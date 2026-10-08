@@ -56,6 +56,12 @@ suite('Hover on VBScript names (integration)', () => {
         assert.ok(/EOF/.test(text) && !text.includes('keyword'), `got ${JSON.stringify(text)}`);
     });
 
+    test('every keyword explains itself, ByVal and Mod included', async () => {
+        const page = '<%\nFunction Twice(ByVal n)\n  Twice = n Mod 7\nEnd Function\n%>\n';
+        assert.match(await hoverTextAt(page, 1, 'ByVal'), /\*\*ByVal\*\* — The argument is passed by value/);
+        assert.match(await hoverTextAt(page, 2, 'Mod'), /\*\*Mod\*\* — The remainder/);
+    });
+
     test('a word in a comment or a string is text, with no hover', async () => {
         const page = '<%\nDim total\n\' uses Split on total\nx = "Split total"\n%>\n';
         assert.strictEqual(await hoverTextAt(page, 2, 'Split'), '');

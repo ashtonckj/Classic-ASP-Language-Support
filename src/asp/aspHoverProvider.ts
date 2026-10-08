@@ -84,8 +84,62 @@ export const KEYWORD_DOCS: Record<string, string> = {
     'resume next':   '**On Error Resume Next** — Suppresses runtime errors and continues execution. Always check `Err.Number` after suspicious calls.',
     'error goto':    '**On Error GoTo 0** — Re-enables normal error handling after `On Error Resume Next`.',
 
+    'on error goto 0':      '**On Error GoTo 0** — Re-enables normal error handling after `On Error Resume Next`.\n\nExample: `On Error GoTo 0`',
+
     // ── Option ────────────────────────────────────────────────────────────────
     'option explicit': '**Option Explicit** — Forces all variables to be declared with `Dim`. Recommended to prevent typo bugs.',
+
+    // ── Arrays ────────────────────────────────────────────────────────────────
+    'preserve': '**Preserve** — With `ReDim`, keeps the values already in the array. Only the last dimension can change size.\n\nExample: `ReDim Preserve arr(UBound(arr) + 1)`',
+    'erase':    '**Erase** — Clears an array: a fixed-size array\'s elements are reset, a dynamic array\'s storage is freed.\n\nExample: `Erase arr`',
+
+    // ── Loops and leaving blocks ──────────────────────────────────────────────
+    'until':         '**Until** — Repeats a `Do` loop until the condition becomes true.\n\nExample: `Do Until rs.EOF ... Loop`',
+    'exit':          '**Exit** — Leaves a block early: `Exit Do`, `Exit For`, `Exit Function`, `Exit Property` or `Exit Sub`.',
+    'exit property': '**Exit Property** — Exits a `Property` procedure early.\n\nExample: `If IsEmpty(m_name) Then Exit Property`',
+
+    // ── Procedures and arguments ──────────────────────────────────────────────
+    'byref': '**ByRef** — The argument is passed by reference: a change the procedure makes to it is seen by the caller. This is the default.\n\nExample: `Sub Clear(ByRef list)`',
+    'byval': '**ByVal** — The argument is passed by value: the procedure works on a copy, and the caller\'s variable is unchanged.\n\nExample: `Function Twice(ByVal n)`',
+    'call':  '**Call** — Calls a Sub or Function, with its arguments in parentheses. A Function\'s return value is discarded.\n\nExample: `Call LogLine("saved")`',
+
+    // ── Classes ───────────────────────────────────────────────────────────────
+    'property':         '**Property** — Declares a property of a class: `Property Get` reads it, `Property Let` assigns a value, `Property Set` assigns an object.\n\nExample: `Public Property Get Name ... End Property`',
+    'property get':     '**Property Get** — The code that runs when a class\'s property is read; it returns the value.\n\nExample: `Public Property Get Name\n    Name = m_name\nEnd Property`',
+    'property let':     '**Property Let** — The code that runs when a value is assigned to a class\'s property.\n\nExample: `Public Property Let Name(value)\n    m_name = value\nEnd Property`',
+    'property set':     '**Property Set** — The code that runs when an object is assigned to a class\'s property with `Set`.\n\nExample: `Public Property Set Conn(value)\n    Set m_conn = value\nEnd Property`',
+    'end property':     '**End Property** — Closes a `Property` block.',
+    'get':              '**Get** — In `Property Get`: the procedure that returns a property\'s value.',
+    'let':              '**Let** — In `Property Let`: the procedure that assigns a property\'s value. On its own it may start an assignment, which needs no keyword.\n\nExample: `Let x = 1` is the same as `x = 1`',
+    'new':              '**New** — Creates an instance of a VBScript class. A COM object is created with `Server.CreateObject` instead.\n\nExample: `Set cart = New ShoppingCart`',
+    'me':               '**Me** — Inside a class, the instance whose code is running.\n\nExample: `Me.Total = 0`',
+    'default':          '**Default** — Marks the one member used when the object is written without a member name.\n\nExample: `Public Default Function Item(key)`',
+    'class_initialize': '**Class_Initialize** — The Sub a class runs when `New` creates an instance.\n\nExample: `Private Sub Class_Initialize()\n    m_count = 0\nEnd Sub`',
+    'class_terminate':  '**Class_Terminate** — The Sub a class runs when its instance is released, e.g. by `Set obj = Nothing`.\n\nExample: `Private Sub Class_Terminate()\n    m_conn.Close\nEnd Sub`',
+    'private':          '**Private** — Visible only inside its own class, or its own script page at the top level.\n\nExample: `Private m_name`',
+    'public':           '**Public** — Visible to all code; in a class, a member callers can use. Class members are Public unless declared otherwise.\n\nExample: `Public Function Total()`',
+
+    // ── Statements ────────────────────────────────────────────────────────────
+    'rem':       '**Rem** — Starts a comment, like `\'`.\n\nExample: `Rem Load the user`',
+    'stop':      '**Stop** — Pauses at this line when a script debugger is attached; otherwise it does nothing.',
+    'randomize': '**Randomize** — Seeds the random numbers `Rnd` returns. Call it once before using `Rnd`, or each run gives the same sequence.\n\nExample: `Randomize\ndie = Int(Rnd * 6) + 1`',
+
+    // ── Operators ─────────────────────────────────────────────────────────────
+    'and': '**And** — True when both sides are true; on numbers, a bitwise AND. VBScript always evaluates both sides — it does not stop early.\n\nExample: `If Not rs Is Nothing Then If Not rs.EOF Then ...` rather than one `And`',
+    'or':  '**Or** — True when either side is true; on numbers, a bitwise OR. Both sides are always evaluated.\n\nExample: `If x = 1 Or x = 2 Then`',
+    'not': '**Not** — The opposite of a condition; on numbers, a bitwise NOT.\n\nExample: `Do While Not rs.EOF`',
+    'xor': '**Xor** — True when exactly one side is true; on numbers, a bitwise exclusive OR.\n\nExample: `If a Xor b Then`',
+    'eqv': '**Eqv** — True when both sides are equal (both true or both false); on numbers, a bitwise equivalence.\n\nExample: `If a Eqv b Then`',
+    'imp': '**Imp** — Logical implication: false only when the left side is true and the right side false.\n\nExample: `If a Imp b Then`',
+    'is':  '**Is** — Tests whether two object variables refer to the same object.\n\nExample: `If rs Is Nothing Then`',
+    'mod': '**Mod** — The remainder of a division. Both sides are rounded to whole numbers first.\n\nExample: `7 Mod 3` is `1`',
+
+    // ── Values ────────────────────────────────────────────────────────────────
+    'true':    '**True** — The Boolean true value. As a number it is `-1`.',
+    'false':   '**False** — The Boolean false value. As a number it is `0`.',
+    'null':    '**Null** — No valid data, such as a database field with no value. Anything compared with Null is Null, so test it with `IsNull`.\n\nExample: `If IsNull(rs("email")) Then`',
+    'nothing': '**Nothing** — An object variable that refers to no object. Setting a variable to Nothing releases the object.\n\nExample: `Set rs = Nothing`',
+    'empty':   '**Empty** — The value of a variable that has not been assigned; it counts as `0` and `""`. Test it with `IsEmpty`.\n\nExample: `If IsEmpty(total) Then total = 0`',
 };
 
 

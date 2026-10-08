@@ -49,6 +49,11 @@ describe('the name lists agree with src/constants', () => {
         }
     });
 
+    it('every keyword has hover docs', () => {
+        const missing = VBSCRIPT_KEYWORDS.map(k => k.keyword).filter(keyword => !KEYWORD_DOCS[keyword.toLowerCase()]);
+        assert.deepStrictEqual(missing, []);
+    });
+
     it('every word of a hover keyword doc is a keyword word', () => {
         for (const key of Object.keys(KEYWORD_DOCS)) {
             for (const word of key.split(/\s+/)) {
