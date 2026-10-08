@@ -2,6 +2,8 @@ import { codeWithoutStrings, splitCodeAndComment, vbStatements, vbStringSegments
 import type { FormatterSettings, PrettierSettings } from '../platform/settings';
 import { ASP_MEMBER_DOCS, VBSCRIPT_BARE_FUNCTIONS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
 import { getStringAlignColumn, isBlockOpener, VBSCRIPT_BLOCK_CLOSERS } from '../vbscript/indentRules';
+import { parsePage } from '../vbscript/symbols';
+import { bindPage } from '../vbscript/binder';
 
 // ─── Settings ──────────────────────────────────────────────────────────────
 
@@ -11,6 +13,23 @@ export interface AspFormatterSettings {
     indentSize:        number;
     aspTagsOnSameLine: boolean;
     htmlIndentMode:    string;   // 'flat' | 'continuation'
+    /** What the page declares outside its procedures; see pageNames. */
+    pageNames?:        ReadonlySet<string>;
+}
+
+/**
+ * The names a page declares outside its procedures and classes — its Dims,
+ * Consts, Subs, Functions and Classes — lower-cased.
+ *
+ * A built-in function of the same name is the page's own from then on, even
+ * where it is called: after `Dim hex`, cscript reads `hex(255)` as the
+ * variable (Type mismatch), and after `Function Len(s)`, `Len("abc")` calls
+ * the page's function. The formatter leaves those names as the author wrote them.
+ */
+export function pageNames(code: string): Set<string> {
+    const binding = bindPage('', parsePage(code));
+    const page = binding.scopes[0];
+    return new Set(binding.declarations.filter(d => d.scope === page && !d.implicit).map(d => d.name));
 }
 
 /**
@@ -87,7 +106,7 @@ export function formatSingleAspBlock(
             ? trimmedBlock.slice(3, -2).trim()
             : trimmedBlock.slice(4, -2).trim();
         return {
-            formatted: '<%= ' + applyKeywordCase(content, settings.keywordCase) + ' %>',
+            formatted: '<%= ' + applyKeywordCase(content, settings.keywordCase, settings.pageNames) + ' %>',
             endLevel:  startLevel,
         };
     }
@@ -95,7 +114,7 @@ export function formatSingleAspBlock(
     // ── Single-line block: <% statement %> ─────────────────────────────────
     if (!block.includes('\n')) {
         const content          = block.slice(2, -2).trim();
-        const formattedContent = applyKeywordCase(content, settings.keywordCase);
+        const formattedContent = applyKeywordCase(content, settings.keywordCase, settings.pageNames);
 
         // Determine the VBScript indent level for this lone statement.
         const selectCaseStack: number[] = [];
@@ -202,7 +221,7 @@ function formatMultiLineAspBlock(
                 const indent       = applyIndentForLine(content, aspIndentLevel, selectCaseStack);
                 aspIndentLevel     = indent.printLevel;
                 const aspIndent    = getIndentString(baseLevel + aspIndentLevel, settings.useTabs, settings.indentSize);
-                const formatted    = applyKeywordCase(content, settings.keywordCase);
+                const formatted    = applyKeywordCase(content, settings.keywordCase, settings.pageNames);
 
                 if (settings.aspTagsOnSameLine) {
                     formattedLines.push('<% ' + formatted);
@@ -236,7 +255,7 @@ function formatMultiLineAspBlock(
 
             const content = trimmed.slice(0, -2).trim();
             if (content) {
-                const formatted = applyKeywordCase(content, settings.keywordCase);
+                const formatted = applyKeywordCase(content, settings.keywordCase, settings.pageNames);
                 let   aspIndent: string;
 
                 if (prevHadContinuation) {
@@ -328,7 +347,7 @@ function formatMultiLineAspBlock(
         const indent            = applyIndentForLine(trimmed, aspIndentLevel, selectCaseStack);
         aspIndentLevel          = indent.printLevel;
         const aspIndent         = getIndentString(baseLevel + aspIndentLevel, settings.useTabs, settings.indentSize);
-        const formattedContent  = applyKeywordCase(trimmed, settings.keywordCase);
+        const formattedContent  = applyKeywordCase(trimmed, settings.keywordCase, settings.pageNames);
 
         updateContinuationState(formattedContent, aspIndent, {
             prevHadContinuation, continuationAlignCol, inMultilineString,
@@ -687,10 +706,15 @@ function isFunctionUse(text: string, start: number, end: number, first: boolean,
     return BARE_FUNCTIONS.has(text.slice(start, end).toLowerCase());
 }
 
-/** `text` with each built-in function used as one written by `spell`. */
-function caseFunctions(text: string, first: boolean, last: boolean, spell: (name: string) => string): string {
+/**
+ * `text` with each built-in function used as one written by `spell`. A name in
+ * `own` is the page's own (see pageNames) and is left alone.
+ */
+function caseFunctions(
+    text: string, first: boolean, last: boolean, own: ReadonlySet<string> | undefined, spell: (name: string) => string,
+): string {
     return text.replace(FUNCTION_NAME_RE, (name: string, offset: number) =>
-        isFunctionUse(text, offset, offset + name.length, first, last) ? spell(name) : name);
+        !own?.has(name.toLowerCase()) && isFunctionUse(text, offset, offset + name.length, first, last) ? spell(name) : name);
 }
 
 const HANDLED_KEYWORDS = new Set(Object.keys(PROPER_CASING_MAP));
@@ -700,7 +724,7 @@ const KEYWORD_REGEXES = KEYWORDS_SORTED.map(kw => ({
     re: new RegExp('\\b' + kw.replace(/\s+/g, '\\s+') + '\\b', 'gi'),
 }));
 
-export function applyKeywordCase(code: string, caseStyle: string): string {
+export function applyKeywordCase(code: string, caseStyle: string, ownNames?: ReadonlySet<string>): string {
     // Split off a trailing VBScript comment FIRST — keyword casing and operator/
     // comma spacing must never touch comment text. Previously a comment such as
     // `' loop through next items` was keyword-cased to `' Loop through Next items`
@@ -709,7 +733,7 @@ export function applyKeywordCase(code: string, caseStyle: string): string {
     const parts = vbStringSegments(codeOnly);
     const formatted = parts.map((part, index) => {
         if (part.isString) return part.text;
-        let s = applyKeywordCaseToText(part.text, caseStyle, index === 0, index === parts.length - 1);
+        let s = applyKeywordCaseToText(part.text, caseStyle, index === 0, index === parts.length - 1, ownNames);
         s = formatOperators(s);
         s = formatCommas(s);
         return s;
@@ -717,7 +741,9 @@ export function applyKeywordCase(code: string, caseStyle: string): string {
     return formatted + comment;
 }
 
-function applyKeywordCaseToText(text: string, caseStyle: string, first: boolean, last: boolean): string {
+function applyKeywordCaseToText(
+    text: string, caseStyle: string, first: boolean, last: boolean, ownNames: ReadonlySet<string> | undefined,
+): string {
     let result = text;
 
     if (caseStyle === 'PascalCase') {
@@ -727,12 +753,12 @@ function applyKeywordCaseToText(text: string, caseStyle: string, first: boolean,
         for (const { re, replacement } of MEMBER_CASING_REGEXES) {
             result = result.replace(re, replacement);
         }
-        result = caseFunctions(result, first, last, name => VBSCRIPT_FUNCTIONS_MAP[name.toLowerCase()]);
+        result = caseFunctions(result, first, last, ownNames, name => VBSCRIPT_FUNCTIONS_MAP[name.toLowerCase()]);
     } else {
         // The built-in functions follow the chosen case like every other
         // keyword. Given their mixed-case names in every mode, lowercase came
         // out as `len(trim(s)) & UCase(s)`.
-        result = caseFunctions(result, first, last, name => formatKeyword(name, caseStyle));
+        result = caseFunctions(result, first, last, ownNames, name => formatKeyword(name, caseStyle));
     }
 
     for (const { kw, re } of KEYWORD_REGEXES) {

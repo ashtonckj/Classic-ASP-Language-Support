@@ -1,5 +1,5 @@
 import type * as prettier from 'prettier';
-import { formatSingleAspBlock, aspFormatterSettings, delimitersAtColumnZero, type AspFormatterSettings } from './aspFormatter';
+import { formatSingleAspBlock, aspFormatterSettings, delimitersAtColumnZero, pageNames, type AspFormatterSettings } from './aspFormatter';
 import { aspTagProblems, findNextRealTag, findTagEnd, findClosingTag, getVbScriptBlockRanges } from '../core/zoneUtils';
 import { analyseHtmlStructure } from '../core/htmlStructure';
 import { VOID_ELEMENTS } from '../constants/htmlTags';
@@ -595,7 +595,7 @@ export async function formatPage(code: string): Promise<FormatResult> {
     const run: FormatRun = {
         code,
         prettier: prettierSettings,
-        asp:      aspFormatterSettings(formatterSettings(), prettierSettings),
+        asp:      { ...aspFormatterSettings(formatterSettings(), prettierSettings), pageNames: pageNames(code) },
         options:  prettierOptionsFor(prettierSettings),
         // Loaded on the first format rather than when the extension starts: nothing
         // else needs it, and loading it added ~40 ms to every window's startup.

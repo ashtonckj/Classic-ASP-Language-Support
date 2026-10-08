@@ -4,6 +4,7 @@ import {
     applyIndentAfter,
     applyIndentForLine,
     formatSingleAspBlock,
+    pageNames,
     type AspFormatterSettings,
 } from '../../formatter/aspFormatter';
 
@@ -91,6 +92,14 @@ describe('applyKeywordCase — a function name is cased only where it is the fun
 
     it('follows the chosen case in the other modes, by the same rule', () => {
         assert.strictEqual(applyKeywordCase('x = HEX(1) + HEX', 'lowercase'), 'x = hex(1) + HEX');
+    });
+
+    // cscript: after a page-level `Dim hex`, `hex(255)` is the variable (Type
+    // mismatch), and after `Function Len(s)`, `Len("abc")` calls the page's own.
+    it('leaves a call alone when the page declares the name itself', () => {
+        const own = pageNames('<%\nDim hex\nFunction len(s)\n  Dim day\nEnd Function\nx = 1\n%>');
+        assert.deepStrictEqual([...own].sort(), ['hex', 'len']);
+        assert.strictEqual(applyKeywordCase('x = hex(255) & len(s) & day(now)', 'PascalCase', own), 'x = hex(255) & len(s) & Day(Now)');
     });
 });
 
