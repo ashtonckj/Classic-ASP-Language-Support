@@ -576,7 +576,7 @@ function isSQLStatement(line: string): boolean {
 // ─── Keyword casing ────────────────────────────────────────────────────────
 
 // Multi-word and special-cased keywords that need exact casing.
-const PROPER_CASING_MAP: Record<string, string> = {
+export const PROPER_CASING_MAP: Record<string, string> = {
     'elseif': 'ElseIf', 'redim': 'ReDim', 'byval': 'ByVal',
     'byref': 'ByRef', 'isnull': 'IsNull', 'isempty': 'IsEmpty',
     'isnumeric': 'IsNumeric', 'isarray': 'IsArray', 'isobject': 'IsObject',
@@ -601,12 +601,12 @@ const PROPER_CASING_MAP: Record<string, string> = {
  * not the formatter's business. After a dot the name really is the API's, and
  * casing it to match the documentation is worth doing.
  */
-const MEMBER_CASING_MAP: Record<string, string> = {
+export const MEMBER_CASING_MAP: Record<string, string> = {
     'absolutepage': 'AbsolutePage', 'absoluteposition': 'AbsolutePosition', 'add': 'Add',
     'addheader': 'AddHeader', 'addnew': 'AddNew', 'appendtolog': 'AppendToLog',
     'atendofline': 'AtEndOfLine', 'atendofstream': 'AtEndOfStream', 'begintrans': 'BeginTrans',
     'binaryread': 'BinaryRead', 'binarywrite': 'BinaryWrite', 'buildpath': 'BuildPath',
-    'cacheecontrol': 'CacheControl', 'clearheaders': 'ClearHeaders', 'clientcertificate': 'ClientCertificate',
+    'cachecontrol': 'CacheControl', 'clearheaders': 'ClearHeaders', 'clientcertificate': 'ClientCertificate',
     'close': 'Close', 'closetext': 'CloseText', 'codepage': 'CodePage',
     'commandtext': 'CommandText', 'commandtype': 'CommandType', 'committrans': 'CommitTrans',
     'connectionstring': 'ConnectionString', 'contentlength': 'ContentLength', 'contenttype': 'ContentType',
@@ -638,7 +638,7 @@ const MEMBER_CASING_MAP: Record<string, string> = {
     'writeline': 'WriteLine',
 };
 
-const VBSCRIPT_FUNCTIONS_MAP: Record<string, string> = {
+export const VBSCRIPT_FUNCTIONS_MAP: Record<string, string> = {
     'cbool': 'CBool', 'cbyte': 'CByte', 'ccur': 'CCur', 'cdate': 'CDate',
     'cdbl': 'CDbl', 'cint': 'CInt', 'clng': 'CLng', 'csng': 'CSng',
     'cstr': 'CStr', 'cvar': 'CVar',
@@ -667,7 +667,7 @@ const VBSCRIPT_FUNCTIONS_MAP: Record<string, string> = {
 
 // General VBScript keywords ordered longest-first so multi-word keywords
 // like "end function" are matched before single-word ones like "end".
-const KEYWORDS_SORTED: string[] = [
+export const KEYWORDS_SORTED: string[] = [
     'if', 'then', 'else', 'elseif', 'end if', 'select case', 'case',
     'case else', 'end select', 'for', 'to', 'step', 'next', 'for each',
     'in', 'while', 'wend', 'do', 'loop', 'until', 'exit do',

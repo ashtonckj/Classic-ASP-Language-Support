@@ -25,7 +25,7 @@ import { tokenize, Token, TokenKind } from './lexer';
 import type { Segment } from './pageSegments';
 
 /** Words that can never be a plain name. After a `.` any word is a name. */
-const RESERVED = new Set([
+export const RESERVED = new Set([
     'and', 'as', 'byref', 'byval', 'call', 'case', 'class', 'const', 'dim', 'do', 'each', 'else',
     'elseif', 'empty', 'end', 'eqv', 'exit', 'false', 'for', 'function', 'get', 'goto', 'if',
     'imp', 'in', 'is', 'let', 'loop', 'mod', 'new', 'next', 'not', 'nothing', 'null', 'on',

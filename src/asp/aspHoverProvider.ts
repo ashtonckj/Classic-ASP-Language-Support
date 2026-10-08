@@ -19,7 +19,7 @@ import { enclosingWithObject } from './aspCompletionProvider';
 // ─────────────────────────────────────────────────────────────────────────────
 // VBScript keyword docs for hover
 // ─────────────────────────────────────────────────────────────────────────────
-const KEYWORD_DOCS: Record<string, string> = {
+export const KEYWORD_DOCS: Record<string, string> = {
 
     // ── Declarations ──────────────────────────────────────────────────────────
     'dim':     '**Dim** — Declares one or more variables.\n\nExample: `Dim name, age`',
