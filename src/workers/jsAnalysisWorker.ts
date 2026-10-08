@@ -21,10 +21,10 @@
  * live in jsTsKinds.ts instead.
  */
 
-import { parentPort } from 'node:worker_threads';
 import * as ts from 'typescript';
 import { buildVirtualJsContent, getJsLanguageService } from '../js/jsUtils';
 import { getJsBlockRanges } from '../core/zoneUtils';
+import { serveWorker, type WorkerAnswer } from './serveWorker';
 
 export interface JsAnalysisRequest {
     id:   number;
@@ -41,8 +41,7 @@ export interface PlainJsDiagnostic {
     message:  string;
 }
 
-export interface JsAnalysisResult {
-    id: number;
+export interface JsAnalysisResult extends WorkerAnswer {
     /** Empty when the document has no JavaScript at all. */
     jsRanges: Array<{ start: number; end: number }>;
     preambleLength: number;
@@ -95,14 +94,8 @@ function analyse(request: JsAnalysisRequest): JsAnalysisResult {
     };
 }
 
-parentPort?.on('message', (request: JsAnalysisRequest) => {
-    try {
-        parentPort?.postMessage(analyse(request));
-    } catch {
-        // Analysis is best-effort: a half-typed document that trips the parser
-        // must cost this one refresh, not the worker.
-        parentPort?.postMessage({
-            id: request.id, jsRanges: [], preambleLength: 0, spans: [], diagnostics: [],
-        } satisfies JsAnalysisResult);
-    }
-});
+// Analysis is best-effort: a half-typed document that trips the parser must
+// cost this one refresh, not the worker.
+serveWorker<JsAnalysisRequest, JsAnalysisResult>(analyse, request => ({
+    id: request.id, jsRanges: [], preambleLength: 0, spans: [], diagnostics: [],
+}));

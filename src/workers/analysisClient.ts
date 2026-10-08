@@ -1,15 +1,16 @@
 /**
  * analysisClient.ts  (workers/)
  *
- * The extension-host side of the three page-analysis workers:
+ * The extension-host side of the page-analysis workers:
  *
- *   • jsAnalysisWorker.ts — the type-aware JavaScript colouring and the JS
+ *   • jsAnalysisWorker.ts   — the type-aware JavaScript colouring and the JS
  *     squiggles, both from one TypeScript pass;
- *   • aspColouring.ts     — the VBScript and SQL colouring, and the SQL warnings;
- *   • vbscriptWorker.ts   — the VBScript page's symbols and blocks, and its checks.
+ *   • aspColouringWorker.ts — the VBScript and SQL colouring, and the SQL warnings;
+ *   • vbscriptWorker.ts     — the VBScript page's symbols and blocks, and its checks;
+ *   • includeSymbolWorker.ts — the symbols of a page's include tree.
  *
- * Each is a long-lived worker thread of its own, so neither waits behind the
- * other, and both are driven the same way:
+ * Each is a long-lived worker thread of its own, so none waits behind another,
+ * and all are driven the same way:
  *
  *   • One job at a time, newest wins — per document. A worker is synchronous
  *     inside, so queueing every keystroke would only build a backlog whose
@@ -27,18 +28,29 @@
  *   • Never reject. Every caller is a decoration path — colours and squiggles.
  *     A worker that dies must cost a refresh, not surface an extension error to
  *     the user, so every failure resolves to undefined and the next call starts
- *     a fresh worker.
+ *     a fresh worker. Every failure is written to the log, and so is a worker
+ *     given up on.
+ *
+ * When a worker cannot run at all: the VBScript work is done on the extension
+ * host instead (vbscriptWorkspace.ts); the JavaScript and the VBScript/SQL
+ * colouring and squiggles, and the include symbols completion offers, are left
+ * off, as working them out on the host is what slowed typing down before the
+ * workers existed.
  */
 
 import * as path from 'path';
 import { Worker } from 'node:worker_threads';
+import { log } from '../platform/log';
+import type { WorkerAnswer } from './serveWorker';
 import type { JsAnalysisResult } from './jsAnalysisWorker';
 import type { AspColouringRequest, AspColouringResult } from '../vbscript/aspColouring';
 import type { FileSymbols } from '../vbscript/symbolParser';
 import type { ChecksResult, PageResult } from './vbscriptWorker';
 import type { PageAnalysis } from '../vbscript/pageAnalysis';
 import type { ChecksRequest, PageChecks } from '../vbscript/pageChecks';
+import type { IncludeWorkerEntry, IncludeWorkerRequest, IncludeWorkerResult } from './includeSymbolWorker';
 
+export type { IncludeWorkerEntry } from './includeSymbolWorker';
 export type { JsAnalysisResult, PlainJsDiagnostic } from './jsAnalysisWorker';
 export type { AspColouringResult, SqlWarning } from '../vbscript/aspColouring';
 
@@ -55,7 +67,7 @@ type Resolver<R> = (result: R | undefined) => void;
 interface Job<I, R> { input: I; resolvers: Resolver<R>[]; }
 
 /** A long-lived worker thread and the requests waiting for it. */
-class AnalysisWorker<I extends { text: string }, R extends { id: number }> {
+class AnalysisWorker<I extends object, R extends WorkerAnswer> {
     private worker: Worker | undefined;
     private nextId   = 1;
     private failures = 0;
@@ -65,6 +77,8 @@ class AnalysisWorker<I extends { text: string }, R extends { id: number }> {
     private readonly lastAnswer = new Map<string, { input: I; result: R }>();
 
     constructor(
+        /** What the worker does, for the log: "JavaScript analysis". */
+        private readonly name: string,
         private readonly workerPath: string,
         /** True when two requests would get the same answer. */
         private readonly sameInput: (a: I, b: I) => boolean,
@@ -147,6 +161,7 @@ class AnalysisWorker<I extends { text: string }, R extends { id: number }> {
 
             worker.on('message', (result: R) => {
                 this.failures = 0;
+                if (result.error) { log.error(`The ${this.name} worker failed on a page`, result.error); }
                 const pending = this.inFlight;
                 this.inFlight = undefined;
 
@@ -161,13 +176,19 @@ class AnalysisWorker<I extends { text: string }, R extends { id: number }> {
 
             // 'exit' fires after 'error' too, so both funnel into the same teardown
             // and the next caller gets a fresh worker.
-            worker.on('error', () => { this.failures++; this.teardown(); });
+            worker.on('error', error => {
+                this.failures++;
+                log.error(`The ${this.name} worker stopped`, error);
+                if (this.failures === MAX_CONSECUTIVE_FAILURES) { log.warn(`The ${this.name} worker failed ${this.failures} times in a row, so it is not started again.`); }
+                this.teardown();
+            });
             worker.on('exit',  () => { if (this.worker === worker) { this.teardown(); } });
 
             this.worker = worker;
             return worker;
-        } catch {
+        } catch (error) {
             this.failures++;
+            log.error(`The ${this.name} worker could not start`, error);
             return undefined;
         }
     }
@@ -196,6 +217,7 @@ class AnalysisWorker<I extends { text: string }, R extends { id: number }> {
 }
 
 const jsWorker = new AnalysisWorker<{ text: string }, JsAnalysisResult>(
+    'JavaScript analysis',
     path.join(__dirname, 'jsAnalysisWorker.js'),
     (a, b) => a.text === b.text,
     // An empty answer is also what a failed analysis looks like, so it is not
@@ -206,7 +228,8 @@ const jsWorker = new AnalysisWorker<{ text: string }, JsAnalysisResult>(
 type AspColouringInput = Omit<AspColouringRequest, 'id'>;
 
 const aspWorker = new AnalysisWorker<AspColouringInput, AspColouringResult>(
-    path.join(__dirname, '..', 'vbscript', 'aspColouring.js'),
+    'VBScript colouring',
+    path.join(__dirname, 'aspColouringWorker.js'),
     // The include symbols come from a memo that hands back the same object
     // until the document or one of its includes changes.
     (a, b) => a.text === b.text && a.docPath === b.docPath && a.includeSymbols === b.includeSymbols,
@@ -216,6 +239,7 @@ const aspWorker = new AnalysisWorker<AspColouringInput, AspColouringResult>(
 type VbscriptInput = { kind: 'page'; text: string; docPath: string } | (ChecksRequest & { kind: 'checks' });
 
 const vbscriptWorker = new AnalysisWorker<VbscriptInput, PageResult | ChecksResult>(
+    'VBScript analysis',
     path.join(__dirname, 'vbscriptWorker.js'),
     // Checks read the includes from disk, which may have changed since, so
     // only a page's own reading is shared.
@@ -223,6 +247,15 @@ const vbscriptWorker = new AnalysisWorker<VbscriptInput, PageResult | ChecksResu
     result => !result.failed && 'symbols' in result,
     // What completion is waiting on goes before checks nobody is waiting on.
     input => input.kind === 'page',
+);
+
+const includeWorker = new AnalysisWorker<Omit<IncludeWorkerRequest, 'id'>, IncludeWorkerResult>(
+    'include loading',
+    path.join(__dirname, 'includeSymbolWorker.js'),
+    // The files may have changed on disk since, so a load is never shared here;
+    // includeProvider already shares one under way for the same includes.
+    () => false,
+    () => false,
 );
 
 /**
@@ -267,6 +300,19 @@ export async function checkVbscriptPage(key: string, request: ChecksRequest): Pr
     return result && !result.failed ? result : undefined;
 }
 
+/**
+ * Every file of the include trees under `roots`, each with its symbols and the
+ * includes it names, or undefined when a newer load for the same `key`
+ * superseded this one or the worker could not answer. `openFiles` is the
+ * unsaved text of open files, by lower-cased path.
+ */
+export async function loadIncludeTree(
+    key: string, roots: string[], virtualRoot: string, openFiles: Record<string, string>,
+): Promise<IncludeWorkerEntry[] | undefined> {
+    const result = await includeWorker.request(key, { roots, virtualRoot, openFiles });
+    return result && !result.failed ? result.entries : undefined;
+}
+
 /** False when the VBScript worker cannot run, and the host has to read pages itself. */
 export function vbscriptWorkerUsable(): boolean {
     return vbscriptWorker.usable;
@@ -277,4 +323,5 @@ export function disposeAnalysisWorkers(): void {
     jsWorker.dispose();
     aspWorker.dispose();
     vbscriptWorker.dispose();
+    includeWorker.dispose();
 }

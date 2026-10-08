@@ -20,10 +20,10 @@
  * Nothing here may import vscode — a worker thread has no access to it.
  */
 
-import { parentPort } from 'node:worker_threads';
 import { parsePage, type ParsedPage } from '../vbscript/symbols';
 import { analysePage, type PageAnalysis } from '../vbscript/pageAnalysis';
 import { checkPageFiles, type ChecksRequest as PageChecksRequest, type PageChecks } from '../vbscript/pageChecks';
+import { serveWorker, type WorkerAnswer } from './serveWorker';
 
 export interface PageRequest {
     id:      number;
@@ -34,8 +34,8 @@ export interface PageRequest {
 
 export type ChecksRequest = PageChecksRequest & { id: number; kind: 'checks' };
 
-export type PageResult   = PageAnalysis & { id: number; failed?: boolean };
-export type ChecksResult = PageChecks & { id: number; failed?: boolean };
+export type PageResult   = PageAnalysis & WorkerAnswer;
+export type ChecksResult = PageChecks & WorkerAnswer;
 
 /** The last parse of each recent file, so a second question about the same text parses nothing. */
 const parsed = new Map<string, ParsedPage>();
@@ -58,19 +58,11 @@ function answer(request: PageRequest | ChecksRequest): PageResult | ChecksResult
         : { id: request.id, ...checkPageFiles(request, parseCached) };
 }
 
-parentPort?.on('message', (request: PageRequest | ChecksRequest) => {
-    let result: PageResult | ChecksResult;
-    try {
-        result = answer(request);
-    } catch {
-        // A half-typed page that trips a pass must cost this one answer, not the worker.
-        result = request.kind === 'page'
-            ? {
-                id: request.id, failed: true,
-                symbols: { variables: [], constants: [], functions: [], comVariables: [], classes: [] },
-                blocks: { warnings: [], pairs: [], withBlocks: [], events: [] },
-            }
-            : { id: request.id, failed: true, missingSet: [], checks: [] };
+// A half-typed page that trips a pass must cost this one answer, not the worker.
+serveWorker<PageRequest | ChecksRequest, PageResult | ChecksResult>(answer, request => request.kind === 'page'
+    ? {
+        id: request.id,
+        symbols: { variables: [], constants: [], functions: [], comVariables: [], classes: [] },
+        blocks: { warnings: [], pairs: [], withBlocks: [], events: [] },
     }
-    parentPort?.postMessage(result);
-});
+    : { id: request.id, missingSet: [], checks: [] });

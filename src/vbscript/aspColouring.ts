@@ -13,10 +13,9 @@
  * Out: the tokens as [line, char, length, type, modifiers] × n in the order
  * they were found, and the SQL warnings as ranges and messages.
  *
- * This file is also the worker's entry point: see the bottom of the file.
+ * The worker's entry point is workers/aspColouringWorker.ts.
  */
 
-import { parentPort } from 'node:worker_threads';
 import type { FileSymbols } from './symbolParser';
 import {
     T_FUNCTION, T_NAMESPACE, T_VARIABLE, T_PARAMETER, T_CONSTANT,
@@ -52,7 +51,8 @@ export interface AspColouringResult {
     tokens:   Uint32Array;
     warnings: SqlWarning[];
     /** Set when the colouring threw, so the answer is not kept for reuse. */
-    failed?:  true;
+    failed?:  boolean;
+    error?:   string;
 }
 
 /**
@@ -454,20 +454,3 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
 
     return { id: request.id, tokens: Uint32Array.from(tokens), warnings };
 }
-
-// ── Worker entry point ───────────────────────────────────────────────────────
-// Running as a worker thread, this file answers colouring requests. Imported
-// anywhere else (the tests do), parentPort is null and this does nothing.
-parentPort?.on('message', (request: AspColouringRequest) => {
-    let result: AspColouringResult;
-    try {
-        result = colourAspPage(request);
-    } catch {
-        // A half-typed page that trips a pass must cost this one refresh of the
-        // colours, not the worker.
-        result = { id: request.id, tokens: new Uint32Array(), warnings: [], failed: true };
-    }
-    // The tokens are handed over, not copied: on a large page they run to
-    // hundreds of thousands of numbers.
-    parentPort?.postMessage(result, [result.tokens.buffer as ArrayBuffer]);
-});

@@ -1,14 +1,10 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Worker } from 'node:worker_threads';
 import { extractSymbols, FileSymbols } from '../vbscript/symbolParser';
 import { parseIncludeDirectives, resolveIncludeDirective, resolveIncludePathsIn } from '../core/includeDirectives';
 import { defaultIncludesSetting, virtualRootSetting } from '../platform/settings';
-// Type only: the worker's own declaration of what it posts back, so the two
-// sides cannot drift. `import type` is erased at compile time, so requiring
-// this module here never loads the worker script into the extension host.
-import type { IncludeWorkerEntry } from '../workers/includeSymbolWorker';
+import { loadIncludeTree } from '../workers/analysisClient';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -150,7 +146,6 @@ const _includeSymbolCache = new Map<string, IncludeSymbolCacheEntry>();
 let _includeSymbolEpoch = 0;
 const _includeLoadPromises = new Map<string, PendingIncludeLoad>();
 let _includeCacheGeneration = 0;
-const _includeWorkerPath = path.join(__dirname, '..', 'workers', 'includeSymbolWorker.js');
 
 /**
  * The unsaved text of every open ASP document, keyed by lowercased path.
@@ -244,7 +239,7 @@ export function areIncludeSymbolsReady(document: vscode.TextDocument): boolean {
 }
 
 /**
- * Starts a worker for the document's include tree. Repeated callers share the
+ * Loads the document's include tree on the include worker. Repeated callers share the
  * same in-flight request, and stale results are ignored after cache invalidation.
  */
 export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<void> {
@@ -269,38 +264,20 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
 
     const { texts: openFiles, versions: openVersions } = dirtyBuffers();
 
-    const promise = new Promise<void>(resolve => {
-        const worker = new Worker(_includeWorkerPath);
-        let settled = false;
-
-        const finish = (): void => {
-            if (settled) { return; }
-            settled = true;
-            resolve();
-            void worker.terminate();
-        };
-
-        worker.once('message', (entries: IncludeWorkerEntry[]) => {
-            if (generation === _includeCacheGeneration) {
-                for (const entry of entries) {
-                    const key = entry.filePath.toLowerCase();
-                    _includeSymbolCache.set(key, {
-                        symbols: entry.symbols,
-                        children: entry.children,
-                        bufferVersion: openVersions.get(key),
-                    });
-                    watchIncludeFolder(entry.filePath);
-                }
-                _includeSymbolEpoch++;
-            }
-            finish();
-        });
-
-        // Include loading is best-effort. A missing/unreadable file must never
-        // reject a provider request or produce an unhandled promise rejection.
-        worker.once('error', finish);
-        worker.once('exit', finish);
-        worker.postMessage({ roots, virtualRoot, openFiles });
+    // Include loading is best-effort: the worker never rejects, and a load that
+    // failed or was superseded leaves the cache as it was.
+    const promise = loadIncludeTree(requestKey, roots, virtualRoot, openFiles).then(entries => {
+        if (!entries || generation !== _includeCacheGeneration) { return; }
+        for (const entry of entries) {
+            const key = entry.filePath.toLowerCase();
+            _includeSymbolCache.set(key, {
+                symbols: entry.symbols,
+                children: entry.children,
+                bufferVersion: openVersions.get(key),
+            });
+            watchIncludeFolder(entry.filePath);
+        }
+        _includeSymbolEpoch++;
     });
 
     _includeLoadPromises.set(requestKey, { generation, promise });

@@ -1,9 +1,18 @@
-import { parentPort } from 'node:worker_threads';
+/**
+ * includeSymbolWorker.ts
+ *
+ * The worker thread that reads and parses the include tree of a page: each
+ * file's symbols and the includes it names in turn, from disk or, for a file
+ * open with unsaved changes, from the text the extension host sends.
+ */
+
 import * as fs from 'node:fs/promises';
 import { extractSymbols, type FileSymbols } from '../vbscript/symbolParser';
 import { resolveIncludePathsIn } from '../core/includeDirectives';
+import { serveWorker, type WorkerAnswer } from './serveWorker';
 
-interface IncludeWorkerRequest {
+export interface IncludeWorkerRequest {
+    id: number;
     roots: string[];
     virtualRoot: string;
     // Unsaved text for any include open in the editor, keyed by lowercased
@@ -16,6 +25,11 @@ export interface IncludeWorkerEntry {
     filePath: string;
     symbols: FileSymbols;
     children: string[];
+}
+
+export interface IncludeWorkerResult extends WorkerAnswer {
+    /** Every file of the tree, each once, in the order it was reached. */
+    entries: IncludeWorkerEntry[];
 }
 
 async function loadTree(
@@ -56,13 +70,17 @@ async function loadTree(
     }
 }
 
-parentPort?.on('message', async ({ roots, virtualRoot, openFiles }: IncludeWorkerRequest) => {
-    const results: IncludeWorkerEntry[] = [];
+async function loadIncludeTree({ id, roots, virtualRoot, openFiles }: IncludeWorkerRequest): Promise<IncludeWorkerResult> {
+    const entries: IncludeWorkerEntry[] = [];
     const visited = new Set<string>();
 
     for (const root of roots) {
-        await loadTree(root, virtualRoot, visited, results, openFiles ?? {});
+        await loadTree(root, virtualRoot, visited, entries, openFiles ?? {});
     }
 
-    parentPort?.postMessage(results);
-});
+    return { id, entries };
+}
+
+// Include symbols are best-effort: a file that trips the parser costs this one
+// load, not the worker.
+serveWorker<IncludeWorkerRequest, IncludeWorkerResult>(loadIncludeTree, request => ({ id: request.id, entries: [] }));
