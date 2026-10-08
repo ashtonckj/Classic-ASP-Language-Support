@@ -40,6 +40,7 @@ import type * as A from './ast';
 import { childExpressions } from './expressions';
 import type { ParsedPage } from './symbols';
 import { orderKey, type ScopeFile, type ScriptScope } from './scriptScope';
+import { VBSCRIPT_BUILTIN_VALUES } from '../constants/aspKeywords';
 
 export type DeclarationKind = 'variable' | 'constant' | 'parameter' | 'sub' | 'function' | 'property' | 'class';
 
@@ -552,10 +553,15 @@ function walkBody(stmts: A.Stmt[], visit: (s: A.Stmt) => void): void {
     }
 }
 
-/** The name a statement declares implicitly when nothing else does. */
+/**
+ * The name a statement declares implicitly when nothing else does. A built-in
+ * function or constant is never one: `hex = 5` or `For day = 1 To 7` with no
+ * Dim stops with "Illegal assignment" under cscript, and makes no variable.
+ */
 function implicitTarget(s: A.Stmt): A.Name | null {
-    if (s.kind === 'Assign' && s.target.kind === 'Ident') { return s.target.name; }
-    if (s.kind === 'For') { return s.counter; }
-    if (s.kind === 'ForEach') { return s.variable; }
-    return null;
+    const name = s.kind === 'Assign' && s.target.kind === 'Ident' ? s.target.name
+        : s.kind === 'For' ? s.counter
+        : s.kind === 'ForEach' ? s.variable
+        : null;
+    return name && !VBSCRIPT_BUILTIN_VALUES.has(name.name) ? name : null;
 }

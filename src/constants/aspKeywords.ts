@@ -527,6 +527,16 @@ export const VBSCRIPT_CONSTANTS: { name: string; doc: string }[] = [
     { name: 'vbNo',                 doc: '`7` — No was clicked. A MsgBox return value.' },
 ];
 
+/**
+ * The built-in functions and constants, lower-cased. Assigning to one without
+ * declaring it first does not make a variable: cscript stops at `hex = 5` or
+ * `vbCr = 5` with "Illegal assignment". A `Dim hex` does make one.
+ */
+export const VBSCRIPT_BUILTIN_VALUES: ReadonlySet<string> = new Set([
+    ...VBSCRIPT_FUNCTIONS.map(name => name.toLowerCase()),
+    ...VBSCRIPT_CONSTANTS.map(constant => constant.name.toLowerCase()),
+]);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // VBSCRIPT_KEYWORDS_SET
 //

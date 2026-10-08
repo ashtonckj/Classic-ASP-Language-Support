@@ -112,6 +112,14 @@ describe('binder — what a name refers to', () => {
         assert.ok(binding.references.some(r => r.name === 'x' && r.target === null));
     });
 
+    // cscript: `hex = 5` or `For day = 1 To 7` with no Dim stops with "Illegal
+    // assignment"; after `Dim hex`, `hex(255)` is the variable (Type mismatch).
+    it('makes no implicit variable of a built-in function or constant', () => {
+        const { binding } = bindCode('hex = 5\nFor day = 1 To 7\nNext\nvbCr = 1\nSub S\n  len = 2\nEnd Sub');
+        assert.deepStrictEqual(binding.declarations.filter(d => d.implicit).map(d => d.name), []);
+        assert.strictEqual(resolved('Dim hex\nhex = 5\nx = hex(255)', 'hex', 3), 'variable script@1');
+    });
+
     it('finds a page variable an include declares', () => {
         const host = site({ 'lib.inc': '<%\nDim shared\nSub Bump\n  shared = shared + 1\nEnd Sub\n%>' });
         const scope = buildScriptScope(at('page.asp'), '<!-- #include file="lib.inc" -->\n<% shared = 0 : Bump %>', host);
