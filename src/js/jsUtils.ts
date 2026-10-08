@@ -593,10 +593,48 @@ export function toDocumentSpan(
     return { start, end: start + textSpan.length };
 }
 
+/**
+ * The virtual file's text as TypeScript reads it, able to say what changed
+ * since an earlier one, so TypeScript re-parses the edited stretch instead of
+ * the whole script — on an 8,000-line page the full parse was ~80 ms after
+ * every keystroke, before a hover or completion could answer.
+ *
+ * The change is worked out against the snapshot TypeScript hands back, by the
+ * text the two share at the start and at the end, never from a record of the
+ * edits in between. However the versions came about (another page's text, a
+ * paste, a jump back), the range is right for the two texts compared.
+ */
+export class TextSnapshot implements ts.IScriptSnapshot {
+    constructor(readonly text: string) {}
+
+    getText(start: number, end: number): string { return this.text.substring(start, end); }
+
+    getLength(): number { return this.text.length; }
+
+    getChangeRange(old: ts.IScriptSnapshot): ts.TextChangeRange | undefined {
+        // One TypeScript did not get from here: no change range, so a full parse.
+        if (!(old instanceof TextSnapshot)) { return undefined; }
+        const before = old.text;
+        const after  = this.text;
+        const shorter = Math.min(before.length, after.length);
+        let start = 0;
+        while (start < shorter && before.charCodeAt(start) === after.charCodeAt(start)) { start++; }
+        let endBefore = before.length;
+        let endAfter  = after.length;
+        while (endBefore > start && endAfter > start && before.charCodeAt(endBefore - 1) === after.charCodeAt(endAfter - 1)) {
+            endBefore--;
+            endAfter--;
+        }
+        const ts = typescript();
+        return ts.createTextChangeRange(ts.createTextSpan(start, endBefore - start), endAfter - start);
+    }
+}
+
 export class JsLanguageService {
     private readonly _service:         ts.LanguageService;
     private readonly _compilerOptions: ts.CompilerOptions;
     private          _content:         string = '';
+    private          _snapshot:        TextSnapshot = new TextSnapshot('');
     private          _version:         number = 0;
     private readonly _aspDomTypes:     string;
 
@@ -617,7 +655,7 @@ export class JsLanguageService {
                 return '0';
             },
             getScriptSnapshot:      (f) => {
-                if (f === VIRTUAL_FILENAME) { return ts.ScriptSnapshot.fromString(self._content); }
+                if (f === VIRTUAL_FILENAME) { return self._snapshot; }
                 if (f === ASP_DOM_TYPES_FILENAME) { return ts.ScriptSnapshot.fromString(self._aspDomTypes); }
                 const text = ts.sys.readFile(f);
                 return text !== undefined ? ts.ScriptSnapshot.fromString(text) : undefined;
@@ -664,8 +702,12 @@ export class JsLanguageService {
         // rest and every cursor move (635 ms a hover on 8,000 lines, 39 ms without).
         if (content === this._content) { return; }
         this._content = content;
+        this._snapshot = new TextSnapshot(content);
         this._version++;
     }
+
+    /** The virtual file's text, as last set. */
+    get content(): string { return this._content; }
 
     getProgram(): ts.Program | undefined {
         try { return this._service.getProgram() ?? undefined; }
