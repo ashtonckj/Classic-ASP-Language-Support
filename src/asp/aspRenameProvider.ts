@@ -60,7 +60,7 @@ export function findSymbolLocations(document: vscode.TextDocument, position: vsc
     const found = wordAt(document, position);
     if ('reason' in found) { return []; }
 
-    const sites = findSites(editorWorkspace(document), document.uri.fsPath, document.offsetAt(found.range.start)) ?? [];
+    const sites = findSites(editorWorkspace(document, { freshIncludes: true }), document.uri.fsPath, document.offsetAt(found.range.start)) ?? [];
     return sites.map(site => {
         const { uri, range } = siteToLocation(document, site);
         return { uri, range, declaration: site.declaration };
@@ -89,7 +89,7 @@ export class AspRenameProvider implements vscode.RenameProvider {
     ): vscode.ProviderResult<vscode.Range | { range: vscode.Range; placeholder: string }> {
         const found = wordAt(document, position);
         if ('reason' in found) { throw new Error(found.reason); }
-        if (!resolveAt(editorWorkspace(document), document.uri.fsPath, document.offsetAt(found.range.start))) {
+        if (!resolveAt(editorWorkspace(document, { freshIncludes: true }), document.uri.fsPath, document.offsetAt(found.range.start))) {
             throw new Error(notASymbol(found.word));
         }
         return { range: found.range, placeholder: found.word };

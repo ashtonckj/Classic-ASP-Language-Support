@@ -15,6 +15,7 @@ import { AspHoverProvider } from './aspHoverProvider';
 import { AspReferenceProvider, AspRenameProvider, registerIncludeUpdatesOnRename } from './aspRenameProvider';
 import { AspSignatureHelpProvider } from './aspSignatureHelpProvider';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache } from './aspWorkspaceSymbolProvider';
+import { registerIncludeGraph } from './includeGraph';
 import { forgetIncludeFile, IncludePathCompletionProvider, preloadIncludeSymbols } from './includeProvider';
 import { IncludeDocumentLinkProvider } from '../html/linkProvider';
 import { PATH_TRIGGER_CHARACTERS } from '../platform/pathCompletion';
@@ -29,6 +30,8 @@ export function registerAspFeatures(context: vscode.ExtensionContext): void {
     // The include symbols are read on a worker as soon as a page is in view, so
     // completion has them by the time it is asked.
     preloadIncludes(vscode.window.activeTextEditor?.document);
+    // Which pages include which, read in the background for F12, hover and rename.
+    registerIncludeGraph(context);
 
     context.subscriptions.push(
         vscode.workspace.onDidOpenTextDocument(preloadIncludes),
