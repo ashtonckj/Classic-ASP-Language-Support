@@ -61,7 +61,7 @@ for (const file of [OUT_KEYWORDS, OUT_COM]) {
     }
 }
 
-const { ASP_OBJECTS, VBSCRIPT_FUNCTIONS, VBSCRIPT_CONSTANTS } = require(OUT_KEYWORDS);
+const { ASP_OBJECTS, VBSCRIPT_FUNCTIONS, VBSCRIPT_BARE_FUNCTIONS, VBSCRIPT_CONSTANTS } = require(OUT_KEYWORDS);
 const { COM_TYPE_MAP } = require(OUT_COM);
 
 /** Unique, case-insensitively sorted, so the generated file is stable. */
@@ -92,6 +92,14 @@ const OBJECT_NAMES = names(ASP_OBJECTS.map(o => o.name));
  * of the ASP object model. The object-access rule above them already colours
  * `Response.Buffer`; these exist for a member reached some other way, such as
  * `.Buffer` inside a `With Response` block, and that always has the dot.
+ *
+ * `prefix` and `suffix` go before and after the alternation. The built-in
+ * functions use them to colour a function only where it is used as one, since
+ * any of them may also be a variable's name (`Dim hex`, `Dim day`):
+ *
+ *   called           Hex(255)          followed by `(`
+ *   statement call   MsgBox "late"     first in its statement, an argument after it
+ *   read bare        If Date > due     only the few that need no arguments
  */
 const RULES = [
     { repo: 'asp-objects', index: 0, words: OBJECT_NAMES,               dotted: false, suffix: '\\.(\\w+)' },
@@ -99,7 +107,13 @@ const RULES = [
     { repo: 'asp-objects', index: 2, words: membersOfKind('collection'), dotted: true },
     { repo: 'asp-objects', index: 3, words: membersOfKind('property'),   dotted: true },
     { repo: 'asp-objects', index: 4, words: membersOfKind('method'),     dotted: true },
-    { repo: 'functions',   index: 0, words: names(VBSCRIPT_FUNCTIONS),   dotted: false },
+    { repo: 'functions',   index: 0, words: names(VBSCRIPT_FUNCTIONS),   dotted: false, prefix: '(?<!\\.)', suffix: '(?=\\s*\\()' },
+    {
+        repo: 'functions', index: 1, words: names(VBSCRIPT_FUNCTIONS), dotted: false,
+        prefix: '(?:^|(?<=<%|:|\\bThen\\s|\\bElse\\s))[ \\t]*',
+        suffix: "(?=[ \\t]+[^\\s=.:&+\\-*/\\\\^<>,)'_])",
+    },
+    { repo: 'functions',   index: 2, words: names(VBSCRIPT_BARE_FUNCTIONS), dotted: false, prefix: '(?<!\\.)' },
     { repo: 'constants',   index: 1, words: names(VBSCRIPT_CONSTANTS.map(c => c.name)), dotted: false },
     {
         repo: 'com-members', index: 0, dotted: true,
@@ -109,7 +123,7 @@ const RULES = [
 
 function buildMatch(rule) {
     const lookbehind = rule.dotted ? '(?<=\\.)' : '';
-    return `(?i)${lookbehind}\\b(${rule.words.join('|')})\\b${rule.suffix ?? ''}`;
+    return `(?i)${lookbehind}${rule.prefix ?? ''}\\b(${rule.words.join('|')})\\b${rule.suffix ?? ''}`;
 }
 
 // Edited as text rather than re-serialised. The file is CRLF with no trailing

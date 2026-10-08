@@ -1,6 +1,6 @@
 import { codeWithoutStrings, splitCodeAndComment, vbStatements, vbStringSegments } from '../core/vbLexical';
 import type { FormatterSettings, PrettierSettings } from '../platform/settings';
-import { ASP_MEMBER_DOCS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
+import { ASP_MEMBER_DOCS, VBSCRIPT_BARE_FUNCTIONS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
 import { getStringAlignColumn, isBlockOpener, VBSCRIPT_BLOCK_CLOSERS } from '../vbscript/indentRules';
 
 // ─── Settings ──────────────────────────────────────────────────────────────
@@ -619,10 +619,7 @@ export const VBSCRIPT_FUNCTIONS_MAP: Record<string, string> = Object.fromEntries
 );
 
 /** The functions that may be used without arguments, as a value: `If Date > due`, `x = Now`. */
-const BARE_FUNCTIONS = new Set([
-    'date', 'time', 'now', 'timer', 'rnd', 'getlocale',
-    'scriptengine', 'scriptenginebuildversion', 'scriptenginemajorversion', 'scriptengineminorversion',
-]);
+const BARE_FUNCTIONS = new Set(VBSCRIPT_BARE_FUNCTIONS.map(name => name.toLowerCase()));
 
 // General VBScript keywords ordered longest-first so multi-word keywords
 // like "end function" are matched before single-word ones like "end".

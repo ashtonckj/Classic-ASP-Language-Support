@@ -278,6 +278,16 @@ export const VBSCRIPT_FUNCTIONS = [
     'Unescape', 'VarType', 'Weekday', 'WeekdayName', 'Year'
 ];
 
+/**
+ * The functions that may be read without brackets, as a value: `If Date > due`,
+ * `x = Now`. Every other function is a function only where it is called, since
+ * any of them may also name a variable (cscript compiles `Dim hex`, `Dim day`).
+ */
+export const VBSCRIPT_BARE_FUNCTIONS = [
+    'Date', 'GetLocale', 'Now', 'Rnd', 'ScriptEngine', 'ScriptEngineBuildVersion',
+    'ScriptEngineMajorVersion', 'ScriptEngineMinorVersion', 'Time', 'Timer',
+];
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Built-in VBScript function docs — hover, completion and signature help
 // ─────────────────────────────────────────────────────────────────────────────
