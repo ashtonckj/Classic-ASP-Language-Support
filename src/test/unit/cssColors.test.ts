@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { CssColorProvider } from '../../css/cssColorProvider';
+import { fakeDocument } from './_helpers';
 
 // Colour swatches in an ASP page, in <style> blocks and in style="" attributes.
 //
@@ -11,31 +12,7 @@ import { CssColorProvider } from '../../css/cssColorProvider';
 // in it is shifted by the wrapper. A mistake either way puts the swatch on the
 // wrong characters, and the picker then overwrites the wrong text.
 
-function fakeDoc(text: string): vscode.TextDocument {
-    const lineStarts = [0];
-    for (let i = 0; i < text.length; i++) {
-        if (text[i] === '\n') { lineStarts.push(i + 1); }
-    }
-    return {
-        languageId: 'asp',
-        version: 1,
-        uri: { fsPath: 'C:\\site\\page.asp', scheme: 'file', toString: () => 'file:///page.asp' },
-        getText: () => text,
-        lineCount: lineStarts.length,
-        lineAt: (n: number) => ({
-            text: text.slice(lineStarts[n], lineStarts[n + 1] ?? text.length).replace(/\r?\n$/, ''),
-        }),
-        offsetAt: (p: { line: number; character: number }) => lineStarts[p.line] + p.character,
-        positionAt: (offset: number) => {
-            let lo = 0, hi = lineStarts.length - 1;
-            while (lo < hi) {
-                const mid = (lo + hi + 1) >> 1;
-                if (lineStarts[mid] <= offset) { lo = mid; } else { hi = mid - 1; }
-            }
-            return new vscode.Position(lo, offset - lineStarts[lo]);
-        },
-    } as unknown as vscode.TextDocument;
-}
+const fakeDoc = (text: string): vscode.TextDocument => fakeDocument(text, { fsPath: 'C:\\site\\page.asp' });
 
 const provider      = new CssColorProvider();
 const NOT_CANCELLED = { isCancellationRequested: false } as vscode.CancellationToken;

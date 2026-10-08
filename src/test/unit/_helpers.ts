@@ -20,7 +20,7 @@ export interface FakeDocument extends vscode.TextDocument {
  */
 export function fakeDocument(
     text: string,
-    options: { languageId?: string; fsPath?: string; eol?: vscode.EndOfLine } = {},
+    options: { languageId?: string; fsPath?: string; uri?: vscode.Uri; eol?: vscode.EndOfLine } = {},
 ): FakeDocument {
     let current = text;
     let version = 1;
@@ -30,7 +30,7 @@ export function fakeDocument(
         for (let i = 0; i < current.length; i++) { if (current[i] === '\n') { starts.push(i + 1); } }
         return starts;
     };
-    const fsPath = options.fsPath ?? '/site/page.asp';
+    const fsPath = options.uri?.fsPath ?? options.fsPath ?? '/site/page.asp';
 
     const document = {
         get version() { return version; },
@@ -39,7 +39,7 @@ export function fakeDocument(
         languageId: options.languageId ?? 'asp',
         eol: options.eol ?? 1,
         isClosed: false,
-        uri: { fsPath, scheme: 'file', toString: () => `file://${fsPath}` },
+        uri: options.uri ?? { fsPath, scheme: 'file', toString: () => `file://${fsPath}` },
         fileName: fsPath,
         getText(range?: vscode.Range) {
             if (!range) { calls++; return current; }

@@ -4,6 +4,7 @@ import { JsDefinitionProvider } from '../../js/jsDefinitionProvider';
 import { JsReferenceProvider, JsDocumentHighlightProvider } from '../../js/jsReferenceProvider';
 import { JsRenameProvider } from '../../js/jsRenameProvider';
 import { disposeJsLanguageService } from '../../js/jsUtils';
+import { fakeDocument } from './_helpers';
 
 // F12, Shift+F12 and F2 inside a <script> block. A plain .html file gets these
 // from the TypeScript server; a Classic ASP page has to ask, because its JS is
@@ -18,32 +19,7 @@ import { disposeJsLanguageService } from '../../js/jsUtils';
 
 after(() => { disposeJsLanguageService(); });
 
-function fakeDoc(text: string): vscode.TextDocument {
-    const lineStarts = [0];
-    for (let i = 0; i < text.length; i++) {
-        if (text[i] === '\n') { lineStarts.push(i + 1); }
-    }
-    const positionAt = (offset: number) => {
-        let lo = 0, hi = lineStarts.length - 1;
-        while (lo < hi) {
-            const mid = (lo + hi + 1) >> 1;
-            if (lineStarts[mid] <= offset) { lo = mid; } else { hi = mid - 1; }
-        }
-        return new vscode.Position(lo, offset - lineStarts[lo]);
-    };
-    return {
-        languageId: 'asp',
-        version: 1,
-        uri: { fsPath: 'C:\\site\\page.asp', scheme: 'file', toString: () => 'file:///page.asp' },
-        getText: () => text,
-        lineCount: lineStarts.length,
-        lineAt: (n: number) => ({
-            text: text.slice(lineStarts[n], lineStarts[n + 1] ?? text.length).replace(/\r?\n$/, ''),
-        }),
-        offsetAt: (p: { line: number; character: number }) => lineStarts[p.line] + p.character,
-        positionAt,
-    } as unknown as vscode.TextDocument;
-}
+const fakeDoc = (text: string): vscode.TextDocument => fakeDocument(text, { fsPath: 'C:\\site\\page.asp' });
 
 const NOT_CANCELLED = { isCancellationRequested: false } as vscode.CancellationToken;
 
