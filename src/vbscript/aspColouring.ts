@@ -310,7 +310,7 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
         for (const a of list) {
             if (a.isSelfAppend || looksLikeSql(a.stitchedValue) || isSqlExpression(a.stitchedValue)) { continue; }
             warnAt(a.stmt.target.start, a.written.length,
-                `'${a.written}' is already marked as a SQL variable. Highlighting may be incorrect.`);
+                `SQL colouring may be incomplete here: '${a.written}' holds SQL elsewhere on the page, and this value does not read as SQL.`);
         }
     }
 
@@ -353,17 +353,14 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
             if (isCall) {
                 if (sqlFuncs.has(wordKey)) { return; }
                 warnAt(ident.start, word.length, nonStrFuncs.has(wordKey)
-                    ? `'${word}()' does not appear to return a string. ` +
-                      `Concatenating it into a SQL variable may produce unexpected results.`
-                    : `'${word}()' is concatenated into SQL variable '${a.written}' ` +
-                      `but its return value could not be confirmed as a SQL string. ` +
-                      `Verify that it returns valid SQL or a safe SQL fragment.`);
+                    ? `SQL colouring may be incomplete here: '${word}()' is joined into the SQL in '${a.written}', ` +
+                      `and it may not return a string.`
+                    : `SQL colouring may be incomplete here: '${word}()' is joined into the SQL in '${a.written}', ` +
+                      `and what it returns could not be read as SQL.`);
             } else if (!sqlVars.has(wordKey)) {
                 warnAt(ident.start, word.length,
-                    `'${word}' is concatenated into SQL variable '${a.written}' ` +
-                    `but has not been confirmed as a SQL variable or fragment. ` +
-                    `If this is intentional (e.g. a WHERE clause fragment), ` +
-                    `initialise '${word}' with a SQL keyword like WHERE or AND.`);
+                    `SQL colouring may be incomplete here: '${word}' is joined into the SQL in '${a.written}', ` +
+                    `and its value could not be read as SQL.`);
             }
         });
     }

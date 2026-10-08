@@ -70,7 +70,10 @@ function toDiagnostic(warning: SqlWarning): vscode.Diagnostic {
             new vscode.Position(warning.line, warning.character + warning.length),
         ),
         warning.message,
-        vscode.DiagnosticSeverity.Warning,
+        // A note about the colouring, not about the page: the page may be right
+        // as it is, and changing it to quiet this could break it. So a hint —
+        // faint dots, not in the warning count — that suggests no change.
+        vscode.DiagnosticSeverity.Hint,
         DiagnosticCode.sql,
     );
 }

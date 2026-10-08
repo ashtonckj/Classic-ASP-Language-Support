@@ -180,7 +180,7 @@ describe('SQL warnings on a query passed to a method', () => {
 
     it('still treats a query changed by Replace as SQL', () => {
         const page = `<%\nDim id, sql\nsql = Replace("SELECT a FROM b WHERE id = {0}", "{0}", id)\nsql = sql & id\n%>\n`;
-        assert.ok(warningsOf(page).some(m => m.includes("'id' is concatenated into SQL variable 'sql'")), JSON.stringify(warningsOf(page)));
+        assert.ok(warningsOf(page).some(m => m.includes("'id' is joined into the SQL in 'sql'")), JSON.stringify(warningsOf(page)));
     });
 });
 

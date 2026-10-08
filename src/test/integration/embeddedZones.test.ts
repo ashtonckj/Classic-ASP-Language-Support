@@ -269,6 +269,6 @@ suite('Semantic colouring comes back from the worker threads (integration)', () 
         const warnings = vscode.languages.getDiagnostics(doc.uri).filter(d => d.code === 'sql-highlighting');
         assert.strictEqual(warnings.length, 1, `got ${JSON.stringify(warnings.map(w => w.message))}`);
         assert.strictEqual(warnings[0].range.start.line, 3);
-        assert.ok(/'userName' is concatenated into SQL variable 'sql'/.test(warnings[0].message));
+        assert.ok(/'userName' is joined into the SQL in 'sql'/.test(warnings[0].message));
     });
 });
