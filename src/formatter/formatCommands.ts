@@ -140,7 +140,8 @@ async function formatForDocument(
 
     const fullText = toLf(document.getText());
     const result = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: 'Classic ASP: Formatting…', cancellable: false },
+        // In the status bar: a notification for every format, on save too, was noise.
+        { location: vscode.ProgressLocation.Window, title: 'Formatting…' },
         () => formatPage(fullText),
     );
     if (!result.ok) {
