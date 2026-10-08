@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { VBSCRIPT_FUNCTIONS, VBSCRIPT_KEYWORDS } from '../../constants/aspKeywords';
+import { ASP_MEMBER_DOCS, VBSCRIPT_FUNCTIONS, VBSCRIPT_KEYWORDS } from '../../constants/aspKeywords';
 import { KEYWORDS_SORTED, MEMBER_CASING_MAP, PROPER_CASING_MAP, VBSCRIPT_FUNCTIONS_MAP } from '../../formatter/aspFormatter';
 import { KEYWORD_DOCS } from '../../asp/aspHoverProvider';
 import { RESERVED } from '../../vbscript/parser';
@@ -22,24 +22,24 @@ describe('the name lists agree with src/constants', () => {
         }
     });
 
-    it('the formatter spells each function as the function list does', () => {
-        for (const [lower, cased] of Object.entries(VBSCRIPT_FUNCTIONS_MAP)) {
-            // CVar is VBA's, not VBScript's; whether the formatter should case it is open.
-            if (lower === 'cvar') { continue; }
-            assert.strictEqual(cased, functionByLower.get(lower), `${cased} is not in VBSCRIPT_FUNCTIONS as written`);
+    it('the formatter knows every function the list does, and nothing else as one', () => {
+        assert.deepStrictEqual(Object.values(VBSCRIPT_FUNCTIONS_MAP).sort(), [...functionNames].sort());
+        assert.ok(!('cvar' in VBSCRIPT_FUNCTIONS_MAP), 'CVar is VBA, not VBScript: cscript says Type mismatch');
+    });
+
+    it('every member of the ASP objects is cased after a dot', () => {
+        for (const { label } of Object.values(ASP_MEMBER_DOCS)) {
+            const member = label.slice(label.indexOf('.') + 1);
+            assert.strictEqual(MEMBER_CASING_MAP[member.toLowerCase()], member, label);
         }
     });
 
-    it('lists the functions the formatter leaves as typed', () => {
-        // Each is a real VBScript function the formatter has never cased. Pinned
-        // here so a function added to the list is a decision, not an accident.
-        const cased = new Set([
-            ...Object.keys(VBSCRIPT_FUNCTIONS_MAP), ...Object.keys(PROPER_CASING_MAP), ...KEYWORDS_SORTED,
-        ]);
-        assert.deepStrictEqual(
-            functionNames.filter(name => !cased.has(name.toLowerCase())),
-            ['AscB', 'AscW', 'ChrB', 'ChrW', 'Execute', 'ExecuteGlobal', 'Hex', 'InStrB', 'LeftB', 'LenB', 'MidB', 'Oct', 'RightB'],
-        );
+    it('a function is cased only by the function rule, never as a keyword', () => {
+        // Every function may also be a variable's name (cscript compiles `Dim day`),
+        // so none may sit in a table that cases the word wherever it appears.
+        for (const word of [...KEYWORDS_SORTED, ...Object.keys(PROPER_CASING_MAP)]) {
+            assert.ok(!functionByLower.has(word), `${word} is a function`);
+        }
     });
 
     it('every reserved word of the parser is a keyword word', () => {

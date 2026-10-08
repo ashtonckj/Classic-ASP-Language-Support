@@ -1,5 +1,6 @@
 import { codeWithoutStrings, splitCodeAndComment, vbStatements, vbStringSegments } from '../core/vbLexical';
 import type { FormatterSettings, PrettierSettings } from '../platform/settings';
+import { ASP_MEMBER_DOCS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
 
 // ─── Settings ──────────────────────────────────────────────────────────────
 
@@ -578,11 +579,7 @@ function isSQLStatement(line: string): boolean {
 // Multi-word and special-cased keywords that need exact casing.
 export const PROPER_CASING_MAP: Record<string, string> = {
     'elseif': 'ElseIf', 'redim': 'ReDim', 'byval': 'ByVal',
-    'byref': 'ByRef', 'isnull': 'IsNull', 'isempty': 'IsEmpty',
-    'isnumeric': 'IsNumeric', 'isarray': 'IsArray', 'isobject': 'IsObject',
-    'isdate': 'IsDate', 'readonly': 'ReadOnly', 'writeonly': 'WriteOnly',
-    'typename': 'TypeName', 'vartype': 'VarType', 'getobject': 'GetObject',
-    'createobject': 'CreateObject', 'getref': 'GetRef', 'endif': 'EndIf',
+    'byref': 'ByRef', 'readonly': 'ReadOnly', 'writeonly': 'WriteOnly', 'endif': 'EndIf',
     'endsub': 'EndSub', 'endfunction': 'EndFunction', 'endwith': 'EndWith',
     'endselect': 'EndSelect', 'endclass': 'EndClass', 'endproperty': 'EndProperty',
     'exitfor': 'ExitFor', 'exitdo': 'ExitDo', 'exitsub': 'ExitSub',
@@ -616,7 +613,7 @@ export const MEMBER_CASING_MAP: Record<string, string> = {
     'datelastaccessed': 'DateLastAccessed', 'datelastmodified': 'DateLastModified', 'deletefile': 'DeleteFile',
     'deletefolder': 'DeleteFolder', 'dictionary': 'Dictionary', 'driveexists': 'DriveExists',
     'exists': 'Exists', 'expiresabsolute': 'ExpiresAbsolute', 'fileexists': 'FileExists',
-    'filesystemobject': 'FileSystemObject', 'folderexists': 'FolderExists', 'form': 'Form',
+    'filesystemobject': 'FileSystemObject', 'filter': 'Filter', 'folderexists': 'FolderExists', 'form': 'Form',
     'getabsolutepathname': 'GetAbsolutePathName', 'getbasename': 'GetBaseName', 'getdrive': 'GetDrive',
     'getdrivename': 'GetDriveName', 'getextensionname': 'GetExtensionName', 'getfile': 'GetFile',
     'getfilename': 'GetFileName', 'getfolder': 'GetFolder', 'getlasterror': 'GetLastError',
@@ -636,34 +633,29 @@ export const MEMBER_CASING_MAP: Record<string, string> = {
     'shortpath': 'ShortPath', 'skipline': 'SkipLine', 'totalbytes': 'TotalBytes',
     'urlencode': 'URLEncode', 'write': 'Write', 'writeblanklines': 'WriteBlankLines',
     'writeline': 'WriteLine',
+    // Every member of the ASP objects, as src/constants spells it: Response.End, Err.Number …
+    ...Object.fromEntries(Object.values(ASP_MEMBER_DOCS).map(({ label }) => {
+        const member = label.slice(label.indexOf('.') + 1);
+        return [member.toLowerCase(), member];
+    })),
 };
 
-export const VBSCRIPT_FUNCTIONS_MAP: Record<string, string> = {
-    'cbool': 'CBool', 'cbyte': 'CByte', 'ccur': 'CCur', 'cdate': 'CDate',
-    'cdbl': 'CDbl', 'cint': 'CInt', 'clng': 'CLng', 'csng': 'CSng',
-    'cstr': 'CStr', 'cvar': 'CVar',
-    'isarray': 'IsArray', 'isdate': 'IsDate', 'isempty': 'IsEmpty',
-    'isnull': 'IsNull', 'isnumeric': 'IsNumeric', 'isobject': 'IsObject',
-    'lcase': 'LCase', 'ucase': 'UCase', 'ltrim': 'LTrim', 'rtrim': 'RTrim',
-    'instr': 'InStr', 'instrrev': 'InStrRev', 'strreverse': 'StrReverse',
-    'strcomp': 'StrComp',
-    'dateserial': 'DateSerial', 'timeserial': 'TimeSerial',
-    'datevalue': 'DateValue', 'timevalue': 'TimeValue',
-    'dateadd': 'DateAdd', 'datediff': 'DateDiff', 'datepart': 'DatePart',
-    'formatdatetime': 'FormatDateTime', 'formatnumber': 'FormatNumber',
-    'formatcurrency': 'FormatCurrency', 'formatpercent': 'FormatPercent',
-    'monthname': 'MonthName', 'weekdayname': 'WeekdayName',
-    'lbound': 'LBound', 'ubound': 'UBound',
-    'createobject': 'CreateObject', 'getobject': 'GetObject',
-    'msgbox': 'MsgBox', 'inputbox': 'InputBox',
-    'typename': 'TypeName', 'vartype': 'VarType', 'getref': 'GetRef',
-    'eval': 'Eval', 'loadpicture': 'LoadPicture', 'scriptengine': 'ScriptEngine',
-    'scriptenginebuildversion': 'ScriptEngineBuildVersion',
-    'scriptenginemajorversion': 'ScriptEngineMajorVersion',
-    'scriptengineminorversion': 'ScriptEngineMinorVersion',
-    'rgb': 'RGB', 'escape': 'Escape', 'unescape': 'Unescape',
-    'getlocale': 'GetLocale', 'setlocale': 'SetLocale',
-};
+/**
+ * The built-in functions, spelled as src/constants spells them, by lower-cased name.
+ *
+ * Every one of them may also be a variable's name — cscript compiles `Dim hex`,
+ * `Dim day` and `Dim date` alike — so a function is cased only where it is used
+ * as one; see isFunctionUse.
+ */
+export const VBSCRIPT_FUNCTIONS_MAP: Record<string, string> = Object.fromEntries(
+    VBSCRIPT_FUNCTIONS.map(name => [name.toLowerCase(), name]),
+);
+
+/** The functions that may be used without arguments, as a value: `If Date > due`, `x = Now`. */
+const BARE_FUNCTIONS = new Set([
+    'date', 'time', 'now', 'timer', 'rnd', 'getlocale',
+    'scriptengine', 'scriptenginebuildversion', 'scriptenginemajorversion', 'scriptengineminorversion',
+]);
 
 // General VBScript keywords ordered longest-first so multi-word keywords
 // like "end function" are matched before single-word ones like "end".
@@ -678,12 +670,7 @@ export const KEYWORDS_SORTED: string[] = [
     'or', 'not', 'xor', 'eqv', 'imp', 'is', 'nothing',
     'null', 'empty', 'true', 'false', 'option explicit', 'randomize', 'with',
     'end with', 'exit', 'mod', 'byval', 'byref', 'default', 'erase',
-    'let', 'resume', 'stop', 'get', 'len', 'mid', 'left',
-    'right', 'trim', 'replace', 'split', 'join', 'filter', 'string',
-    'space', 'chr', 'asc', 'int', 'fix', 'abs', 'sgn',
-    'sqr', 'exp', 'log', 'sin', 'cos', 'tan', 'atn',
-    'round', 'rnd', 'array', 'date', 'time', 'now', 'timer',
-    'year', 'month', 'day', 'weekday', 'hour', 'minute', 'second',
+    'let', 'resume', 'stop', 'get',
     'response', 'request', 'server', 'session', 'application',
 ].sort((a, b) => b.length - a.length);
 
@@ -703,15 +690,46 @@ const MEMBER_CASING_REGEXES = Object.entries(MEMBER_CASING_MAP).map(([lower, pro
     replacement: proper,
 }));
 
-const VBSCRIPT_FUNCTION_REGEXES = Object.entries(VBSCRIPT_FUNCTIONS_MAP).map(([lower, proper]) => ({
-    re: new RegExp('\\b' + lower + '\\b', 'gi'),
-    replacement: proper,
-}));
+// Longest first, so ScriptEngineMajorVersion is not read as ScriptEngine.
+const FUNCTION_NAME_RE = new RegExp(
+    '\\b(?:' + Object.keys(VBSCRIPT_FUNCTIONS_MAP).sort((a, b) => b.length - a.length).join('|') + ')\\b',
+    'gi',
+);
 
-const HANDLED_KEYWORDS = new Set([
-    ...Object.keys(VBSCRIPT_FUNCTIONS_MAP),
-    ...Object.keys(PROPER_CASING_MAP),
-]);
+/** Words after which a name is being declared, not used: `Dim a, hex`, `For day = 1`, `Function Len(`. */
+const DECLARES_BEFORE = /\b(?:Dim|ReDim(?:\s+Preserve)?|Const|Private|Public|Static|Set|For(?:\s+Each)?|Sub|Function|Property\s+(?:Get|Let|Set)|Class)\s+(?:[\w\s(),]*,\s*)?$/i;
+
+/**
+ * True when the built-in function name at `start`–`end` of `text` (one stretch
+ * of a line's code between its strings) is used as the function there — called,
+ * or read for its value — rather than as the name of the page's own variable.
+ *
+ *   Hex(255)  MsgBox "hi"  If Date > due   → the function
+ *   Dim hex   hex = 5   rs.Filter   For day = 1 To 7   Function Len(s)  → a name
+ */
+function isFunctionUse(text: string, start: number, end: number, first: boolean, last: boolean): boolean {
+    if (text[start - 1] === '.') { return false; }
+    const before = text.slice(0, start);
+    if (DECLARES_BEFORE.test(before)) { return false; }
+
+    const after = text.slice(end);
+    if (/^\s*\(/.test(after)) { return true; }
+
+    const startsStatement = (first && /^\s*$/.test(before)) || /(?::|\bThen|\bElse)\s*$/i.test(before);
+    if (startsStatement && /^\s*=/.test(after)) { return false; }
+    // A statement call with its argument after a space: `MsgBox "hi"`, `Execute code`.
+    if (startsStatement && (/^\s+[^\s=.:]/.test(after) || (!last && /^\s+$/.test(after)))) { return true; }
+
+    return BARE_FUNCTIONS.has(text.slice(start, end).toLowerCase());
+}
+
+/** `text` with each built-in function used as one written by `spell`. */
+function caseFunctions(text: string, first: boolean, last: boolean, spell: (name: string) => string): string {
+    return text.replace(FUNCTION_NAME_RE, (name: string, offset: number) =>
+        isFunctionUse(text, offset, offset + name.length, first, last) ? spell(name) : name);
+}
+
+const HANDLED_KEYWORDS = new Set(Object.keys(PROPER_CASING_MAP));
 
 const KEYWORD_REGEXES = KEYWORDS_SORTED.map(kw => ({
     kw,
@@ -724,9 +742,10 @@ export function applyKeywordCase(code: string, caseStyle: string): string {
     // `' loop through next items` was keyword-cased to `' Loop through Next items`
     // and a URL like `' see http://x/y` became `' see http: / / x/y`.
     const { code: codeOnly, comment } = splitCodeAndComment(code);
-    const formatted = vbStringSegments(codeOnly).map(part => {
+    const parts = vbStringSegments(codeOnly);
+    const formatted = parts.map((part, index) => {
         if (part.isString) return part.text;
-        let s = applyKeywordCaseToText(part.text, caseStyle);
+        let s = applyKeywordCaseToText(part.text, caseStyle, index === 0, index === parts.length - 1);
         s = formatOperators(s);
         s = formatCommas(s);
         return s;
@@ -734,7 +753,7 @@ export function applyKeywordCase(code: string, caseStyle: string): string {
     return formatted + comment;
 }
 
-function applyKeywordCaseToText(text: string, caseStyle: string): string {
+function applyKeywordCaseToText(text: string, caseStyle: string, first: boolean, last: boolean): string {
     let result = text;
 
     if (caseStyle === 'PascalCase') {
@@ -744,16 +763,12 @@ function applyKeywordCaseToText(text: string, caseStyle: string): string {
         for (const { re, replacement } of MEMBER_CASING_REGEXES) {
             result = result.replace(re, replacement);
         }
-        for (const { re, replacement } of VBSCRIPT_FUNCTION_REGEXES) {
-            result = result.replace(re, replacement);
-        }
+        result = caseFunctions(result, first, last, name => VBSCRIPT_FUNCTIONS_MAP[name.toLowerCase()]);
     } else {
         // The built-in functions follow the chosen case like every other
         // keyword. Given their mixed-case names in every mode, lowercase came
         // out as `len(trim(s)) & UCase(s)`.
-        for (const { re } of VBSCRIPT_FUNCTION_REGEXES) {
-            result = result.replace(re, m => formatKeyword(m, caseStyle));
-        }
+        result = caseFunctions(result, first, last, name => formatKeyword(name, caseStyle));
     }
 
     for (const { kw, re } of KEYWORD_REGEXES) {
