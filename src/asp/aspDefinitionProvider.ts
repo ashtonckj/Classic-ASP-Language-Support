@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { isCursorInHtmlFileLinkAttribute } from '../html/htmlLinkUtils';
 import { contextAt } from '../platform/documentState';
 import { definitionSites, resolveAt } from '../vbscript/references';
-import { editorWorkspace } from './vbscriptWorkspace';
+import { editorWorkspace, siteToLocation } from './vbscriptWorkspace';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AspDefinitionProvider
@@ -44,12 +44,6 @@ export class AspDefinitionProvider implements vscode.DefinitionProvider {
         const resolved = resolveAt(editorWorkspace(document), document.uri.fsPath, document.offsetAt(wordRange.start));
         if (!resolved) return null;
 
-        const docPath = document.uri.fsPath.toLowerCase();
-        return definitionSites(resolved.bound, resolved.target).map(site => site.file.toLowerCase() === docPath
-            ? new vscode.Location(document.uri, new vscode.Range(document.positionAt(site.start), document.positionAt(site.end)))
-            : new vscode.Location(
-                vscode.Uri.file(site.file),
-                new vscode.Range(site.line, site.character, site.line, site.character + site.end - site.start),
-            ));
+        return definitionSites(resolved.bound, resolved.target).map(site => siteToLocation(document, site));
     }
 }

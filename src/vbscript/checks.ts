@@ -29,6 +29,7 @@ import { statementExpressions, walkExpression } from './expressions';
 import type { BoundPage } from './references';
 import { serverObjects, walkStatements } from './symbols';
 import { getAspBlockRanges } from '../core/zoneUtils';
+import { pathKey, samePath } from '../core/paths';
 
 export type CheckCode = 'name-redefined' | 'undeclared' | 'wrong-arguments' | 'unused' | 'unreachable' | 'global-asa';
 
@@ -79,10 +80,10 @@ export function objectTagIds(text: string): string[] {
  * declares.
  */
 export function checkPage(bound: BoundPage, path: string, builtins: ReadonlySet<string>): Check[] {
-    const page = bound.pages.get(path.toLowerCase());
+    const page = bound.pages.get(pathKey(path));
     if (!page) { return []; }
     const { binding } = bound;
-    const inPage = (file: string) => file.toLowerCase() === path.toLowerCase();
+    const inPage = (file: string) => samePath(file, path);
     const checks: Check[] = [];
     const add = (code: CheckCode, span: A.Span, message: string) => checks.push({ code, start: span.start, end: span.end, message });
 

@@ -10,13 +10,14 @@ import * as fs from 'node:fs/promises';
 import { extractSymbols, type FileSymbols } from '../vbscript/symbolParser';
 import { resolveIncludePathsIn } from '../core/includeDirectives';
 import { serveWorker, type WorkerAnswer } from './serveWorker';
+import { pathKey } from '../core/paths';
 
 export interface IncludeWorkerRequest {
     id: number;
     roots: string[];
     virtualRoot: string;
-    // Unsaved text for any include open in the editor, keyed by lowercased
-    // path. This thread has no vscode API, so it cannot see editor buffers by
+    // Unsaved text for any include open in the editor, keyed by pathKey.
+    // This thread has no vscode API, so it cannot see editor buffers by
     // itself — the extension host reads them and sends the text across.
     openFiles: Record<string, string>;
 }
@@ -39,7 +40,7 @@ async function loadTree(
     results: IncludeWorkerEntry[],
     openFiles: Record<string, string>,
 ): Promise<void> {
-    const key = filePath.toLowerCase();
+    const key = pathKey(filePath);
     if (visited.has(key)) { return; }
     visited.add(key);
 

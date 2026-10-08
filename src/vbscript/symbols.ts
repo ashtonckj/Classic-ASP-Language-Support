@@ -106,7 +106,8 @@ export function walkStatements(
     }
 }
 
-const PROC_KIND: Record<A.ProcedureStmt['procKind'], 'Function' | 'Sub' | 'Property'> = {
+/** The keyword a procedure is declared with, as it is written: `Sub`, `Function`, `Property`. */
+export const PROCEDURE_WORD: Record<A.ProcedureStmt['procKind'], 'Function' | 'Sub' | 'Property'> = {
     function: 'Function', sub: 'Sub', property: 'Property',
 };
 
@@ -179,7 +180,7 @@ export function symbolsOfPage(page: ParsedPage, filePath: string): FileSymbols {
             case 'Procedure':
                 result.functions.push({
                     name:       s.name.text,
-                    kind:       PROC_KIND[s.procKind],
+                    kind:       PROCEDURE_WORD[s.procKind],
                     params:     s.paramList ? sourceOf(text, s.paramList) : '',
                     paramNames: s.params.map(p => p.name.text),
                     line:       line(s.start),

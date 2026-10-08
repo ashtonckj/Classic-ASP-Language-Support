@@ -10,8 +10,9 @@ import { isInVbString, isInVbStringOrComment } from '../core/vbLexical';
 import * as path from 'path';
 import { declarationsOf, resolveAt, type BoundPage, type Target } from '../vbscript/references';
 import type { Declaration } from '../vbscript/binder';
-import { sourceOf, walkStatements, type ParsedPage } from '../vbscript/symbols';
+import { PROCEDURE_WORD, sourceOf, walkStatements, type ParsedPage } from '../vbscript/symbols';
 import { editorWorkspace } from './vbscriptWorkspace';
+import { pathKey, samePath } from '../core/paths';
 import { contextAt, textOf } from '../platform/documentState';
 import { enclosingWithObject } from './aspCompletionProvider';
 
@@ -129,8 +130,6 @@ function declarationFor(bound: BoundPage, target: Target): Declaration | undefin
     return explicit.length > 0 ? explicit[explicit.length - 1] : all[0];
 }
 
-const PROCEDURE_WORD = { sub: 'Sub', function: 'Function', property: 'Property' } as const;
-
 /** What a hover says about a declaration the parser found. */
 export function describeDeclaration(
     bound: BoundPage,
@@ -138,8 +137,8 @@ export function describeDeclaration(
     docPath: string,
     comVariables: { name: string; progId: string }[],
 ): string {
-    const page = bound.pages.get(decl.file.toLowerCase());
-    const fromInclude = decl.file.toLowerCase() !== docPath.toLowerCase();
+    const page = bound.pages.get(pathKey(decl.file));
+    const fromInclude = !samePath(decl.file, docPath);
     const where = (verb: string) => fromInclude ? `*${verb} in \`${path.basename(decl.file)}\`*` : `*${verb} in this file*`;
     const owner = decl.scope.node;
     const ownerName = owner?.name.text ?? '';

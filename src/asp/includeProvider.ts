@@ -5,6 +5,9 @@ import { extractSymbols, FileSymbols } from '../vbscript/symbolParser';
 import { parseIncludeDirectives, resolveIncludeDirective, resolveIncludePathsIn } from '../core/includeDirectives';
 import { defaultIncludesSetting, virtualRootSetting } from '../platform/settings';
 import { loadIncludeTree } from '../workers/analysisClient';
+import { isFile, pathKey } from '../core/paths';
+import { openBuffers, openDocument } from '../platform/documentState';
+import { pathCompletions } from '../platform/pathCompletion';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -85,7 +88,7 @@ export function resolveDirectIncludes(documentText: string, documentPath: string
     for (const directive of parseIncludeDirectives(documentText)) {
         const fullPath = resolveIncludeDirective(directive, documentPath, virtualRoot);
 
-        if (fs.existsSync(fullPath)) {
+        if (isFile(fullPath)) {
             resolved.push(fullPath);
         } else if (directive.type === 'virtual') {
             notifyVirtualRootUnresolved(directive.raw);
@@ -93,14 +96,6 @@ export function resolveDirectIncludes(documentText: string, documentPath: string
     }
 
     return resolved;
-}
-
-/** Finds an open editor document for the given fs path (case-insensitive), if any. */
-function openDocumentFor(fsPath: string): vscode.TextDocument | undefined {
-    const lower = fsPath.toLowerCase();
-    return vscode.workspace.textDocuments.find(
-        d => d.uri.scheme === 'file' && d.uri.fsPath.toLowerCase() === lower,
-    );
 }
 
 /**
@@ -111,7 +106,7 @@ function openDocumentFor(fsPath: string): vscode.TextDocument | undefined {
  * Falls back to disk for includes that aren't open. Returns null if unreadable.
  */
 export function readIncludeText(fsPath: string): string | null {
-    const open = openDocumentFor(fsPath);
+    const open = openDocument(fsPath);
     if (open) { return open.getText(); }
     try { return fs.readFileSync(fsPath, 'utf8'); } catch { return null; }
 }
@@ -146,31 +141,6 @@ const _includeSymbolCache = new Map<string, IncludeSymbolCacheEntry>();
 let _includeSymbolEpoch = 0;
 const _includeLoadPromises = new Map<string, PendingIncludeLoad>();
 let _includeCacheGeneration = 0;
-
-/**
- * The unsaved text of every open ASP document, keyed by lowercased path.
- *
- * A worker thread cannot call vscode APIs, so left to itself it can only read
- * the file as last saved — which is why an unsaved edit to an include used to
- * be invisible to the page including it. It does not need API access though:
- * the extension host reads the buffers (already in memory, no disk, no parsing)
- * and sends the text along with the paths. Only DIRTY documents are sent —
- * for a saved one the worker would read identical bytes anyway.
- */
-function dirtyBuffers(): { texts: Record<string, string>; versions: Map<string, number> } {
-    const texts: Record<string, string> = {};
-    const versions = new Map<string, number>();
-
-    for (const doc of vscode.workspace.textDocuments) {
-        if (doc.languageId === 'asp' && doc.isDirty && doc.uri.scheme === 'file') {
-            const key = doc.uri.fsPath.toLowerCase();
-            texts[key] = doc.getText();
-            versions.set(key, doc.version);
-        }
-    }
-
-    return { texts, versions };
-}
 
 function mergeSymbols(target: FileSymbols, source: FileSymbols): void {
     target.variables.push(...source.variables);
@@ -209,7 +179,7 @@ function includeRoots(document: vscode.TextDocument): string[] {
 
     const seen = new Set<string>();
     return roots.filter(root => {
-        const key = root.toLowerCase();
+        const key = pathKey(root);
         if (seen.has(key)) { return false; }
         seen.add(key);
         return true;
@@ -217,7 +187,7 @@ function includeRoots(document: vscode.TextDocument): string[] {
 }
 
 function cachedTreeReady(fsPath: string, visited: Set<string>): boolean {
-    const key = fsPath.toLowerCase();
+    const key = pathKey(fsPath);
     if (visited.has(key)) { return true; }
     visited.add(key);
 
@@ -226,7 +196,7 @@ function cachedTreeReady(fsPath: string, visited: Set<string>): boolean {
 
     // An entry parsed before the newest keystroke in a dirty include is stale.
     // A clean document is left alone: its buffer and the file on disk agree.
-    const open = openDocumentFor(fsPath);
+    const open = openDocument(fsPath);
     if (open?.isDirty && cached.bufferVersion !== open.version) { return false; }
 
     return cached.children.every(child => cachedTreeReady(child, visited));
@@ -253,8 +223,8 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
     const virtualRoot = getVirtualRoot(document.uri.fsPath);
     const generation = _includeCacheGeneration;
     const requestKey = [
-        virtualRoot.toLowerCase(),
-        ...roots.map(root => root.toLowerCase()).sort(),
+        pathKey(virtualRoot),
+        ...roots.map(pathKey).sort(),
     ].join('|');
 
     const pending = _includeLoadPromises.get(requestKey);
@@ -262,14 +232,15 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
         return pending.promise;
     }
 
-    const { texts: openFiles, versions: openVersions } = dirtyBuffers();
+    // The worker cannot ask the editor, so it is sent the unsaved text of open files.
+    const { texts: openFiles, versions: openVersions } = openBuffers();
 
     // Include loading is best-effort: the worker never rejects, and a load that
     // failed or was superseded leaves the cache as it was.
     const promise = loadIncludeTree(requestKey, roots, virtualRoot, openFiles).then(entries => {
         if (!entries || generation !== _includeCacheGeneration) { return; }
         for (const entry of entries) {
-            const key = entry.filePath.toLowerCase();
+            const key = pathKey(entry.filePath);
             _includeSymbolCache.set(key, {
                 symbols: entry.symbols,
                 children: entry.children,
@@ -289,7 +260,7 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
 }
 
 function appendCachedIncludeSymbols(target: FileSymbols, fsPath: string, visited: Set<string>): void {
-    const key = fsPath.toLowerCase();
+    const key = pathKey(fsPath);
     if (visited.has(key)) { return; }
     visited.add(key);
 
@@ -405,7 +376,7 @@ export function withIncludeSymbols(document: vscode.TextDocument, own: FileSymbo
  * are ignored and whatever it covered is loaded again when next asked for.
  */
 export function forgetIncludeFile(fsPath: string): void {
-    const key = fsPath.toLowerCase();
+    const key = pathKey(fsPath);
     if (!_includeSymbolCache.has(key) && _includeLoadPromises.size === 0) { return; }
     _includeCacheGeneration++;
     _includeSymbolEpoch++;
@@ -421,7 +392,7 @@ const _includeFolderWatchers = new Map<string, vscode.FileSystemWatcher>();
 
 function watchIncludeFolder(filePath: string): void {
     const folder = path.dirname(filePath);
-    const key = folder.toLowerCase();
+    const key = pathKey(folder);
     if (_includeFolderWatchers.has(key)) { return; }
 
     const watcher = vscode.workspace.createFileSystemWatcher(
@@ -449,7 +420,8 @@ export class IncludePathCompletionProvider implements vscode.CompletionItemProvi
 
     provideCompletionItems(
         document: vscode.TextDocument,
-        position: vscode.Position
+        position: vscode.Position,
+        token?: vscode.CancellationToken,
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
         const lineText   = document.lineAt(position.line).text;
@@ -467,48 +439,6 @@ export class IncludePathCompletionProvider implements vscode.CompletionItemProvi
             ? getVirtualRoot(document.uri.fsPath)
             : docDir;
 
-        // Split typed path into the directory prefix and the current segment
-        const normalised   = typedSoFar.replace(/\\/g, '/');
-        const lastSlash    = normalised.lastIndexOf('/');
-        const typedDirPart = lastSlash >= 0 ? normalised.slice(0, lastSlash + 1) : '';
-        const typedSegment = lastSlash >= 0 ? normalised.slice(lastSlash + 1)    : normalised;
-        const searchDir    = path.resolve(baseDir, typedDirPart.replace(/\//g, path.sep));
-
-        // Replace only the current segment so the typed directory prefix is never duplicated
-        const replaceStart = new vscode.Position(position.line, position.character - typedSegment.length);
-        const replaceRange = new vscode.Range(replaceStart, position);
-
-        let entries: fs.Dirent[];
-        try {
-            entries = fs.readdirSync(searchDir, { withFileTypes: true });
-        } catch {
-            return new vscode.CompletionList([], true);
-        }
-
-        const items: vscode.CompletionItem[] = [];
-
-        for (const entry of entries.filter(e => !e.name.startsWith('.'))) {
-            const isDir  = entry.isDirectory();
-            const isFile = entry.isFile();
-            if (!isDir && !isFile) continue;
-
-            const item = new vscode.CompletionItem(
-                entry.name,
-                isDir ? vscode.CompletionItemKind.Folder : vscode.CompletionItemKind.File
-            );
-            item.insertText = isDir ? entry.name + '/' : entry.name;
-            item.filterText = entry.name;
-            item.range      = replaceRange;
-            item.detail     = isDir ? 'Directory' : 'Include file';
-            item.sortText   = (isDir ? '0_' : '1_') + entry.name.toLowerCase();
-
-            // Re-trigger after folder selection so the next level appears immediately
-            if (isDir) item.command = { command: 'editor.action.triggerSuggest', title: 'Suggest' };
-
-            items.push(item);
-        }
-
-        // isIncomplete: true keeps the provider live on every keystroke
-        return new vscode.CompletionList(items, true);
+        return pathCompletions(position, typedSoFar, baseDir, 'Include file', token);
     }
 }

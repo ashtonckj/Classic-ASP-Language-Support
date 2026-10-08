@@ -3,7 +3,9 @@ import { collectIncludeSymbols, configuredVirtualRoot, defaultIncludeCandidates,
 import { getWorkspaceAspFiles } from './aspWorkspaceSymbolProvider';
 import { resolveIncludeDirective } from '../core/includeDirectives';
 import { parsePage, type ParsedPage } from '../vbscript/symbols';
-import type { WorkspaceHost } from '../vbscript/references';
+import type { Site, WorkspaceHost } from '../vbscript/references';
+import { pathKey, samePath } from '../core/paths';
+import { openBuffers } from '../platform/documentState';
 import { analysePage, type PageAnalysis } from '../vbscript/pageAnalysis';
 import { checkPageFiles, type ChecksRequest, type PageChecks } from '../vbscript/pageChecks';
 import { analyseVbscriptPage, checkVbscriptPage, vbscriptWorkerUsable } from '../workers/analysisClient';
@@ -22,7 +24,7 @@ const parsed = new Map<string, ParsedPage>();
 const PARSED_LIMIT = 300;
 
 function parseCached(fsPath: string, text: string): ParsedPage {
-    const key = fsPath.toLowerCase();
+    const key = pathKey(fsPath);
     const known = parsed.get(key);
     if (known && known.text === text) { return known; }
     const page = parsePage(text);
@@ -41,11 +43,11 @@ function workspaceIncludedBy(openPath: string, openText: string): Map<string, st
     const includedBy = new Map<string, string[]>();
     const done = new Set<string>();
     const add = (fsPath: string, text: string) => {
-        if (done.has(fsPath.toLowerCase())) { return; }
-        done.add(fsPath.toLowerCase());
+        if (done.has(pathKey(fsPath))) { return; }
+        done.add(pathKey(fsPath));
         for (const target of resolveDirectIncludes(text, fsPath)) {
-            const list = includedBy.get(target.toLowerCase());
-            if (list) { list.push(fsPath); } else { includedBy.set(target.toLowerCase(), [fsPath]); }
+            const list = includedBy.get(pathKey(target));
+            if (list) { list.push(fsPath); } else { includedBy.set(pathKey(target), [fsPath]); }
         }
     };
 
@@ -82,12 +84,26 @@ export function editorWorkspace(document: vscode.TextDocument): WorkspaceHost {
     const docText = document.getText();
 
     return {
-        read: fsPath => fsPath.toLowerCase() === docPath.toLowerCase() ? docText : readIncludeText(fsPath),
+        read: fsPath => samePath(fsPath, docPath) ? docText : readIncludeText(fsPath),
         resolve: (directive, fromPath) => resolveIncludeDirective(directive, fromPath, getVirtualRoot(fromPath)),
         parse: parseCached,
         defaultIncludes: rootPath => defaultIncludeCandidates(getVirtualRoot(rootPath)),
-        includedBy: fsPath => includeGraphFor(document).get(fsPath.toLowerCase()) ?? [],
+        includedBy: fsPath => includeGraphFor(document).get(pathKey(fsPath)) ?? [],
     };
+}
+
+/**
+ * Where a site the parser found is, in VS Code's terms. A site in `document`
+ * is placed by its offsets in the buffer; one in another file by the line and
+ * column the parser read there, as that file may not be open.
+ */
+export function siteToLocation(document: vscode.TextDocument, site: Site): vscode.Location {
+    return samePath(site.file, document.uri.fsPath)
+        ? new vscode.Location(document.uri, new vscode.Range(document.positionAt(site.start), document.positionAt(site.end)))
+        : new vscode.Location(
+            vscode.Uri.file(site.file),
+            new vscode.Range(site.line, site.character, site.line, site.character + site.end - site.start),
+        );
 }
 
 /** A page's symbols and blocks, read for the document's text at `version`. */
@@ -127,19 +143,14 @@ export async function checkedPage(document: vscode.TextDocument): Promise<Checke
     const version = document.version;
     const docPath = document.uri.fsPath;
 
-    // The worker reads files from disk; an include open with unsaved changes
-    // counts as the editor shows it.
-    const openFiles: Record<string, string> = {};
-    for (const open of vscode.workspace.textDocuments) {
-        if (open.isDirty && open !== document && open.uri.scheme === 'file') { openFiles[open.uri.fsPath.toLowerCase()] = open.getText(); }
-    }
-
     const request: ChecksRequest = {
         text: document.getText(),
         docPath,
         configuredRoot: configuredVirtualRoot(),
         defaultIncludes: defaultIncludeCandidates(getVirtualRoot(docPath)),
-        openFiles,
+        // The worker reads files from disk; an include open with unsaved
+        // changes counts as the editor shows it.
+        openFiles: openBuffers(document).texts,
         includeComVariables: collectIncludeSymbols(document).comVariables.map(({ name, progId }) => ({ name, progId })),
     };
 

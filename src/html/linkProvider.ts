@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import * as path from 'path';
 import { isExternalPath, FILE_LINK_ATTRIBUTES } from './htmlLinkUtils';
 import { getVirtualRoot } from '../asp/includeProvider';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../core/includeDirectives';
-import { createZoneResolver } from '../core/zoneUtils';
+import { isFile } from '../core/paths';
+import { textOf, zonesFor } from '../platform/documentState';
+import { pathCompletions } from '../platform/pathCompletion';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IncludeDocumentLinkProvider
@@ -29,7 +30,7 @@ export class IncludeDocumentLinkProvider implements vscode.DocumentLinkProvider 
                 const includePath = directive.raw;
                 const fullPath    = resolveIncludeDirective(directive, document.uri.fsPath, virtualRoot);
 
-                if (!fs.existsSync(fullPath)) continue;
+                if (!isFile(fullPath)) continue;
 
                 // Underline only the path string, not the whole directive
                 const pathStart = lineText.indexOf(includePath, directive.index);
@@ -102,10 +103,10 @@ export class HtmlAttributeLinkProvider implements vscode.DocumentLinkProvider {
     ): vscode.ProviderResult<vscode.DocumentLink[]> {
 
         const links:       vscode.DocumentLink[] = [];
-        const text        = document.getText();
-        const zones       = createZoneResolver(text);
+        const text        = textOf(document);
+        const zones       = zonesFor(document);
         const virtualRoot = getVirtualRoot(document.uri.fsPath);
-        const isFile      = document.uri.scheme === 'file';
+        const onDisk      = document.uri.scheme === 'file';
 
         // Existence is deliberately not checked: a .html file links a missing
         // page too, and following it offers to create the file. Asking the disk
@@ -122,7 +123,7 @@ export class HtmlAttributeLinkProvider implements vscode.DocumentLinkProvider {
             const target = resolveHtmlLink(value, document.uri.fsPath, virtualRoot);
             if (!target) { continue; }
             // A page that is not on disk has no folder for a relative path to start from.
-            if ('file' in target && !isFile && !value.trim().startsWith('/')) { continue; }
+            if ('file' in target && !onDisk && !value.trim().startsWith('/')) { continue; }
 
             const valueEnd   = match.index + match[0].length - (quoted !== undefined ? 1 : 0);
             const valueStart = valueEnd - value.length;
@@ -143,7 +144,7 @@ export class HtmlAttributeLinkProvider implements vscode.DocumentLinkProvider {
 // ─────────────────────────────────────────────────────────────────────────────
 // HtmlAttributePathCompletionProvider
 // Suggests files and folders inside href, src, action, and data-src attribute
-// values — same directory-scanning behaviour as IncludePathCompletionProvider.
+// values, the way IncludePathCompletionProvider does (platform/pathCompletion).
 // Skips values that are already external URLs.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -158,7 +159,8 @@ export class HtmlAttributePathCompletionProvider implements vscode.CompletionIte
 
     provideCompletionItems(
         document: vscode.TextDocument,
-        position: vscode.Position
+        position: vscode.Position,
+        token?: vscode.CancellationToken,
     ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
 
         const lineText   = document.lineAt(position.line).text;
@@ -183,47 +185,6 @@ export class HtmlAttributePathCompletionProvider implements vscode.CompletionIte
             ? getVirtualRoot(document.uri.fsPath)
             : path.dirname(document.uri.fsPath);
 
-        // Split typed path into directory prefix and the current segment.
-        // Normalise to forward-slashes first so path splitting works on Windows.
-        const normalised   = typedSoFar.replace(/\\/g, '/');
-        const lastSlash    = normalised.lastIndexOf('/');
-        const typedDirPart = lastSlash >= 0 ? normalised.slice(0, lastSlash + 1) : '';
-        const typedSegment = lastSlash >= 0 ? normalised.slice(lastSlash + 1)    : normalised;
-        const searchDir    = path.resolve(baseDir, typedDirPart.replace(/^\/+/, '').replace(/\//g, path.sep));
-
-        // Replace only the current segment so the typed directory prefix is never duplicated
-        const replaceStart = new vscode.Position(position.line, position.character - typedSegment.length);
-        const replaceRange = new vscode.Range(replaceStart, position);
-
-        let entries: fs.Dirent[];
-        try {
-            entries = fs.readdirSync(searchDir, { withFileTypes: true });
-        } catch {
-            return new vscode.CompletionList([], true);
-        }
-
-        const items: vscode.CompletionItem[] = [];
-
-        for (const entry of entries.filter(e => !e.name.startsWith('.'))) {
-            const isDir  = entry.isDirectory();
-            const isFile = entry.isFile();
-            if (!isDir && !isFile) continue;
-
-            const item = new vscode.CompletionItem(
-                entry.name,
-                isDir ? vscode.CompletionItemKind.Folder : vscode.CompletionItemKind.File
-            );
-            item.insertText = isDir ? entry.name + '/' : entry.name;
-            item.filterText = entry.name;
-            item.range      = replaceRange;
-            item.detail     = isDir ? 'Directory' : 'File';
-            item.sortText   = (isDir ? '0_' : '1_') + entry.name.toLowerCase();
-
-            if (isDir) item.command = { command: 'editor.action.triggerSuggest', title: 'Suggest' };
-
-            items.push(item);
-        }
-
-        return new vscode.CompletionList(items, true);
+        return pathCompletions(position, typedSoFar, baseDir, 'File', token);
     }
 }

@@ -20,8 +20,8 @@
 
 import * as vscode from 'vscode';
 import { onSettingsChange } from '../platform/settings';
-import * as fs from 'fs';
 import { aspTagProblems } from '../core/zoneUtils';
+import { isFile } from '../core/paths';
 import { textOf, zonesFor } from '../platform/documentState';
 import { CHECK_DELAY, DiagnosticCode, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../core/includeDirectives';
@@ -77,10 +77,6 @@ export interface MissingInclude {
     start:   number;
     end:     number;
     message: string;
-}
-
-function isFile(fsPath: string): boolean {
-    try { return fs.statSync(fsPath).isFile(); } catch { return false; }
 }
 
 /**

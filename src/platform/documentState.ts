@@ -12,12 +12,16 @@
  * of the page; the rest are a binary search.
  *
  * Keyed by the document object, so a closed page's state goes with it.
+ *
+ * Also here: which files are open, and their unsaved text, for the code that
+ * reads a page's includes.
  */
 
 import * as vscode from 'vscode';
 import { createZoneResolver, type Zone, type ZoneResolver } from '../core/zoneUtils';
 import { isInVbStringOrComment } from '../core/vbLexical';
 import { aspCodeStartOnLine } from './documentHelper';
+import { pathKey } from '../core/paths';
 
 interface State {
     version: number;
@@ -62,4 +66,36 @@ export function contextAt(document: vscode.TextDocument, position: vscode.Positi
     const inVbStringOrComment = zone === 'asp'
         && isInVbStringOrComment(line, position.character, aspCodeStartOnLine(line, position.character));
     return { offset, zone, inVbStringOrComment };
+}
+
+// ── Files open in the editor ─────────────────────────────────────────────────
+// An include open with unsaved changes counts as the editor shows it, not as it
+// was last saved — the way language servers treat an open dependency — even
+// though IIS reads the saved file.
+
+/** The document open for the file `fsPath`, if there is one. */
+export function openDocument(fsPath: string): vscode.TextDocument | undefined {
+    const key = pathKey(fsPath);
+    return vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && pathKey(d.uri.fsPath) === key);
+}
+
+/** The unsaved text of open files, for a thread that cannot ask the editor. */
+export interface OpenBuffers {
+    /** Text by pathKey. A saved file is left out: the disk holds the same text. */
+    texts: Record<string, string>;
+    /** The document version each text was read at, by pathKey. */
+    versions: Map<string, number>;
+}
+
+/** Every file open with unsaved changes, other than `except`. */
+export function openBuffers(except?: vscode.TextDocument): OpenBuffers {
+    const texts: Record<string, string> = {};
+    const versions = new Map<string, number>();
+    for (const document of vscode.workspace.textDocuments) {
+        if (document === except || !document.isDirty || document.uri.scheme !== 'file') { continue; }
+        const key = pathKey(document.uri.fsPath);
+        texts[key] = document.getText();
+        versions.set(key, document.version);
+    }
+    return { texts, versions };
 }

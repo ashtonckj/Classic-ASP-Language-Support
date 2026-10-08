@@ -26,6 +26,7 @@ import type * as A from './ast';
 import { bindScriptScope, type Binding, type Declaration, type Scope } from './binder';
 import { buildScriptScope, type ScopeHost, type ScopeProblem } from './scriptScope';
 import { lineAt, type ParsedPage } from './symbols';
+import { pathKey } from '../core/paths';
 
 export type Target =
     | { kind: 'local'; name: string; scope: Scope }
@@ -59,13 +60,11 @@ export interface BoundPage {
     problems: ScopeProblem[];
 }
 
-const key = (path: string) => path.toLowerCase();
-
 export function bindAt(host: ScopeHost, path: string): BoundPage | null {
     const text = host.read(path);
     if (text === null) { return null; }
     const scope = buildScriptScope(path, text, host);
-    return { path, binding: bindScriptScope(scope), pages: new Map(scope.files.map(f => [key(f.path), f.page])), problems: scope.problems };
+    return { path, binding: bindScriptScope(scope), pages: new Map(scope.files.map(f => [pathKey(f.path), f.page])), problems: scope.problems };
 }
 
 function targetOf(binding: Binding, d: Declaration): Target {
@@ -89,11 +88,11 @@ const covers = (span: A.Span, offset: number) => span.start <= offset && offset 
 
 /** What the name at `offset` of `file` refers to, or null when it names nothing the page declares. */
 export function targetAt(binding: Binding, file: string, offset: number): Target | null {
-    const inFile = key(file);
-    const ref = binding.references.find(r => key(r.file) === inFile && covers(r.span, offset));
+    const inFile = pathKey(file);
+    const ref = binding.references.find(r => pathKey(r.file) === inFile && covers(r.span, offset));
     if (ref) { return ref.target ? targetOf(binding, ref.target) : null; }
 
-    const member = binding.members.find(m => key(m.file) === inFile && covers(m.span, offset));
+    const member = binding.members.find(m => pathKey(m.file) === inFile && covers(m.span, offset));
     if (member && binding.declarations.some(d => d.name === member.name && targetOf(binding, d).kind === 'member')) {
         return { kind: 'member', name: member.name };
     }
@@ -106,7 +105,7 @@ export function declarationsOf(binding: Binding, target: Target): Declaration[] 
 }
 
 function siteAt(bound: BoundPage, file: string, span: A.Span, declaration: boolean): Site | null {
-    const page = bound.pages.get(key(file));
+    const page = bound.pages.get(pathKey(file));
     if (!page) { return null; }
     const bracketed = page.text[span.start] === '[';
     const start = bracketed ? span.start + 1 : span.start;
@@ -166,12 +165,12 @@ export function resolveAt(
     if (home && found) { return { bound: home, target: found }; }
     if (!askIncluders) { return null; }
 
-    const seen = new Set([key(path)]);
+    const seen = new Set([pathKey(path)]);
     const queue = [...host.includedBy(path)];
     while (queue.length > 0) {
         const page = queue.shift()!;
-        if (seen.has(key(page))) { continue; }
-        seen.add(key(page));
+        if (seen.has(pathKey(page))) { continue; }
+        seen.add(pathKey(page));
         const bound = bindAt(host, page);
         const target = bound && targetAt(bound.binding, path, offset);
         if (bound && target) { return { bound, target }; }
@@ -196,8 +195,8 @@ export function findSites(host: WorkspaceHost, path: string, offset: number): Si
     const pages: string[] = [];
     const reached = new Set<string>();
     const reach = (file: string) => {
-        if (reached.has(key(file))) { return; }
-        reached.add(key(file));
+        if (reached.has(pathKey(file))) { return; }
+        reached.add(pathKey(file));
         pages.push(file);
         for (const parent of host.includedBy(file)) { reach(parent); }
     };
@@ -205,10 +204,10 @@ export function findSites(host: WorkspaceHost, path: string, offset: number): Si
 
     const found = new Map<string, Site>();
     for (let i = 0; i < pages.length; i++) {
-        const page = key(pages[i]) === key(bound.path) ? bound : bindAt(host, pages[i]);
+        const page = pathKey(pages[i]) === pathKey(bound.path) ? bound : bindAt(host, pages[i]);
         if (!page) { continue; }
         for (const site of sitesIn(page, target)) {
-            const at = `${key(site.file)}:${site.start}`;
+            const at = `${pathKey(site.file)}:${site.start}`;
             const known = found.get(at);
             if (!known) { found.set(at, site); } else if (site.declaration) { known.declaration = true; }
             reach(site.file);

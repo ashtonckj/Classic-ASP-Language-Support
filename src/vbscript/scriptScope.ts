@@ -18,6 +18,7 @@
 
 import { parseIncludeDirectives, type IncludeDirective } from '../core/includeDirectives';
 import { parsePage, type ParsedPage } from './symbols';
+import { pathKey } from '../core/paths';
 
 export interface ScopeFile {
     path: string;
@@ -81,7 +82,7 @@ export function buildScriptScope(rootPath: string, rootText: string, host: Scope
     const parse = host.parse ?? ((_path: string, text: string) => parsePage(text));
 
     const load = (path: string, text: string | null): ScopeFile | null => {
-        const key = path.toLowerCase();
+        const key = pathKey(path);
         if (loaded.has(key)) { return loaded.get(key)!; }
         if (text === null) { loaded.set(key, null); return null; }
 
@@ -96,7 +97,7 @@ export function buildScriptScope(rootPath: string, rootText: string, host: Scope
                 directive,
                 end: close === -1 ? text.length : close + 3,
                 path: target,
-                file: load(target, loaded.has(target.toLowerCase()) ? null : host.read(target)),
+                file: load(target, loaded.has(pathKey(target)) ? null : host.read(target)),
             });
         }
         return file;
@@ -105,7 +106,7 @@ export function buildScriptScope(rootPath: string, rootText: string, host: Scope
     const root = load(rootPath, rootText)!;
     const defaults: ScopeFile[] = [];
     for (const path of host.defaultIncludes?.(rootPath) ?? []) {
-        const file = load(path, loaded.has(path.toLowerCase()) ? null : host.read(path));
+        const file = load(path, loaded.has(pathKey(path)) ? null : host.read(path));
         if (file && file !== root && !defaults.includes(file)) { defaults.push(file); }
     }
     const chunks: Chunk[] = [];

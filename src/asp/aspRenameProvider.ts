@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import * as path from 'path';
 import { getVirtualRoot, readIncludeText } from './includeProvider';
 import { movedPathLookup, rewriteIncludesAfterMove } from '../core/includeDirectives';
@@ -7,7 +6,8 @@ import { getWorkspaceAspFiles } from './aspWorkspaceSymbolProvider';
 import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
 import { contextAt } from '../platform/documentState';
 import { findSites, resolveAt } from '../vbscript/references';
-import { editorWorkspace } from './vbscriptWorkspace';
+import { editorWorkspace, siteToLocation } from './vbscriptWorkspace';
+import { isFile, pathKey } from '../core/paths';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Where a symbol is used
@@ -60,19 +60,11 @@ export function findSymbolLocations(document: vscode.TextDocument, position: vsc
     const found = wordAt(document, position);
     if ('reason' in found) { return []; }
 
-    const docPath = document.uri.fsPath.toLowerCase();
     const sites = findSites(editorWorkspace(document), document.uri.fsPath, document.offsetAt(found.range.start)) ?? [];
-    return sites.map(site => site.file.toLowerCase() === docPath
-        ? {
-            uri:         document.uri,
-            range:       new vscode.Range(document.positionAt(site.start), document.positionAt(site.end)),
-            declaration: site.declaration,
-        }
-        : {
-            uri:         vscode.Uri.file(site.file),
-            range:       new vscode.Range(site.line, site.character, site.line, site.character + site.end - site.start),
-            declaration: site.declaration,
-        });
+    return sites.map(site => {
+        const { uri, range } = siteToLocation(document, site);
+        return { uri, range, declaration: site.declaration };
+    });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -170,10 +162,6 @@ export class AspReferenceProvider implements vscode.ReferenceProvider {
 // the same for #include.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function isFile(fsPath: string): boolean {
-    try { return fs.statSync(fsPath).isFile(); } catch { return false; }
-}
-
 function positionIn(text: string, offset: number): vscode.Position {
     const lineStart = text.lastIndexOf('\n', offset - 1) + 1;
     let line = 0;
@@ -192,7 +180,7 @@ export function includeEditsAfterMove(renames: { oldPath: string; newPath: strin
     // Where every candidate is now. The workspace index learns of a rename from
     // a file watcher that can run after this, so it may still hold old paths.
     const candidates = new Map<string, string>();
-    const add = (fsPath: string) => { candidates.set(fsPath.toLowerCase(), fsPath); };
+    const add = (fsPath: string) => { candidates.set(pathKey(fsPath), fsPath); };
     for (const fsPath of getWorkspaceAspFiles()) { add(moved(fsPath) ?? fsPath); }
     for (const doc of vscode.workspace.textDocuments) {
         if (doc.uri.scheme === 'file' && doc.languageId === 'asp') { add(doc.uri.fsPath); }

@@ -24,6 +24,7 @@ import { parsePage, type ParsedPage } from '../vbscript/symbols';
 import { analysePage, type PageAnalysis } from '../vbscript/pageAnalysis';
 import { checkPageFiles, type ChecksRequest as PageChecksRequest, type PageChecks } from '../vbscript/pageChecks';
 import { serveWorker, type WorkerAnswer } from './serveWorker';
+import { pathKey } from '../core/paths';
 
 export interface PageRequest {
     id:      number;
@@ -42,7 +43,7 @@ const parsed = new Map<string, ParsedPage>();
 const PARSED_LIMIT = 50;
 
 function parseCached(fsPath: string, text: string): ParsedPage {
-    const key = fsPath.toLowerCase();
+    const key = pathKey(fsPath);
     const known = parsed.get(key);
     if (known && known.text === text) { return known; }
     const page = parsePage(text);

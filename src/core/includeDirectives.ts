@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { pathKey } from './paths';
 
 /**
  * includeDirectives.ts
@@ -123,9 +124,9 @@ export function rewriteIncludesAfterMove(
  */
 export function movedPathLookup(renames: { oldPath: string; newPath: string }[]): (fsPath: string) => string | undefined {
     return fsPath => {
-        const lower = fsPath.toLowerCase();
+        const lower = pathKey(fsPath);
         for (const { oldPath, newPath } of renames) {
-            const from = oldPath.toLowerCase();
+            const from = pathKey(oldPath);
             if (lower === from) { return newPath; }
             if (lower.startsWith(from) && (lower[from.length] === path.sep || lower[from.length] === '/')) {
                 return newPath + fsPath.slice(oldPath.length);

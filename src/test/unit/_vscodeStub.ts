@@ -102,6 +102,9 @@ export const CodeActionKind = { QuickFix: { value: 'quickfix' } };
 
 export class Position {
     constructor(public readonly line: number, public readonly character: number) {}
+    translate(lineDelta = 0, characterDelta = 0): Position {
+        return new Position(this.line + lineDelta, this.character + characterDelta);
+    }
 }
 
 export class Range {
@@ -172,6 +175,24 @@ export class CodeAction {
     public diagnostics?: Diagnostic[];
     public isPreferred?: boolean;
     constructor(public readonly title: string, public readonly kind?: { value: string }) {}
+}
+
+// ── Completion ───────────────────────────────────────────────────────────────
+
+export const CompletionItemKind = { Text: 0, Method: 1, Function: 2, Variable: 5, Class: 6, Keyword: 13, Snippet: 14, File: 16, Folder: 18, Constant: 20 };
+
+export class CompletionItem {
+    public insertText?: string;
+    public filterText?: string;
+    public sortText?: string;
+    public detail?: string;
+    public range?: Range;
+    public command?: { command: string; title: string };
+    constructor(public readonly label: string, public readonly kind?: number) {}
+}
+
+export class CompletionList {
+    constructor(public readonly items: CompletionItem[] = [], public readonly isIncomplete = false) {}
 }
 
 // ── Colours ──────────────────────────────────────────────────────────────────

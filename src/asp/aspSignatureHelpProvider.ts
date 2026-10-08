@@ -19,6 +19,7 @@ import { scanVbLine } from '../core/vbLexical';
 import { BUILTIN_FUNCTION_DOCS, BuiltinSignature, builtinSignature } from '../constants/aspKeywords';
 import { declarationsOf, resolveAt } from '../vbscript/references';
 import type * as A from '../vbscript/ast';
+import { PROCEDURE_WORD } from '../vbscript/symbols';
 import { editorWorkspace } from './vbscriptWorkspace';
 import { contextAt } from '../platform/documentState';
 
@@ -116,7 +117,7 @@ export class AspSignatureHelpProvider implements vscode.SignatureHelpProvider {
         }
         const file = decls.find(d => d.node === procedure)!.file;
         const fn   = {
-            kind:       ({ sub: 'Sub', function: 'Function', property: 'Property' } as const)[procedure.procKind],
+            kind:       PROCEDURE_WORD[procedure.procKind],
             name:       procedure.name.text,
             paramNames: procedure.params.map(p => p.name.text),
             filePath:   file,
