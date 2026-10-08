@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as path from 'path';
-import { definitionSites, findSites, resolveAt, type WorkspaceHost } from '../../vbscript/references';
+import { BindCache, definitionSites, findSites, resolveAt, type WorkspaceHost } from '../../vbscript/references';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../../core/includeDirectives';
 
 /** A workspace over an in-memory site, with the site root as the virtual root. */
@@ -238,5 +238,51 @@ describe('findSites — speed', () => {
         assert.strictEqual(found.length, 1 + 2 * 4000);
         // Deliberately loose, so it measures the algorithm rather than the machine.
         assert.ok(elapsed < 2000, `expected well under 2s, took ${elapsed}ms`);
+    });
+});
+
+// Hover, F12 and signature help bind the page on every ask; a kept binding is
+// reused only while every file it was bound from still reads the same.
+describe('BindCache — a binding reused only while its files are unchanged', () => {
+    const files: Record<string, string> = {};
+    const reset = () => {
+        for (const key of Object.keys(files)) { delete files[key]; }
+        files['page.asp'] = '<!-- #include file="lib.inc" -->\n<!-- #include file="later.inc" -->\n<% Bump %>';
+        files['lib.inc'] = '<% Sub Bump()\nEnd Sub %>';
+    };
+    const host = site(files);
+
+    it('reuses the binding while nothing changed', () => {
+        reset();
+        const cache = new BindCache(4);
+        const first = cache.bind(host, at('page.asp'), '');
+        assert.ok(first);
+        assert.strictEqual(cache.bind(host, at('page.asp'), ''), first);
+    });
+
+    it('binds again when an include changed, or one that was missing is there now', () => {
+        reset();
+        const cache = new BindCache(4);
+        const first = cache.bind(host, at('page.asp'), '');
+        files['lib.inc'] = '<% Sub Bump()\n  x = 1\nEnd Sub %>';
+        const second = cache.bind(host, at('page.asp'), '');
+        assert.notStrictEqual(second, first);
+
+        files['later.inc'] = '<% Dim later %>';
+        const third = cache.bind(host, at('page.asp'), '');
+        assert.notStrictEqual(third, second);
+        assert.ok(third!.pages.size === 3, 'the include that appeared is in the binding');
+    });
+
+    it('binds again under other include settings, and keeps only the most recent pages', () => {
+        reset();
+        files['other.asp'] = '<% x = 1 %>';
+        const cache = new BindCache(1);
+        const first = cache.bind(host, at('page.asp'), 'root A');
+        assert.notStrictEqual(cache.bind(host, at('page.asp'), 'root B'), first);
+
+        const page = cache.bind(host, at('page.asp'), 'root B');
+        cache.bind(host, at('other.asp'), 'root B');
+        assert.notStrictEqual(cache.bind(host, at('page.asp'), 'root B'), page, 'dropped to keep one');
     });
 });

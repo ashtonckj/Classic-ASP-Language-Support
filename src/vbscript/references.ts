@@ -48,6 +48,8 @@ export interface Site {
 export interface WorkspaceHost extends ScopeHost {
     /** The files that include `path` directly. */
     includedBy(path: string): string[];
+    /** Binds a page with its includes; lets a caller reuse a binding (see BindCache). */
+    bind?(path: string): BoundPage | null;
 }
 
 /** A page bound with its includes. */
@@ -66,6 +68,49 @@ export function bindAt(host: ScopeHost, path: string): BoundPage | null {
     const scope = buildScriptScope(path, text, host);
     return { path, binding: bindScriptScope(scope), pages: new Map(scope.files.map(f => [pathKey(f.path), f.page])), problems: scope.problems };
 }
+
+/**
+ * Pages bound with their includes, kept between requests. Hover, F12 and
+ * signature help bind the page on every ask, which on a large page is tens of
+ * milliseconds a time.
+ *
+ * Before one is reused, every file it was bound from is read again through the
+ * host and compared with the text it was bound from — an include that could not
+ * be read included — so a kept binding is never older than the files. Rename
+ * depends on that: its edits are offsets into the text that was read. `settings`
+ * stands for whatever else decides where the includes are (the virtual root, the
+ * default includes); a binding made under other settings is not reused.
+ */
+export class BindCache {
+    private readonly kept = new Map<string, { settings: string; reads: Array<[string, string | null]>; bound: BoundPage }>();
+
+    constructor(private readonly max: number) {}
+
+    bind(host: ScopeHost, path: string, settings: string): BoundPage | null {
+        const key = pathKey(path);
+        const kept = this.kept.get(key);
+        if (kept && kept.settings === settings && kept.reads.every(([file, text]) => host.read(file) === text)) {
+            // Most recently used last, so the first is the one to drop.
+            this.kept.delete(key);
+            this.kept.set(key, kept);
+            return kept.bound;
+        }
+
+        const reads: Array<[string, string | null]> = [];
+        const recording: ScopeHost = {
+            ...host,
+            read: file => { const text = host.read(file); reads.push([file, text]); return text; },
+        };
+        const bound = bindAt(recording, path);
+        this.kept.delete(key);
+        if (!bound) { return null; }
+        this.kept.set(key, { settings, reads, bound });
+        if (this.kept.size > this.max) { this.kept.delete(this.kept.keys().next().value!); }
+        return bound;
+    }
+}
+
+const bindWith = (host: WorkspaceHost, path: string) => host.bind ? host.bind(path) : bindAt(host, path);
 
 function targetOf(binding: Binding, d: Declaration): Target {
     const script = binding.scopes[0];
@@ -160,7 +205,7 @@ export function resolveAt(
     offset: number,
     askIncluders = true,
 ): { bound: BoundPage; target: Target } | null {
-    const home = bindAt(host, path);
+    const home = bindWith(host, path);
     const found = home && targetAt(home.binding, path, offset);
     if (home && found) { return { bound: home, target: found }; }
     if (!askIncluders) { return null; }
@@ -171,7 +216,7 @@ export function resolveAt(
         const page = queue.shift()!;
         if (seen.has(pathKey(page))) { continue; }
         seen.add(pathKey(page));
-        const bound = bindAt(host, page);
+        const bound = bindWith(host, page);
         const target = bound && targetAt(bound.binding, path, offset);
         if (bound && target) { return { bound, target }; }
         queue.push(...host.includedBy(page));
@@ -204,7 +249,7 @@ export function findSites(host: WorkspaceHost, path: string, offset: number): Si
 
     const found = new Map<string, Site>();
     for (let i = 0; i < pages.length; i++) {
-        const page = pathKey(pages[i]) === pathKey(bound.path) ? bound : bindAt(host, pages[i]);
+        const page = pathKey(pages[i]) === pathKey(bound.path) ? bound : bindWith(host, pages[i]);
         if (!page) { continue; }
         for (const site of sitesIn(page, target)) {
             const at = `${pathKey(site.file)}:${site.start}`;

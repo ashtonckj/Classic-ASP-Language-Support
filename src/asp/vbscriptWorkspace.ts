@@ -4,7 +4,8 @@ import { includedByMap } from './includeGraph';
 import { resolveIncludeDirective } from '../core/includeDirectives';
 import type { ParsedPage } from '../vbscript/symbols';
 import { ParseCache } from '../vbscript/parseCache';
-import type { Site, WorkspaceHost } from '../vbscript/references';
+import { BindCache, type Site, type WorkspaceHost } from '../vbscript/references';
+import { defaultIncludesSetting } from '../platform/settings';
 import { pathKey, samePath } from '../core/paths';
 import { openBuffers } from '../platform/documentState';
 import { analysePage, type PageAnalysis } from '../vbscript/pageAnalysis';
@@ -24,6 +25,12 @@ import { analyseVbscriptPage, checkVbscriptPage, vbscriptWorkerUsable } from '..
 const parsed = new ParseCache(300, 8_000_000);
 const parseCached = (fsPath: string, text: string): ParsedPage => parsed.parse(fsPath, text);
 
+/** Recently bound pages, each reused only while every file it read still reads the same. */
+const bound = new BindCache(20);
+
+/** What else decides where a page's includes are. */
+const includeSettings = () => `${configuredVirtualRoot() ?? ''}|${defaultIncludesSetting().join('|')}`;
+
 /**
  * The files the parser reads for `document`. Which pages include a file comes
  * from the workspace include graph (includeGraph.ts), asked only when the page
@@ -34,14 +41,17 @@ export function editorWorkspace(document: vscode.TextDocument, options: { freshI
     const docPath = document.uri.fsPath;
     const docText = document.getText();
     let graph: Map<string, string[]> | undefined;
+    const settings = includeSettings();
 
-    return {
+    const host: WorkspaceHost = {
         read: fsPath => samePath(fsPath, docPath) ? docText : readIncludeText(fsPath),
         resolve: (directive, fromPath) => resolveIncludeDirective(directive, fromPath, getVirtualRoot(fromPath)),
         parse: parseCached,
         defaultIncludes: rootPath => defaultIncludeCandidates(getVirtualRoot(rootPath)),
         includedBy: fsPath => (graph ??= includedByMap(document, options.freshIncludes)).get(pathKey(fsPath)) ?? [],
+        bind: fsPath => bound.bind(host, fsPath, settings),
     };
+    return host;
 }
 
 /**
