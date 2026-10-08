@@ -11,7 +11,8 @@
  */
 
 import * as vscode from 'vscode';
-import { jsQueryAt } from './jsDocument';
+import { jsQueryAt, jsRange } from './jsDocument';
+import { VIRTUAL_FILENAME } from './jsUtils';
 
 export class JsHoverProvider implements vscode.HoverProvider {
 
@@ -49,19 +50,7 @@ export class JsHoverProvider implements vscode.HoverProvider {
         if (docsText)    { md.appendMarkdown(docsText); }
         if (tagsText)    { md.appendMarkdown('\n\n' + tagsText); }
 
-        let range: vscode.Range | undefined;
-        if (info.textSpan) {
-            // Back out of the virtual file, past the preamble.
-            const spanStart = info.textSpan.start - preambleLength;
-            const spanEnd   = spanStart + info.textSpan.length;
-            if (spanStart >= 0) {
-                range = new vscode.Range(
-                    document.positionAt(spanStart),
-                    document.positionAt(spanEnd)
-                );
-            }
-        }
-
+        const range = info.textSpan && jsRange(document, preambleLength, VIRTUAL_FILENAME, info.textSpan);
         return new vscode.Hover(md, range);
     }
 }

@@ -23,8 +23,7 @@
  */
 
 import * as vscode from 'vscode';
-import { toDocumentSpan } from './jsUtils';
-import { jsQueryAt } from './jsDocument';
+import { jsQueryAt, jsRange } from './jsDocument';
 import { DIAGNOSTIC_SOURCE } from '../platform/diagnostics';
 
 
@@ -68,15 +67,9 @@ export class JsCodeActionProvider implements vscode.CodeActionProvider {
 
             for (const change of fix.changes) {
                 for (const textChange of change.textChanges) {
-                    const span = toDocumentSpan(change.fileName, textChange.span, preambleLength);
-                    if (!span) { applicable = false; break; }
-                    edit.replace(
-                        document.uri,
-                        new vscode.Range(
-                            document.positionAt(span.start), document.positionAt(span.end),
-                        ),
-                        textChange.newText,
-                    );
+                    const range = jsRange(document, preambleLength, change.fileName, textChange.span);
+                    if (!range) { applicable = false; break; }
+                    edit.replace(document.uri, range, textChange.newText);
                     edits++;
                 }
                 if (!applicable) { break; }

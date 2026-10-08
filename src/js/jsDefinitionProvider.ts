@@ -9,12 +9,11 @@
  *
  * Only spans inside the document are offered. The language service will happily
  * point at lib.dom.d.ts or at the generated preamble, and neither is somewhere a
- * reader can be sent — see toDocumentSpan.
+ * reader can be sent — see jsRange.
  */
 
 import * as vscode from 'vscode';
-import { toDocumentSpan } from './jsUtils';
-import { jsQueryAt } from './jsDocument';
+import { jsQueryAt, jsRange } from './jsDocument';
 
 export class JsDefinitionProvider implements vscode.DefinitionProvider {
 
@@ -33,12 +32,8 @@ export class JsDefinitionProvider implements vscode.DefinitionProvider {
 
         const locations: vscode.Location[] = [];
         for (const def of definitions) {
-            const span = toDocumentSpan(def.fileName, def.textSpan, preambleLength);
-            if (!span) { continue; }
-            locations.push(new vscode.Location(
-                document.uri,
-                new vscode.Range(document.positionAt(span.start), document.positionAt(span.end)),
-            ));
+            const range = jsRange(document, preambleLength, def.fileName, def.textSpan);
+            if (range) { locations.push(new vscode.Location(document.uri, range)); }
         }
 
         return locations.length ? locations : undefined;

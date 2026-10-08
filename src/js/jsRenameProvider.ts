@@ -25,8 +25,8 @@
  */
 
 import * as vscode from 'vscode';
-import { toDocumentSpan, VIRTUAL_FILENAME } from './jsUtils';
-import { jsQueryAt } from './jsDocument';
+import { VIRTUAL_FILENAME } from './jsUtils';
+import { jsQueryAt, jsRange } from './jsDocument';
 
 export class JsRenameProvider implements vscode.RenameProvider {
 
@@ -52,15 +52,11 @@ export class JsRenameProvider implements vscode.RenameProvider {
             );
         }
 
-        const span = toDocumentSpan(VIRTUAL_FILENAME, info.triggerSpan, ready.preambleLength);
-        if (!span) {
+        const range = jsRange(document, ready.preambleLength, VIRTUAL_FILENAME, info.triggerSpan);
+        if (!range) {
             throw new Error('This name is generated, not part of the page, so it cannot be renamed.');
         }
-
-        return new vscode.Range(
-            document.positionAt(span.start),
-            document.positionAt(span.end),
-        );
+        return range;
     }
 
     provideRenameEdits(
@@ -80,8 +76,8 @@ export class JsRenameProvider implements vscode.RenameProvider {
         let inDocument = 0;
 
         for (const loc of locations) {
-            const span = toDocumentSpan(loc.fileName, loc.textSpan, ready.preambleLength);
-            if (!span) {
+            const range = jsRange(document, ready.preambleLength, loc.fileName, loc.textSpan);
+            if (!range) {
                 // A location this rename would have to change but cannot reach.
                 // Renaming only part of a symbol's uses is worse than refusing.
                 throw new Error(
@@ -90,11 +86,7 @@ export class JsRenameProvider implements vscode.RenameProvider {
                     + 'declaration, and break the page.',
                 );
             }
-            edit.replace(
-                document.uri,
-                new vscode.Range(document.positionAt(span.start), document.positionAt(span.end)),
-                newName,
-            );
+            edit.replace(document.uri, range, newName);
             inDocument++;
         }
 

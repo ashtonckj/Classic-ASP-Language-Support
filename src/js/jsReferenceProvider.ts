@@ -10,12 +10,11 @@
  * as if it were the variable, and offers no references at all.
  *
  * Spans outside the document (the generated preamble, lib.dom.d.ts) are dropped;
- * see toDocumentSpan.
+ * see jsRange.
  */
 
 import * as vscode from 'vscode';
-import { toDocumentSpan } from './jsUtils';
-import { jsQueryAt } from './jsDocument';
+import { jsQueryAt, jsRange } from './jsDocument';
 
 export class JsReferenceProvider implements vscode.ReferenceProvider {
 
@@ -41,12 +40,8 @@ export class JsReferenceProvider implements vscode.ReferenceProvider {
         const locations: vscode.Location[] = [];
         for (const ref of ready.svc.getReferences(ready.virtualOffset)) {
             if (declarations.has(`${ref.fileName}:${ref.textSpan.start}`)) { continue; }
-            const span = toDocumentSpan(ref.fileName, ref.textSpan, ready.preambleLength);
-            if (!span) { continue; }
-            locations.push(new vscode.Location(
-                document.uri,
-                new vscode.Range(document.positionAt(span.start), document.positionAt(span.end)),
-            ));
+            const range = jsRange(document, ready.preambleLength, ref.fileName, ref.textSpan);
+            if (range) { locations.push(new vscode.Location(document.uri, range)); }
         }
 
         return locations.length ? locations : undefined;
@@ -67,10 +62,10 @@ export class JsDocumentHighlightProvider implements vscode.DocumentHighlightProv
         const highlights: vscode.DocumentHighlight[] = [];
         for (const perFile of ready.svc.getDocumentHighlights(ready.virtualOffset)) {
             for (const hit of perFile.highlightSpans) {
-                const span = toDocumentSpan(perFile.fileName, hit.textSpan, ready.preambleLength);
-                if (!span) { continue; }
+                const range = jsRange(document, ready.preambleLength, perFile.fileName, hit.textSpan);
+                if (!range) { continue; }
                 highlights.push(new vscode.DocumentHighlight(
-                    new vscode.Range(document.positionAt(span.start), document.positionAt(span.end)),
+                    range,
                     hit.kind === 'writtenReference'
                         ? vscode.DocumentHighlightKind.Write
                         : vscode.DocumentHighlightKind.Read,
