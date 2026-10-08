@@ -56,7 +56,7 @@
         "description": "Database connection template — type your connection variable name once and it updates everywhere"
     },
     "Recordset": {
-        "prefix": "rs",
+        "prefix": "rsloop",
         "body": [
             "Dim ${1:rs}",
             "Set ${1:rs} = Server.CreateObject(\"ADODB.Recordset\")",
