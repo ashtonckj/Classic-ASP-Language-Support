@@ -4,7 +4,7 @@ import { aspTagProblems, findNextRealTag, findTagEnd, findClosingTag, getVbScrip
 import { analyseHtmlStructure } from '../core/htmlStructure';
 import { VOID_ELEMENTS } from '../constants/htmlTags';
 import { pageLanguage } from '../vbscript/pageSegments';
-import { formatterSettings, prettierSettings as readPrettierSettings } from '../platform/settings';
+import { formatterSettings, prettierSettings as readPrettierSettings, type PrettierSettings } from '../platform/settings';
 
 // ─── ASP block types ───────────────────────────────────────────────────────
 
@@ -591,7 +591,15 @@ export async function formatPage(code: string): Promise<FormatResult> {
     }
 
     const prettierSettings = readPrettierSettings();
-    const aspSettings      = aspFormatterSettings(formatterSettings(), prettierSettings);
+    const run: FormatRun = {
+        code,
+        prettier: prettierSettings,
+        asp:      aspFormatterSettings(formatterSettings(), prettierSettings),
+        options:  prettierOptionsFor(prettierSettings),
+        // Loaded on the first format rather than when the extension starts: nothing
+        // else needs it, and loading it added ~40 ms to every window's startup.
+        format:   (require('prettier') as typeof prettier).format,
+    };
 
     // ── Step 1: Mask JS event-handler attribute values ───────────────────────
     // Must happen BEFORE ASP masking so values like onclick="doA('<%= val %>'); doB()"
@@ -604,6 +612,108 @@ export async function formatPage(code: string): Promise<FormatResult> {
     // a JS/CSS comment and reorder around, corrupting the code).
     const rawRanges = computeRawTextRanges(jsPreMasked);
 
+    // ── Step 2: Mask all ASP blocks ──────────────────────────────────────────
+    const page = maskAspBlocks(run, jsPreMasked, rawRanges);
+
+    // ── Step 3: Run Prettier on the masked HTML ──────────────────────────────
+    let prettifiedCode: string;
+    try {
+        prettifiedCode = await run.format(page.maskedCode, run.options);
+    } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        const lineMatch = msg.match(/\((\d+):(\d+)\)/);
+        const location  = lineMatch ? ` (line ${lineMatch[1]}, col ${lineMatch[2]})` : '';
+
+        return {
+            ok: false, reason: 'prettier', severity: 'warning',
+            message: `Formatting skipped — Prettier could not parse the HTML${location}. `
+                + `Check the "Classic ASP" output channel to see the masked code.`,
+            // The masked code is what Prettier choked on, so it goes in the log with the error.
+            details: [
+                `Prettier could not parse the page${location}: ${msg}`,
+                '=== Masked code sent to Prettier ===',
+                page.maskedCode,
+                '=== ASP blocks classified ===',
+                ...page.aspBlocks.map(b => `  line ${b.lineNumber + 1}  kind=${b.kind}  ${b.code.slice(0, 60).replace(/\n/g, '\\n')}`),
+            ].join('\n'),
+        };
+    }
+
+    // ── Step 3b: Lay the page out the way it is going to end up ─────────────
+    prettifiedCode = await layOutAsWritten(run, page, prettifiedCode);
+
+    // ── Step 3c: Verify all placeholders survived Prettier ──────────────────
+    const located = locatePlaceholders(page, prettifiedCode);
+    if ('ok' in located) { return located; }
+
+    // ── Steps 4 and 5: Format each block's VBScript, and put it back ────────
+    const blocks = formatAspBlocks(run, page, prettifiedCode, located.placeholderAt);
+    const restored = restoreAspBlocks(run, page, prettifiedCode, located, blocks);
+
+    // ── Step 5b: Restore JS event-handler attribute values ──────────────────
+    // Must happen after ASP blocks are restored so token text is never
+    // accidentally matched inside a reconstructed ASP expression.
+    // ── Step 6: Fix broken whitespace-sensitive tags (<textarea>, <pre>) ─────
+    const restoredCode = fixWhitespaceSensitiveTags(restoreJsEventAttrs(restored, jsAttrMasks));
+
+    // ── Step 7: Put back the VBScript <script> bodies, formatted ────────────
+    // Should Prettier have dropped or added a block, nothing is changed rather
+    // than a body landing in the wrong one.
+    return { ok: true, text: putBackVbScriptBodies(restoredCode, vbscriptBodies.bodies, run.asp) ?? code };
+}
+
+// ─── The stages of formatPage ──────────────────────────────────────────────
+
+/** What one format of one page carries from stage to stage. */
+interface FormatRun {
+    /** The page as it was given. */
+    code:     string;
+    prettier: PrettierSettings;
+    asp:      AspFormatterSettings;
+    options:  prettier.Options;
+    format:   typeof prettier.format;
+}
+
+/** The page with every <% %> block and hidden tag behind a placeholder, ready for Prettier. */
+interface MaskedPage {
+    maskedCode: string;
+    aspBlocks:  AspBlock[];
+    hiddenTags: HiddenTagPlaceholder[];
+}
+
+/** Where each placeholder is in Prettier's output (-1 when it was dropped). */
+interface PlaceholderPositions {
+    placeholderAt: number[];
+    hiddenAt:      number[];
+}
+
+/** Each block's VBScript formatted, and the column its delimiters go at. */
+interface FormattedBlocks {
+    formattedBlocks: string[];
+    blockTagIndents: string[];
+}
+
+type FormatRefusal = Exclude<FormatResult, { ok: true }>;
+
+const commentFor = (block: AspBlock) => `<!--${block.id}-->`;
+
+function prettierOptionsFor(prettierSettings: PrettierSettings): prettier.Options {
+    return {
+        parser:                    'html',
+        printWidth:                prettierSettings.printWidth,
+        tabWidth:                  prettierSettings.tabWidth,
+        useTabs:                   prettierSettings.useTabs,
+        semi:                      prettierSettings.semi,
+        singleQuote:               prettierSettings.singleQuote,
+        bracketSameLine:           prettierSettings.bracketSameLine,
+        arrowParens:               prettierSettings.arrowParens               as any,
+        trailingComma:             prettierSettings.trailingComma             as any,
+        endOfLine:                 prettierSettings.endOfLine                 as any,
+        htmlWhitespaceSensitivity: prettierSettings.htmlWhitespaceSensitivity as any,
+    };
+}
+
+function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[number, number]>): MaskedPage {
     // ── Step 2: Mask all ASP blocks ──────────────────────────────────────────
     // Each ASP block is replaced with a placeholder that Prettier will treat as
     // valid HTML, preserving its position in the output.
@@ -651,9 +761,9 @@ export async function formatPage(code: string): Promise<FormatResult> {
     };
 
     const collisions = {
-        AspExpr: tokenCollisions(code, 'AspExpr'),
-        AspAttr: tokenCollisions(code, 'AspAttr'),
-        aspmid:  tokenCollisions(code, 'aspmid'),
+        AspExpr: tokenCollisions(run.code, 'AspExpr'),
+        AspAttr: tokenCollisions(run.code, 'AspAttr'),
+        aspmid:  tokenCollisions(run.code, 'aspmid'),
     };
 
     let lineNumber = 0;
@@ -770,51 +880,14 @@ export async function formatPage(code: string): Promise<FormatResult> {
     // whose optional end tags were omitted (very common in Classic ASP).
     maskedCode = insertImpliedTableEndTags(maskedCode);
 
-    // ── Step 3: Run Prettier on the masked HTML ──────────────────────────────
+    return { maskedCode, aspBlocks, hiddenTags };
+}
 
-    const prettierOptions: prettier.Options = {
-        parser:                    'html',
-        printWidth:                prettierSettings.printWidth,
-        tabWidth:                  prettierSettings.tabWidth,
-        useTabs:                   prettierSettings.useTabs,
-        semi:                      prettierSettings.semi,
-        singleQuote:               prettierSettings.singleQuote,
-        bracketSameLine:           prettierSettings.bracketSameLine,
-        arrowParens:               prettierSettings.arrowParens               as any,
-        trailingComma:             prettierSettings.trailingComma             as any,
-        endOfLine:                 prettierSettings.endOfLine                 as any,
-        htmlWhitespaceSensitivity: prettierSettings.htmlWhitespaceSensitivity as any,
-    };
-
-    // Loaded on the first format rather than when the extension starts: nothing
-    // else needs it, and loading it added ~40 ms to every window's startup.
-    const { format } = require('prettier') as typeof prettier;
-
-    let prettifiedCode: string;
-    try {
-        prettifiedCode = await format(maskedCode, prettierOptions);
-    } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        const lineMatch = msg.match(/\((\d+):(\d+)\)/);
-        const location  = lineMatch ? ` (line ${lineMatch[1]}, col ${lineMatch[2]})` : '';
-
-        return {
-            ok: false, reason: 'prettier', severity: 'warning',
-            message: `Formatting skipped — Prettier could not parse the HTML${location}. `
-                + `Check the "Classic ASP" output channel to see the masked code.`,
-            // The masked code is what Prettier choked on, so it goes in the log with the error.
-            details: [
-                `Prettier could not parse the page${location}: ${msg}`,
-                '=== Masked code sent to Prettier ===',
-                maskedCode,
-                '=== ASP blocks classified ===',
-                ...aspBlocks.map(b => `  line ${b.lineNumber + 1}  kind=${b.kind}  ${b.code.slice(0, 60).replace(/\n/g, '\\n')}`),
-            ].join('\n'),
-        };
-    }
-
-    const commentFor = (block: AspBlock) => `<!--${block.id}-->`;
+async function layOutAsWritten(run: FormatRun, page: MaskedPage, firstPass: string): Promise<string> {
+    const { aspBlocks, hiddenTags } = page;
+    const { format, options: prettierOptions } = run;
     const normalBlocks = aspBlocks.filter(block => block.kind === 'normal');
+    let prettifiedCode = firstPass;
 
     // ── Step 3b: Lay the page out the way it is going to end up ─────────────
     // A statement block that Prettier left inline — `<td><!--ID-->y</td>` — is
@@ -832,7 +905,7 @@ export async function formatPage(code: string): Promise<FormatResult> {
     // that is actually going to be written out.
     //
     // The second run only happens when there is something to move.
-    if (!aspSettings.aspTagsOnSameLine) {
+    if (!run.asp.aspTagsOnSameLine) {
         // A hidden tag is a structural element — a div, a form, a table — so it
         // gets a line of its own too, rather than being left after a `%>`.
         const placeholders = [
@@ -890,6 +963,12 @@ export async function formatPage(code: string): Promise<FormatResult> {
         }
     }
 
+    return prettifiedCode;
+}
+
+function locatePlaceholders(page: MaskedPage, prettifiedCode: string): PlaceholderPositions | FormatRefusal {
+    const { aspBlocks, hiddenTags } = page;
+
     // ── Step 3c: Verify all placeholders survived Prettier ──────────────────
 
     const needles = aspBlocks.map(block =>
@@ -924,6 +1003,13 @@ export async function formatPage(code: string): Promise<FormatResult> {
         const comment = commentFor(block);
         return prettifiedCode.startsWith(comment, found[i] - 4) ? found[i] - 4 : prettifiedCode.indexOf(comment);
     });
+
+    return { placeholderAt, hiddenAt };
+}
+
+function formatAspBlocks(run: FormatRun, page: MaskedPage, prettifiedCode: string, placeholderAt: number[]): FormattedBlocks {
+    const { aspBlocks } = page;
+    const aspSettings = run.asp;
 
     // ── Step 4: Format each ASP block's VBScript content ────────────────────
     // Process blocks sequentially so each normal block can thread its ending
@@ -998,6 +1084,20 @@ export async function formatPage(code: string): Promise<FormatResult> {
             blockTagIndents[i] = groupTagIndent;
         }
     }
+
+    return { formattedBlocks, blockTagIndents };
+}
+
+function restoreAspBlocks(
+    run: FormatRun,
+    page: MaskedPage,
+    prettifiedCode: string,
+    { placeholderAt, hiddenAt }: PlaceholderPositions,
+    { formattedBlocks, blockTagIndents }: FormattedBlocks,
+): string {
+    const { aspBlocks, hiddenTags } = page;
+    const aspSettings = run.asp;
+    const prettierSettings = run.prettier;
 
     // ── Step 5: Restore formatted ASP blocks into Prettier's output ─────────
     // One pass, front to back. Each block is restored against the text as
@@ -1241,11 +1341,10 @@ export async function formatPage(code: string): Promise<FormatResult> {
     }
     restored.push(prettifiedCode.slice(scan));
 
-    // ── Step 5b: Restore JS event-handler attribute values ──────────────────
-    // Must happen after ASP blocks are restored so token text is never
-    // accidentally matched inside a reconstructed ASP expression.
-    let restoredCode = restoreJsEventAttrs(restored.toString(), jsAttrMasks);
+    return restored.toString();
+}
 
+function fixWhitespaceSensitiveTags(text: string): string {
     // ── Step 6: Fix broken whitespace-sensitive tags (<textarea>, <pre>) ─────
     // When the expression inside is long, Prettier can wrap the closing `>`
     // of the opening tag onto its own line, and separately break the closing
@@ -1270,13 +1369,8 @@ export async function formatPage(code: string): Promise<FormatResult> {
     //   (<\/...)      — start of the closing tag
     //   \n[ \t]*      — newline + whitespace before the stray >
     //   (>)           — the stray > that closes the closing tag
-    restoredCode = restoredCode.replace(
+    return text.replace(
         /(>)\n[ \t]*((?:(?!<\/?[a-zA-Z])[^\n])+?)(<\/(?:textarea|pre))\n[ \t]*(>)/gi,
         '$1$2$3$4'
     );
-
-    // ── Step 7: Put back the VBScript <script> bodies, formatted ────────────
-    // Should Prettier have dropped or added a block, nothing is changed rather
-    // than a body landing in the wrong one.
-    return { ok: true, text: putBackVbScriptBodies(restoredCode, vbscriptBodies.bodies, aspSettings) ?? code };
 }
