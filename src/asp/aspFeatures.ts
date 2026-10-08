@@ -16,6 +16,7 @@ import { AspReferenceProvider, AspRenameProvider, registerIncludeUpdatesOnRename
 import { AspSignatureHelpProvider } from './aspSignatureHelpProvider';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache } from './aspWorkspaceSymbolProvider';
 import { registerIncludeGraph } from './includeGraph';
+import { IgnoreCodeActionProvider } from '../platform/ignoreActions';
 import { forgetIncludeFile, IncludePathCompletionProvider, preloadIncludeSymbols } from './includeProvider';
 import { IncludeDocumentLinkProvider } from '../html/linkProvider';
 import { PATH_TRIGGER_CHARACTERS } from '../platform/pathCompletion';
@@ -34,6 +35,11 @@ export function registerAspFeatures(context: vscode.ExtensionContext): void {
     registerIncludeGraph(context);
 
     context.subscriptions.push(
+        // "Ignore on this line" / "Ignore in this file" for any of this extension's problems.
+        vscode.languages.registerCodeActionsProvider(
+            'asp', guarded('Ignore actions', new IgnoreCodeActionProvider()),
+            { providedCodeActionKinds: IgnoreCodeActionProvider.kinds },
+        ),
         vscode.workspace.onDidOpenTextDocument(preloadIncludes),
         vscode.window.onDidChangeActiveTextEditor(editor => preloadIncludes(editor?.document)),
 

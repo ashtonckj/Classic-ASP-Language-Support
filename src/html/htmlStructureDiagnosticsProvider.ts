@@ -8,7 +8,7 @@
  */
 
 import * as vscode from 'vscode';
-import { CHECK_DELAY, DiagnosticCode, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
+import { CHECK_DELAY, createAspDiagnosticCollection, DiagnosticCode, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
 import type { BlockEvent } from '../vbscript/pageAnalysis';
 import { analyseHtmlStructure } from '../core/htmlStructure';
 import { analysedPage } from '../asp/vbscriptWorkspace';
@@ -59,7 +59,7 @@ export function registerHtmlStructureDiagnostics(
     context: vscode.ExtensionContext
 ): vscode.DiagnosticCollection {
 
-    const collection = vscode.languages.createDiagnosticCollection('classic-asp-html-structure');
+    const collection = createAspDiagnosticCollection('classic-asp-html-structure');
     context.subscriptions.push(collection);
 
     watchAspDocuments(context, {

@@ -265,6 +265,10 @@ export class WorkspaceEdit {
         this._byFile.set(key, entry);
     }
 
+    insert(uri: unknown, position: Position, newText: string): void {
+        this.replace(uri, new Range(position, position), newText);
+    }
+
     get(uri: unknown): TextEdit[] { return this._byFile.get(this._key(uri))?.edits ?? []; }
 
     /** Number of FILES touched, as the real class reports it. */

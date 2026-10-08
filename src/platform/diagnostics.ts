@@ -17,6 +17,7 @@
 
 import * as vscode from 'vscode';
 import type { CheckCode } from '../vbscript/checks';
+import { ignoreDirectives, isIgnored } from '../core/ignoreComments';
 
 export const DIAGNOSTIC_SOURCE = 'Classic ASP';
 
@@ -148,4 +149,61 @@ export function watchAspDocuments(context: vscode.ExtensionContext, watch: AspDo
         }),
     );
     return debouncer;
+}
+
+// ── asp-ignore comments ──────────────────────────────────────────────────────
+
+/** The open document for `uri`, if there is one. */
+function openDocumentFor(uri: vscode.Uri): vscode.TextDocument | undefined {
+    const key = uri.toString();
+    return vscode.workspace.textDocuments.find(document => document.uri.toString() === key);
+}
+
+/** `diagnostics` without the ones the page's asp-ignore comments silence (core/ignoreComments). */
+export function withoutIgnored(uri: vscode.Uri, diagnostics: readonly vscode.Diagnostic[]): vscode.Diagnostic[] {
+    const document = openDocumentFor(uri);
+    if (!document || diagnostics.length === 0) { return [...diagnostics]; }
+    const directives = ignoreDirectives(document.getText());
+    if (directives.file === undefined && directives.lines.size === 0) { return [...diagnostics]; }
+    return diagnostics.filter(d => !isIgnored(directives, d.range.start.line, typeof d.code === 'object' ? d.code.value : d.code));
+}
+
+/**
+ * A diagnostic collection that leaves out what the page's asp-ignore comments
+ * silence. Every check publishes through one, so the comments work the same
+ * for all of them.
+ */
+class IgnoringCollection implements vscode.DiagnosticCollection {
+    constructor(private readonly inner: vscode.DiagnosticCollection) {}
+
+    get name(): string { return this.inner.name; }
+
+    set(uri: vscode.Uri, diagnostics: readonly vscode.Diagnostic[] | undefined): void;
+    set(entries: ReadonlyArray<[vscode.Uri, readonly vscode.Diagnostic[] | undefined]>): void;
+    set(
+        first: vscode.Uri | ReadonlyArray<[vscode.Uri, readonly vscode.Diagnostic[] | undefined]>,
+        diagnostics?: readonly vscode.Diagnostic[],
+    ): void {
+        if (Array.isArray(first)) {
+            this.inner.set(first.map(([uri, list]) => [uri, list && withoutIgnored(uri, list)] as [vscode.Uri, vscode.Diagnostic[] | undefined]));
+            return;
+        }
+        const uri = first as vscode.Uri;
+        this.inner.set(uri, diagnostics && withoutIgnored(uri, diagnostics));
+    }
+
+    delete(uri: vscode.Uri): void { this.inner.delete(uri); }
+    clear(): void { this.inner.clear(); }
+    forEach(callback: (uri: vscode.Uri, diagnostics: readonly vscode.Diagnostic[], collection: vscode.DiagnosticCollection) => unknown, thisArg?: unknown): void {
+        this.inner.forEach((uri, diagnostics) => callback.call(thisArg, uri, diagnostics, this));
+    }
+    get(uri: vscode.Uri): readonly vscode.Diagnostic[] | undefined { return this.inner.get(uri); }
+    has(uri: vscode.Uri): boolean { return this.inner.has(uri); }
+    dispose(): void { this.inner.dispose(); }
+    [Symbol.iterator](): Iterator<[uri: vscode.Uri, diagnostics: readonly vscode.Diagnostic[]]> { return this.inner[Symbol.iterator](); }
+}
+
+/** A diagnostic collection for ASP pages; see IgnoringCollection. */
+export function createAspDiagnosticCollection(name: string): vscode.DiagnosticCollection {
+    return new IgnoringCollection(vscode.languages.createDiagnosticCollection(name));
 }

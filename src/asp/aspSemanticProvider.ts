@@ -6,7 +6,7 @@ import { colourAspPage, SqlWarning } from '../workers/analysisClient';
 // one identical legend. VS Code maps token indices through whichever legend is
 // registered first; using a different legend here would corrupt all colours.
 import { COMBINED_SEMANTIC_LEGEND } from '../js/jsSemanticProvider';
-import { DiagnosticCode, makeDiagnostic } from '../platform/diagnostics';
+import { createAspDiagnosticCollection, DiagnosticCode, makeDiagnostic } from '../platform/diagnostics';
 
 /**
  * The VBScript and SQL colouring, and the SQL warnings.
@@ -24,7 +24,7 @@ export class AspSemanticTokensProvider implements vscode.DocumentSemanticTokensP
     private readonly _onClose: vscode.Disposable;
 
     constructor() {
-        this._diagnostics = vscode.languages.createDiagnosticCollection('asp-sql-vars');
+        this._diagnostics = createAspDiagnosticCollection('asp-sql-vars');
         // A closed page's warnings stayed in the Problems panel until the window
         // was reloaded; every other diagnostic here is dropped on close.
         this._onClose = vscode.workspace.onDidCloseTextDocument(doc => this._diagnostics.delete(doc.uri));

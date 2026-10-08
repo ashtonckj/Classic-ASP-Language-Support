@@ -19,7 +19,7 @@
  */
 
 import * as vscode from 'vscode';
-import { CHECK_DELAY, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
+import { CHECK_DELAY, createAspDiagnosticCollection, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
 import { analyseEmbeddedJs } from '../workers/analysisClient';
 import { tsSeverityToVs } from './jsTsKinds';
 import { inRanges } from '../core/zoneUtils';
@@ -84,7 +84,7 @@ async function getDiagnosticsForDocument(document: vscode.TextDocument): Promise
 }
 
 export function registerJsDiagnostics(context: vscode.ExtensionContext): void {
-    const collection = vscode.languages.createDiagnosticCollection('classic-asp-js');
+    const collection = createAspDiagnosticCollection('classic-asp-js');
     context.subscriptions.push(collection);
 
     watchAspDocuments(context, {

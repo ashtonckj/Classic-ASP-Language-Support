@@ -23,7 +23,7 @@ import { onSettingsChange } from '../platform/settings';
 import { aspTagProblems } from '../core/zoneUtils';
 import { isFile } from '../core/paths';
 import { textOf, zonesFor } from '../platform/documentState';
-import { CHECK_DELAY, DiagnosticCode, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
+import { CHECK_DELAY, createAspDiagnosticCollection, DiagnosticCode, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../core/includeDirectives';
 import { parsePage } from '../vbscript/symbols';
 import { pageBlocks, type BlockWarning, type MissingSet } from '../vbscript/pageAnalysis';
@@ -175,12 +175,12 @@ export function registerAspStructureDiagnostics(
     context: vscode.ExtensionContext
 ): vscode.DiagnosticCollection {
 
-    const collection = vscode.languages.createDiagnosticCollection('classic-asp-vbscript-structure');
+    const collection = createAspDiagnosticCollection('classic-asp-vbscript-structure');
     // Its own collection: a missing include, a missing Set and the parser's
     // checks are worth knowing about, but none is a structure problem, so none
     // may stop Format Document — which refuses to run while `collection` has
     // anything in it.
-    const checksCollection = vscode.languages.createDiagnosticCollection('classic-asp-checks');
+    const checksCollection = createAspDiagnosticCollection('classic-asp-checks');
     context.subscriptions.push(
         collection,
         checksCollection,

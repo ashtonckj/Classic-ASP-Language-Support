@@ -7,7 +7,7 @@
 
 import * as vscode from 'vscode';
 import type { DiagnosticSeverity as LsSeverity } from 'vscode-css-languageservice';
-import { CHECK_DELAY, cssCode, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
+import { CHECK_DELAY, createAspDiagnosticCollection, cssCode, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
 import { buildInlineCssDoc, cssLanguageService, cssLanguageServiceModule, inlinePageOffset, inlineStyleValues } from './cssUtils';
 import { getParsedCssBlocks, pagePosition } from './cssPageStylesheet';
 import { textOf, zonesFor } from '../platform/documentState';
@@ -115,7 +115,7 @@ function validateDocument(
 }
 
 export function registerCssDiagnostics(context: vscode.ExtensionContext): void {
-    const collection = vscode.languages.createDiagnosticCollection('classic-asp-css');
+    const collection = createAspDiagnosticCollection('classic-asp-css');
     context.subscriptions.push(collection);
 
     // A burst of keystrokes re-parses the <style> blocks once, not once per
