@@ -1,7 +1,7 @@
 import * as assert from 'assert';
-import {
-    isBlockOpener, tagToAutoClose, continuesOpenJsDocComment,
-} from '../../asp/aspIndentProvider';
+import { isBlockOpener } from '../../asp/typing/vbIndent';
+import { tagToAutoClose } from '../../asp/typing/autoClose';
+import { continuesOpenJsDocComment } from '../../asp/typing/enterKey';
 import { Zone } from '../../core/zoneUtils';
 
 // The shared opener test used by both Enter and Tab. A single-line `If … Then <stmt>` opens nothing; Property and access-modified declarations DO open a block.

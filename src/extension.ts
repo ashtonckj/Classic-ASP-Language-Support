@@ -1,7 +1,11 @@
 import * as vscode from 'vscode';
 import { formatCompleteAspFile } from './formatter/htmlFormatter';
 import { HtmlCompletionProvider } from './html/htmlCompletionProvider';
-import { registerAutoClosingTag, registerEnterKeyHandler, registerTabKeyHandler, registerVbScriptQuoteGuard, registerLineContinuationGuard } from './asp/aspIndentProvider';
+import { registerAutoClosingTag } from './asp/typing/autoClose';
+import { registerEnterKeyHandler } from './asp/typing/enterKey';
+import { registerTabKeyHandler } from './asp/typing/tabKey';
+import { registerVbScriptQuoteGuard } from './asp/typing/quoteGuard';
+import { registerLineContinuationGuard } from './asp/typing/continuationGuard';
 import { AspCompletionProvider } from './asp/aspCompletionProvider';
 import { CssCompletionProvider } from './css/cssCompletionProvider';
 import { EmmetCompletionProvider } from './html/emmetCompletionProvider';
