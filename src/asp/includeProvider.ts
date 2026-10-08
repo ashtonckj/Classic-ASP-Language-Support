@@ -43,59 +43,24 @@ export function configuredVirtualRoot(): string | undefined {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
 
-// Tracks whether we have already shown the virtual root hint in this session
-// so we don't spam the user on every file open.
-let _virtualRootWarningShown = false;
-
-/**
- * Shows a one-time information message when a virtual="..." include fails to
- * resolve and no explicit virtualRoot setting has been configured.
- */
-function notifyVirtualRootUnresolved(includePath: string): void {
-    const userSetting = virtualRootSetting();
-
-    // Only notify when the user hasn't already set a root
-    if (userSetting || _virtualRootWarningShown) return;
-    _virtualRootWarningShown = true;
-
-    vscode.window.showInformationMessage(
-        `Classic ASP: could not resolve virtual include "${includePath}". ` +
-        `If your virtual root differs from the workspace folder, set ` +
-        `"classicAsp.virtualRoot" in your settings.`,
-        'Open Settings'
-    ).then(choice => {
-        if (choice === 'Open Settings') {
-            vscode.commands.executeCommand(
-                'workbench.action.openSettings',
-                'classicAsp.virtualRoot'
-            );
-        }
-    });
-}
-
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Include path resolution
 // Returns the resolved absolute paths of all #include directives in the text.
 // Supports file="..." (relative to current doc) and virtual="..." (virtual root).
+//
+// An include that does not resolve is left out quietly. The open page reports
+// its own as an "Include file not found" warning on the directive's line
+// (findMissingIncludes), which names the file and the virtualRoot setting. This
+// runs over every page of the workspace to build the include graph for F12,
+// hover and rename, so a pop-up from here named a file the user had not opened.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Resolves all #include paths from a single file's text — one level only.
 export function resolveDirectIncludes(documentText: string, documentPath: string): string[] {
     const virtualRoot = getVirtualRoot(documentPath);
-    const resolved: string[] = [];
-
-    for (const directive of parseIncludeDirectives(documentText)) {
-        const fullPath = resolveIncludeDirective(directive, documentPath, virtualRoot);
-
-        if (isFile(fullPath)) {
-            resolved.push(fullPath);
-        } else if (directive.type === 'virtual') {
-            notifyVirtualRootUnresolved(directive.raw);
-        }
-    }
-
-    return resolved;
+    return parseIncludeDirectives(documentText)
+        .map(directive => resolveIncludeDirective(directive, documentPath, virtualRoot))
+        .filter(isFile);
 }
 
 /**
