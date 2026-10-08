@@ -1,4 +1,3 @@
-import * as vscode from 'vscode';
 import type * as prettier from 'prettier';
 import { formatSingleAspBlock, aspFormatterSettings, delimitersAtColumnZero, type AspFormatterSettings } from './aspFormatter';
 import { aspTagProblems, findNextRealTag, findTagEnd, findClosingTag, getVbScriptBlockRanges } from '../core/zoneUtils';
@@ -6,7 +5,6 @@ import { analyseHtmlStructure } from '../core/htmlStructure';
 import { VOID_ELEMENTS } from '../constants/htmlTags';
 import { pageLanguage } from '../vbscript/pageSegments';
 import { formatterSettings, prettierSettings as readPrettierSettings } from '../platform/settings';
-import { log, showLog } from '../platform/log';
 
 // ─── ASP block types ───────────────────────────────────────────────────────
 
@@ -542,7 +540,32 @@ function putBackVbScriptBodies(code: string, bodies: string[], settings: AspForm
     return out + code.slice(last);
 }
 
+/**
+ * What formatting a page came to: the formatted text, or why the page was left
+ * as it was. The formatter tells nobody; formatCommands.ts decides what the
+ * user sees.
+ */
+export type FormatResult =
+    | { ok: true; text: string }
+    | {
+        ok: false;
+        /** What stopped it. */
+        reason: 'asp-tags' | 'jscript' | 'prettier' | 'block-removed' | 'tag-removed';
+        /** One or two sentences for the user. */
+        message: string;
+        /** 'info' when nothing is wrong with the page — it is just not one the formatter formats. */
+        severity: 'warning' | 'info';
+        /** More for the log, when there is more. */
+        details?: string;
+    };
+
+/** The page formatted, or the page as it was when formatting refused (the reason is lost: use formatPage). */
 export async function formatCompleteAspFile(code: string): Promise<string> {
+    const result = await formatPage(code);
+    return result.ok ? result.text : code;
+}
+
+export async function formatPage(code: string): Promise<FormatResult> {
     // A token's number is part of its length, and Prettier lays a line out by
     // its length. Counting on across the whole session meant the same page
     // wrapped differently once enough formats had gone before it — a page that
@@ -552,19 +575,19 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     _placeholderCounter = 0;
 
     if (hasUnclosedAspTags(code)) {
-        vscode.window.showWarningMessage(
-            'Formatting skipped — unclosed <% or stray %> detected. Fix the ASP tag mismatch first.'
-        );
-        return code;
+        return {
+            ok: false, reason: 'asp-tags', severity: 'warning',
+            message: 'Formatting skipped — unclosed <% or stray %> detected. Fix the ASP tag mismatch first.',
+        };
     }
 
     // The block formatter knows VBScript only. Recasing and re-indenting a
     // JScript page's code by VBScript's rules would break it.
     if (pageLanguage(code) === 'jscript') {
-        vscode.window.showInformationMessage(
-            "Formatting skipped — this page's server code is JScript, and the formatter only formats VBScript."
-        );
-        return code;
+        return {
+            ok: false, reason: 'jscript', severity: 'info',
+            message: "Formatting skipped — this page's server code is JScript, and the formatter only formats VBScript.",
+        };
     }
 
     const prettierSettings = readPrettierSettings();
@@ -769,34 +792,25 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
     let prettifiedCode: string;
     try {
-        prettifiedCode = await vscode.window.withProgress(
-            {
-                location:  vscode.ProgressLocation.Notification,
-                title:     'Classic ASP: Formatting…',
-                cancellable: false,
-            },
-            () => format(maskedCode, prettierOptions)
-        );
+        prettifiedCode = await format(maskedCode, prettierOptions);
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         const lineMatch = msg.match(/\((\d+):(\d+)\)/);
         const location  = lineMatch ? ` (line ${lineMatch[1]}, col ${lineMatch[2]})` : '';
 
-        // The masked code is what Prettier choked on, so it goes in the log with the error.
-        log.error([
-            `Prettier could not parse the page${location}: ${msg}`,
-            '=== Masked code sent to Prettier ===',
-            maskedCode,
-            '=== ASP blocks classified ===',
-            ...aspBlocks.map(b => `  line ${b.lineNumber + 1}  kind=${b.kind}  ${b.code.slice(0, 60).replace(/\n/g, '\\n')}`),
-        ].join('\n'));
-        showLog();
-
-        vscode.window.showWarningMessage(
-            `Formatting skipped — Prettier could not parse the HTML${location}. ` +
-            `Check the "Classic ASP" output channel to see the masked code.`
-        );
-        return code;
+        return {
+            ok: false, reason: 'prettier', severity: 'warning',
+            message: `Formatting skipped — Prettier could not parse the HTML${location}. `
+                + `Check the "Classic ASP" output channel to see the masked code.`,
+            // The masked code is what Prettier choked on, so it goes in the log with the error.
+            details: [
+                `Prettier could not parse the page${location}: ${msg}`,
+                '=== Masked code sent to Prettier ===',
+                maskedCode,
+                '=== ASP blocks classified ===',
+                ...aspBlocks.map(b => `  line ${b.lineNumber + 1}  kind=${b.kind}  ${b.code.slice(0, 60).replace(/\n/g, '\\n')}`),
+            ].join('\n'),
+        };
     }
 
     const commentFor = (block: AspBlock) => `<!--${block.id}-->`;
@@ -886,21 +900,21 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 
     for (let i = 0; i < aspBlocks.length; i++) {
         if (found[i] === -1) {
-            vscode.window.showWarningMessage(
-                `Formatting skipped — an ASP block on line ${aspBlocks[i].lineNumber + 1} was removed by Prettier. ` +
-                `This usually happens when a <% %> block is in an unexpected position inside an HTML tag.`
-            );
-            return code;
+            return {
+                ok: false, reason: 'block-removed', severity: 'warning',
+                message: `Formatting skipped — an ASP block on line ${aspBlocks[i].lineNumber + 1} was removed by Prettier. `
+                    + `This usually happens when a <% %> block is in an unexpected position inside an HTML tag.`,
+            };
         }
     }
 
     const hiddenAt = findInOrder(prettifiedCode, hiddenTags.map(tag => `<!--${tag.id}-->`));
     if (hiddenAt.includes(-1)) {
-        vscode.window.showWarningMessage(
-            'Formatting skipped — Prettier removed a tag that an If, a Select Case or a Response.Write ' +
-            'opens or closes. The page was left as it was.'
-        );
-        return code;
+        return {
+            ok: false, reason: 'tag-removed', severity: 'warning',
+            message: 'Formatting skipped — Prettier removed a tag that an If, a Select Case or a Response.Write '
+                + 'opens or closes. The page was left as it was.',
+        };
     }
 
     // Where each block's placeholder is — for a statement block, the whole
@@ -1264,5 +1278,5 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     // ── Step 7: Put back the VBScript <script> bodies, formatted ────────────
     // Should Prettier have dropped or added a block, nothing is changed rather
     // than a body landing in the wrong one.
-    return putBackVbScriptBodies(restoredCode, vbscriptBodies.bodies, aspSettings) ?? code;
+    return { ok: true, text: putBackVbScriptBodies(restoredCode, vbscriptBodies.bodies, aspSettings) ?? code };
 }

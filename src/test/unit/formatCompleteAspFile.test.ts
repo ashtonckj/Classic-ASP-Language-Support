@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { formatCompleteAspFile, insertImpliedTableEndTags } from '../../formatter/htmlFormatter';
+import { formatCompleteAspFile, formatPage, insertImpliedTableEndTags } from '../../formatter/htmlFormatter';
 import { testSettings } from './_vscodeStub';
 
 // Classic ASP tables routinely omit the optional </td> </tr> … end tags. Prettier
@@ -68,6 +68,23 @@ describe('formatCompleteAspFile — a JScript page', () => {
     it('leaves the page as it is, as the block formatter knows VBScript only', async () => {
         const input = '<%@ Language="JScript" %>\n<div><p>x</p></div>\n<%\nif (x) { Response.Write("a"); }\nfunction f(a) { return a; }\n%>';
         assert.strictEqual(await formatCompleteAspFile(input), input);
+    });
+});
+
+// The formatter says why it left a page alone; the editor side decides what to show.
+describe('formatPage — the result says what happened', () => {
+    it('gives the formatted text', async () => {
+        assert.deepStrictEqual(await formatPage('<div><p>x</p></div>\n'), { ok: true, text: '<div><p>x</p></div>\n' });
+    });
+
+    it('refuses a page with an unclosed <%, as a warning', async () => {
+        const result = await formatPage('<div>\n<% x = 1\n</div>\n');
+        assert.ok(!result.ok && result.reason === 'asp-tags' && result.severity === 'warning', JSON.stringify(result));
+    });
+
+    it('leaves a JScript page alone, as information rather than a problem', async () => {
+        const result = await formatPage('<%@ Language="JScript" %>\n<% var x = 1; %>\n');
+        assert.ok(!result.ok && result.reason === 'jscript' && result.severity === 'info', JSON.stringify(result));
     });
 });
 

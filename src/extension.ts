@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { formatCompleteAspFile } from './formatter/htmlFormatter';
+import { registerFormatting } from './formatter/formatCommands';
 import { HtmlCompletionProvider } from './html/htmlCompletionProvider';
 import { registerAutoClosingTag } from './asp/typing/autoClose';
 import { registerEnterKeyHandler } from './asp/typing/enterKey';
@@ -12,8 +12,8 @@ import { EmmetCompletionProvider } from './html/emmetCompletionProvider';
 import { CssHoverProvider } from './css/cssHoverProvider';
 import { CssColorProvider } from './css/cssColorProvider';
 import { registerCssDiagnostics } from './css/cssDiagnosticsProvider';
-import { registerHtmlStructureDiagnostics, scanHtmlStructure, VoidElementQuickFixProvider } from './html/htmlStructureDiagnosticsProvider';
-import { registerAspStructureDiagnostics, scanAspStructure, scanAspTags } from './asp/aspStructureDiagnosticsProvider';
+import { registerHtmlStructureDiagnostics, VoidElementQuickFixProvider } from './html/htmlStructureDiagnosticsProvider';
+import { registerAspStructureDiagnostics } from './asp/aspStructureDiagnosticsProvider';
 import { registerAspBlockMatch } from './asp/aspBlockMatchProvider';
 import { JsCompletionProvider } from './js/jsCompletionProvider';
 import { JsHoverProvider } from './js/jsHoverProvider';
@@ -43,64 +43,8 @@ import { checkForCompetingExtensions } from './platform/competingExtensions';
 import { ReviewPrompt } from './platform/reviewPrompt';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache, disposeWorkspaceIndex } from './asp/aspWorkspaceSymbolProvider';
 import { AspSignatureHelpProvider } from './asp/aspSignatureHelpProvider';
-import { computeLineEdits, computeRangeEdits, resolveEol, toLf } from './platform/editUtils';
-import { prettierSettings } from './platform/settings';
 import { disposeLog, log } from './platform/log';
 import { guarded } from './platform/guardedProvider';
-
-// Shared structure issue check used by both the formatter and the preview.
-//
-// The scans are re-run here rather than read back from the diagnostic
-// collections. Those are filled by a 1500 ms debounced pass, so reading them
-// answered from whatever the last tick happened to hold: a file opened and
-// formatted inside the debounce window was formatted even though it was broken,
-// and a file whose last problem had just been fixed was still refused, quoting
-// an issue that no longer existed. Both collections are refreshed with the
-// result so the squiggles agree with the answer given here.
-function getStructureIssueCount(
-    document: vscode.TextDocument,
-    htmlCollection: vscode.DiagnosticCollection,
-    aspCollection:  vscode.DiagnosticCollection
-): number {
-    const htmlIssues = scanHtmlStructure(document);
-    const aspIssues  = [...scanAspTags(document), ...scanAspStructure(document)];
-
-    htmlCollection.set(document.uri, htmlIssues);
-    aspCollection.set(document.uri,  aspIssues);
-
-    return htmlIssues.length + aspIssues.length;
-}
-
-// Opens VS Code's built-in diff editor showing current vs formatted.
-// Nothing is applied to the real file — purely a visual preview.
-async function openFormattingPreview(
-    context: vscode.ExtensionContext,
-    document: vscode.TextDocument,
-    formatted: string
-): Promise<void> {
-    const previewUri   = document.uri.with({ scheme: 'asp-format-preview' });
-    const provider     = new (class implements vscode.TextDocumentContentProvider {
-        provideTextDocumentContent() { return formatted; }
-    })();
-    const registration = vscode.workspace.registerTextDocumentContentProvider('asp-format-preview', provider);
-
-    await vscode.commands.executeCommand(
-        'vscode.diff',
-        document.uri,
-        previewUri,
-        `Formatting Preview — ${document.fileName.split(/[\\/]/).pop()}`,
-        { preview: true }
-    );
-
-    const listener = vscode.window.onDidChangeVisibleTextEditors(() => {
-        const still = vscode.window.visibleTextEditors.some(
-            e => e.document.uri.toString() === previewUri.toString()
-        );
-        if (!still) { registration.dispose(); listener.dispose(); }
-    });
-
-    context.subscriptions.push(registration, listener);
-}
 
 // Module-level debounce handles — prevents queuing multiple triggerSuggest
 // calls when the user moves the cursor or types faster than the 50 ms delay.
@@ -136,82 +80,11 @@ export function activate(context: vscode.ExtensionContext) {
     const htmlStructureCollection = registerHtmlStructureDiagnostics(context);
     const aspStructureCollection  = registerAspStructureDiagnostics(context);
 
-    // Asks for a rating, rarely, after a format that worked.
-    const reviewPrompt = new ReviewPrompt(context);
-
-    // ── Formatter ─────────────────────────────────────────────────────────────
-    // The page as it is and as formatting would leave it — or undefined, with
-    // the user told why, when a structure problem means it cannot be formatted.
-    // Both are LF-normalised, so a CRLF-saved file is not reported as "every line
-    // changed"; the edits are written back with the line ending resolveEol picks.
-    async function formatForDocument(
-        document: vscode.TextDocument,
-    ): Promise<{ fullText: string; formatted: string } | undefined> {
-        const total = getStructureIssueCount(document, htmlStructureCollection, aspStructureCollection);
-        if (total > 0) {
-            vscode.window.showWarningMessage(
-                `Formatting skipped — ${total} structure issue${total === 1 ? '' : 's'} found. ` +
-                `Fix the highlighted warnings first.`,
-                'Show Problems'
-            ).then(choice => {
-                if (choice === 'Show Problems') {
-                    vscode.commands.executeCommand('workbench.actions.view.problems');
-                }
-            });
-            return undefined;
-        }
-
-        const fullText  = toLf(document.getText());
-        const formatted = toLf(await formatCompleteAspFile(fullText));
-        void reviewPrompt.formatted();
-        return { fullText, formatted };
-    }
-
-    const formatter = vscode.languages.registerDocumentFormattingEditProvider('asp', guarded('Format Document', {
-        async provideDocumentFormattingEdits(document: vscode.TextDocument): Promise<vscode.TextEdit[]> {
-            const result = await formatForDocument(document);
-            if (!result) { return []; }
-
-            const eol = resolveEol(prettierSettings().endOfLine, document);
-            return computeLineEdits(document, result.fullText, result.formatted, eol);
-        }
-    }));
-
-    // ── Format Selection (Ctrl+K Ctrl+F) ──────────────────────────────────────
-    // What Format Document would do, kept to the selected lines; see
-    // computeRangeEdits for why the whole page is formatted to get it.
-    const rangeFormatter = vscode.languages.registerDocumentRangeFormattingEditProvider('asp', guarded('Format Selection', {
-        async provideDocumentRangeFormattingEdits(document: vscode.TextDocument, range: vscode.Range): Promise<vscode.TextEdit[]> {
-            const result = await formatForDocument(document);
-            if (!result) { return []; }
-
-            const eol = resolveEol(prettierSettings().endOfLine, document);
-            const edits = computeRangeEdits(document, result.fullText, result.formatted, eol, range);
-            if (!edits) {
-                vscode.window.showInformationMessage(
-                    'Formatting changes too much of this page to format just the selection — use Format Document.',
-                );
-                return [];
-            }
-            return edits;
-        }
-    }));
-
-    // ── Classic ASP: Preview Formatting ───────────────────────────────────────
-    // A diff of what Format Document would change, with nothing applied. This
-    // was the formatPreview setting, which turned Format Document itself into a
-    // preview until the setting was switched off again.
-    const previewFormatting = vscode.commands.registerCommand('classicAsp.previewFormatting', async () => {
-        const document = vscode.window.activeTextEditor?.document;
-        if (!document || document.languageId !== 'asp') { return; }
-
-        const result = await formatForDocument(document);
-        if (!result) { return; }
-        if (result.formatted === result.fullText) {
-            vscode.window.showInformationMessage('No formatting changes — file is already formatted.');
-            return;
-        }
-        await openFormattingPreview(context, document, result.formatted);
+    // ── Format Document, Format Selection, Preview Formatting ─────────────────
+    registerFormatting(context, {
+        htmlStructure: htmlStructureCollection,
+        aspStructure:  aspStructureCollection,
+        reviewPrompt:  new ReviewPrompt(context),
     });
 
     // ── Completion providers ──────────────────────────────────────────────────
@@ -529,9 +402,6 @@ export function activate(context: vscode.ExtensionContext) {
     //   • Every registered provider/listener must be in this list so it is
     //     cleaned up when the extension is deactivated.
     context.subscriptions.push(
-        formatter,
-        rangeFormatter,
-        previewFormatting,
         htmlCompletionProvider,
         aspCompletionProvider,
         cssCompletionProvider,
