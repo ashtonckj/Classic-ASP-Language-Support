@@ -96,7 +96,27 @@ const DOCUMENTS: Record<string, string> = {
     'literal < in body text': '<div>\n  Total: 5 < 10 and rising\n</div>\n<script>\nvar a = 1;\n</script>\n',
 
     'uppercase and spaced closing tags': '<STYLE>\n.c { color: green; }\n</STYLE >\n<SCRIPT>\nvar b = 2;\n</SCRIPT>\n',
+
+    'a style tag written inside a script string': [
+        '<script>',
+        '  var tpl = "<style>p { colr: red; }</style>";',
+        '</script>',
+        '<style>',
+        '  a { color: red; }',
+        '</style>',
+        '',
+    ].join('\n'),
 };
+
+describe('zones of a style tag inside a script', () => {
+    it('is script text, and the real <style> after it is still CSS', () => {
+        const text = DOCUMENTS['a style tag written inside a script string'];
+        const resolver = createZoneResolver(text);
+        assert.strictEqual(resolver.zoneAt(text.indexOf('colr')), 'js');
+        assert.strictEqual(resolver.zoneAt(text.indexOf('color')), 'css');
+        assert.strictEqual(resolver.cssBlocks.length, 1);
+    });
+});
 
 describe('createZoneResolver — agrees with getZone at every offset', () => {
     for (const [name, text] of Object.entries(DOCUMENTS)) {

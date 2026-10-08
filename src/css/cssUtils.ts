@@ -174,11 +174,9 @@ export function getInlineStyleContext(
 
     const valueEnd = closeQuoteIdx;
 
-    // Wrap as "* {  <declarations> }" — prefix is 5 chars
     // We pad the offset by 2 so the CSS service always lands inside the declaration list even when the value is completely empty
-    const WRAPPER_PREFIX_LEN = 5;
     const relativeOffset = offset - valueStart;
-    const wrappedOffset = WRAPPER_PREFIX_LEN + relativeOffset + 2;
+    const wrappedOffset = INLINE_PREFIX.length + relativeOffset + 2;
 
     return { valueStart, valueEnd, wrappedOffset };
 }
@@ -197,7 +195,44 @@ export function buildInlineCssDoc(
 ): LsTextDocument {
     const rawDeclarations = content.slice(valueStart, valueEnd);
     const declarations = stripAspExpressions(rawDeclarations);
-    // Add a space after opening brace so the CSS service always sees at least one character of whitespace to anchor completions against
-    const wrappedCss = `* {  ${declarations} }`;
-    return LsTextDocument.create(uri + '.inline.css', 'css', version, wrappedCss);
+    return LsTextDocument.create(uri + '.inline.css', 'css', version, `${INLINE_PREFIX}${declarations} }`);
+}
+
+/**
+ * What buildInlineCssDoc puts in front of a style attribute's declarations: a
+ * ruleset for them to sit in, and a space after its brace so the service always
+ * has whitespace to anchor a completion to, even in an empty value.
+ */
+export const INLINE_PREFIX = '* {  ';
+
+/** The page offset of an offset in the document buildInlineCssDoc built for the value starting at `valueStart`. */
+export function inlinePageOffset(valueStart: number, inlineOffset: number): number {
+    return valueStart + inlineOffset - INLINE_PREFIX.length;
+}
+
+/**
+ * Every `style="…"` attribute value in the page, as offsets. Zones are not
+ * looked at: a caller that wants only the page's own markup, and not a
+ * `style=` written in a string, checks the zone itself.
+ */
+export function inlineStyleValues(content: string): Array<{ valueStart: number; valueEnd: number }> {
+    const values: Array<{ valueStart: number; valueEnd: number }> = [];
+    const attribute = /\bstyle\s*=\s*("|')/gi;
+
+    let match: RegExpExecArray | null;
+    while ((match = attribute.exec(content)) !== null) {
+        const quote      = match[1];
+        const valueStart = match.index + match[0].length;
+        const valueEnd   = content.indexOf(quote, valueStart);
+        if (valueEnd === -1) { break; }
+
+        // getInlineStyleContext is the authority on whether an offset really is
+        // inside a style attribute value. Ask it about this one.
+        if (getInlineStyleContext(content, valueStart)) {
+            values.push({ valueStart, valueEnd });
+        }
+        attribute.lastIndex = valueEnd + 1;
+    }
+
+    return values;
 }

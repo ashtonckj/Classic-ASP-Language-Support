@@ -28,36 +28,9 @@
 import * as vscode from 'vscode';
 import type { Stylesheet } from 'vscode-css-languageservice';
 import type { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-import { buildCssDoc, buildInlineCssDoc, cssLanguageService, getInlineStyleContext } from './cssUtils';
+import { buildCssDoc, buildInlineCssDoc, cssLanguageService, INLINE_PREFIX, inlinePageOffset, inlineStyleValues } from './cssUtils';
 import { getParsedCssBlocks, pageOffset } from './cssPageStylesheet';
-import { getCssBlockRanges } from '../core/zoneUtils';
-
-/** The wrapper buildInlineCssDoc puts in front of an inline declaration list. */
-const INLINE_PREFIX = '* {  ';
-
-/** Every `style="…"` attribute value in the page, as offsets. */
-function inlineStyleValues(content: string): Array<{ valueStart: number; valueEnd: number }> {
-    const values: Array<{ valueStart: number; valueEnd: number }> = [];
-    const attribute = /\bstyle\s*=\s*("|')/gi;
-
-    let match: RegExpExecArray | null;
-    while ((match = attribute.exec(content)) !== null) {
-        const quote      = match[1];
-        const valueStart = match.index + match[0].length;
-        const valueEnd   = content.indexOf(quote, valueStart);
-        if (valueEnd === -1) { break; }
-
-        // getInlineStyleContext is the authority on whether an offset really is
-        // inside a style attribute value — it rejects a `style=` that is itself
-        // inside an ASP block or another attribute's text. Ask it about this one.
-        if (getInlineStyleContext(content, valueStart)) {
-            values.push({ valueStart, valueEnd });
-        }
-        attribute.lastIndex = valueEnd + 1;
-    }
-
-    return values;
-}
+import { textOf, zonesFor } from '../platform/documentState';
 
 /**
  * Colours in one virtual CSS document, with each position shifted back into the
@@ -98,14 +71,14 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
         token:    vscode.CancellationToken,
     ): vscode.ProviderResult<vscode.ColorInformation[]> {
 
-        const content = document.getText();
+        const content = textOf(document);
         const version = document.version;
         const uri     = document.uri.toString();
         const colors: vscode.ColorInformation[] = [];
 
         // Parsed once per document version and shared with CSS validation, which
         // wants the same blocks on its own debounce a moment later.
-        for (const block of getParsedCssBlocks(uri, content, version, getCssBlockRanges(content))) {
+        for (const block of getParsedCssBlocks(uri, content, version, zonesFor(document).cssBlocks)) {
             if (token.isCancellationRequested) { return undefined; }
             colors.push(...colorsIn(
                 document, block.cssDoc, content.length,
@@ -119,7 +92,7 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
             const cssDoc = buildInlineCssDoc(uri, content, version, value.valueStart, value.valueEnd);
             colors.push(...colorsIn(
                 document, cssDoc, content.length,
-                offset => value.valueStart + offset - INLINE_PREFIX.length,
+                offset => inlinePageOffset(value.valueStart, offset),
             ));
         }
 
@@ -133,7 +106,7 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
     ): vscode.ProviderResult<vscode.ColorPresentation[]> {
 
         const document = context.document;
-        const content  = document.getText();
+        const content  = textOf(document);
         const version  = document.version;
         const uri      = document.uri.toString();
         const start    = document.offsetAt(context.range.start);

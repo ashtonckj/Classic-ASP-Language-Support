@@ -47,7 +47,7 @@ export function getParsedCssBlocks(
     uri: string,
     content: string,
     version: number,
-    ranges: Array<{ start: number; end: number }>,
+    ranges: ReadonlyArray<{ start: number; end: number }>,
 ): ParsedCssBlock[] {
     if (ranges.length === 0) { return []; }
 

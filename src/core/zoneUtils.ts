@@ -319,36 +319,10 @@ export function findClosingTag(
 
 /**
  * Returns true if `offset` is inside a real `<style>…</style>` block —
- * one that is not inside an HTML comment or ASP block.
+ * one that is not inside an HTML comment, an ASP block or a script.
  */
 function isInsideCssBlock(text: string, offset: number): boolean {
-    let searchFrom = 0;
-
-    while (true) {
-        // Find the next real <style opening tag
-        const styleOpen = findNextRealTag(text, '<style', searchFrom, offset);
-        if (styleOpen === -1) return false; // no real <style before offset
-
-        // Find the end of the opening tag's attribute list — skipping ASP blocks
-        // and quoted attribute values so a `>` inside `type="<%= x %>"` or
-        // `title="a > b"` is not mistaken for the tag terminator.
-        const styleTagEnd = findTagEnd(text, styleOpen);
-        if (styleTagEnd === -1) return false;
-
-        // The cursor must be past the end of the opening tag
-        if (offset <= styleTagEnd) return false;
-
-        // Find the matching </style> — searching from after the opening tag.
-        // Case-insensitive + whitespace-tolerant so </STYLE> and </style > also
-        // close the block (HTML tag names are not case-sensitive). Content inside
-        // <style> is CSS, not VBScript, so the close cannot be hidden in a string.
-        const { index: styleClose, length: closeLen } = findClosingTag(text, 'style', styleTagEnd + 1);
-        if (styleClose === -1 || offset <= styleClose) {
-            return true; // offset is inside this block
-        }
-
-        searchFrom = styleClose + closeLen;
-    }
+    return getCssBlockRanges(text).some(block => offset >= block.start && offset <= block.end);
 }
 
 /**
@@ -415,7 +389,16 @@ function isVbScriptTag(attrs: string): boolean {
  * (rename's occurrence scanner, for one).
  */
 export function getVbScriptBlockRanges(text: string): Array<{ start: number; end: number }> {
-    const ranges: Array<{ start: number; end: number }> = [];
+    return scriptBlocks(text).filter(block => isVbScriptTag(block.attrs)).map(({ start, end }) => ({ start, end }));
+}
+
+/**
+ * Every real `<script>` block, whatever its language: the body (from after the
+ * opening tag's `>` to the `</script>`, or end of file when unclosed) and the
+ * opening tag's attributes.
+ */
+function scriptBlocks(text: string): Array<{ start: number; end: number; attrs: string }> {
+    const blocks: Array<{ start: number; end: number; attrs: string }> = [];
     let searchFrom = 0;
 
     while (true) {
@@ -427,17 +410,13 @@ export function getVbScriptBlockRanges(text: string): Array<{ start: number; end
 
         const attrs = text.slice(scriptOpen + '<script'.length, scriptTagEnd);
         const { index: scriptClose, length: closeLen } = findClosingTag(text, 'script', scriptTagEnd + 1);
-        const bodyEnd = scriptClose === -1 ? text.length : scriptClose;
-
-        if (isVbScriptTag(attrs)) {
-            ranges.push({ start: scriptTagEnd + 1, end: bodyEnd });
-        }
+        blocks.push({ start: scriptTagEnd + 1, end: scriptClose === -1 ? text.length : scriptClose, attrs });
 
         if (scriptClose === -1) { break; }
         searchFrom = scriptClose + closeLen;
     }
 
-    return ranges;
+    return blocks;
 }
 
 /**
@@ -445,17 +424,24 @@ export function getVbScriptBlockRanges(text: string): Array<{ start: number; end
  * the opening tag's `>` and the `</style>` (exclusive), or end-of-file for an
  * unclosed block.
  *
- * isInsideCssBlock walks the same scan to answer about a single offset; this
- * exposes the ranges themselves, for callers that have to visit every block
- * rather than probe one position — the colour decorators, for one.
+ * A `<style>` written inside a script — `var tpl = "<style>…</style>"` — is
+ * script text, not a stylesheet, so it is skipped.
  */
 export function getCssBlockRanges(text: string): Array<{ start: number; end: number }> {
     const ranges: Array<{ start: number; end: number }> = [];
+    const scripts = scriptBlocks(text);
+    let script = 0;
     let searchFrom = 0;
 
     while (true) {
         const styleOpen = findNextRealTag(text, '<style', searchFrom);
         if (styleOpen === -1) { break; }
+
+        while (script < scripts.length && scripts[script].end < styleOpen) { script++; }
+        if (script < scripts.length && scripts[script].start <= styleOpen) {
+            searchFrom = scripts[script].end;
+            continue;
+        }
 
         const styleTagEnd = findTagEnd(text, styleOpen);
         if (styleTagEnd === -1) { break; }
@@ -511,30 +497,13 @@ export function getAspBlockRanges(text: string): Array<{ start: number; end: num
  * as 'asp' and 'html' — not 'js'. Bounds are INCLUSIVE, as in getCssBlockRanges.
  */
 export function getJsBlockRanges(text: string): Array<{ start: number; end: number }> {
-    const ranges: Array<{ start: number; end: number }> = [];
-    let searchFrom = 0;
-
-    while (true) {
-        const scriptOpen = findNextRealTag(text, '<script', searchFrom);
-        if (scriptOpen === -1) { break; }
-
-        const scriptTagEnd = findTagEnd(text, scriptOpen);
-        if (scriptTagEnd === -1) { break; }
-
-        const attrs = text.slice(scriptOpen + 7, scriptTagEnd);
-        const { index: scriptClose, length: closeLen } = findClosingTag(text, 'script', scriptTagEnd + 1);
-
-        const typeMatch = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
-        const isNonJs   = typeMatch && !/javascript|module/i.test(typeMatch[1]);
-        if (!isVbScriptTag(attrs) && !isNonJs) {
-            ranges.push({ start: scriptTagEnd + 1, end: scriptClose === -1 ? text.length : scriptClose });
-        }
-
-        if (scriptClose === -1) { break; }
-        searchFrom = scriptClose + closeLen;
-    }
-
-    return ranges;
+    return scriptBlocks(text)
+        .filter(({ attrs }) => {
+            const typeMatch = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
+            const isNonJs   = typeMatch && !/javascript|module/i.test(typeMatch[1]);
+            return !isVbScriptTag(attrs) && !isNonJs;
+        })
+        .map(({ start, end }) => ({ start, end }));
 }
 
 /** A `%>` outside every block, or a `<%` that is never closed. */

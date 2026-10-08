@@ -1,21 +1,22 @@
 /**
  * cssDiagnosticsProvider.ts
- * Provides CSS validation diagnostics (errors and warnings) inside <style> blocks in .asp files using vscode-css-languageservice.
+ * Provides CSS validation diagnostics (errors and warnings) inside <style> blocks
+ * and style="" attributes in .asp files using vscode-css-languageservice.
  * Runs on every document change and on open/close.
  */
 
 import * as vscode from 'vscode';
+import type { DiagnosticSeverity as LsSeverity } from 'vscode-css-languageservice';
 import { CHECK_DELAY, cssCode, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
+import { buildInlineCssDoc, cssLanguageService, cssLanguageServiceModule, inlinePageOffset, inlineStyleValues } from './cssUtils';
+import { getParsedCssBlocks, pagePosition } from './cssPageStylesheet';
+import { textOf, zonesFor } from '../platform/documentState';
 
 /** The CSS service's code for a problem (a string, a number or { value }), as one of ours. */
 function codeOf(d: { code?: unknown }): `css-${string}` {
     const value = typeof d.code === 'object' && d.code !== null ? (d.code as { value: string | number }).value : d.code;
     return cssCode(typeof value === 'string' || typeof value === 'number' ? value : 'validation');
 }
-import type { DiagnosticSeverity as LsSeverity } from 'vscode-css-languageservice';
-import { getInlineStyleContext, buildInlineCssDoc, cssLanguageService, cssLanguageServiceModule } from './cssUtils';
-import { getParsedCssBlocks, pagePosition } from './cssPageStylesheet';
-import { createZoneResolver, findNextRealTag, findTagEnd, findClosingTag } from '../core/zoneUtils';
 
 function mapSeverity(severity: LsSeverity | undefined): vscode.DiagnosticSeverity {
     const { DiagnosticSeverity: LsSeverity } = cssLanguageServiceModule();
@@ -30,9 +31,9 @@ function mapSeverity(severity: LsSeverity | undefined): vscode.DiagnosticSeverit
 
 /**
  * Returns true if `pos` falls inside an HTML comment (<!-- ... -->).
- * Used to skip <style>/<script> text that appears inside comment blocks,
- * because getZone returns 'html' for comment interiors (comments are not
- * a distinct zone) so the zone check alone is not enough.
+ * Used to skip a style attribute inside a comment, because a comment's inside
+ * is in the 'html' zone (comments are not a zone of their own), so the zone
+ * check alone is not enough.
  */
 function isInsideHtmlComment(content: string, pos: number): boolean {
     let searchFrom = 0;
@@ -55,56 +56,13 @@ function validateDocument(
         return;
     }
 
-    const fullText = document.getText();
+    const fullText = textOf(document);
     const diagnostics: vscode.Diagnostic[] = [];
 
-    // getZone answers about one offset by rescanning the document from the top.
-    // It used to be called once per <style> block and once per style="" attribute,
-    // so a page with many of either rescanned itself once for each. This builds
-    // the zone map once and answers from it; zoneResolver.test.ts asserts the two
-    // agree at every offset of a document.
-    const zones = createZoneResolver(fullText);
-
-    // Every <style> body worth validating, collected first so the whole page can
-    // be built and parsed once instead of once per block.
-    const blockRanges: Array<{ start: number; end: number }> = [];
-
-    // Scan through all <style> blocks in the document. findNextRealTag skips a
-    // <style that appears inside an HTML comment, an ASP block, or another tag's
-    // attribute value, and matches case-insensitively.
-    let searchFrom = 0;
-    while (true) {
-        const styleOpen = findNextRealTag(fullText, '<style', searchFrom);
-        if (styleOpen === -1) break;
-
-        // Locate the tag end and matching close the SAME way as getZone/buildCssDoc
-        // (skipping ASP blocks + quoted attribute values, case-insensitive close),
-        // so the probe offset below lands inside the real CSS body. Using a naive
-        // indexOf('>') here previously produced a probe <= the real tag end, which
-        // made buildCssDoc return null and silently dropped diagnostics for any
-        // <style> whose opening tag contained a '>' (e.g. type="<%= x %>").
-        const styleTagEnd = findTagEnd(fullText, styleOpen);
-        if (styleTagEnd === -1) break;
-        const { index: styleClose, length: closeLen } = findClosingTag(fullText, 'style', styleTagEnd + 1);
-        const advance = styleClose === -1 ? fullText.length : styleClose + closeLen;
-
-        // findNextRealTag does not model <script> rawtext, so a <style> literal
-        // inside a <script> block could still match; the zone guard rejects it.
-        // (getZone returns 'html' for comment interiors, so keep the explicit
-        // comment check too.)
-        if (isInsideHtmlComment(fullText, styleOpen) || zones.zoneAt(styleOpen) !== 'html') {
-            searchFrom = advance;
-            continue;
-        }
-
-        blockRanges.push({
-            start: styleTagEnd + 1,
-            end: styleClose === -1 ? fullText.length : styleClose,
-        });
-
-        if (styleClose === -1) break;
-        searchFrom = advance;
-    }
+    // The zone map's <style> blocks: real ones only, not one inside an HTML
+    // comment, a <% %> block, another tag's attribute or a script's string.
+    const zones = zonesFor(document);
+    const blockRanges = zones.cssBlocks;
 
     // Each block's document holds only that block, so the language service
     // reports positions relative to it; pagePosition shifts them back.
@@ -128,66 +86,28 @@ function validateDocument(
     }
 
     // ── Inline style="" attribute validation ─────────────────────────────────
-    // Scan every line for style="..." attributes and validate the declarations.
-    for (let lineIdx = 0; lineIdx < document.lineCount; lineIdx++) {
-        const lineText   = document.lineAt(lineIdx).text;
-        const lineOffset = document.offsetAt(new vscode.Position(lineIdx, 0));
+    for (const value of inlineStyleValues(fullText)) {
+        // Only a real HTML attribute is validated: a style attribute written in
+        // a JavaScript string — `var tpl = '<div style="colour: red">x</div>'` —
+        // or in a VBScript one is text there, and warning about it would be
+        // warning about a string literal. The inside of an HTML comment is in
+        // the markup zone, so it is ruled out on its own.
+        if (zones.zoneAt(value.valueStart) !== 'html') { continue; }
+        if (isInsideHtmlComment(fullText, value.valueStart)) { continue; }
 
-        // Walk along the line looking for style=" occurrences
-        let searchCol = 0;
-        while (searchCol < lineText.length) {
-            // Find next style= on this line
-            const styleMatch = lineText.slice(searchCol).match(/\bstyle\s*=\s*(["'])/i);
-            if (!styleMatch) break;
+        const lsDoc = buildInlineCssDoc(document.uri.toString(), fullText, document.version, value.valueStart, value.valueEnd);
+        const stylesheet = cssLanguageService().parseStylesheet(lsDoc);
 
-            const matchStart  = searchCol + styleMatch.index!;
-            const quoteChar   = styleMatch[1];
-            const valueStart  = matchStart + styleMatch[0].length;
-            const valueEnd    = lineText.indexOf(quoteChar, valueStart);
-            if (valueEnd === -1) break;
+        for (const d of cssLanguageService().doValidation(lsDoc, stylesheet)) {
+            // Back from the virtual "* { … }" document to the page.
+            const start = inlinePageOffset(value.valueStart, lsDoc.offsetAt(d.range.start));
+            const end   = Math.min(inlinePageOffset(value.valueStart, lsDoc.offsetAt(d.range.end)), value.valueEnd);
+            if (start < value.valueStart) { continue; }
 
-            const offset = lineOffset + valueStart;
-
-            // Only a real HTML attribute is validated. Excluding just 'css' and
-            // 'asp' left zone 'js' through, so a style attribute written inside a
-            // JavaScript string — `var tpl = '<div style="colour: red">x</div>'` —
-            // was pulled out and validated as CSS, warning about a string literal.
-            // getZone returns 'html' for comment interiors, so the comment check
-            // below is still needed.
-            if (zones.zoneAt(offset) !== 'html') { searchCol = valueEnd + 1; continue; }
-            if (isInsideHtmlComment(fullText, offset)) { searchCol = valueEnd + 1; continue; }
-
-            const inlineCtx = getInlineStyleContext(fullText, offset);
-            if (!inlineCtx) { searchCol = valueEnd + 1; continue; }
-
-            const lsDoc = buildInlineCssDoc(
-                document.uri.toString(),
-                fullText,
-                document.version,
-                inlineCtx.valueStart,
-                inlineCtx.valueEnd
-            );
-            const stylesheet   = cssLanguageService().parseStylesheet(lsDoc);
-            const lsDiagnostics = cssLanguageService().doValidation(lsDoc, stylesheet);
-
-            for (const d of lsDiagnostics) {
-                // Remap positions from the virtual "* { ... }" doc back to the real line.
-                // The virtual doc has a 5-char prefix ("* {  ") so subtract it, then
-                // add back the real valueStart column.
-                const WRAPPER_PREFIX = 5;
-                const realCol = (d.range.start.character - WRAPPER_PREFIX) + (valueStart - lineOffset);
-                if (realCol < 0) continue;
-
-                const start = new vscode.Position(lineIdx, realCol);
-                const end   = new vscode.Position(
-                    lineIdx,
-                    realCol + (d.range.end.character - d.range.start.character)
-                );
-
-                diagnostics.push(makeDiagnostic(new vscode.Range(start, end), d.message, mapSeverity(d.severity), codeOf(d)));
-            }
-
-            searchCol = valueEnd + 1;
+            diagnostics.push(makeDiagnostic(
+                new vscode.Range(document.positionAt(start), document.positionAt(Math.max(start, end))),
+                d.message, mapSeverity(d.severity), codeOf(d),
+            ));
         }
     }
 
