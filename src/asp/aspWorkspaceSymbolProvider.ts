@@ -16,7 +16,7 @@ import * as vscode from 'vscode';
 import { onSettingsChange, otherSetting } from '../platform/settings';
 import * as fs from 'fs';
 import * as path from 'path';
-import { extractSymbols } from '../vbscript/symbolParser';
+import { symbolsFromTree } from '../vbscript/symbols';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // File discovery
@@ -209,7 +209,7 @@ function getSymbolsForFile(filePath: string): vscode.SymbolInformation[] {
     try { text = fs.readFileSync(filePath, 'utf8'); }
     catch { return []; }
 
-    const raw     = extractSymbols(text, filePath);
+    const raw     = symbolsFromTree(text, filePath);
     const fileUri = vscode.Uri.file(filePath);
     const symbols: vscode.SymbolInformation[] = [];
 

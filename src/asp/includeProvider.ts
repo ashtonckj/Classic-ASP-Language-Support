@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { extractSymbols, FileSymbols } from '../vbscript/symbolParser';
+import type { FileSymbols } from '../vbscript/symbolParser';
 import { parseIncludeDirectives, resolveIncludeDirective, resolveIncludePathsIn } from '../core/includeDirectives';
 import { defaultIncludesSetting, virtualRootSetting } from '../platform/settings';
 import { loadIncludeTree } from '../workers/analysisClient';
@@ -134,7 +134,7 @@ interface PendingIncludeLoad {
 }
 
 const _includeSymbolCache = new Map<string, IncludeSymbolCacheEntry>();
-// Bumped on every write to _includeSymbolCache. collectAllSymbols memoises its
+// Bumped on every write to _includeSymbolCache. collectIncludeSymbols memoises its
 // result per document version, and a document's version does NOT change when a
 // worker finishes loading its includes — so the memo keys on this as well, or
 // the first result computed before the includes arrived would stick.
@@ -274,16 +274,8 @@ function appendCachedIncludeSymbols(target: FileSymbols, fsPath: string, visited
 }
 
 /**
- * Every symbol visible to a document: its own, plus its includes'.
- *
- * Memoised per document version. Seven providers call this — semantic tokens on
- * every edit, completion on every keystroke with the suggest widget open, hover
- * on every mouse rest, rename twice in one operation — and each call re-parsed
- * the whole document from scratch, which is ~20 ms on a 12k-line file. Between
- * two keystrokes nothing it reads has changed, so the second parse onwards was
- * pure waste.
- *
- * Callers treat the result as read-only; nothing mutates the returned arrays.
+ * A result kept per document version and include epoch (the include symbols
+ * change without the document's version changing).
  *
  * Keyed by the document itself, not its URI: a file closed and opened again, or
  * a new Untitled-1 after the last one was closed, starts over at version 1, and
@@ -291,32 +283,6 @@ function appendCachedIncludeSymbols(target: FileSymbols, fsPath: string, visited
  * goes when the document does.
  */
 type SymbolMemo = WeakMap<vscode.TextDocument, { version: number; epoch: number; symbols: FileSymbols }>;
-const _combinedSymbolMemo: SymbolMemo = new WeakMap();
-
-export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
-    if (!areIncludeSymbolsReady(document)) {
-        void preloadIncludeSymbols(document);
-    }
-
-    const memo = _combinedSymbolMemo.get(document);
-    if (memo && memo.version === document.version && memo.epoch === _includeSymbolEpoch) {
-        return memo.symbols;
-    }
-
-    const combined = extractSymbols(document.getText(), document.uri.fsPath);
-    const visited = new Set<string>();
-
-    for (const includePath of includeRoots(document)) {
-        appendCachedIncludeSymbols(combined, includePath, visited);
-    }
-
-    _combinedSymbolMemo.set(document, {
-        version: document.version,
-        epoch:   _includeSymbolEpoch,
-        symbols: combined,
-    });
-    return combined;
-}
 
 /**
  * The symbols a document's includes declare, without its own.
@@ -325,7 +291,7 @@ export function collectAllSymbols(document: vscode.TextDocument): FileSymbols {
  * symbols there from the text it is sent. Collecting them here instead meant
  * parsing the whole page on the extension host after every edit.
  *
- * Memoised like collectAllSymbols, so the same object comes back until the
+ * Memoised, so the same object comes back until the
  * document or an include changes — which is how the colouring knows it can reuse
  * its last answer.
  */
@@ -353,8 +319,8 @@ export function collectIncludeSymbols(document: vscode.TextDocument): FileSymbol
 
 
 /**
- * `own`, a page's own symbols, followed by what its includes declare: what
- * collectAllSymbols gives, for own symbols read elsewhere (the VBScript worker).
+ * `own`, a page's own symbols (as the VBScript worker read them), followed by
+ * what its includes declare: every symbol the page can see.
  */
 export function withIncludeSymbols(document: vscode.TextDocument, own: FileSymbols): FileSymbols {
     const includes = collectIncludeSymbols(document);

@@ -7,7 +7,8 @@
  */
 
 import * as fs from 'node:fs/promises';
-import { extractSymbols, type FileSymbols } from '../vbscript/symbolParser';
+import type { FileSymbols } from '../vbscript/symbolParser';
+import { symbolsFromTree } from '../vbscript/symbols';
 import { resolveIncludePathsIn } from '../core/includeDirectives';
 import { serveWorker, type WorkerAnswer } from './serveWorker';
 import { pathKey } from '../core/paths';
@@ -62,7 +63,7 @@ async function loadTree(
     const children = resolveIncludePathsIn(text, filePath, virtualRoot);
     results.push({
         filePath,
-        symbols: extractSymbols(text, filePath),
+        symbols: symbolsFromTree(text, filePath),
         children,
     });
 

@@ -1,15 +1,14 @@
 /**
  * symbolParser.ts
  *
- * The VBScript symbol list: text in, declared symbols out. The symbols come
- * from the syntax tree in src/vbscript; this file keeps the shape every
- * feature consumes, plus two small helpers that still read raw lines.
+ * The shape of a page's declared symbols (FileSymbols), which symbolsFromTree
+ * (symbols.ts) fills and every feature reads, plus two small helpers that still
+ * read raw lines.
  *
  * Deliberately imports NO vscode APIs, and neither does anything it imports:
  * the colouring and include workers run on threads with no vscode module.
  */
 
-import { symbolsFromTree } from './symbols';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -110,18 +109,4 @@ export function callIsWholeExpression(line: string, openParen: number): boolean 
     }
 
     return false;   // unbalanced — the statement continues on another line
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Symbol extraction
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Every symbol a page declares, read from its VBScript syntax tree (see
- * src/vbscript). Unlike the line scanner it replaced, the tree knows a one-line
- * `If … Then x = 1`, a second `<% %>` block on a line and `<% Option Explicit %>`,
- * and never reads HTML attributes such as `onclick="…"` as assignments.
- */
-export function extractSymbols(text: string, filePath: string): FileSymbols {
-    return symbolsFromTree(text, filePath);
 }

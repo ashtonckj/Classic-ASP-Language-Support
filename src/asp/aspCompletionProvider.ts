@@ -5,7 +5,7 @@ import {
 } from '../constants/aspKeywords';
 import { getTextBeforeCursor } from '../platform/documentHelper';
 import { contextAt, textOf } from '../platform/documentState';
-import { areIncludeSymbolsReady, collectAllSymbols, preloadIncludeSymbols, withIncludeSymbols } from './includeProvider';
+import { areIncludeSymbolsReady, preloadIncludeSymbols, withIncludeSymbols } from './includeProvider';
 import { analysedPage } from './vbscriptWorkspace';
 import { COM_METHOD_RETURN_TYPES, COM_TYPE_MAP } from '../constants/comObjects';
 import { callIsWholeExpression } from '../vbscript/symbolParser';
@@ -14,9 +14,8 @@ import { pageBlocks, withObjectAt } from '../vbscript/pageAnalysis';
 import * as path from 'path';
 
 
-// Builds a variable → progId map from the combined symbols collected by
-// collectAllSymbols (current doc + includes + chained COM inference).
-// No need to re-scan the document text here — extractSymbols already did it.
+// Builds a variable → progId map from the page's and its includes' COM variables
+// (chained COM inference included). No need to re-scan the document text here.
 function buildComVarMap(includeComVars: { name: string; progId: string }[]): Map<string, string> {
     const map = new Map<string, string>();
     for (const cv of includeComVars) {
@@ -106,8 +105,8 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         // reads gives the symbols of the newer text, which are as good. Then
         // whatever include symbols are cached.
         const page = await analysedPage(document, token);
-        if (token.isCancellationRequested) { return undefined; }
-        const allSymbols = page ? withIncludeSymbols(document, page.symbols) : collectAllSymbols(document);
+        if (!page || token.isCancellationRequested) { return undefined; }
+        const allSymbols = withIncludeSymbols(document, page.symbols);
         const comVarMap  = buildComVarMap(allSymbols.comVariables);
 
         // ── 1. A member of the With object  e.g. "  .EO" inside With rs ───────
@@ -116,7 +115,7 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         // offer; the keyword and function list is never right here.
         const withDot = /(?:^|[^\w)\].])\.(\w*)$/.exec(lineText);
         if (withDot && !/^\d/.test(withDot[1])) {
-            const object = page?.version === version
+            const object = page.version === version
                 ? withObjectAt(page.blocks.withBlocks, offset)
                 : enclosingWithObject(fullText, position.line, position.character);
             return object ? this.provideWithMembers(object, comVarMap) : [];

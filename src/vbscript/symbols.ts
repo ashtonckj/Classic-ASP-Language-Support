@@ -1,11 +1,10 @@
 /**
  * symbols.ts
  *
- * Reads the declared symbols of a page from its syntax trees, in the same
- * shape extractSymbols returns, so the two can be compared entry by entry and
- * the tree can later stand in for the line scanner behind the same API.
- *
- * Where extractSymbols makes a deliberate choice, this follows it:
+ * Reads the declared symbols of a page from its syntax trees, in the
+ * FileSymbols shape (symbolParser.ts) that completion, the Outline, Ctrl+T and
+ * the colouring read. It took over from a line scanner, and keeps that
+ * scanner's deliberate choices:
  *   - A plain `x = …` records an implicit variable only when the page has no
  *     Option Explicit, and only for a name not seen before.
  *   - A For Each variable is implicit; a For counter is not recorded.
@@ -62,7 +61,7 @@ function valueOf(match: RegExpExecArray | null): string | null {
 export function parsePage(text: string): ParsedPage {
     const programs = pagePrograms(text).map(p => parseProgram(text, p.segments, p.server));
     const lineStarts = [0];
-    // Lines split at `\n` only, as extractSymbols and VS Code's CRLF files count them.
+    // Lines split at `\n` only, as VS Code counts the lines of a CRLF file.
     for (let i = 0; i < text.length; i++) {
         if (text[i] === '\n') { lineStarts.push(i + 1); }
     }

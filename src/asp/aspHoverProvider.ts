@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { collectAllSymbols } from './includeProvider';
+import { withIncludeSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../html/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
 import {
@@ -11,7 +11,7 @@ import * as path from 'path';
 import { declarationsOf, resolveAt, type BoundPage, type Target } from '../vbscript/references';
 import type { Declaration } from '../vbscript/binder';
 import { PROCEDURE_WORD, sourceOf, walkStatements, type ParsedPage } from '../vbscript/symbols';
-import { editorWorkspace } from './vbscriptWorkspace';
+import { analysedPage, editorWorkspace } from './vbscriptWorkspace';
 import { pathKey, samePath } from '../core/paths';
 import { contextAt, textOf } from '../platform/documentState';
 import { enclosingWithObject } from './aspCompletionProvider';
@@ -188,10 +188,11 @@ function constantValue(page: ParsedPage, decl: Declaration): string | undefined 
 
 export class AspHoverProvider implements vscode.HoverProvider {
 
-    provideHover(
+    async provideHover(
         document: vscode.TextDocument,
-        position: vscode.Position
-    ): vscode.ProviderResult<vscode.Hover> {
+        position: vscode.Position,
+        token?: vscode.CancellationToken,
+    ): Promise<vscode.Hover | null | undefined> {
 
         const lineText = document.lineAt(position.line).text;
 
@@ -221,7 +222,12 @@ export class AspHoverProvider implements vscode.HoverProvider {
         // show variable/function/keyword hovers.
         if (isInVbString(lineText, position.character, codeStart)) { return null; }
 
-        const allSymbols = collectAllSymbols(document);
+        // The page's own symbols as the VBScript worker read them, as completion
+        // takes them, rather than parsing the page again here; then its includes'.
+        const version = document.version;
+        const page = await analysedPage(document, token);
+        if (!page || token?.isCancellationRequested || document.version !== version) { return null; }
+        const allSymbols = withIncludeSymbols(document, page.symbols);
 
         // ── 1. COM member after dot — e.g. rs.EOF, conn.Execute ──────────────
         // A bare `.EOF` inside `With rs` is a member of rs.

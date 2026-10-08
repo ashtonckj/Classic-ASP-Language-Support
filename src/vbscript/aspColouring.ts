@@ -74,7 +74,7 @@ function lineStartsOf(text: string): number[] {
     return starts;
 }
 
-/** The page's own symbols followed by its includes', in the order collectAllSymbols gives them. */
+/** The page's own symbols followed by its includes', as completion sees them. */
 function withIncludes(own: FileSymbols, includes: FileSymbols): FileSymbols {
     own.variables.push(...includes.variables);
     own.constants.push(...includes.constants);
