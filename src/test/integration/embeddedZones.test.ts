@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import { typeText } from './_typing';
 
 // Close what the test opened. Each test here opens a document and never closed
 // it, so across a full run the editors accumulated -- by the time the later
@@ -173,7 +174,7 @@ suite('Zone-aware editing survives the embedded-language mapping (integration)',
         const col = editor.document.lineAt(line).text.length;
         editor.selection = new vscode.Selection(line, col, line, col);
         for (const ch of text) {
-            await vscode.commands.executeCommand('type', { text: ch });
+            await typeText(ch);
             await sleep(20);
         }
         await sleep(120);

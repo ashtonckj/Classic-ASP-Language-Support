@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as os from 'os';
+import { typeText } from './_typing';
 
 // Close what the test opened. Each test here opens a document and never closed
 // it, so across a full run the editors accumulated -- by the time the later
@@ -116,7 +117,7 @@ suite('Emmet abbreviations need no setting at all (integration)', () => {
         const doc = editor.document;
         editor.selection = new vscode.Selection(2, 0, 2, 0);
         for (const ch of 'ul>li*3') {
-            await vscode.commands.executeCommand('type', { text: ch });
+            await typeText(ch);
             await sleep(40);
         }
         await sleep(400);
@@ -144,7 +145,7 @@ suite('Emmet abbreviations need no setting at all (integration)', () => {
         );
         editor.selection = new vscode.Selection(2, 0, 2, 0);
         for (const ch of 'ul>li*3') {
-            await vscode.commands.executeCommand('type', { text: ch });
+            await typeText(ch);
             await sleep(40);
         }
         await sleep(600);
@@ -293,7 +294,7 @@ suite('Emmet expands on Tab without the global setting (integration)', () => {
         editor.selection = new vscode.Selection(3, 0, 3, 0);
 
         for (const ch of 'Response.CharSet') {
-            await vscode.commands.executeCommand('type', { text: ch });
+            await typeText(ch);
             await sleep(40);
         }
         await sleep(500);
