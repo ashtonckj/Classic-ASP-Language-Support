@@ -1,10 +1,11 @@
 /**
  * jsAnalysisWorker.ts  (workers/)
  *
- * A worker thread that runs the two pieces of JavaScript analysis that are
- * recomputed after every edit whether or not the user asked for anything:
- * semantic classification (type-aware colouring) and semantic/syntactic
- * diagnostics (the error squiggles).
+ * A worker thread that runs the JavaScript analysis that is recomputed after
+ * every edit whether or not the user asked for anything: semantic
+ * classification (type-aware colouring), semantic/syntactic diagnostics (the
+ * error squiggles), and the Outline, read off the syntax tree the first two
+ * have already parsed.
  *
  * Why these two and not the rest. TypeScript resolves types lazily, so a query
  * about ONE offset — a completion, a hover, a Go to Definition — only checks
@@ -22,7 +23,8 @@
  */
 
 import * as ts from 'typescript';
-import { buildVirtualJsContent, getJsLanguageService } from '../js/jsUtils';
+import { buildVirtualJsContent, getJsLanguageService, VIRTUAL_FILENAME } from '../js/jsUtils';
+import { jsOutline, type JsOutlineSymbol } from '../js/jsOutline';
 import { getJsBlockRanges } from '../core/zoneUtils';
 import { serveWorker, type WorkerAnswer } from './serveWorker';
 
@@ -48,17 +50,21 @@ export interface JsAnalysisResult extends WorkerAnswer {
     /** Classification triples: [virtualOffset, length, encoded] × n. */
     spans: number[];
     diagnostics: PlainJsDiagnostic[];
+    /** The Outline's entries, in page offsets. */
+    outline: JsOutlineSymbol[];
+    /** Why the Outline is empty, when working it out threw; the rest still stands. */
+    outlineError?: string;
 }
 
 function analyse(request: JsAnalysisRequest): JsAnalysisResult {
     const empty: JsAnalysisResult = {
-        id: request.id, jsRanges: [], preambleLength: 0, spans: [], diagnostics: [],
+        id: request.id, jsRanges: [], preambleLength: 0, spans: [], diagnostics: [], outline: [],
     };
 
     const jsRanges = getJsBlockRanges(request.text);
     if (jsRanges.length === 0) { return empty; }
 
-    const { virtualContent, preambleLength } = buildVirtualJsContent(request.text, 0);
+    const { virtualContent, preambleLength } = buildVirtualJsContent(request.text, 0, jsRanges);
 
     const svc = getJsLanguageService();
     svc.updateContent(virtualContent);
@@ -85,17 +91,30 @@ function analyse(request: JsAnalysisRequest): JsAnalysisResult {
         });
     }
 
+    // The tree the service has just parsed; a half-typed script that trips the
+    // walk costs the Outline this once, not the colours and squiggles.
+    let outline: JsOutlineSymbol[] = [];
+    let outlineError: string | undefined;
+    try {
+        const sourceFile = svc.getProgram()?.getSourceFile(VIRTUAL_FILENAME);
+        if (sourceFile) { outline = jsOutline(ts, sourceFile, jsRanges, preambleLength); }
+    } catch (err) {
+        outlineError = err instanceof Error ? err.stack ?? err.message : String(err);
+    }
+
     return {
         id: request.id,
         jsRanges,
         preambleLength,
         spans: Array.from(classified.spans),
         diagnostics,
+        outline,
+        outlineError,
     };
 }
 
 // Analysis is best-effort: a half-typed document that trips the parser must
 // cost this one refresh, not the worker.
 serveWorker<JsAnalysisRequest, JsAnalysisResult>(analyse, request => ({
-    id: request.id, jsRanges: [], preambleLength: 0, spans: [], diagnostics: [],
+    id: request.id, jsRanges: [], preambleLength: 0, spans: [], diagnostics: [], outline: [],
 }));

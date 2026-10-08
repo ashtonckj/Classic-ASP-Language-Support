@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { JsDocumentSymbolProvider } from '../../js/jsDocumentSymbolProvider';
+import { outlineOnHost } from '../../js/jsDocumentSymbolProvider';
 import { disposeJsLanguageService } from '../../js/jsUtils';
 import { fakeDocument } from './_helpers';
 
@@ -16,16 +16,10 @@ after(() => { disposeJsLanguageService(); });
 
 const fakeDoc = (text: string): vscode.TextDocument => fakeDocument(text, { fsPath: 'C:\\site\\page.asp' });
 
-const provider = new JsDocumentSymbolProvider();
-const NOT_CANCELLED = { isCancellationRequested: false } as vscode.CancellationToken;
-
-const symbolsFor = (script: string): vscode.DocumentSymbol[] => {
-    const result = provider.provideDocumentSymbols(
-        fakeDoc(`<script>\n${script}\n</script>\n`),
-        NOT_CANCELLED,
-    );
-    return (result as vscode.DocumentSymbol[]) ?? [];
-};
+// The worker reads the same outline (jsOutline.ts) off the tree it parsed; the
+// host path is the one a test can call without starting a thread.
+const symbolsFor = (script: string): vscode.DocumentSymbol[] =>
+    outlineOnHost(fakeDoc(`<script>\n${script}\n</script>\n`));
 
 const names = (script: string) => symbolsFor(script).map(s => s.name).sort();
 

@@ -313,6 +313,11 @@ export async function loadIncludeTree(
     return result && !result.failed ? result.entries : undefined;
 }
 
+/** False when the JavaScript worker cannot run; the Outline is then worked out on the host. */
+export function jsWorkerUsable(): boolean {
+    return jsWorker.usable;
+}
+
 /** False when the VBScript worker cannot run, and the host has to read pages itself. */
 export function vbscriptWorkerUsable(): boolean {
     return vbscriptWorker.usable;

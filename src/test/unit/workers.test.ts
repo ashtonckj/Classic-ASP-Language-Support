@@ -58,6 +58,14 @@ describe('worker entries', function () {
         });
     }
 
+    it('the JavaScript worker sends the Outline, at the page\'s offsets', async () => {
+        const page = '<% x = 1 %>\n<script>\nfunction greet(name) {}\nconst API = "x";\n</script>\n';
+        const [answer] = await ask('jsAnalysisWorker.js', [{ id: 1, text: page }]) as
+            Array<Answer & { outline: Array<{ name: string; kind: string; nameStart: number }> }>;
+        assert.deepStrictEqual(answer.outline.map(s => `${s.kind} ${s.name}`), ['function greet', 'constant API']);
+        assert.strictEqual(page.slice(answer.outline[0].nameStart, answer.outline[0].nameStart + 5), 'greet');
+    });
+
     it('the include worker reads an open file from the text it is sent', async () => {
         const [answer] = await ask('includeSymbolWorker.js', [
             { id: 1, roots: ['C:/inc.asp'], virtualRoot: 'C:/', openFiles: { 'c:/inc.asp': '<% Dim y %>' } },
