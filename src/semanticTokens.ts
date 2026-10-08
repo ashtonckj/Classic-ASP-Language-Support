@@ -15,20 +15,59 @@ import { guarded } from './platform/guardedProvider';
 import { AspSemanticTokensProvider } from './asp/aspSemanticProvider';
 import { JsSemanticTokensProvider, COMBINED_SEMANTIC_LEGEND } from './js/jsSemanticProvider';
 
-type Token = [line: number, char: number, length: number, type: number, modifiers: number];
+/** Reads delta-encoded token data one token at a time, at its absolute position. */
+class TokenReader {
+    line = 0;
+    char = 0;
+    private at = -5;
 
-/** Delta-encoded SemanticTokens data back to absolute positions. */
-function decodeSemanticTokenData(data: Uint32Array): Token[] {
-    const tokens: Token[] = [];
-    let line = 0, char = 0;
-    for (let i = 0; i + 4 < data.length; i += 5) {
-        const deltaLine = data[i];
-        const deltaChar = data[i + 1];
-        if (deltaLine > 0) { line += deltaLine; char = deltaChar; }
-        else               { char += deltaChar; }
-        tokens.push([line, char, data[i + 2], data[i + 3], data[i + 4]]);
+    constructor(readonly data: Uint32Array) { this.next(); }
+
+    get done(): boolean { return this.at + 4 >= this.data.length; }
+
+    /** True when this reader's token comes first (or at the same place). */
+    before(other: TokenReader): boolean {
+        return this.line !== other.line ? this.line < other.line : this.char <= other.char;
     }
-    return tokens;
+
+    /** Copies the token's length, type and modifiers to `out` at `to`, then moves on. */
+    take(out: Uint32Array, to: number): void {
+        out[to + 2] = this.data[this.at + 2];
+        out[to + 3] = this.data[this.at + 3];
+        out[to + 4] = this.data[this.at + 4];
+        this.next();
+    }
+
+    private next(): void {
+        this.at += 5;
+        if (this.done) { return; }
+        const deltaLine = this.data[this.at];
+        this.line += deltaLine;
+        this.char = deltaLine > 0 ? this.data[this.at + 1] : this.char + this.data[this.at + 1];
+    }
+}
+
+/**
+ * Two token streams, each in position order as VS Code returns them, as one.
+ * Merged in a single pass rather than decoded, sorted and rebuilt: the two
+ * never overlap (one is VBScript, the other JavaScript), so the order is only
+ * ever a choice of which stream's next token comes first.
+ */
+export function mergeSemanticTokens(a: Uint32Array, b: Uint32Array): Uint32Array {
+    const out = new Uint32Array(Math.floor(a.length / 5) * 5 + Math.floor(b.length / 5) * 5);
+    const first = new TokenReader(a);
+    const second = new TokenReader(b);
+    let to = 0, line = 0, char = 0;
+    while (!first.done || !second.done) {
+        const next = second.done || (!first.done && first.before(second)) ? first : second;
+        out[to]     = next.line - line;
+        out[to + 1] = next.line === line ? next.char - char : next.char;
+        line = next.line;
+        char = next.char;
+        next.take(out, to);
+        to += 5;
+    }
+    return out;
 }
 
 export function registerSemanticTokens(context: vscode.ExtensionContext): void {
@@ -56,13 +95,7 @@ export function registerSemanticTokens(context: vscode.ExtensionContext): void {
                         if (!asp) { return js; }
                         if (!js)  { return asp; }
 
-                        // Merge both token streams, sort by position, rebuild.
-                        const all = [...decodeSemanticTokenData(asp.data), ...decodeSemanticTokenData(js.data)];
-                        all.sort((a, b) => a[0] !== b[0] ? a[0] - b[0] : a[1] - b[1]);
-
-                        const builder = new vscode.SemanticTokensBuilder(COMBINED_SEMANTIC_LEGEND);
-                        for (const [l, c, len, type, mod] of all) { builder.push(l, c, len, type, mod); }
-                        return builder.build();
+                        return new vscode.SemanticTokens(mergeSemanticTokens(asp.data, js.data));
                     });
                 },
             }),
