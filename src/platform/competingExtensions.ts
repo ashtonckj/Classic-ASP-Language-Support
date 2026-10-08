@@ -16,14 +16,20 @@
  * disable another extension, so a second button opens it in the Extensions
  * view, where Disable is one click. "Keep Both" is remembered per extension,
  * so one installed later is still pointed out.
+ *
+ * Closing the notification without an answer means "not now": it asks again
+ * at the next start. Closed a second time, it is taken as Keep Both. (It used
+ * to wait a week after a close, by which time nobody remembered why the
+ * colours were odd.)
  */
 
 import * as vscode from 'vscode';
 
-const KEPT_KEY    = 'classicAsp.competingExtensions.kept';
-const SNOOZE_KEY  = 'classicAsp.competingExtensions.askAgainAt';
-/** How long a notification closed without an answer stays quiet. */
-const SNOOZE_MS   = 7 * 24 * 60 * 60 * 1000;
+const KEPT_KEY      = 'classicAsp.competingExtensions.kept';
+/** The ones whose notification was closed once without an answer. */
+const DISMISSED_KEY = 'classicAsp.competingExtensions.dismissed';
+/** The week-long snooze this replaced; cleared when found. */
+const OLD_SNOOZE_KEY = 'classicAsp.competingExtensions.askAgainAt';
 
 /** The parts of an installed extension this reads. */
 export interface ExtensionLike { id: string; packageJSON: any }
@@ -48,12 +54,25 @@ export function findCompetitors(all: readonly ExtensionLike[], selfId: string): 
 }
 
 /** The competitors still worth a notification, given what was answered before. */
-export function competitorsToMention(
-    found: readonly Competitor[], kept: readonly string[], askAgainAt: number, now: number,
-): Competitor[] {
-    if (now < askAgainAt) { return []; }
+export function competitorsToMention(found: readonly Competitor[], kept: readonly string[]): Competitor[] {
     const keep = new Set(kept.map(id => id.toLowerCase()));
     return found.filter(c => !keep.has(c.id.toLowerCase()));
+}
+
+/**
+ * What closing the notification without an answer leaves: each extension
+ * closed on for the first time is remembered as dismissed, and one dismissed
+ * before is now kept.
+ */
+export function afterDismissal(
+    mentioned: readonly Competitor[], kept: readonly string[], dismissed: readonly string[],
+): { kept: string[]; dismissed: string[] } {
+    const before = new Set(dismissed.map(id => id.toLowerCase()));
+    const ids = mentioned.map(c => c.id.toLowerCase());
+    return {
+        kept:      [...kept, ...ids.filter(id => before.has(id))],
+        dismissed: [...dismissed, ...ids.filter(id => !before.has(id))],
+    };
 }
 
 function nameList(competitors: readonly Competitor[]): string {
@@ -103,10 +122,11 @@ function showInExtensions(competitors: readonly Competitor[]): void {
 
 /** Points out other enabled extensions that claim ASP files, and offers to remove them. */
 export async function checkForCompetingExtensions(context: vscode.ExtensionContext): Promise<void> {
-    const kept       = context.globalState.get<string[]>(KEPT_KEY, []);
-    const askAgainAt = context.globalState.get<number>(SNOOZE_KEY, 0);
-    const found      = findCompetitors(vscode.extensions.all, context.extension.id);
-    const mention    = competitorsToMention(found, kept, askAgainAt, Date.now());
+    if (context.globalState.get(OLD_SNOOZE_KEY) !== undefined) { await context.globalState.update(OLD_SNOOZE_KEY, undefined); }
+    const kept      = context.globalState.get<string[]>(KEPT_KEY, []);
+    const dismissed = context.globalState.get<string[]>(DISMISSED_KEY, []);
+    const found     = findCompetitors(vscode.extensions.all, context.extension.id);
+    const mention   = competitorsToMention(found, kept);
     if (mention.length === 0) { return; }
 
     const one       = mention.length === 1;
@@ -127,7 +147,9 @@ export async function checkForCompetingExtensions(context: vscode.ExtensionConte
     } else if (choice === keepBtn) {
         await context.globalState.update(KEPT_KEY, [...kept, ...mention.map(c => c.id.toLowerCase())]);
     } else {
-        // Closed without an answer: not now, but not never.
-        await context.globalState.update(SNOOZE_KEY, Date.now() + SNOOZE_MS);
+        // Closed without an answer: ask again next start, and once only.
+        const next = afterDismissal(mention, kept, dismissed);
+        await context.globalState.update(KEPT_KEY, next.kept);
+        await context.globalState.update(DISMISSED_KEY, next.dismissed);
     }
 }
