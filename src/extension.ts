@@ -42,6 +42,7 @@ import { AspSignatureHelpProvider } from './asp/aspSignatureHelpProvider';
 import { computeLineEdits, computeRangeEdits, resolveEol, toLf } from './platform/editUtils';
 import { prettierSettings } from './platform/settings';
 import { disposeLog, log } from './platform/log';
+import { guarded } from './platform/guardedProvider';
 
 // Shared structure issue check used by both the formatter and the preview.
 //
@@ -162,7 +163,7 @@ export function activate(context: vscode.ExtensionContext) {
         return { fullText, formatted };
     }
 
-    const formatter = vscode.languages.registerDocumentFormattingEditProvider('asp', {
+    const formatter = vscode.languages.registerDocumentFormattingEditProvider('asp', guarded('Format Document', {
         async provideDocumentFormattingEdits(document: vscode.TextDocument): Promise<vscode.TextEdit[]> {
             const result = await formatForDocument(document);
             if (!result) { return []; }
@@ -170,12 +171,12 @@ export function activate(context: vscode.ExtensionContext) {
             const eol = resolveEol(prettierSettings().endOfLine, document);
             return computeLineEdits(document, result.fullText, result.formatted, eol);
         }
-    });
+    }));
 
     // ── Format Selection (Ctrl+K Ctrl+F) ──────────────────────────────────────
     // What Format Document would do, kept to the selected lines; see
     // computeRangeEdits for why the whole page is formatted to get it.
-    const rangeFormatter = vscode.languages.registerDocumentRangeFormattingEditProvider('asp', {
+    const rangeFormatter = vscode.languages.registerDocumentRangeFormattingEditProvider('asp', guarded('Format Selection', {
         async provideDocumentRangeFormattingEdits(document: vscode.TextDocument, range: vscode.Range): Promise<vscode.TextEdit[]> {
             const result = await formatForDocument(document);
             if (!result) { return []; }
@@ -190,7 +191,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
             return edits;
         }
-    });
+    }));
 
     // ── Classic ASP: Preview Formatting ───────────────────────────────────────
     // A diff of what Format Document would change, with nothing applied. This
@@ -211,11 +212,11 @@ export function activate(context: vscode.ExtensionContext) {
 
     // ── Completion providers ──────────────────────────────────────────────────
     const htmlCompletionProvider = vscode.languages.registerCompletionItemProvider(
-        'asp', new HtmlCompletionProvider(), '<', '/', ' ', '='
+        'asp', guarded('HtmlCompletionProvider', new HtmlCompletionProvider()), '<', '/', ' ', '='
     );
 
     const aspCompletionProvider = vscode.languages.registerCompletionItemProvider(
-        'asp', new AspCompletionProvider(), '.', ' '
+        'asp', guarded('AspCompletionProvider', new AspCompletionProvider()), '.', ' '
     );
 
     // Trigger chars are limited to punctuation that genuinely starts or
@@ -226,7 +227,7 @@ export function activate(context: vscode.ExtensionContext) {
     // triggers caused the provider to be invoked on every keystroke anywhere
     // in the file, not just inside CSS zones.
     const cssCompletionProvider = vscode.languages.registerCompletionItemProvider(
-        'asp', new CssCompletionProvider(),
+        'asp', guarded('CssCompletionProvider', new CssCompletionProvider()),
         ':', ';', '-', ' ', '{', '('
     );
 
@@ -236,7 +237,7 @@ export function activate(context: vscode.ExtensionContext) {
     // filtering the returned list as the user continues typing, and
     // isIncomplete:false tells it the list is already complete.
     const jsCompletionProvider = vscode.languages.registerCompletionItemProvider(
-        'asp', new JsCompletionProvider(),
+        'asp', guarded('JsCompletionProvider', new JsCompletionProvider()),
         '.', '('
     );
 
@@ -245,13 +246,13 @@ export function activate(context: vscode.ExtensionContext) {
     // language and would offer markup inside <% %> — see the provider for what
     // Emmet's own guard does and does not catch.
     const emmetCompletionProvider = vscode.languages.registerCompletionItemProvider(
-        'asp', new EmmetCompletionProvider(),
+        'asp', guarded('EmmetCompletionProvider', new EmmetCompletionProvider()),
         '!', '.', '}', ':', '*', '$', ']', '/', '>', '-',
         '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
     );
 
     const includePathProvider = vscode.languages.registerCompletionItemProvider(
-        'asp', new IncludePathCompletionProvider(),
+        'asp', guarded('IncludePathCompletionProvider', new IncludePathCompletionProvider()),
         '"', "'", '/', '\\', '.',
         'a','b','c','d','e','f','g','h','i','j','k','l','m',
         'n','o','p','q','r','s','t','u','v','w','x','y','z',
@@ -262,15 +263,15 @@ export function activate(context: vscode.ExtensionContext) {
 
     // ── Document link providers ───────────────────────────────────────────────
     const includeDocumentLinkProvider = vscode.languages.registerDocumentLinkProvider(
-        'asp', new IncludeDocumentLinkProvider()
+        'asp', guarded('IncludeDocumentLinkProvider', new IncludeDocumentLinkProvider())
     );
 
     const htmlAttributeLinkProvider = vscode.languages.registerDocumentLinkProvider(
-        'asp', new HtmlAttributeLinkProvider()
+        'asp', guarded('HtmlAttributeLinkProvider', new HtmlAttributeLinkProvider())
     );
 
     const htmlAttributePathProvider = vscode.languages.registerCompletionItemProvider(
-        'asp', new HtmlAttributePathCompletionProvider(),
+        'asp', guarded('HtmlAttributePathCompletionProvider', new HtmlAttributePathCompletionProvider()),
         '"', "'", '/', '\\', '.',
         'a','b','c','d','e','f','g','h','i','j','k','l','m',
         'n','o','p','q','r','s','t','u','v','w','x','y','z',
@@ -283,69 +284,69 @@ export function activate(context: vscode.ExtensionContext) {
     // A .css or .html file shows a square beside every colour and opens a picker
     // on click; an ASP page showed nothing, in <style> blocks or style="" alike.
     const cssColorProvider = vscode.languages.registerColorProvider(
-        'asp', new CssColorProvider()
+        'asp', guarded('CssColorProvider', new CssColorProvider())
     );
 
     // ── Go To Definition ──────────────────────────────────────────────────────
     // Two providers, each declining the other's zone: the ASP one resolves
     // VBScript names and #include paths, the JS one symbols in <script> blocks.
     const definitionProvider = vscode.languages.registerDefinitionProvider(
-        'asp', new AspDefinitionProvider()
+        'asp', guarded('AspDefinitionProvider', new AspDefinitionProvider())
     );
 
     const jsDefinitionProvider = vscode.languages.registerDefinitionProvider(
-        'asp', new JsDefinitionProvider()
+        'asp', guarded('JsDefinitionProvider', new JsDefinitionProvider())
     );
 
     // ── References and occurrence highlighting ────────────────────────────────
     // Without these VS Code matches the word as plain TEXT, so a `total` inside
     // a string or a comment highlights as though it were the variable.
     const referenceProvider = vscode.languages.registerReferenceProvider(
-        'asp', new AspReferenceProvider()
+        'asp', guarded('AspReferenceProvider', new AspReferenceProvider())
     );
 
     const jsReferenceProvider = vscode.languages.registerReferenceProvider(
-        'asp', new JsReferenceProvider()
+        'asp', guarded('JsReferenceProvider', new JsReferenceProvider())
     );
 
     const jsDocumentHighlightProvider = vscode.languages.registerDocumentHighlightProvider(
-        'asp', new JsDocumentHighlightProvider()
+        'asp', guarded('JsDocumentHighlightProvider', new JsDocumentHighlightProvider())
     );
 
     // ── Rename ────────────────────────────────────────────────────────────────
     const renameProvider = vscode.languages.registerRenameProvider(
-        'asp', new AspRenameProvider()
+        'asp', guarded('AspRenameProvider', new AspRenameProvider(), { userErrors: ['prepareRename', 'provideRenameEdits'] })
     );
 
     const jsRenameProvider = vscode.languages.registerRenameProvider(
-        'asp', new JsRenameProvider()
+        'asp', guarded('JsRenameProvider', new JsRenameProvider(), { userErrors: ['prepareRename', 'provideRenameEdits'] })
     );
 
     // ── Document symbols ─────────────────────────────────────────────────────
     const documentSymbolProvider = vscode.languages.registerDocumentSymbolProvider(
-        'asp', new AspDocumentSymbolProvider()
+        'asp', guarded('AspDocumentSymbolProvider', new AspDocumentSymbolProvider())
     );
 
     const jsDocumentSymbolProvider = vscode.languages.registerDocumentSymbolProvider(
-        'asp', new JsDocumentSymbolProvider()
+        'asp', guarded('JsDocumentSymbolProvider', new JsDocumentSymbolProvider())
     );
 
     // ── Signature help ───────────────────────────────────────────────────────
     const aspSignatureHelpProvider = vscode.languages.registerSignatureHelpProvider(
         'asp',
-        new AspSignatureHelpProvider(),
+        guarded('AspSignatureHelpProvider', new AspSignatureHelpProvider()),
         { triggerCharacters: ['('], retriggerCharacters: [','] }
     );
 
     const jsSignatureHelpProvider = vscode.languages.registerSignatureHelpProvider(
         'asp',
-        new JsSignatureHelpProvider(),
+        guarded('JsSignatureHelpProvider', new JsSignatureHelpProvider()),
         { triggerCharacters: ['('], retriggerCharacters: [','] }
     );
 
     // ── Workspace symbol search (Ctrl+T) ─────────────────────────────────────
     const workspaceSymbolProvider = vscode.languages.registerWorkspaceSymbolProvider(
-        new AspWorkspaceSymbolProvider()
+        guarded('AspWorkspaceSymbolProvider', new AspWorkspaceSymbolProvider())
     );
 
     // languageId, not the file extension: the document is open, so VS Code has
@@ -367,8 +368,8 @@ export function activate(context: vscode.ExtensionContext) {
     // runs both sub-providers and merges their delta-encoded token streams.
     // Both sub-providers already share COMBINED_SEMANTIC_LEGEND so all indices
     // and colours are always consistent.
-    const aspSemanticProviderInstance = new AspSemanticTokensProvider();
-    const jsSemanticProviderInstance  = new JsSemanticTokensProvider();
+    const aspSemanticProviderInstance = guarded('AspSemanticTokensProvider', new AspSemanticTokensProvider());
+    const jsSemanticProviderInstance  = guarded('JsSemanticTokensProvider', new JsSemanticTokensProvider());
     context.subscriptions.push(aspSemanticProviderInstance);
 
     // Decode delta-encoded SemanticTokens data back to absolute positions.
@@ -390,7 +391,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     const combinedSemanticProvider = vscode.languages.registerDocumentSemanticTokensProvider(
         'asp',
-        {
+        guarded('Semantic tokens', {
             provideDocumentSemanticTokens(
                 document: vscode.TextDocument,
                 token:    vscode.CancellationToken
@@ -420,38 +421,38 @@ export function activate(context: vscode.ExtensionContext) {
                     return builder.build();
                 });
             }
-        },
+        }),
         COMBINED_SEMANTIC_LEGEND
     );
 
     // ── Void element quick fix ─────────────────────────────────────────────────
     const voidElementQuickFix = vscode.languages.registerCodeActionsProvider(
-        'asp', new VoidElementQuickFixProvider(),
+        'asp', guarded('VoidElementQuickFixProvider', new VoidElementQuickFixProvider()),
         { providedCodeActionKinds: VoidElementQuickFixProvider.providedCodeActionKinds }
     );
 
     // Turns the JS squiggles into something actionable — a misspelt DOM member
     // reports "Did you mean 'getElementById'?", and TypeScript supplies the edit.
     const jsQuickFix = vscode.languages.registerCodeActionsProvider(
-        'asp', new JsCodeActionProvider(),
+        'asp', guarded('JsCodeActionProvider', new JsCodeActionProvider()),
         { providedCodeActionKinds: JsCodeActionProvider.providedCodeActionKinds }
     );
 
     // ── Hover providers ───────────────────────────────────────────────────────
     const aspHoverProvider = vscode.languages.registerHoverProvider(
-        'asp', new AspHoverProvider()
+        'asp', guarded('AspHoverProvider', new AspHoverProvider())
     );
 
     const cssHoverProvider = vscode.languages.registerHoverProvider(
-        'asp', new CssHoverProvider()
+        'asp', guarded('CssHoverProvider', new CssHoverProvider())
     );
 
     const jsHoverProvider = vscode.languages.registerHoverProvider(
-        'asp', new JsHoverProvider()
+        'asp', guarded('JsHoverProvider', new JsHoverProvider())
     );
 
     const htmlHoverProvider = vscode.languages.registerHoverProvider(
-        'asp', new HtmlHoverProvider()
+        'asp', guarded('HtmlHoverProvider', new HtmlHoverProvider())
     );
 
     // ── Linked editing of a tag pair ──────────────────────────────────────────
@@ -460,7 +461,7 @@ export function activate(context: vscode.ExtensionContext) {
     // without the setting marks the pair but does not mirror the typing, in a
     // .html file too.
     const htmlLinkedEditingProvider = vscode.languages.registerLinkedEditingRangeProvider(
-        'asp', new HtmlLinkedEditingProvider()
+        'asp', guarded('HtmlLinkedEditingProvider', new HtmlLinkedEditingProvider())
     );
 
     // ── Key handlers ──────────────────────────────────────────────────────────
