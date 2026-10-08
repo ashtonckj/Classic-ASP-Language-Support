@@ -1,0 +1,49 @@
+# Checks every push and pull request: compile, lint, the unit tests, then the
+# integration tests in a real VS Code window.
+#
+# Windows, as the extension is developed and tested there (and IIS sites live
+# there); a Windows runner also has a desktop, so the integration tests need no
+# virtual display.
+
+name: CI
+
+on:
+    push:
+        branches: ["**"]
+    pull_request:
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    test:
+        runs-on: windows-latest
+        timeout-minutes: 30
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+                  cache: npm
+
+            - name: Install
+              run: npm ci
+
+            - name: Compile
+              run: npm run compile
+
+            - name: Grammar matches src/constants
+              run: node scripts/sync-grammar-keywords.js --check
+
+            - name: Lint
+              run: npm run lint
+
+            - name: Unit tests
+              run: npx mocha
+
+            # Downloads VS Code stable into .vscode-test/ and runs the suite in it.
+            - name: Integration tests
+              run: npx vscode-test
