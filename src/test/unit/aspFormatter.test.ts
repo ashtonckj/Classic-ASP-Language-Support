@@ -94,6 +94,30 @@ describe('applyKeywordCase — a function name is cased only where it is the fun
     });
 });
 
+// The formatter and Enter/Tab read one set of block rules (vbscript/indentRules),
+// keyed on the keyword that starts the statement.
+describe('formatSingleAspBlock — the block rules Enter and Tab use', () => {
+    const format = (code: string) => formatSingleAspBlock(`<%\n${code}\n%>`, DEFAULT_SETTINGS).formatted;
+
+    it('opens nothing at Exit Do, so the rest of the loop keeps its indent', () => {
+        assert.strictEqual(
+            format('Do While x\nIf done Then\nExit Do\nEnd If\ny = 1\nLoop\nz = 2'),
+            '<%\nDo While x\n  If done Then\n    Exit Do\n  End If\n  y = 1\nLoop\nz = 2\n%>',
+        );
+    });
+
+    it('opens nothing at a member named like a keyword', () => {
+        assert.strictEqual(format('a = obj.Do\nb = obj.With\nc = 1'), '<%\na = obj.Do\nb = obj.With\nc = 1\n%>');
+    });
+
+    it('lines a continued string up under the string, even with an = inside it', () => {
+        assert.strictEqual(
+            format('Response.Write "<!-- gap=" & gap & _\n", need=" & need'),
+            '<%\nResponse.Write "<!-- gap=" & gap & _\n               ", need=" & need\n%>',
+        );
+    });
+});
+
 describe('applyKeywordCase — numeric / date literals', () => {
     it('does not break a &H hex literal', () => {
         const out = applyKeywordCase('x = &H1F', 'PascalCase');

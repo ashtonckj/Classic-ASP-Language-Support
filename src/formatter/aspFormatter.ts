@@ -1,6 +1,7 @@
 import { codeWithoutStrings, splitCodeAndComment, vbStatements, vbStringSegments } from '../core/vbLexical';
 import type { FormatterSettings, PrettierSettings } from '../platform/settings';
 import { ASP_MEMBER_DOCS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
+import { getStringAlignColumn, isBlockOpener, VBSCRIPT_BLOCK_CLOSERS } from '../vbscript/indentRules';
 
 // ─── Settings ──────────────────────────────────────────────────────────────
 
@@ -374,14 +375,8 @@ export function applyIndentBefore(
         };
     }
 
-    // Standard dedent-before keywords.
-    // "Next" must NOT match "On Error Resume Next" — that is not a For/Next closer.
-    if (
-        /^\s*end\s+(if|sub|function|with|class|property)\b/.test(lower)             ||
-        (/^\s*(loop|next|wend)(\s|$)/.test(lower) && !/resume\s+next/.test(lower))  ||
-        /^\s*else(\s|$)/.test(lower)                                                 ||
-        /^\s*elseif\b/.test(lower)
-    ) {
+    // A closer, or Else / ElseIf, by the rules Enter and Tab use (indentRules).
+    if (VBSCRIPT_BLOCK_CLOSERS.test(lower) || /^(else|elseif)\b/.test(lower)) {
         return { level: Math.max(0, level - 1) };
     }
 
@@ -410,26 +405,10 @@ export function applyIndentAfter(
     // Case / Case Else — body is one deeper than the Case label.
     if (/^\s*case(\s|$)/.test(lower)) return level + 1;
 
-    // Standard indent-after keywords.
-    // Each rule has a guard to prevent false positives on closing keywords
-    // that happen to contain an opener word (e.g. "End With" contains "With").
-    if (
-        /\bif\b.*\bthen\b/.test(lower)                                              ||
-        /\bfor\b\s+\w+\s*=/.test(lower)                                             ||
-        /\bfor\s+each\b/.test(lower)                                                ||
-        // "While" must NOT match "Loop While ..." (that is a Do/Loop post-condition closer).
-        (/\bwhile\b/.test(lower)   && !/^\s*loop\b/.test(lower))                    ||
-        /\bdo\b(\s+while|\s+until)?(\s|$)/.test(lower)                              ||
-        /\bsub\b\s+\w+/.test(lower)                                                ||
-        /\bfunction\b\s+\w+/.test(lower)                                           ||
-        // "With" must NOT match "End With".
-        (/\bwith\b/.test(lower)    && !/^\s*end\s+with\b/.test(lower))             ||
-        // "Class" must NOT match "End Class".
-        (/\bclass\b\s+\w+/.test(lower) && !/^\s*end\s+class\b/.test(lower))      ||
-        /\bproperty\s+(get|let|set)\b/.test(lower)                                  ||
-        /^\s*else(\s|$)/.test(lower)                                                 ||
-        /^\s*elseif\b.*\bthen\b/.test(lower)
-    ) {
+    // An opener, or Else / ElseIf, by the rules Enter and Tab use (indentRules):
+    // a keyword at the start of the statement, so `Exit Do` and `x = obj.With`
+    // open nothing.
+    if (isBlockOpener(lower) || /^else\b/.test(lower) || /^elseif\b.*\bthen\b/.test(lower)) {
         return level + 1;
     }
 
@@ -534,22 +513,10 @@ function continuationIndent(
         : getIndentString(baseLevel + aspIndentLevel + 1, settings.useTabs, settings.indentSize);
 }
 
+/** The column a line continued after `line` lines up at: under its string, as Enter puts it (indentRules), or -1 for one level in. */
 function calcContinuationColumn(line: string, indent: string): number {
-    const trimmed   = line.trim();
-    const baseLen   = indent.length;
-    const equalsPos = trimmed.indexOf('=');
-
-    if (equalsPos !== -1) {
-        const afterEq = trimmed.slice(equalsPos + 1).trim();
-        if (afterEq.startsWith('"')) {
-            return baseLen + equalsPos + trimmed.slice(equalsPos).indexOf('"');
-        }
-    }
-
-    const quotePos = trimmed.indexOf('"');
-    if (quotePos !== -1) return baseLen + quotePos;
-
-    return -1; // No string — use +1 indent level.
+    const col = getStringAlignColumn(line.trim());
+    return col === -1 ? -1 : indent.length + col;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
