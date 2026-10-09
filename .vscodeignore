@@ -188,3 +188,6 @@ node_modules/@emmetio/**/*.d.ts
 
 # Local notes for Claude, never shipped
 CLAUDE.md
+
+# The author's own release checklist
+RELEASING.md
