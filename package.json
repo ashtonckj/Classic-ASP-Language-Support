@@ -2,7 +2,7 @@
     "name": "classic-asp-language-support",
     "displayName": "Classic ASP Language Support",
     "description": "Classic ASP & VBScript: formatter, IntelliSense, Go to Definition, Rename, error checking and syntax highlighting. For VS Code, and editors that install from Open VSX.",
-    "version": "0.7.0",
+    "version": "0.7.1",
     "icon": "images/icon.png",
     "publisher": "ashtonckj",
     "repository": {

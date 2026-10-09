@@ -5,6 +5,67 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-10-09
+
+### ✨ Added
+- **global.asa** - `.asa` files open as Classic ASP, with warnings for the `<% %>` blocks and objects IIS rejects there
+- **Server objects** - An `<object runat="server">` tag is read as a typed object, so its members are offered and coloured
+- **VBScript `<script>` blocks are formatted** - `<script language="vbscript">` is formatted as VBScript, no longer by Prettier as JavaScript
+- **Silence a warning** - `' asp-ignore-next-line` and `' asp-ignore-file` comments hide a problem, and `Ctrl + .` writes them for you
+- **Hover for every keyword** - `ByVal`, `Mod`, `Nothing`, the class keywords and the rest now explain themselves
+- **Competing extensions** - Another Classic ASP extension that fights over the colours is pointed out, with a button to uninstall it
+- **Open VSX** - Also published on Open VSX, for VSCodium, Cursor and other editors that install from there
+
+### 🛠️ Fixed
+**Formatter**
+- **`Exit Do`** - No longer indents the rest of the loop one level too deep
+- **Continued strings** - A continued line after a string holding `=` lines up under the string's quote again
+- **Built-in functions** - `Hex(` and `Len(` are cased where they are called, while a variable named `hex` or `day` keeps your casing
+- **ASP members** - `Response.End`, `Err.Number`, `conn.Execute` and `Response.CacheControl` are now cased
+- **Commented-out blocks** - A page with `<% 'Response.Write x %>` is no longer refused
+- **JScript pages** - A `<%@ Language="JScript" %>` page is left unformatted, no longer recased as VBScript
+- **Same page, same result** - Formatting a page always wraps it the same way
+- **Clearer refusals** - The message names the first problem and its line, with **Go to Issue**, and stays quiet on format-on-save
+- **Prettier errors** - Point at the line in your page, with **Go to Line**, and the log opens only from **Show Details**
+- **Typing while formatting** - A format that finishes after you typed is dropped instead of undoing your typing
+
+**VBScript**
+- **Loop variables** - An `i` read above its first assignment is the same `i` for rename, F12 and hover
+- **Constants** - `vbRed`, `vbYes` and the other colour and MsgBox constants are known, so `Option Explicit` no longer flags them
+- **Client-side VBScript** - A page's `<script language="vbscript">` blocks share one scope, as the browser runs them
+- **Built-ins without `Dim`** - `hex = 5` is no longer taken as a variable, since IIS refuses it
+- **Deep nesting** - A page nested thousands of levels deep can no longer crash the checks
+- **Hover in comments** - A word inside a comment or string no longer shows function docs
+
+**Highlighting**
+- **Variables named like functions** - `Dim hex, day` and their uses are no longer coloured as functions
+- **Selections inside `<% %>`** - A selection inside an ASP block now looks like a selection anywhere else
+- **`<style>` in a script string** - Is read as script, no longer as CSS
+
+**Messages & Snippets**
+- **No virtual-root pop-up** - Opening a file no longer pops up the virtual include message
+- **SQL notes are hints** - Faint dots worded "SQL colouring may be incomplete here", never advice to change working code
+- **Competing-extension prompt** - Closing it asks again next start, and a second close counts as Keep Both
+- **Snippets** - `rs`, `log`, `qs`, `form`, `input`, `table` and `timeout` no longer pop up while typing VBScript; they are now `rsloop`, `clog`, `qsel`, `form:post`, `input:text`, `table:rows` and `settimeout`
+- **CSS in `style=""`** - A style attribute spanning several lines is now checked
+- **JavaScript completions** - Their details always come from the page you are typing in
+
+### ⚡ Performance
+Measured on an 8,000-line JavaScript page, a 14,000-line VBScript page and a 100-file site.
+- **Typing in a large script** - Hover after an edit went from **150-500 ms** to **70 ms**, and completion to **55 ms**
+- **Go to Definition and hover** - No longer re-read every page in the workspace, which took seconds on a network share
+- **Hover on a large page** - Went from **22 ms** to **under 1 ms**
+- **JavaScript Outline** - No longer parses the script again after every edit, saving **100 ms** each time
+- **Moving the caret** - No longer repaints the ASP highlight
+- **Colouring** - Merging VBScript and JavaScript colours went from **27 ms** to **4 ms**
+- **Long SQL queries** - No longer slow down with the square of their length
+- **Ctrl+T** - Reads the workspace without freezing the editor
+
+### 🔄 Refactored
+- **One standard throughout** - Every feature now shares the same guards, background workers and core code, which keeps them consistent
+
+---
+
 ## [0.7.0] - 2026-09-30
 
 ### ✨ Added
@@ -679,6 +740,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[0.7.1]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.7.1
 [0.7.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.7.0
 [0.6.4]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.4
 [0.6.3]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.6.3
