@@ -10,7 +10,7 @@
 <p align="center">
     <a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img alt="VS Marketplace version" src="https://img.shields.io/badge/Marketplace-0.7.0-b7bdf8?style=for-the-badge&labelColor=363a4f&logo=visual-studio-code&cacheSeconds=86400"/></a>
     <a href="https://open-vsx.org/extension/ashtonckj/classic-asp-language-support"><img alt="Open VSX version" src="https://img.shields.io/open-vsx/v/ashtonckj/classic-asp-language-support?style=for-the-badge&label=Open%20VSX&labelColor=363a4f&color=c6a0f6&cacheSeconds=86400"/></a>
-    <a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img alt="Installs" src="https://vsmarketplacebadges.dev/installs/ashtonckj.classic-asp-language-support.jpg?style=for-the-badge&labelColor=363a4f&color=8aadf4&cacheSeconds=3600"/></a>
+    <a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img alt="Installs, VS Code Marketplace and Open VSX together" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fashtonckj%2FClassic-ASP-Language-Support%2Fbadges%2Finstalls.json&style=for-the-badge&labelColor=363a4f&cacheSeconds=3600"/></a>
     <a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-b7bdf8?style=for-the-badge&labelColor=363a4f&cacheSeconds=86400"/></a>
 </p>
 
