@@ -332,8 +332,8 @@ def end_card(last):
     def logo(name):
         path = f'{os.path.dirname(os.path.abspath(__file__))}/icons/{name}'
         return Image.open(path).convert('RGBA').resize((size, size), Image.LANCZOS) if os.path.exists(path) else None
-    parts = [('text', 'Free on'), ('logo', logo('vscode.png')), ('text', 'VS Code Marketplace'),
-             ('text', 'and'), ('logo', logo('openvsx.png')), ('text', 'Open VSX')]
+    parts = [('text', 'Free on '), ('logo', logo('vscode.png')), ('text', 'VS Code Marketplace'),
+             ('text', 'and '), ('logo', logo('openvsx.png')), ('text', 'Open VSX')]
     parts = [p for p in parts if p[1] is not None]
     widths = [d.textlength(v, font=pf) if k == 'text' else size for k, v in parts]
     total = sum(widths) + gap * (len(parts) - 1)
@@ -344,7 +344,11 @@ def end_card(last):
         if kind == 'text':
             d.text((x, (top + bottom) // 2), value, font=pf, fill=(17, 17, 27), anchor='lm')
         else:
-            bg.paste(value, (int(x), (top + bottom) // 2 - size // 2), value)
+            # On a white disc, so a purple logo still stands out on the purple pill.
+            mid_x, mid_y = int(x) + size // 2, (top + bottom) // 2
+            d.ellipse([mid_x - 16, mid_y - 16, mid_x + 16, mid_y + 16], fill=(255, 255, 255))
+            logo_img = value.resize((20, 20), Image.LANCZOS)
+            bg.paste(logo_img, (mid_x - 10, mid_y - 10), logo_img)
         x += width + gap
     return bg
 
@@ -370,9 +374,16 @@ seq.append(card)
 
 # One palette, built from frames across every theme.
 picks = [seq[int(len(seq) * f)] for f in (0.02, 0.15, 0.4, 0.62, 0.8, 0.86, 0.9, 0.95)] + [card]
-sample = Image.new('RGB', (picks[0].width, picks[0].height * len(picks)))
+sample = Image.new('RGB', (picks[0].width, picks[0].height * (len(picks) + 1)), (255, 255, 255))
 for j, p in enumerate(picks):
     sample.paste(p, (0, p.height * j))
+# The store logos are a few pixels on the end card, too few for their colours to
+# get palette entries of their own; a large copy of each makes sure they do.
+for k, name in enumerate(('vscode.png', 'openvsx.png')):
+    path = f'{os.path.dirname(os.path.abspath(__file__))}/icons/{name}'
+    if os.path.exists(path):
+        big = Image.open(path).convert('RGBA').resize((picks[0].height // 2, picks[0].height // 2))
+        sample.paste(big, (k * picks[0].height // 2, picks[0].height * len(picks)), big)
 palette = sample.quantize(colors=255, method=Image.Quantize.MEDIANCUT)
 
 out, durs, prev_bytes = [], [], None
