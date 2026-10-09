@@ -4,9 +4,6 @@ src/**
 # Compiled unit/integration tests and their vscode stub — dev-only.
 out/test/**
 .gitignore
-.yarnrc
-vsc-extension-quickstart.md
-PARSER-PLAN.md
 **/tsconfig.json
 **/eslint.config.mjs
 **/*.map
@@ -114,7 +111,7 @@ node_modules/typescript/lib/tsserverlibrary.d.ts
 
 # The lib.*.d.ts files ARE read from disk at runtime, so unlike every other
 # dependency's declarations these mostly have to ship. Which ones are needed is
-# decided by makeBrowserCompilerOptions in src/utils/jsUtils.ts:
+# decided by makeBrowserCompilerOptions in src/js/jsUtils.ts:
 #
 #     lib: ['lib.es2020.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts']
 #
@@ -186,8 +183,5 @@ node_modules/@emmetio/**/*.d.ts
 # The older build scripts/build-baseline.js compiles for the parser comparison.
 .baseline/**
 
-# Local notes for Claude, never shipped
-CLAUDE.md
-
-# The author's own release checklist
+# How a release is made, for the maintainer
 RELEASING.md
