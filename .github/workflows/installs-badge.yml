@@ -1,0 +1,48 @@
+# Every hour: adds the VS Code Marketplace installs and the Open VSX downloads
+# together, and writes the total as a shields.io endpoint file to the `badges`
+# branch. The README's Installs badge reads that file, so it stays live like a
+# normal badge (shields.io caches it for an hour).
+
+name: Installs badge
+
+on:
+    schedule:
+        - cron: "17 * * * *"
+    workflow_dispatch:
+
+permissions:
+    contents: write
+
+jobs:
+    count:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Add up both stores
+              run: |
+                  node - <<'EOF'
+                  const id = 'ashtonckj.classic-asp-language-support';
+                  (async () => {
+                      const market = await fetch('https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', Accept: 'application/json;api-version=3.0-preview.1' },
+                          body: JSON.stringify({ filters: [{ criteria: [{ filterType: 7, value: id }] }], flags: 256 }),
+                      }).then(r => r.json());
+                      const installs = market.results[0].extensions[0].statistics.find(s => s.statisticName === 'install').value;
+                      const openVsx = await fetch(`https://open-vsx.org/api/${id.replace('.', '/')}`).then(r => r.json());
+                      const total = Math.round(installs) + openVsx.downloadCount;
+                      if (!Number.isFinite(total)) { throw new Error('a store gave no count'); }
+                      const message = total >= 1000 ? `${(total / 1000).toFixed(1).replace(/\.0$/, '')}k` : String(total);
+                      require('fs').writeFileSync('installs.json', JSON.stringify({ schemaVersion: 1, label: 'installs', message, color: '8aadf4' }));
+                      console.log(`Marketplace ${installs} + Open VSX ${openVsx.downloadCount} = ${total}`);
+                  })().catch(error => { console.error(error); process.exit(1); });
+                  EOF
+
+            - name: Publish to the badges branch
+              run: |
+                  git init -q out && mv installs.json out/ && cd out
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git checkout -q -b badges
+                  git add installs.json
+                  git commit -q -m "chore: updates the installs count"
+                  git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" badges
