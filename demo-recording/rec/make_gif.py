@@ -325,10 +325,27 @@ def end_card(last):
     d.text((w // 2, cy + 30), 'Classic ASP Language Support', font=ImageFont.truetype(F + 'seguisb.ttf', 40), fill=(235, 235, 245), anchor='mm')
     d.text((w // 2, cy + 80), 'Formatter · IntelliSense · Go to Definition · Rename · Diagnostics',
            font=ImageFont.truetype(F + 'segoeui.ttf', 20), fill=(180, 184, 200), anchor='mm')
-    pill, pf = 'Free on the VS Code Marketplace', ImageFont.truetype(F + 'seguisb.ttf', 20)
-    tw = d.textlength(pill, font=pf)
-    d.rounded_rectangle([w // 2 - tw / 2 - 22, cy + 122, w // 2 + tw / 2 + 22, cy + 166], radius=22, fill=(203, 166, 247))
-    d.text((w // 2, cy + 144), pill, font=pf, fill=(17, 17, 27), anchor='mm')
+    # "Free on [icon] VS Code Marketplace and [icon] Open VSX", each store with its
+    # logo from rec/icons/ when the file is there (see demo-recording/README.md).
+    pf = ImageFont.truetype(F + 'seguisb.ttf', 20)
+    size, gap = 24, 8
+    def logo(name):
+        path = f'{os.path.dirname(os.path.abspath(__file__))}/icons/{name}'
+        return Image.open(path).convert('RGBA').resize((size, size), Image.LANCZOS) if os.path.exists(path) else None
+    parts = [('text', 'Free on'), ('logo', logo('vscode.png')), ('text', 'VS Code Marketplace'),
+             ('text', 'and'), ('logo', logo('openvsx.png')), ('text', 'Open VSX')]
+    parts = [p for p in parts if p[1] is not None]
+    widths = [d.textlength(v, font=pf) if k == 'text' else size for k, v in parts]
+    total = sum(widths) + gap * (len(parts) - 1)
+    top, bottom = cy + 122, cy + 166
+    d.rounded_rectangle([w // 2 - total / 2 - 22, top, w // 2 + total / 2 + 22, bottom], radius=22, fill=(203, 166, 247))
+    x = w // 2 - total / 2
+    for (kind, value), width in zip(parts, widths):
+        if kind == 'text':
+            d.text((x, (top + bottom) // 2), value, font=pf, fill=(17, 17, 27), anchor='lm')
+        else:
+            bg.paste(value, (int(x), (top + bottom) // 2 - size // 2), value)
+        x += width + gap
     return bg
 
 
