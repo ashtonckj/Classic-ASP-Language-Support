@@ -10,7 +10,11 @@ import sys
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 REPO = 'C:/Users/stick/Desktop/classic-asp-language-support'
-OUT = sys.argv[1] if len(sys.argv) > 1 else 'demo.gif'
+# Runs from anywhere (a terminal in any folder, or the editor's Run button): the
+# output path is taken as given, then the script works from its own folder,
+# where cast.json and the frames are. With no path it replaces images/demo.gif.
+OUT = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else f'{REPO}/images/demo.gif'
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 FPS = 25
 STEP = 1000 / FPS
 FAST = 4.0          # how much faster a marked wait plays
