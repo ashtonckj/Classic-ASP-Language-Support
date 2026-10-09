@@ -19,8 +19,11 @@
  * makes a local, unless the page already has a variable of that name, which
  * is then the one assigned. `F = …` inside Function F sets its return value.
  *
- * A client-side `<script language="vbscript">` runs in the browser, so each
- * one is a script scope of its own.
+ * A client-side `<script language="vbscript">` runs in the browser, apart from
+ * the server code. The page's client-side blocks share one script scope, as
+ * one browser engine runs them all, but each is compiled on its own, so a name
+ * declared in two of them is not "Name redefined" (checked with a .wsf file of
+ * two script blocks under cscript.exe).
  *
  * A name in the part of a statement the parser skipped after an error is
  * still looked up, as a read in the procedure or class it sits in, so a
@@ -37,6 +40,7 @@ import type * as A from './ast';
 import { childExpressions } from './expressions';
 import type { ParsedPage } from './symbols';
 import { orderKey, type ScopeFile, type ScriptScope } from './scriptScope';
+import { VBSCRIPT_BUILTIN_VALUES } from '../constants/aspKeywords';
 
 export type DeclarationKind = 'variable' | 'constant' | 'parameter' | 'sub' | 'function' | 'property' | 'class';
 
@@ -129,6 +133,10 @@ class Binder {
     /** The names each procedure has ReDim'd so far, in the declare pass. */
     private readonly redimmed = new Map<Scope, Set<string>>();
 
+    /** The client-side script block being declared, and the block each of its declarations came from. */
+    private block: A.Program | null = null;
+    private readonly blockOf = new WeakMap<Declaration, A.Program>();
+
     constructor(private readonly scriptScope: ScriptScope) {}
 
     bind(): Binding {
@@ -150,6 +158,7 @@ class Binder {
         for (const { file, stmt } of server) { this.declare([stmt], script, file.path); }
         this.redimmed.clear();
         for (const { file, stmt } of server) { this.declareImplicitGlobals([stmt], script, file.path); }
+        for (const { file, stmt } of server) { this.declareProcedureLocals([stmt], file.path); }
         for (const { file, stmt } of server) { this.resolve([stmt], script, file.path); }
         for (const file of this.scriptScope.files) {
             for (const program of file.page.programs) {
@@ -157,17 +166,24 @@ class Binder {
             }
         }
 
-        // Each client-side script on its own.
-        for (const file of this.scriptScope.files) {
-            for (const program of file.page.programs) {
-                if (program.server) { continue; }
-                const own = this.newScope('script', null, null);
-                this.declare(program.body, own, file.path);
-                this.redimmed.clear();
-                this.declareImplicitGlobals(program.body, own, file.path);
-                this.resolve(program.body, own, file.path);
-                this.resolveSkipped(program, own, file.path);
+        // The browser runs every client-side script block of the page in one
+        // engine, so they share one scope: a Sub in one block is called from
+        // another. Each block is compiled on its own, though, so a name declared
+        // in two blocks is not declared twice.
+        const client = this.scriptScope.files.flatMap(file =>
+            file.page.programs.filter(program => !program.server).map(program => ({ file: file.path, program })));
+        if (client.length > 0) {
+            const scope = this.newScope('script', null, null);
+            for (const { file, program } of client) {
+                this.block = program;
+                this.declare(program.body, scope, file);
             }
+            this.block = null;
+            this.redimmed.clear();
+            for (const { file, program } of client) { this.declareImplicitGlobals(program.body, scope, file); }
+            for (const { file, program } of client) { this.declareProcedureLocals(program.body, file); }
+            for (const { file, program } of client) { this.resolve(program.body, scope, file); }
+            for (const { file, program } of client) { this.resolveSkipped(program, scope, file); }
         }
         return this.binding;
     }
@@ -188,8 +204,8 @@ class Binder {
                     for (const d of s.declarators) {
                         if (!d.name.name) { continue; }
                         // ReDim of a name this scope already has resizes it; otherwise it declares one.
-                        // Inside a procedure that waits for the resolve pass, as the name may be a
-                        // page variable declared further down or only ever assigned.
+                        // Inside a procedure that waits for declareProcedureLocals, as the name may
+                        // be a page variable declared further down or only ever assigned.
                         if (s.keyword === 'redim' && scope.kind === 'procedure') { this.redimmedIn(scope).add(d.name.name); continue; }
                         if (s.keyword === 'redim' && this.declaredHere(scope, d.name.name)) { continue; }
                         this.add(scope, file, d.name, 'variable', false);
@@ -228,6 +244,37 @@ class Binder {
         }
     }
 
+    /**
+     * The locals each procedure makes without a Dim: a ReDim of a name nothing
+     * else declares, and, without Option Explicit, a name only assigned or used
+     * as a loop variable. VBScript makes them when it compiles the procedure,
+     * so a use written above the line that makes one is the same local.
+     */
+    private declareProcedureLocals(stmts: A.Stmt[], file: string): void {
+        for (const s of stmts) {
+            if (s.kind === 'Procedure') {
+                const scope = this.binding.scopeOf.get(s)!;
+                walkBody(s.body, inner => this.declareLocal(inner, scope, file));
+            } else if (s.kind === 'Class') {
+                this.declareProcedureLocals(s.members, file);
+            } else {
+                for (const body of childBodies(s)) { this.declareProcedureLocals(body, file); }
+            }
+        }
+    }
+
+    private declareLocal(s: A.Stmt, scope: Scope, file: string): void {
+        if (s.kind === 'Dim' && s.keyword === 'redim') {
+            for (const d of s.declarators) {
+                if (d.name.name && !this.lookup(scope, d.name.name)) { this.add(scope, file, d.name, 'variable', false); }
+            }
+            return;
+        }
+        if (this.binding.optionExplicit) { return; }
+        const name = implicitTarget(s);
+        if (name?.name && !this.lookup(scope, name.name)) { this.add(scope, file, name, 'variable', true); }
+    }
+
     private redimmedIn(scope: Scope): Set<string> {
         let names = this.redimmed.get(scope);
         if (!names) { names = new Set(); this.redimmed.set(scope, names); }
@@ -261,6 +308,7 @@ class Binder {
         if (!name.name) { return null; }
         const decl: Declaration = { name: name.name, text: name.text, kind, file, span: { start: name.start, end: name.end }, scope, implicit };
         if (node) { decl.node = node; }
+        if (this.block) { this.blockOf.set(decl, this.block); }
 
         if (!implicit && this.redefines(scope, decl, node)) {
             this.binding.diagnostics.push({ file, start: name.start, end: name.end, message: 'Name redefined' });
@@ -278,7 +326,9 @@ class Binder {
         // A Dim after a ReDim of the name in the same procedure, even when the ReDim resized a page array.
         if (scope.kind === 'procedure' && decl.kind === 'variable' && this.redimmed.get(scope)?.has(decl.name)) { return true; }
 
-        const earlier = (scope.declarations.get(decl.name) ?? []).filter(d => !d.implicit);
+        // Only declarations of the same client-side block count: each block is compiled on its own.
+        const earlier = (scope.declarations.get(decl.name) ?? [])
+            .filter(d => !d.implicit && (!this.block || this.blockOf.get(d) === this.block));
         if (earlier.length === 0) { return false; }
 
         const isProcedure = (k: DeclarationKind) => k === 'sub' || k === 'function';
@@ -301,13 +351,9 @@ class Binder {
         return null;
     }
 
-    private use(scope: Scope, file: string, name: A.Name, write: boolean): void {
+    private use(scope: Scope, file: string, name: A.Name): void {
         if (!name.name) { return; }
         const target = this.lookup(scope, name.name);
-        if (!target && write && scope.kind === 'procedure' && !this.binding.optionExplicit) {
-            this.add(scope, file, name, 'variable', true);
-            return;
-        }
         // Its own declaration, already recorded when it was declared.
         if (target?.span.start === name.start && target.file === file) { return; }
         this.binding.references.push({ name: name.name, file, span: { start: name.start, end: name.end }, scope, target, declaration: false });
@@ -318,7 +364,7 @@ class Binder {
             switch (s.kind) {
                 case 'Dim':
                     for (const d of s.declarators) {
-                        if (s.keyword === 'redim') { this.redim(scope, file, d.name); }
+                        if (s.keyword === 'redim') { this.use(scope, file, d.name); }
                         for (const b of d.bounds ?? []) { this.expr(b, scope, file); }
                     }
                     break;
@@ -350,14 +396,14 @@ class Binder {
                     }
                     break;
                 case 'For':
-                    this.use(scope, file, s.counter, true);
+                    this.use(scope, file, s.counter);
                     this.expr(s.from, scope, file);
                     this.expr(s.to, scope, file);
                     if (s.step) { this.expr(s.step, scope, file); }
                     this.resolve(s.body, scope, file);
                     break;
                 case 'ForEach':
-                    this.use(scope, file, s.variable, true);
+                    this.use(scope, file, s.variable);
                     this.expr(s.collection, scope, file);
                     this.resolve(s.body, scope, file);
                     break;
@@ -390,19 +436,6 @@ class Binder {
         }
     }
 
-    /**
-     * ReDim resizes the array a name already refers to, as an assignment
-     * would, and inside a procedure declares a local when the name refers to
-     * nothing, even under Option Explicit.
-     */
-    private redim(scope: Scope, file: string, name: A.Name): void {
-        if (scope.kind === 'procedure' && name.name && !this.lookup(scope, name.name)) {
-            this.add(scope, file, name, 'variable', false);
-        } else {
-            this.use(scope, file, name, true);
-        }
-    }
-
     /** Names the parser skipped after an error, read in the procedure or class they sit in. */
     private resolveSkipped(program: A.Program, script: Scope, file: string): void {
         for (const n of program.skippedNames) {
@@ -410,14 +443,14 @@ class Binder {
             if (n.member) {
                 this.binding.members.push({ name: n.name, file, span: { start: n.start, end: n.end }, scope });
             } else {
-                this.use(scope, file, n, false);
+                this.use(scope, file, n);
             }
         }
     }
 
     /** The scope of the innermost procedure or class around `offset`. */
     private scopeAt(stmts: A.Stmt[], offset: number, scope: Scope): Scope {
-        const s = stmts.find(st => st.start <= offset && offset < st.end);
+        const s = statementAt(stmts, offset);
         if (!s) { return scope; }
         if (s.kind === 'Procedure') { return this.scopeAt(s.body, offset, this.binding.scopeOf.get(s)!); }
         if (s.kind === 'Class') { return this.scopeAt(s.members, offset, this.binding.scopeOf.get(s)!); }
@@ -430,7 +463,7 @@ class Binder {
 
     /** The left side of an assignment: a bare name is written, anything else is read. */
     private target(e: A.Expr, scope: Scope, file: string): void {
-        if (e.kind === 'Ident') { this.use(scope, file, e.name, true); } else { this.expr(e, scope, file); }
+        if (e.kind === 'Ident') { this.use(scope, file, e.name); } else { this.expr(e, scope, file); }
     }
 
     /**
@@ -449,7 +482,7 @@ class Binder {
             }
             switch (e.kind) {
                 case 'Ident':
-                    this.use(scope, file, e.name, false);
+                    this.use(scope, file, e.name);
                     break;
                 case 'Member':
                     if (e.object?.kind === 'Me') {
@@ -460,7 +493,7 @@ class Binder {
                     }
                     break;
                 case 'New':
-                    this.use(scope, file, e.className, false);
+                    this.use(scope, file, e.className);
                     break;
                 default: {
                     const children = childExpressions(e);
@@ -496,10 +529,39 @@ function childBodies(s: A.Stmt): A.Stmt[][] {
     }
 }
 
-/** The name a statement declares implicitly when nothing else does. */
+/**
+ * The statement of `stmts` that holds `offset`, found by binary search: the
+ * statements are in source order, and a page with many errors asks once per
+ * skipped name.
+ */
+function statementAt(stmts: A.Stmt[], offset: number): A.Stmt | undefined {
+    let lo = 0;
+    let hi = stmts.length - 1;
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (stmts[mid].start <= offset) { lo = mid; } else { hi = mid - 1; }
+    }
+    const s = stmts[lo];
+    return s && s.start <= offset && offset < s.end ? s : undefined;
+}
+
+/** Calls `visit` on every statement of a procedure body, nested blocks included, in source order. */
+function walkBody(stmts: A.Stmt[], visit: (s: A.Stmt) => void): void {
+    for (const s of stmts) {
+        visit(s);
+        for (const body of childBodies(s)) { walkBody(body, visit); }
+    }
+}
+
+/**
+ * The name a statement declares implicitly when nothing else does. A built-in
+ * function or constant is never one: `hex = 5` or `For day = 1 To 7` with no
+ * Dim stops with "Illegal assignment" under cscript, and makes no variable.
+ */
 function implicitTarget(s: A.Stmt): A.Name | null {
-    if (s.kind === 'Assign' && s.target.kind === 'Ident') { return s.target.name; }
-    if (s.kind === 'For') { return s.counter; }
-    if (s.kind === 'ForEach') { return s.variable; }
-    return null;
+    const name = s.kind === 'Assign' && s.target.kind === 'Ident' ? s.target.name
+        : s.kind === 'For' ? s.counter
+        : s.kind === 'ForEach' ? s.variable
+        : null;
+    return name && !VBSCRIPT_BUILTIN_VALUES.has(name.name) ? name : null;
 }

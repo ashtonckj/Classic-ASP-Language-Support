@@ -34,7 +34,7 @@ Discussion is always welcome.
 
 ## Development Setup
 
-**Prerequisites:** Node.js 16+ · VS Code 1.80+
+**Prerequisites:** Node.js 20+ · VS Code 1.80+
 
 ```bash
 # 1. Fork and clone the repository
@@ -53,9 +53,10 @@ code .
 
 **Running the extension in development:**
 
-Press `F5` in VS Code to launch the **Extension Development Host** — a second
-VS Code window with your local build loaded. Open any `.asp` or `.inc` file to
-test your changes live.
+Press `Ctrl+F5` (Run Without Debugging) in VS Code to launch the **Extension
+Development Host** — a second VS Code window with your local build loaded. Open
+any `.asp` or `.inc` file to test your changes live. (`F5`, with the
+debugger attached, has been unreliable since VS Code 1.139.)
 
 **Watching for changes:**
 
@@ -66,14 +67,17 @@ npm run watch
 This recompiles automatically whenever you save a TypeScript file. You can then
 reload the Extension Development Host with `Ctrl+Shift+P → Developer: Reload Window`.
 
-**Linting:**
+**Tests and linting:**
 
 ```bash
+npm run test:unit         # compile, then the unit tests (fast, vscode stubbed)
+npm run test:integration  # compile, then the tests in a real VS Code window
 npm run lint
 ```
 
-Please make sure there are no new lint errors introduced by your change before
-submitting a PR.
+Please make sure the unit tests and the linter pass before submitting a PR, and
+run the integration tests when you change key handling, commands or how a
+feature is registered.
 
 ---
 
@@ -81,60 +85,31 @@ submitting a PR.
 
 ```
 src/
-├── extension.ts                            # Entry point — registers all providers
-├── highlight.ts                            # Background highlighting for asp code sections
-├── formatter/
-│   ├── aspFormatter.ts                     # VBScript indentation and keyword casing
-│   └── htmlFormatter.ts                    # HTML/CSS/JS formatting via Prettier
-├── providers/
-│   ├── aspCompletionProvider.ts            # VBScript intelliSense
-│   ├── aspDefinitionProvider.ts            # VBScript definitions
-│   ├── aspDocumentSymbolProvider.ts        # VBScript breadcrumb bar
-│   ├── aspHoverProvider.ts                 # VBScript hover docs
-│   ├── aspIndentProvider.ts                # Enter/Tab smart indent + auto-close
-│   ├── aspRenameProvider.ts                # Auto-rename variables in all linked files
-│   ├── aspSemanticProvider.ts              # Semantic token colouring (VBScript + SQL)
-│   ├── aspSignatureHelpProvider.ts         # VBScript parameter hints
-│   ├── aspStructureDiagnosticsProvider.ts  # Mismatched block detection
-│   ├── aspWorkspaceSymbolProvider.ts       # VBScript workspace-wide symbol search
-│   │
-│   ├── cssCompletionProvider.ts            # CSS completions inside <style> and style=""
-│   ├── cssDiagnosticsProvider.ts           # CSS error/warning squiggles
-│   ├── cssHoverProvider.ts                 # CSS hover docs
-│   │
-│   ├── htmlCompletionProvider.ts           # HTML tag and attribute completions
-│   ├── htmlStructureDiagnosticsProvider.ts # Mismatched HTML tag detection
-│   ├── includeProvider.ts                  # #include resolution and symbol extraction
-│   │
-│   ├── jsCompletionProvider.ts             # JavaScript completions inside <script>
-│   ├── jsDiagnosticsProvider.ts            # JavaScript error/warning squiggles
-│   ├── jsDocumentSymbolProvider.ts         # JavaScript breadcrumb bar
-│   ├── jsHoverProvider.ts                  # JavaScript hover docs
-│   ├── jsSeanticProvider.ts                # JavaScript semantic colouring
-│   ├── jsSignatureHelpProvider.ts          # JavaScript parameter hints
-│   │
-│   ├── linkProvider.ts                     # Ctrl+Click navigation for file paths
-│   └── sqlSemanticProvider.ts              # SQL string detection and token colouring
-├── constants/
-│   ├── aspKeywords.ts                      # VBScript keywords and built-in functions
-│   ├── comObjects.ts                       # COM object members (ADODB, Scripting, etc.)
-│   ├── htmlGlobals.ts                      # HTML global attributes and event attributes
-│   ├── htmlTags.ts                         # HTML tag list with self-closing flags
-└── utils/
-    ├── asp-dom.d.ts                        # Connects HTML tags with Javascript
-    ├── cssUtils.ts                         # Virtual CSS document helpers
-    ├── documentHelper.ts                   # Cursor context helpers
-    ├── htmlLinkUtils.ts                    # HTML file-link attribute detection
-    ├── jsUtils.ts                          # TypeScript Language Service wrapper
-    ├── region.ts                           # Background highlighting zone detection
-    └── zoneUtils.ts                        # Core ASP zone detection
+├── extension.ts          # Entry point — one register call per feature
+├── semanticTokens.ts     # Merges the VBScript and JavaScript colouring
+├── core/                 # Text rules every language shares, no vscode import:
+│                         #   zones (<% %>, <script>, <style>), includes, paths,
+│                         #   VBScript strings/comments, HTML tag pairing, ignore comments
+├── vbscript/             # The VBScript parser, binder, checks and colouring —
+│                         #   no vscode import, so it runs on worker threads and in tests
+├── workers/              # Worker threads (JavaScript analysis, VBScript, colouring, includes)
+├── platform/             # Shared editor services: settings, log, diagnostics,
+│                         #   per-document state, the workspace file index, quick fixes
+├── asp/                  # ASP/VBScript features: completion, hover, F12, rename,
+│                         #   signature help, symbols, typing (Enter/Tab/auto-close)
+├── html/                 # HTML completion, hover, linked editing, Emmet, links
+├── css/                  # CSS completion, hover, colours, diagnostics
+├── js/                   # JavaScript features over a virtual file of the page's scripts
+├── formatter/            # Format Document: masks the ASP, runs Prettier, formats each block
+├── constants/            # Keywords, functions, ASP objects, COM types, HTML data
+└── test/                 # unit/ (mocha, vscode stubbed) and integration/ (real VS Code)
 syntaxes/
-└── asp.tmLanguage.json                     # TextMate grammar for syntax highlighting
-snippets/
-├── asp.json                                # ASP/VBScript snippets
-├── html.json                               # HTML snippets
-└── javascript.json                         # JavaScript snippets
+└── asp.tmLanguage.json   # TextMate grammar; its name lists are generated from src/constants
+snippets/                 # ASP/VBScript, HTML and JavaScript snippets
 ```
+
+`npm run lint` keeps the layers apart: `core/`, `vbscript/` and `constants/`
+may not import `vscode` or the feature folders.
 
 ---
 
@@ -150,16 +125,17 @@ snippets/
 
 2. Make your changes. Keep commits focused — one logical change per commit.
 
-3. Test manually in the Extension Development Host with real `.asp` files.
+3. Test in the Extension Development Host (`Ctrl+F5`) with real `.asp` files.
    Pay particular attention to edge cases like:
    - Files with both `<%...%>` blocks and `<script>` blocks on the same page
    - Multi-line VBScript with line continuation (`_`)
    - Deeply nested `#include` chains
    - Files with `Option Explicit`
 
-4. Run the linter before committing:
+4. Run the unit tests and the linter before committing:
 
    ```bash
+   npm run test:unit
    npm run lint
    ```
 
@@ -178,7 +154,7 @@ snippets/
 - A clear description of the problem being solved and the approach taken
 - Focused scope — one fix or feature per PR
 - No unrelated formatting changes in files you didn't touch
-- Passes `npm run lint` cleanly
+- Passes `npm run test:unit` and `npm run lint` cleanly
 
 ---
 

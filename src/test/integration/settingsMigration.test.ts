@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { migrateOldSettings } from '../../settingsMigration';
+import { migrateOldSettings } from '../../platform/settingsMigration';
 
 // 0.7.0 renamed the settings from aspLanguageSupport.* to classicAsp.*. A value
 // someone set under an old name moves to the new one, and the old entry goes.

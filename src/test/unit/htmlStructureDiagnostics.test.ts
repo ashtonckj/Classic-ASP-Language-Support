@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { STRUCTURAL_TAGS, scanHtmlStructure } from '../../providers/htmlStructureDiagnosticsProvider';
+import { scanHtmlStructure } from '../../html/htmlStructureDiagnosticsProvider';
+import { STRUCTURAL_TAGS } from '../../core/htmlStructure';
 
 // Elements with OPTIONAL end tags (table cells/rows/sections) must not
 // be tracked as "must be closed", or valid tables get flooded with false

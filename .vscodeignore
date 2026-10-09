@@ -185,3 +185,9 @@ node_modules/@emmetio/**/*.d.ts
 
 # The older build scripts/build-baseline.js compiles for the parser comparison.
 .baseline/**
+
+# Local notes for Claude, never shipped
+CLAUDE.md
+
+# The author's own release checklist
+RELEASING.md

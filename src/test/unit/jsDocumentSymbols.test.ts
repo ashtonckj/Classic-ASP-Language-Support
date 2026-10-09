@@ -1,7 +1,8 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { JsDocumentSymbolProvider } from '../../providers/jsDocumentSymbolProvider';
-import { disposeJsLanguageService } from '../../utils/jsUtils';
+import { outlineOnHost } from '../../js/jsDocumentSymbolProvider';
+import { disposeJsLanguageService } from '../../js/jsUtils';
+import { fakeDocument } from './_helpers';
 
 // The Outline is rebuilt on every keystroke, over a half-typed document, from an
 // AST full of TypeScript's error-recovery nodes. Typing `function(` produces a
@@ -13,42 +14,12 @@ import { disposeJsLanguageService } from '../../utils/jsUtils';
 
 after(() => { disposeJsLanguageService(); });
 
-function fakeDoc(text: string): vscode.TextDocument {
-    const lineStarts = [0];
-    for (let i = 0; i < text.length; i++) {
-        if (text[i] === '\n') { lineStarts.push(i + 1); }
-    }
-    return {
-        languageId: 'asp',
-        version: 1,
-        uri: { fsPath: 'C:\\site\\page.asp', scheme: 'file', toString: () => 'file:///page.asp' },
-        getText: () => text,
-        lineCount: lineStarts.length,
-        lineAt: (n: number) => ({
-            text: text.slice(lineStarts[n], lineStarts[n + 1] ?? text.length).replace(/\r?\n$/, ''),
-        }),
-        offsetAt: (p: { line: number; character: number }) => lineStarts[p.line] + p.character,
-        positionAt: (offset: number) => {
-            let lo = 0, hi = lineStarts.length - 1;
-            while (lo < hi) {
-                const mid = (lo + hi + 1) >> 1;
-                if (lineStarts[mid] <= offset) { lo = mid; } else { hi = mid - 1; }
-            }
-            return { line: lo, character: offset - lineStarts[lo] };
-        },
-    } as unknown as vscode.TextDocument;
-}
+const fakeDoc = (text: string): vscode.TextDocument => fakeDocument(text, { fsPath: 'C:\\site\\page.asp' });
 
-const provider = new JsDocumentSymbolProvider();
-const NOT_CANCELLED = { isCancellationRequested: false } as vscode.CancellationToken;
-
-const symbolsFor = (script: string): vscode.DocumentSymbol[] => {
-    const result = provider.provideDocumentSymbols(
-        fakeDoc(`<script>\n${script}\n</script>\n`),
-        NOT_CANCELLED,
-    );
-    return (result as vscode.DocumentSymbol[]) ?? [];
-};
+// The worker reads the same outline (jsOutline.ts) off the tree it parsed; the
+// host path is the one a test can call without starting a thread.
+const symbolsFor = (script: string): vscode.DocumentSymbol[] =>
+    outlineOnHost(fakeDoc(`<script>\n${script}\n</script>\n`));
 
 const names = (script: string) => symbolsFor(script).map(s => s.name).sort();
 

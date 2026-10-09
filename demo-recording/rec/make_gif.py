@@ -325,10 +325,31 @@ def end_card(last):
     d.text((w // 2, cy + 30), 'Classic ASP Language Support', font=ImageFont.truetype(F + 'seguisb.ttf', 40), fill=(235, 235, 245), anchor='mm')
     d.text((w // 2, cy + 80), 'Formatter · IntelliSense · Go to Definition · Rename · Diagnostics',
            font=ImageFont.truetype(F + 'segoeui.ttf', 20), fill=(180, 184, 200), anchor='mm')
-    pill, pf = 'Free on the VS Code Marketplace', ImageFont.truetype(F + 'seguisb.ttf', 20)
-    tw = d.textlength(pill, font=pf)
-    d.rounded_rectangle([w // 2 - tw / 2 - 22, cy + 122, w // 2 + tw / 2 + 22, cy + 166], radius=22, fill=(203, 166, 247))
-    d.text((w // 2, cy + 144), pill, font=pf, fill=(17, 17, 27), anchor='mm')
+    # "Free on [icon] VS Code Marketplace and [icon] Open VSX", each store with its
+    # logo from rec/icons/ when the file is there (see demo-recording/README.md).
+    pf = ImageFont.truetype(F + 'seguisb.ttf', 20)
+    size, gap = 24, 8
+    def logo(name):
+        path = f'{os.path.dirname(os.path.abspath(__file__))}/icons/{name}'
+        return Image.open(path).convert('RGBA').resize((size, size), Image.LANCZOS) if os.path.exists(path) else None
+    parts = [('text', 'Free on '), ('logo', logo('vscode.png')), ('text', 'VS Code Marketplace'),
+             ('text', 'and '), ('logo', logo('openvsx.png')), ('text', 'Open VSX')]
+    parts = [p for p in parts if p[1] is not None]
+    widths = [d.textlength(v, font=pf) if k == 'text' else size for k, v in parts]
+    total = sum(widths) + gap * (len(parts) - 1)
+    top, bottom = cy + 122, cy + 166
+    d.rounded_rectangle([w // 2 - total / 2 - 22, top, w // 2 + total / 2 + 22, bottom], radius=22, fill=(203, 166, 247))
+    x = w // 2 - total / 2
+    for (kind, value), width in zip(parts, widths):
+        if kind == 'text':
+            d.text((x, (top + bottom) // 2), value, font=pf, fill=(17, 17, 27), anchor='lm')
+        else:
+            # On a white disc, so a purple logo still stands out on the purple pill.
+            mid_x, mid_y = int(x) + size // 2, (top + bottom) // 2
+            d.ellipse([mid_x - 16, mid_y - 16, mid_x + 16, mid_y + 16], fill=(255, 255, 255))
+            logo_img = value.resize((20, 20), Image.LANCZOS)
+            bg.paste(logo_img, (mid_x - 10, mid_y - 10), logo_img)
+        x += width + gap
     return bg
 
 
@@ -353,9 +374,16 @@ seq.append(card)
 
 # One palette, built from frames across every theme.
 picks = [seq[int(len(seq) * f)] for f in (0.02, 0.15, 0.4, 0.62, 0.8, 0.86, 0.9, 0.95)] + [card]
-sample = Image.new('RGB', (picks[0].width, picks[0].height * len(picks)))
+sample = Image.new('RGB', (picks[0].width, picks[0].height * (len(picks) + 1)), (255, 255, 255))
 for j, p in enumerate(picks):
     sample.paste(p, (0, p.height * j))
+# The store logos are a few pixels on the end card, too few for their colours to
+# get palette entries of their own; a large copy of each makes sure they do.
+for k, name in enumerate(('vscode.png', 'openvsx.png')):
+    path = f'{os.path.dirname(os.path.abspath(__file__))}/icons/{name}'
+    if os.path.exists(path):
+        big = Image.open(path).convert('RGBA').resize((picks[0].height // 2, picks[0].height // 2))
+        sample.paste(big, (k * picks[0].height // 2, picks[0].height * len(picks)), big)
 palette = sample.quantize(colors=255, method=Image.Quantize.MEDIANCUT)
 
 out, durs, prev_bytes = [], [], None

@@ -132,3 +132,36 @@ describe('Grammar rules — the patterns are well formed', () => {
         }
     });
 });
+
+// Any built-in function may also be a variable (cscript compiles `Dim hex`), so
+// the grammar colours one only where it is used as one. VS Code's engine is
+// Oniguruma; these rules use nothing JavaScript reads differently, so they are
+// run here as JavaScript regexes.
+describe('Grammar — a built-in function is coloured only where it is used as one', () => {
+    const rules = (grammar.repository.functions.patterns as Rule[])
+        .map(rule => new RegExp(rule.match!.replace('(?i)', ''), 'gi'));
+
+    /** The function names the rules colour on `line`. */
+    const coloured = (line: string): string[] => rules
+        .flatMap(re => [...line.matchAll(re)].map(m => ({ at: m.index! + m[0].length - m[1].length, name: m[1] })))
+        .sort((a, b) => a.at - b.at)
+        .map(found => found.name);
+
+    it('colours a call, a statement call and a bare read', () => {
+        assert.deepStrictEqual(coloured('x = hex(255) & Len (s)'), ['hex', 'Len']);
+        assert.deepStrictEqual(coloured('If ok Then MsgBox "late" Else Execute code'), ['MsgBox', 'Execute']);
+        assert.deepStrictEqual(coloured('<% MsgBox "x" %>'), ['MsgBox']);
+        assert.deepStrictEqual(coloured('a = 1 : Escape s'), ['Escape']);
+        assert.deepStrictEqual(coloured('If date > due Then x = Now'), ['date', 'Now']);
+    });
+
+    it('leaves a variable of the same name alone', () => {
+        for (const line of ['Dim hex, day', 'hex = 5', '    day = 3', 'total = hex + day', 'For day = 1 To 7', 'Response.Write hex']) {
+            assert.deepStrictEqual(coloured(line), [], line);
+        }
+    });
+
+    it('leaves a member of an object alone', () => {
+        assert.deepStrictEqual(coloured('rs.Filter = 1 : obj.Hex(1) : x = d.Now'), []);
+    });
+});

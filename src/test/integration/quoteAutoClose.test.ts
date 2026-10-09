@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import { typeText } from './_typing';
 
 // Typing a single quote has to follow the zone under the caret: in VBScript `'`
 // starts a comment and must never be doubled, while in the markup, <style> and
@@ -94,7 +95,7 @@ async function typeInto(
     for (const key of keys) {
         const from = doc.version;
         if (KEYS[key]) { await vscode.commands.executeCommand(KEYS[key]); }
-        else { await vscode.commands.executeCommand('type', { text: key }); }
+        else { await typeText(key); }
         await settled(doc, from);
     }
     return markCarets(editor);
@@ -290,7 +291,7 @@ suite('Single-quote auto-closing follows the zone under the caret (integration)'
         editor.selection = new vscode.Selection(1, 8, 1, 8);
         const from = doc.version;
         for (const ch of "' note") {
-            await vscode.commands.executeCommand('type', { text: ch });
+            await typeText(ch);
         }
         await settled(doc, from);
         assert.strictEqual(markCarets(editor), "<%\n  x = 1 ' note|\n%>");

@@ -191,7 +191,7 @@ suite('A missing include is flagged where it is written (integration)', () => {
     const brokenUri    = vscode.Uri.joinPath(dir, `asp-missing-page-${process.pid}.asp`);
 
     function includeWarnings(uri: vscode.Uri): vscode.Diagnostic[] {
-        return vscode.languages.getDiagnostics(uri).filter(d => d.source === 'Classic ASP (includes)');
+        return vscode.languages.getDiagnostics(uri).filter(d => d.code === 'missing-include');
     }
 
     async function waitFor(check: () => boolean, timeoutMs = 6000): Promise<boolean> {

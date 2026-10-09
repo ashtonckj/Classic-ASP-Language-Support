@@ -1,13 +1,11 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {
-    isInsideVbStringOrComment,
     indexOfWholeWord,
     aspCodeStartOnLine,
-    isInsideVbString,
     isInsideTagForAttributes,
     getCurrentTagName,
-} from '../../utils/documentHelper';
+} from '../../platform/documentHelper';
 
 // Minimal TextDocument stand-in: the tag scanners only need getText/offsetAt.
 function docAt(text: string): { document: vscode.TextDocument; posOf: (marker: string) => vscode.Position } {
@@ -42,43 +40,6 @@ describe('indexOfWholeWord', () => {
     });
 });
 
-// IntelliSense / go-to-definition must not fire where the token is
-// data: inside a VBScript string literal or after a `'` comment.
-describe('isInsideVbStringOrComment', () => {
-    // helper: column right after the given marker substring
-    const colAfter = (line: string, marker: string) => line.indexOf(marker) + marker.length;
-
-    it('is true just after the dot inside "rs."', () => {
-        const line = '    myText = "rs."';
-        assert.strictEqual(isInsideVbStringOrComment(line, colAfter(line, '"rs.')), true);
-    });
-
-    it('is false in normal code before the string', () => {
-        const line = '    myText = "rs."';
-        assert.strictEqual(isInsideVbStringOrComment(line, colAfter(line, 'myText')), false);
-    });
-
-    it('is false again after a closed string', () => {
-        const line = 'x = "abc" & y';
-        assert.strictEqual(isInsideVbStringOrComment(line, colAfter(line, '& ')), false);
-    });
-
-    it('treats "" as an escaped quote (still inside the string)', () => {
-        const line = 'x = "a ""b"" c.';
-        assert.strictEqual(isInsideVbStringOrComment(line, colAfter(line, 'c.')), true);
-    });
-
-    it('is true after a apostrophe comment starts', () => {
-        const line = "    ' Response.";
-        assert.strictEqual(isInsideVbStringOrComment(line, colAfter(line, 'Response.')), true);
-    });
-
-    it('does not treat an apostrophe inside a string as a comment', () => {
-        const line = 'msg = "it\'s here" ';
-        assert.strictEqual(isInsideVbStringOrComment(line, line.length), false);
-    });
-});
-
 // A physical line can mix HTML and VBScript. Any line-local scan for strings or
 // `'` comments has to begin at the script, or an apostrophe in the HTML part
 // ("it's", class='box') reads as a comment marker and silently switches off
@@ -106,19 +67,6 @@ describe('aspCodeStartOnLine', () => {
     it('never returns past the column asked about', () => {
         const line = '<% x = 1 %>';
         assert.strictEqual(aspCodeStartOnLine(line, 1), 1);
-    });
-});
-
-describe('isInsideVbString', () => {
-    it('reports a string but not a comment', () => {
-        assert.strictEqual(isInsideVbString("x = ' note", 10), false);
-        assert.strictEqual(isInsideVbString('x = "abc', 8), true);
-    });
-
-    it('honours the start offset', () => {
-        const line = '<p>"</p><% x = 1';
-        // Scanning from 0 would see the stray quote in the HTML and report a string.
-        assert.strictEqual(isInsideVbString(line, line.length, line.indexOf('<%') + 2), false);
     });
 });
 

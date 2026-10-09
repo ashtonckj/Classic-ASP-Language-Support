@@ -75,7 +75,7 @@
         "description": "Div with ID"
     },
     "Form": {
-        "prefix": "form",
+        "prefix": "form:post",
         "body": [
             "<form action=\"${1:action}\" method=\"${2|GET,POST|}\">",
             "\t$0",
@@ -84,7 +84,7 @@
         "description": "HTML form"
     },
     "Input text": {
-        "prefix": "input",
+        "prefix": "input:text",
         "body": "<input type=\"${1|text,password,email,number|}\" name=\"${2:name}\" placeholder=\"${3:placeholder}\">",
         "description": "Input field"
     },
@@ -99,7 +99,7 @@
         "description": "Image tag"
     },
     "Table": {
-        "prefix": "table",
+        "prefix": "table:rows",
         "body": [
             "<table>",
             "\t<thead>",

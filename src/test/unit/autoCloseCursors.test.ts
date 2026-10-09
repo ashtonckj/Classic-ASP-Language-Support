@@ -1,11 +1,6 @@
 import * as assert from 'assert';
-import {
-    typedCharPositions,
-    caretsAfterInserts,
-    insertedPairPositions,
-    shiftQuotePositions,
-    type AutoInsertSite,
-} from '../../providers/aspIndentProvider';
+import { caretsAfterInserts, typedCharPositions, type AutoInsertSite } from '../../asp/typing/autoClose';
+import { insertedPairPositions, shiftQuotePositions } from '../../asp/typing/quoteGuard';
 import * as vscode from 'vscode';
 
 // Auto-close used to read only contentChanges[0] and then assign a single

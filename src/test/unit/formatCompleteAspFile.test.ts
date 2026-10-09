@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { formatCompleteAspFile, insertImpliedTableEndTags } from '../../formatter/htmlFormatter';
+import { formatCompleteAspFile, formatPage, insertImpliedTableEndTags, PlaceholderNames } from '../../formatter/htmlFormatter';
+import { testSettings } from './_vscodeStub';
 
 // Classic ASP tables routinely omit the optional </td> </tr> … end tags. Prettier
 // does not apply the implied-end-tag rules, so these must be inserted before it or
@@ -51,6 +52,39 @@ describe('formatCompleteAspFile — table with omitted end tags', () => {
         const rowOpens  = [...out.matchAll(/<tr>/gi)].map(m => m.index ?? -1);
         const firstClose = out.search(/<\/tr>/i);
         assert.ok(firstClose < rowOpens[1], `row 1 must close before row 2 opens; got:\n${out}`);
+    });
+});
+
+// IIS ends a block at its first %>, even one at the end of a ' comment. The
+// formatter read such a %> as part of the comment, and refused the whole page.
+describe('formatCompleteAspFile — a block that ends in a comment', () => {
+    it("formats a page with a commented-out one-line block", async () => {
+        const out = await formatCompleteAspFile("<% 'Response.Write x %>\n<div><p>x</p></div>\n");
+        assert.strictEqual(out, "<%\n'Response.Write x\n%>\n<div><p>x</p></div>\n");
+    });
+});
+
+describe('formatCompleteAspFile — a JScript page', () => {
+    it('leaves the page as it is, as the block formatter knows VBScript only', async () => {
+        const input = '<%@ Language="JScript" %>\n<div><p>x</p></div>\n<%\nif (x) { Response.Write("a"); }\nfunction f(a) { return a; }\n%>';
+        assert.strictEqual(await formatCompleteAspFile(input), input);
+    });
+});
+
+// The formatter says why it left a page alone; the editor side decides what to show.
+describe('formatPage — the result says what happened', () => {
+    it('gives the formatted text', async () => {
+        assert.deepStrictEqual(await formatPage('<div><p>x</p></div>\n'), { ok: true, text: '<div><p>x</p></div>\n' });
+    });
+
+    it('refuses a page with an unclosed <%, as a warning', async () => {
+        const result = await formatPage('<div>\n<% x = 1\n</div>\n');
+        assert.ok(!result.ok && result.reason === 'asp-tags' && result.severity === 'warning', JSON.stringify(result));
+    });
+
+    it('leaves a JScript page alone, as information rather than a problem', async () => {
+        const result = await formatPage('<%@ Language="JScript" %>\n<% var x = 1; %>\n');
+        assert.ok(!result.ok && result.reason === 'jscript' && result.severity === 'info', JSON.stringify(result));
     });
 });
 
@@ -459,17 +493,8 @@ describe('formatCompleteAspFile — elements on separate lines stay apart', () =
 // one line came out with a run of spaces between them — which the next format
 // broke the line at.
 describe('formatCompleteAspFile — aspTagsOnSameLine leaves a block where it is', () => {
-    const realGetConfiguration = vscode.workspace.getConfiguration;
-
-    before(() => {
-        (vscode.workspace as { getConfiguration: unknown }).getConfiguration = () => ({
-            get: (key: string, defaultValue?: unknown) => (key === 'aspTagsOnSameLine' ? true : defaultValue),
-        });
-    });
-
-    after(() => {
-        (vscode.workspace as { getConfiguration: unknown }).getConfiguration = realGetConfiguration;
-    });
+    before(() => { testSettings.set('classicAsp.aspTagsOnSameLine', true); });
+    after(() => { testSettings.delete('classicAsp.aspTagsOnSameLine'); });
 
     it('keeps two blocks on one line together, and settles', async () => {
         const once = await formatCompleteAspFile(
@@ -525,8 +550,9 @@ describe('formatCompleteAspFile — a tag each branch of an If opens', () => {
 });
 
 // Each Prettier failure used to create a new "ASP Formatter Debug" channel, so
-// the Output list gained another entry of the same name every time.
-describe('the formatter debug channel', () => {
+// the Output list gained another entry of the same name every time. Failures
+// now go to the one "Classic ASP" log.
+describe('the log a Prettier failure is written to', () => {
     it('is created once and reused when Prettier fails again', async () => {
         const window = vscode.window as unknown as { createOutputChannel: (name: string) => unknown };
         const original = window.createOutputChannel;
@@ -587,5 +613,54 @@ describe('formatCompleteAspFile — VBScript <script> blocks', () => {
         const out = await formatCompleteAspFile('<div>\n<script language="vbscript">\nx = "<%= v %>"\n</script>\n</div>\n');
         assert.ok(out.includes('\nx = "<%= v %>"\n'), out);
         assert.ok(!out.includes(';'), out);
+    });
+});
+
+// The placeholders' names are part of their width, and Prettier lays a line out
+// by its width; a name with a timestamp and a random part in it now and then
+// wrapped the same page differently.
+describe('PlaceholderNames — the same page, the same names', () => {
+    it('names the placeholders from the page alone', () => {
+        const page = '<% x = 1 %>';
+        const a = new PlaceholderNames(page);
+        const b = new PlaceholderNames(page);
+        assert.strictEqual(a.id('ASPPH', a.number()), b.id('ASPPH', b.number()));
+        assert.strictEqual(a.id('ASPPH', a.number()), 'ASPPH1_00000000_aspfmt0');
+    });
+
+    it('takes a tag the page does not already contain', () => {
+        const names = new PlaceholderNames('<!-- ASPPH0_00000000_aspfmt0 --> _00000001');
+        assert.strictEqual(names.tag, '00000002');
+    });
+
+    it('formats a page the same way every time', async () => {
+        const page = '<table>\n<tr><td><% If a Then %>' + 'x'.repeat(70) + '<% End If %></td></tr>\n</table>\n';
+        const first = await formatCompleteAspFile(page);
+        for (let i = 0; i < 5; i++) { assert.strictEqual(await formatCompleteAspFile(page), first); }
+    });
+});
+
+// Prettier's line and column are the masked text's, where every multi-line
+// <% %> block is one line; the message must name the user's own line.
+describe('formatPage — a Prettier error names the page\'s own line', () => {
+    const block = '<%\n' + Array.from({ length: 30 }, (_, i) => `x${i} = ${i}`).join('\n') + '\n%>\n';
+
+    it('after a 30-line <% %> block', async () => {
+        const page = '<p>a</p>\n' + block + '<div>\n<p class="a" "b">x</p>\n</div>\n';
+        const result = await formatPage(page);
+        assert.ok(!result.ok && result.reason === 'prettier');
+        assert.strictEqual(result.line, 34, result.message);
+        assert.match(result.message, /near line 35/);
+    });
+
+    it('after a VBScript <script> body, an event handler and a table without end tags', async () => {
+        const page = [
+            '<script language="vbscript">', 'Sub A', '  x = 1', '  y = 2', 'End Sub', '</script>',
+            '<button onclick="go(1,\n 2)">b</button>',
+            '<table><tr><td>a<td>b</table>',
+        ].join('\n') + '\n' + block + '<div>\n<span>x</div></span>\n';
+        const result = await formatPage(page);
+        assert.ok(!result.ok && result.reason === 'prettier');
+        assert.strictEqual(page.split('\n')[result.line!], '<span>x</div></span>');
     });
 });

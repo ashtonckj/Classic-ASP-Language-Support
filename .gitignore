@@ -13,3 +13,9 @@ out/
 
 # Older build compiled by scripts/build-baseline.js for the parser comparison
 .baseline/
+
+# Local notes for Claude (architecture, standards, plan)
+CLAUDE.md
+
+# The author's own release checklist
+RELEASING.md

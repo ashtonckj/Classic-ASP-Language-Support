@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as ts from 'typescript';
+import { typeText } from './_typing';
 
 // Typing `function(` in a <script> block froze the Extension Development Host.
 // The cause was the Outline provider: TypeScript's error recovery gives a
@@ -92,7 +93,7 @@ suite('A half-typed declaration never throws out of a provider (integration)', (
         editor.selection = new vscode.Selection(line, prefix.length, line, prefix.length);
 
         for (const ch of text) {
-            await vscode.commands.executeCommand('type', { text: ch });
+            await typeText(ch);
             await sleep(15);
         }
         // Let the debounced diagnostics (750 ms) and the semantic pass run.

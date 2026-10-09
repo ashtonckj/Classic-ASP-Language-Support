@@ -1,10 +1,11 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { AspSemanticTokensProvider } from '../../providers/aspSemanticProvider';
-import { colourAspPage } from '../../utils/aspColouring';
-import { colourAspPage as colourOnWorker, disposeAnalysisWorkers } from '../../utils/analysisClient';
-import { COMBINED_SEMANTIC_LEGEND } from '../../providers/jsSemanticProvider';
-import type { FileSymbols } from '../../utils/symbolParser';
+import { AspSemanticTokensProvider } from '../../asp/aspSemanticProvider';
+import { colourAspPage } from '../../vbscript/aspColouring';
+import { colourAspPage as colourOnWorker, disposeAnalysisWorkers } from '../../workers/analysisClient';
+import { COMBINED_SEMANTIC_LEGEND } from '../../js/jsSemanticProvider';
+import type { FileSymbols } from '../../vbscript/symbolParser';
+import { fakeDocument } from './_helpers';
 
 // SQL colouring follows a variable: once `sql` is seen holding a SELECT, later
 // fragments appended to it are coloured too. The passes that track which
@@ -179,7 +180,7 @@ describe('SQL warnings on a query passed to a method', () => {
 
     it('still treats a query changed by Replace as SQL', () => {
         const page = `<%\nDim id, sql\nsql = Replace("SELECT a FROM b WHERE id = {0}", "{0}", id)\nsql = sql & id\n%>\n`;
-        assert.ok(warningsOf(page).some(m => m.includes("'id' is concatenated into SQL variable 'sql'")), JSON.stringify(warningsOf(page)));
+        assert.ok(warningsOf(page).some(m => m.includes("'id' is joined into the SQL in 'sql'")), JSON.stringify(warningsOf(page)));
     });
 });
 
@@ -200,14 +201,7 @@ describe('ASP colouring on the worker thread', () => {
         '',
     ].join('\n');
 
-    function fakeDoc(text: string): vscode.TextDocument {
-        return {
-            languageId: 'asp',
-            version: 1,
-            uri: { fsPath: PAGE_PATH, scheme: 'file', toString: () => 'file:///page.asp' },
-            getText: () => text,
-        } as unknown as vscode.TextDocument;
-    }
+    const fakeDoc = (text: string): vscode.TextDocument => fakeDocument(text, { fsPath: PAGE_PATH });
 
     after(() => { disposeAnalysisWorkers(); });
 

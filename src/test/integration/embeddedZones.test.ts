@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import { typeText } from './_typing';
 
 // Close what the test opened. Each test here opens a document and never closed
 // it, so across a full run the editors accumulated -- by the time the later
@@ -173,7 +174,7 @@ suite('Zone-aware editing survives the embedded-language mapping (integration)',
         const col = editor.document.lineAt(line).text.length;
         editor.selection = new vscode.Selection(line, col, line, col);
         for (const ch of text) {
-            await vscode.commands.executeCommand('type', { text: ch });
+            await typeText(ch);
             await sleep(20);
         }
         await sleep(120);
@@ -265,9 +266,9 @@ suite('Semantic colouring comes back from the worker threads (integration)', () 
         }
         assert.ok(tokens.some(t => t === '10:function:showTotal'), `the JavaScript should be coloured too; got ${JSON.stringify(tokens)}`);
 
-        const warnings = vscode.languages.getDiagnostics(doc.uri).filter(d => d.source === 'ASP SQL');
+        const warnings = vscode.languages.getDiagnostics(doc.uri).filter(d => d.code === 'sql-highlighting');
         assert.strictEqual(warnings.length, 1, `got ${JSON.stringify(warnings.map(w => w.message))}`);
         assert.strictEqual(warnings[0].range.start.line, 3);
-        assert.ok(/'userName' is concatenated into SQL variable 'sql'/.test(warnings[0].message));
+        assert.ok(/'userName' is joined into the SQL in 'sql'/.test(warnings[0].message));
     });
 });

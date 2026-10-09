@@ -1,8 +1,8 @@
 import * as assert from 'assert';
 import { getCSSLanguageService } from 'vscode-css-languageservice';
-import { buildCssDoc, buildCssBodyDoc } from '../../utils/cssUtils';
-import { pageOffset, pagePosition, type ParsedCssBlock } from '../../utils/cssPageStylesheet';
-import { getCssBlockRanges } from '../../utils/zoneUtils';
+import { buildCssDoc, buildCssBodyDoc } from '../../css/cssUtils';
+import { pageOffset, pagePosition, type ParsedCssBlock } from '../../css/cssPageStylesheet';
+import { getCssBlockRanges } from '../../core/zoneUtils';
 
 // The colour provider and CSS validation used to call buildCssDoc once per
 // <style> block. Each of those calls padded its block with a whitespace prefix

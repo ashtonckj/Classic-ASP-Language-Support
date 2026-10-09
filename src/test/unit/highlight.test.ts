@@ -1,5 +1,7 @@
 import * as assert from 'assert';
-import { affectsRegionHighlight, editorsToPaint, hasNonEmptySelection, overlapWithSelections } from '../../highlight';
+import {
+    editorsToPaint, halfAlpha, hasNonEmptySelection, outsideSelections, overlapWithSelections, splitBySelections,
+} from '../../asp/highlight';
 
 // Reported upstream: a TextEditorDecorationType's backgroundColor paints on the
 // same layer as the text, above VS Code's own selection highlight, so a
@@ -9,13 +11,12 @@ import { affectsRegionHighlight, editorsToPaint, hasNonEmptySelection, overlapWi
 //
 // The fix does not remove the ASP tint wherever a selection overlaps it —
 // that loses the "this is ASP code" cue for exactly the text someone is
-// looking at, a bad trade for anyone who spends most of their time selecting
-// inside <% %> blocks. Instead the tint is always painted in full, and a
-// second decoration — the theme's own selection colour — is layered on TOP of
-// it over just the part a selection covers. Two translucent layers on the same
-// characters blend, so the result carries both signals at once.
+// looking at. Over the selected part the tint is painted at half strength, so
+// the editor's own selection shows through as it does everywhere else. (A
+// layer of the theme's selection colour on top of the full tint, the earlier
+// fix, counted the selection colour twice there.)
 //
-// overlapWithSelections computes exactly that second layer's ranges.
+// overlapWithSelections gives the selected parts, outsideSelections the rest.
 
 function pos(line: number, character: number) { return { line, character }; }
 function range(startLine: number, startChar: number, endLine: number, endChar: number) {
@@ -146,29 +147,52 @@ describe('overlapWithSelections — bracket-sized ranges', () => {
     });
 });
 
-// The region colours were rebuilt on every settings change and painted on the
-// focused editor only, whatever its language.
-describe('affectsRegionHighlight', () => {
-    const change = (...touched: string[]) => ({
-        affectsConfiguration: (section: string) => touched.some(t => t === section || t.startsWith(section + '.')),
-    });
-
-    it('is true for the on/off switch and each colour', () => {
-        assert.strictEqual(affectsRegionHighlight(change('classicAsp.highlightAspRegions')), true);
-        assert.strictEqual(affectsRegionHighlight(change('classicAsp.codeBlockDarkColor')), true);
-    });
-
-    it('is false for any other setting, this extension\'s included', () => {
-        assert.strictEqual(affectsRegionHighlight(change('editor.fontSize')), false);
-        assert.strictEqual(affectsRegionHighlight(change('classicAsp.keywordCase')), false);
-    });
-});
-
+// The region colours were painted on the focused editor only, whatever its language.
 describe('editorsToPaint', () => {
     const editor = (languageId: string) => ({ document: { languageId } });
 
     it('takes every Classic ASP editor on screen and nothing else', () => {
         const left = editor('asp'), right = editor('asp'), notes = editor('markdown');
         assert.deepStrictEqual(editorsToPaint([left, notes, right]), [left, right]);
+    });
+});
+
+describe('outsideSelections and splitBySelections — the tint around a selection', () => {
+    it('leaves the parts of a region either side of a selection', () => {
+        assert.deepStrictEqual(outsideSelections(range(2, 0, 2, 20), [range(2, 5, 2, 8), range(2, 12, 2, 15)]),
+            [range(2, 0, 2, 5), range(2, 8, 2, 12), range(2, 15, 2, 20)]);
+        assert.deepStrictEqual(outsideSelections(range(2, 0, 2, 20), [range(1, 0, 3, 0)]), []);
+    });
+
+    it('splits only the regions a selection reaches, and nothing for a caret', () => {
+        const regions = [range(0, 0, 0, 2), range(1, 0, 4, 0), range(6, 0, 6, 2)];
+        assert.strictEqual(splitBySelections(regions, [range(2, 3, 2, 3)]), undefined);
+        assert.strictEqual(splitBySelections(regions, [range(5, 0, 5, 4)]), undefined);
+
+        const split = splitBySelections(regions, [range(2, 0, 3, 0)])!;
+        assert.deepStrictEqual(split.inside, [range(2, 0, 3, 0)]);
+        assert.deepStrictEqual(split.outside, [range(0, 0, 0, 2), range(1, 0, 2, 0), range(3, 0, 4, 0), range(6, 0, 6, 2)]);
+    });
+
+    it('splits several regions under one selection', () => {
+        const regions = [range(0, 0, 0, 2), range(0, 2, 0, 10), range(0, 10, 0, 12)];
+        const split = splitBySelections(regions, [range(0, 1, 0, 11)])!;
+        assert.deepStrictEqual(split.inside, [range(0, 1, 0, 2), range(0, 2, 0, 10), range(0, 10, 0, 11)]);
+        assert.deepStrictEqual(split.outside, [range(0, 0, 0, 1), range(0, 11, 0, 12)]);
+    });
+});
+
+describe('halfAlpha — the tint at half strength over a selection', () => {
+    it('halves rgba(), rgb() and every hex form', () => {
+        assert.strictEqual(halfAlpha('rgba(220, 220, 220, 0.04)'), 'rgba(220, 220, 220, 0.02)');
+        assert.strictEqual(halfAlpha('rgb(10,20,30)'), 'rgba(10, 20, 30, 0.5)');
+        assert.strictEqual(halfAlpha('#ff000080'), 'rgba(255, 0, 0, 0.251)');
+        assert.strictEqual(halfAlpha('#f00'), 'rgba(255, 0, 0, 0.5)');
+        assert.strictEqual(halfAlpha('#0000ff'), 'rgba(0, 0, 255, 0.5)');
+    });
+
+    it('gives nothing for a colour it cannot read', () => {
+        assert.strictEqual(halfAlpha('red'), undefined);
+        assert.strictEqual(halfAlpha('var(--x)'), undefined);
     });
 });

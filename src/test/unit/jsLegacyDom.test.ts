@@ -4,9 +4,9 @@ import {
     buildVirtualJsContent,
     disposeJsLanguageService,
     getJsLanguageService,
-} from '../../utils/jsUtils';
-import { getJsBlockRanges } from '../../utils/zoneUtils';
-import { SUPPRESSED_CODES } from '../../providers/jsDiagnosticsProvider';
+} from '../../js/jsUtils';
+import { getJsBlockRanges } from '../../core/zoneUtils';
+import { SUPPRESSED_CODES } from '../../js/jsDiagnosticsProvider';
 
 // Classic ASP pages were written for Internet Explorer, but TypeScript's DOM
 // library only describes modern standards-compliant browsers — so every IE-era

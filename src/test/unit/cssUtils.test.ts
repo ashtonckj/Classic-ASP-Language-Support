@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, stripAspExpressions } from '../../utils/cssUtils';
+import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, stripAspExpressions } from '../../css/cssUtils';
 
 // The ASP→placeholder swap must preserve BOTH length and interior
 // newlines, or CSS diagnostics after the expression land on the wrong line/column

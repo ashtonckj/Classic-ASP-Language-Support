@@ -1,8 +1,8 @@
 import * as assert from 'assert';
-import {
-    isBlockOpener, stripTrailingComment, tagToAutoClose, continuesOpenJsDocComment,
-} from '../../providers/aspIndentProvider';
-import { Zone } from '../../utils/zoneUtils';
+import { isBlockOpener } from '../../asp/typing/vbIndent';
+import { tagToAutoClose } from '../../asp/typing/autoClose';
+import { continuesOpenJsDocComment } from '../../asp/typing/enterKey';
+import { Zone } from '../../core/zoneUtils';
 
 // The shared opener test used by both Enter and Tab. A single-line `If … Then <stmt>` opens nothing; Property and access-modified declarations DO open a block.
 describe('isBlockOpener', () => {
@@ -31,22 +31,6 @@ describe('isBlockOpener', () => {
         assert.strictEqual(isBlockOpener('Dim x'), false);
         assert.strictEqual(isBlockOpener('x = 1'), false);
         assert.strictEqual(isBlockOpener('Public Balance'), false); // a field, not a block
-    });
-});
-
-// A trailing ' comment must be stripped before opener matching, but
-// an apostrophe inside a string is data, not a comment.
-describe('stripTrailingComment', () => {
-    it('removes a trailing comment so the opener can be matched', () => {
-        assert.strictEqual(stripTrailingComment("If b Then   ' note").trim(), 'If b Then');
-    });
-
-    it('keeps an apostrophe that lives inside a string literal', () => {
-        assert.strictEqual(stripTrailingComment('x = "a \' b"'), 'x = "a \' b"');
-    });
-
-    it('leaves a comment-free line unchanged', () => {
-        assert.strictEqual(stripTrailingComment('For i = 1 To 10'), 'For i = 1 To 10');
     });
 });
 

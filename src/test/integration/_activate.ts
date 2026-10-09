@@ -41,6 +41,26 @@ const EMBEDDED_LANGUAGES = ['html', 'css', 'javascript'];
 export async function mochaGlobalSetup(): Promise<void> {
     const started = Date.now();
 
+    // The test window is a fresh VS Code, and a fresh VS Code opens its chat in
+    // the secondary side bar. The typing tests send keystrokes to whatever has
+    // focus, and when the chat input had it they went into the chat ("function",
+    // a closing ">" …) instead of the editor, failing every typing test at once.
+    // These settings are the test instance's own (its user data folder under
+    // .vscode-test), never the author's.
+    const settings: Array<[string, string, unknown]> = [
+        ['chat', 'disableAIFeatures', true],
+        ['chat', 'commandCenter.enabled', false],
+        ['workbench', 'secondarySideBar.defaultVisibility', 'hidden'],
+    ];
+    for (const [section, key, value] of settings) {
+        try {
+            await vscode.workspace.getConfiguration(section).update(key, value, vscode.ConfigurationTarget.Global);
+        } catch {
+            // A setting this version of VS Code does not know; the commands below still apply.
+        }
+    }
+    await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
+
     const extension = vscode.extensions.getExtension(EXTENSION_ID);
     if (!extension) {
         throw new Error(
@@ -62,5 +82,6 @@ export async function mochaGlobalSetup(): Promise<void> {
     }
 
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
     console.log(`[asp] integration warm-up finished in ${Date.now() - started} ms`);
 }

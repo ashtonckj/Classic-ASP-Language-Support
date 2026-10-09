@@ -1,0 +1,375 @@
+import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+import type { FileSymbols } from '../vbscript/symbolParser';
+import { parseIncludeDirectives, resolveIncludeDirective, resolveIncludePathsIn } from '../core/includeDirectives';
+import { defaultIncludesSetting, virtualRootSetting } from '../platform/settings';
+import { loadIncludeTree } from '../workers/analysisClient';
+import { isFile, pathKey } from '../core/paths';
+import { openBuffers, openDocument } from '../platform/documentState';
+import { pathCompletions } from '../platform/pathCompletion';
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Virtual root resolution
+// Returns the base directory to use when resolving virtual="..." includes.
+//
+// Priority:
+//   1. classicAsp.virtualRoot setting (explicit user override)
+//   2. First workspace folder root (common case — user opened VS Code at app root)
+//   3. Directory of the current document (last resort fallback)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function getVirtualRoot(documentPath: string): string {
+    return configuredVirtualRoot() ?? path.dirname(documentPath);
+}
+
+/**
+ * The virtual root from steps 1 and 2 only — undefined when neither the setting
+ * nor an open folder says where the site starts, and the document's own folder
+ * is just a guess.
+ */
+export function configuredVirtualRoot(): string | undefined {
+    const userSetting = virtualRootSetting();
+
+    if (userSetting) {
+        // Expand a leading ~/ on macOS/Linux for convenience
+        const expanded = userSetting.startsWith('~/')
+            ? path.join(process.env.HOME ?? userSetting, userSetting.slice(2))
+            : userSetting;
+        return expanded;
+    }
+
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Include path resolution
+// Returns the resolved absolute paths of all #include directives in the text.
+// Supports file="..." (relative to current doc) and virtual="..." (virtual root).
+//
+// An include that does not resolve is left out quietly. The open page reports
+// its own as an "Include file not found" warning on the directive's line
+// (findMissingIncludes), which names the file and the virtualRoot setting. This
+// runs over every page of the workspace to build the include graph for F12,
+// hover and rename, so a pop-up from here named a file the user had not opened.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Resolves all #include paths from a single file's text — one level only.
+export function resolveDirectIncludes(documentText: string, documentPath: string): string[] {
+    const virtualRoot = getVirtualRoot(documentPath);
+    return parseIncludeDirectives(documentText)
+        .map(directive => resolveIncludeDirective(directive, documentPath, virtualRoot))
+        .filter(isFile);
+}
+
+/**
+ * Returns an include file's current content, preferring the OPEN editor buffer so
+ * unsaved edits to a .inc are reflected in the including .asp immediately (the way
+ * other language servers resolve dependencies — the editor models what the code
+ * *currently says*, even though the ASP engine reads the saved file at runtime).
+ * Falls back to disk for includes that aren't open. Returns null if unreadable.
+ */
+export function readIncludeText(fsPath: string): string | null {
+    const open = openDocument(fsPath);
+    if (open) { return open.getText(); }
+    try { return fs.readFileSync(fsPath, 'utf8'); } catch { return null; }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Symbol collection
+//
+// The active document is always parsed synchronously from its current editor
+// buffer. Include files are loaded and parsed by a worker thread and cached
+// independently, so editing the active document never forces a synchronous walk
+// of the include tree on the extension-host thread.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface IncludeSymbolCacheEntry {
+    symbols: FileSymbols;
+    children: string[];
+    // Set when this entry was parsed from an unsaved editor buffer rather than
+    // from disk, so a later edit to that buffer can be detected as stale.
+    bufferVersion?: number;
+}
+
+interface PendingIncludeLoad {
+    generation: number;
+    promise: Promise<void>;
+}
+
+const _includeSymbolCache = new Map<string, IncludeSymbolCacheEntry>();
+// Bumped on every write to _includeSymbolCache. collectIncludeSymbols memoises its
+// result per document version, and a document's version does NOT change when a
+// worker finishes loading its includes — so the memo keys on this as well, or
+// the first result computed before the includes arrived would stick.
+let _includeSymbolEpoch = 0;
+const _includeLoadPromises = new Map<string, PendingIncludeLoad>();
+let _includeCacheGeneration = 0;
+
+function mergeSymbols(target: FileSymbols, source: FileSymbols): void {
+    target.variables.push(...source.variables);
+    target.constants.push(...source.constants);
+    target.functions.push(...source.functions);
+    target.comVariables.push(...source.comVariables);
+    target.classes.push(...source.classes);
+}
+
+/**
+ * classicAsp.defaultIncludes lists files that many real apps only pull
+ * in through a shared bootstrap/layout page — never through the module being
+ * edited itself — so their symbols would otherwise be invisible to IntelliSense,
+ * hover, Go to Definition, and Peek Definition. Resolved the same way as
+ * #include virtual="..." (relative to virtualRoot, or the workspace root).
+ *
+ * Existence is not checked here: the worker finds out when it tries to read,
+ * which keeps the completion hot path free of synchronous disk access.
+ */
+export function defaultIncludeCandidates(virtualRoot: string): string[] {
+    const configured = defaultIncludesSetting();
+
+    return configured.map(entry => path.isAbsolute(entry)
+        ? entry
+        : path.join(virtualRoot, entry.replace(/^[/\\]/, '')));
+}
+
+function includeRoots(document: vscode.TextDocument): string[] {
+    const virtualRoot = getVirtualRoot(document.uri.fsPath);
+    // Path-only on purpose: the worker finds out which of these are readable,
+    // so the completion hot path never does existsSync/statSync on an include.
+    const roots = [
+        ...resolveIncludePathsIn(document.getText(), document.uri.fsPath, virtualRoot),
+        ...defaultIncludeCandidates(virtualRoot),
+    ];
+
+    const seen = new Set<string>();
+    return roots.filter(root => {
+        const key = pathKey(root);
+        if (seen.has(key)) { return false; }
+        seen.add(key);
+        return true;
+    });
+}
+
+function cachedTreeReady(fsPath: string, visited: Set<string>): boolean {
+    const key = pathKey(fsPath);
+    if (visited.has(key)) { return true; }
+    visited.add(key);
+
+    const cached = _includeSymbolCache.get(key);
+    if (!cached) { return false; }
+
+    // An entry parsed before the newest keystroke in a dirty include is stale.
+    // A clean document is left alone: its buffer and the file on disk agree.
+    const open = openDocument(fsPath);
+    if (open?.isDirty && cached.bufferVersion !== open.version) { return false; }
+
+    return cached.children.every(child => cachedTreeReady(child, visited));
+}
+
+export function areIncludeSymbolsReady(document: vscode.TextDocument): boolean {
+    if (document.languageId !== 'asp') { return true; }
+    const visited = new Set<string>();
+    return includeRoots(document).every(root => cachedTreeReady(root, visited));
+}
+
+/**
+ * Loads the document's include tree on the include worker. Repeated callers share the
+ * same in-flight request, and stale results are ignored after cache invalidation.
+ */
+export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<void> {
+    if (document.languageId !== 'asp') { return Promise.resolve(); }
+
+    const roots = includeRoots(document);
+    if (roots.length === 0 || areIncludeSymbolsReady(document)) {
+        return Promise.resolve();
+    }
+
+    const virtualRoot = getVirtualRoot(document.uri.fsPath);
+    const generation = _includeCacheGeneration;
+    const requestKey = [
+        pathKey(virtualRoot),
+        ...roots.map(pathKey).sort(),
+    ].join('|');
+
+    const pending = _includeLoadPromises.get(requestKey);
+    if (pending?.generation === generation) {
+        return pending.promise;
+    }
+
+    // The worker cannot ask the editor, so it is sent the unsaved text of open files.
+    const { texts: openFiles, versions: openVersions } = openBuffers();
+
+    // Include loading is best-effort: the worker never rejects, and a load that
+    // failed or was superseded leaves the cache as it was.
+    const promise = loadIncludeTree(requestKey, roots, virtualRoot, openFiles).then(entries => {
+        if (!entries || generation !== _includeCacheGeneration) { return; }
+        for (const entry of entries) {
+            const key = pathKey(entry.filePath);
+            _includeSymbolCache.set(key, {
+                symbols: entry.symbols,
+                children: entry.children,
+                bufferVersion: openVersions.get(key),
+            });
+            watchIncludeFolder(entry.filePath);
+        }
+        _includeSymbolEpoch++;
+    });
+
+    _includeLoadPromises.set(requestKey, { generation, promise });
+    return promise.finally(() => {
+        if (_includeLoadPromises.get(requestKey)?.promise === promise) {
+            _includeLoadPromises.delete(requestKey);
+        }
+    });
+}
+
+function appendCachedIncludeSymbols(target: FileSymbols, fsPath: string, visited: Set<string>): void {
+    const key = pathKey(fsPath);
+    if (visited.has(key)) { return; }
+    visited.add(key);
+
+    const cached = _includeSymbolCache.get(key);
+    if (!cached) { return; }
+
+    mergeSymbols(target, cached.symbols);
+    for (const childPath of cached.children) {
+        appendCachedIncludeSymbols(target, childPath, visited);
+    }
+}
+
+/**
+ * A result kept per document version and include epoch (the include symbols
+ * change without the document's version changing).
+ *
+ * Keyed by the document itself, not its URI: a file closed and opened again, or
+ * a new Untitled-1 after the last one was closed, starts over at version 1, and
+ * a URI key handed it the closed document's symbols. A closed document's entry
+ * goes when the document does.
+ */
+type SymbolMemo = WeakMap<vscode.TextDocument, { version: number; epoch: number; symbols: FileSymbols }>;
+
+/**
+ * The symbols a document's includes declare, without its own.
+ *
+ * For the ASP colouring, which runs on a worker thread and reads the page's own
+ * symbols there from the text it is sent. Collecting them here instead meant
+ * parsing the whole page on the extension host after every edit.
+ *
+ * Memoised, so the same object comes back until the
+ * document or an include changes — which is how the colouring knows it can reuse
+ * its last answer.
+ */
+const _includeOnlyMemo: SymbolMemo = new WeakMap();
+
+export function collectIncludeSymbols(document: vscode.TextDocument): FileSymbols {
+    if (!areIncludeSymbolsReady(document)) {
+        void preloadIncludeSymbols(document);
+    }
+
+    const memo = _includeOnlyMemo.get(document);
+    if (memo && memo.version === document.version && memo.epoch === _includeSymbolEpoch) {
+        return memo.symbols;
+    }
+
+    const symbols: FileSymbols = { variables: [], constants: [], functions: [], comVariables: [], classes: [] };
+    const visited = new Set<string>();
+    for (const includePath of includeRoots(document)) {
+        appendCachedIncludeSymbols(symbols, includePath, visited);
+    }
+
+    _includeOnlyMemo.set(document, { version: document.version, epoch: _includeSymbolEpoch, symbols });
+    return symbols;
+}
+
+
+/**
+ * `own`, a page's own symbols (as the VBScript worker read them), followed by
+ * what its includes declare: every symbol the page can see.
+ */
+export function withIncludeSymbols(document: vscode.TextDocument, own: FileSymbols): FileSymbols {
+    const includes = collectIncludeSymbols(document);
+    return {
+        variables:    [...own.variables,    ...includes.variables],
+        constants:    [...own.constants,    ...includes.constants],
+        functions:    [...own.functions,    ...includes.functions],
+        comVariables: [...own.comVariables, ...includes.comVariables],
+        classes:      [...own.classes,      ...includes.classes],
+    };
+}
+
+/**
+ * Forgets one file's include symbols, because it was saved or changed on disk.
+ *
+ * Only that file: saving a page used to throw away every include of every open
+ * page, and each of those then went back to the worker to be read and parsed
+ * again. A load already under way may have read the old text, so its results
+ * are ignored and whatever it covered is loaded again when next asked for.
+ */
+export function forgetIncludeFile(fsPath: string): void {
+    const key = pathKey(fsPath);
+    if (!_includeSymbolCache.has(key) && _includeLoadPromises.size === 0) { return; }
+    _includeCacheGeneration++;
+    _includeSymbolEpoch++;
+    _includeSymbolCache.delete(key);
+}
+
+// The folder of every cached include, watched without recursing into it. A save
+// in the editor is seen by onDidSaveTextDocument, but a change made anywhere
+// else — a git pull, another editor, a deploy script — is not, and the include
+// kept its old symbols until the window was reloaded. Watching these folders,
+// rather than the workspace, also covers includes outside the workspace.
+const _includeFolderWatchers = new Map<string, vscode.FileSystemWatcher>();
+
+function watchIncludeFolder(filePath: string): void {
+    const folder = path.dirname(filePath);
+    const key = pathKey(folder);
+    if (_includeFolderWatchers.has(key)) { return; }
+
+    const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(vscode.Uri.file(folder), '*'),
+    );
+    const forget = (uri: vscode.Uri) => forgetIncludeFile(uri.fsPath);
+    watcher.onDidChange(forget);
+    watcher.onDidCreate(forget);
+    watcher.onDidDelete(forget);
+    _includeFolderWatchers.set(key, watcher);
+}
+
+/** Stops watching include folders. Called from deactivate. */
+export function disposeIncludeWatchers(): void {
+    for (const watcher of _includeFolderWatchers.values()) { watcher.dispose(); }
+    _includeFolderWatchers.clear();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IncludePathCompletionProvider
+// Suggests files and folders inside the quotes of #include directives.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class IncludePathCompletionProvider implements vscode.CompletionItemProvider {
+
+    provideCompletionItems(
+        document: vscode.TextDocument,
+        position: vscode.Position,
+        token?: vscode.CancellationToken,
+    ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
+
+        const lineText   = document.lineAt(position.line).text;
+        const textBefore = lineText.substring(0, position.character);
+        const includeMatch = textBefore.match(/<!--\s*#include\s+(file|virtual)\s*=\s*["']([^"']*)$/i);
+        if (!includeMatch) return new vscode.CompletionList([], false);
+
+        const includeType = includeMatch[1].toLowerCase();
+        const typedSoFar  = includeMatch[2];
+        const docDir      = path.dirname(document.uri.fsPath);
+
+        // Use the same resolution logic as resolveDirectIncludes so completions
+        // browse from the correct root for both file="..." and virtual="..."
+        const baseDir = includeType === 'virtual'
+            ? getVirtualRoot(document.uri.fsPath)
+            : docDir;
+
+        return pathCompletions(position, typedSoFar, baseDir, 'Include file', token);
+    }
+}

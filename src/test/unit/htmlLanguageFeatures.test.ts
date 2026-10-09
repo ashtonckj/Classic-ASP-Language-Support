@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { maskAspBlocks, vbScriptBalancedBetween } from '../../providers/htmlLanguageFeatures';
+import { maskAspBlocks, vbScriptBalancedBetween } from '../../html/htmlLanguageFeatures';
 import { pageBlocks } from '../../vbscript/pageAnalysis';
 import { parsePage } from '../../vbscript/symbols';
 

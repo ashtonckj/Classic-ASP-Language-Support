@@ -1,17 +1,10 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { alignLines, computeLineEdits, computeRangeEdits, documentEol, resolveEol, toLf } from '../../utils/editUtils';
+import { alignLines, computeLineEdits, computeRangeEdits, documentEol, resolveEol, toLf } from '../../platform/editUtils';
+import { fakeDocument } from './_helpers';
 
-// Minimal TextDocument stand-in: computeLineEdits only reads lineCount, lineAt,
-// and eol.
-function fakeDoc(text: string, eol: number = vscode.EndOfLine.LF): vscode.TextDocument {
-    const lines = text.split(/\r\n|\n/);
-    return {
-        eol,
-        lineCount: lines.length,
-        lineAt: (n: number) => ({ text: lines[n] }),
-    } as unknown as vscode.TextDocument;
-}
+// computeLineEdits reads the document's lineCount, lineAt and eol.
+const fakeDoc = (text: string, eol: number = vscode.EndOfLine.LF): vscode.TextDocument => fakeDocument(text, { eol });
 
 const CRLF = vscode.EndOfLine.CRLF;
 

@@ -1,7 +1,8 @@
 import * as assert from 'assert';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { HtmlAttributeLinkProvider, resolveHtmlLink } from '../../providers/linkProvider';
+import { HtmlAttributeLinkProvider, resolveHtmlLink } from '../../html/linkProvider';
+import { fakeDocument } from './_helpers';
 
 // href / src links follow the rules VS Code's HTML support uses in a .html file.
 // A root-relative `/images/x.gif` was resolved against the DRIVE root, so it never
@@ -63,19 +64,7 @@ describe('HtmlAttributeLinkProvider', () => {
     before(() => { (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = [{ uri: { fsPath: ROOT } }]; });
     after(()  => { (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = undefined; });
 
-    function fakeDoc(text: string): vscode.TextDocument {
-        const lineStarts = [0];
-        for (let i = 0; i < text.length; i++) { if (text[i] === '\n') { lineStarts.push(i + 1); } }
-        return {
-            uri: vscode.Uri.file(PAGE),
-            getText: () => text,
-            positionAt: (offset: number) => {
-                let line = 0;
-                while (line + 1 < lineStarts.length && lineStarts[line + 1] <= offset) { line++; }
-                return new vscode.Position(line, offset - lineStarts[line]);
-            },
-        } as unknown as vscode.TextDocument;
-    }
+    const fakeDoc = (text: string): vscode.TextDocument => fakeDocument(text, { uri: vscode.Uri.file(PAGE) });
 
     const linksIn = (text: string) =>
         (new HtmlAttributeLinkProvider().provideDocumentLinks(fakeDoc(text)) as vscode.DocumentLink[])

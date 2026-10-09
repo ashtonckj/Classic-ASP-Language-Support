@@ -1,8 +1,9 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { JsCodeActionProvider } from '../../providers/jsCodeActionProvider';
-import { SUPPRESSED_CODES } from '../../providers/jsDiagnosticsProvider';
-import { disposeJsLanguageService } from '../../utils/jsUtils';
+import { JsCodeActionProvider } from '../../js/jsCodeActionProvider';
+import { SUPPRESSED_CODES } from '../../js/jsDiagnosticsProvider';
+import { disposeJsLanguageService } from '../../js/jsUtils';
+import { fakeDocument } from './_helpers';
 
 // Quick Fixes for the JS squiggles a page already shows. The one that earns its
 // keep is the misspelt member: TS2551's message ends "Did you mean
@@ -17,33 +18,9 @@ import { disposeJsLanguageService } from '../../utils/jsUtils';
 
 after(() => { disposeJsLanguageService(); });
 
-const JS_SOURCE = 'Classic ASP (JS)';
+const JS_SOURCE = 'Classic ASP';
 
-function fakeDoc(text: string): vscode.TextDocument {
-    const lineStarts = [0];
-    for (let i = 0; i < text.length; i++) {
-        if (text[i] === '\n') { lineStarts.push(i + 1); }
-    }
-    return {
-        languageId: 'asp',
-        version: 1,
-        uri: { fsPath: 'C:\\site\\page.asp', scheme: 'file', toString: () => 'file:///page.asp' },
-        getText: () => text,
-        lineCount: lineStarts.length,
-        lineAt: (n: number) => ({
-            text: text.slice(lineStarts[n], lineStarts[n + 1] ?? text.length).replace(/\r?\n$/, ''),
-        }),
-        offsetAt: (p: { line: number; character: number }) => lineStarts[p.line] + p.character,
-        positionAt: (offset: number) => {
-            let lo = 0, hi = lineStarts.length - 1;
-            while (lo < hi) {
-                const mid = (lo + hi + 1) >> 1;
-                if (lineStarts[mid] <= offset) { lo = mid; } else { hi = mid - 1; }
-            }
-            return new vscode.Position(lo, offset - lineStarts[lo]);
-        },
-    } as unknown as vscode.TextDocument;
-}
+const fakeDoc = (text: string): vscode.TextDocument => fakeDocument(text, { fsPath: 'C:\\site\\page.asp' });
 
 const provider      = new JsCodeActionProvider();
 const NOT_CANCELLED = { isCancellationRequested: false } as vscode.CancellationToken;
@@ -146,10 +123,10 @@ describe('Quick fixes are only offered where they belong', () => {
         );
     });
 
-    // A diagnostic from another provider (the HTML structure scanner, say) says
-    // nothing about the JS, and its code numbers mean something else entirely.
-    it('ignores a diagnostic this extension did not publish for the JS', () => {
-        const { actions } = fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551, 'Classic ASP (HTML)');
+    // A diagnostic from another extension (a linter, say) says nothing about
+    // the JS this extension checks, and its code numbers mean something else.
+    it('ignores a diagnostic this extension did not publish', () => {
+        const { actions } = fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551, 'some linter');
         assert.deepStrictEqual(actions, []);
     });
 

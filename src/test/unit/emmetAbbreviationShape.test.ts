@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { looksLikeAbbreviation } from '../../providers/aspIndentProvider';
+import { looksLikeAbbreviation } from '../../asp/typing/tabKey';
 import { ASP_OBJECTS } from '../../constants/aspKeywords';
 
 // Tab expands an abbreviation without requiring emmet.triggerExpansionOnTab, so

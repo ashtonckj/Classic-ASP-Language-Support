@@ -1,6 +1,6 @@
 {
     "Console Log": {
-        "prefix": "log",
+        "prefix": "clog",
         "body": "console.log($0);",
         "description": "Log to console"
     },
@@ -24,7 +24,7 @@
         "description": "Get element by ID"
     },
     "Query Selector": {
-        "prefix": "qs",
+        "prefix": "qsel",
         "body": "document.querySelector('$0')",
         "description": "Query selector"
     },
@@ -41,7 +41,7 @@
         "description": "Fetch API call"
     },
     "SetTimeout": {
-        "prefix": "timeout",
+        "prefix": "settimeout",
         "body": [
             "setTimeout(() => {",
             "\t$0",

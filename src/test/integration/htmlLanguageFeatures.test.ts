@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import { typeText } from './_typing';
 
 // In a .html file VS Code explains a tag or attribute on hover, offers the
 // values an attribute takes, and can edit a tag pair together. A page had none
@@ -77,7 +78,7 @@ suite('Linked editing of a tag pair (integration)', () => {
         await sleep(1000);
         editor.selection = new vscode.Selection(position, position);
         await sleep(1000); // VS Code asks for the linked ranges a moment after the caret moves
-        await vscode.commands.executeCommand('type', { text: 'x' });
+        await typeText('x');
         await sleep(500);
         const text = doc.getText();
         await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');

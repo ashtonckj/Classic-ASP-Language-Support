@@ -4,6 +4,7 @@ import {
     applyIndentAfter,
     applyIndentForLine,
     formatSingleAspBlock,
+    pageNames,
     type AspFormatterSettings,
 } from '../../formatter/aspFormatter';
 
@@ -48,6 +49,84 @@ describe('applyKeywordCase — trailing comments', () => {
 });
 
 // F2 — hex/octal (&H/&O) and #date# literals must not be operator-spaced.
+// Every built-in function may also be a variable's name — cscript compiles
+// `Dim hex`, `Dim day`, `Dim date` — so the function's casing goes only where
+// the name is used as the function, and the author's variable is left alone.
+describe('applyKeywordCase — a function name is cased only where it is the function', () => {
+    const pascal = (code: string) => applyKeywordCase(code, 'PascalCase');
+
+    it('cases a call, including the functions it once skipped', () => {
+        assert.strictEqual(pascal('x = hex(255) & oct(8) & chrw(65)'), 'x = Hex(255) & Oct(8) & ChrW(65)');
+        assert.strictEqual(pascal('x = len(trim(s)) & ucase(s)'), 'x = Len(Trim(s)) & UCase(s)');
+    });
+
+    it('cases a call written as a statement', () => {
+        assert.strictEqual(pascal('msgbox "hi"'), 'MsgBox "hi"');
+        assert.strictEqual(pascal('executeglobal code'), 'ExecuteGlobal code');
+        assert.strictEqual(pascal('If ok Then msgbox "hi"'), 'If ok Then MsgBox "hi"');
+    });
+
+    it('leaves a variable of the same name as written', () => {
+        assert.strictEqual(pascal('Dim hex, day'), 'Dim hex, day');
+        assert.strictEqual(pascal('hex = 5'), 'hex = 5');
+        assert.strictEqual(pascal('x = hex + day'), 'x = hex + day');
+        assert.strictEqual(pascal('For day = 1 To 7'), 'For day = 1 To 7');
+        assert.strictEqual(pascal('Function len(s)'), 'Function len(s)');
+        assert.strictEqual(pascal('ReDim arr(ubound(arr) + 1)'), 'ReDim arr(UBound(arr) + 1)');
+    });
+
+    it('cases a function read without arguments, but not where it is assigned', () => {
+        assert.strictEqual(pascal('If date > due Then'), 'If Date > due Then');
+        assert.strictEqual(pascal('x = now'), 'x = Now');
+        assert.strictEqual(pascal('date = now'), 'date = Now');
+    });
+
+    it('leaves a member of an object to the member rule', () => {
+        assert.strictEqual(pascal('rs.filter = x'), 'rs.Filter = x');
+        assert.strictEqual(pascal('x = obj.len'), 'x = obj.len');
+    });
+
+    it('does not take CVar, which VBScript does not have, for a function', () => {
+        assert.strictEqual(pascal('x = cvar(1)'), 'x = cvar(1)');
+    });
+
+    it('follows the chosen case in the other modes, by the same rule', () => {
+        assert.strictEqual(applyKeywordCase('x = HEX(1) + HEX', 'lowercase'), 'x = hex(1) + HEX');
+    });
+
+    // cscript: after a page-level `Dim hex`, `hex(255)` is the variable (Type
+    // mismatch), and after `Function Len(s)`, `Len("abc")` calls the page's own.
+    it('leaves a call alone when the page declares the name itself', () => {
+        const own = pageNames('<%\nDim hex\nFunction len(s)\n  Dim day\nEnd Function\nx = 1\n%>');
+        assert.deepStrictEqual([...own].sort(), ['hex', 'len']);
+        assert.strictEqual(applyKeywordCase('x = hex(255) & len(s) & day(now)', 'PascalCase', own), 'x = hex(255) & len(s) & Day(Now)');
+    });
+});
+
+// The formatter and Enter/Tab read one set of block rules (vbscript/indentRules),
+// keyed on the keyword that starts the statement.
+describe('formatSingleAspBlock — the block rules Enter and Tab use', () => {
+    const format = (code: string) => formatSingleAspBlock(`<%\n${code}\n%>`, DEFAULT_SETTINGS).formatted;
+
+    it('opens nothing at Exit Do, so the rest of the loop keeps its indent', () => {
+        assert.strictEqual(
+            format('Do While x\nIf done Then\nExit Do\nEnd If\ny = 1\nLoop\nz = 2'),
+            '<%\nDo While x\n  If done Then\n    Exit Do\n  End If\n  y = 1\nLoop\nz = 2\n%>',
+        );
+    });
+
+    it('opens nothing at a member named like a keyword', () => {
+        assert.strictEqual(format('a = obj.Do\nb = obj.With\nc = 1'), '<%\na = obj.Do\nb = obj.With\nc = 1\n%>');
+    });
+
+    it('lines a continued string up under the string, even with an = inside it', () => {
+        assert.strictEqual(
+            format('Response.Write "<!-- gap=" & gap & _\n", need=" & need'),
+            '<%\nResponse.Write "<!-- gap=" & gap & _\n               ", need=" & need\n%>',
+        );
+    });
+});
+
 describe('applyKeywordCase — numeric / date literals', () => {
     it('does not break a &H hex literal', () => {
         const out = applyKeywordCase('x = &H1F', 'PascalCase');

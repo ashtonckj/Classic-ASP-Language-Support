@@ -1,8 +1,8 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as vscode from 'vscode';
 import { formatCompleteAspFile } from '../../formatter/htmlFormatter';
+import { testSettings } from './_vscodeStub';
 
 // A generated corpus, run through the formatter on every build.
 //
@@ -158,24 +158,12 @@ function report(failures: Array<[string, string]>, total: number): void {
 
 describe('formatter sweep — generated combinations', () => {
 
-    const realGetConfiguration = vscode.workspace.getConfiguration;
-    const overrides: Record<string, unknown> = {};
-
-    before(() => {
-        (vscode.workspace as { getConfiguration: unknown }).getConfiguration = () => ({
-            get: (key: string, defaultValue?: unknown) =>
-                (key in overrides ? overrides[key] : defaultValue),
-        });
-    });
-
-    after(() => {
-        (vscode.workspace as { getConfiguration: unknown }).getConfiguration = realGetConfiguration;
-    });
+    after(() => { testSettings.delete('classicAsp.htmlIndentMode'); });
 
     for (const mode of ['continuation', 'flat']) {
         it(`formats every combination cleanly with htmlIndentMode=${mode}`, async function () {
             this.timeout(120_000);
-            overrides.htmlIndentMode = mode;
+            testSettings.set('classicAsp.htmlIndentMode', mode);
 
             const pages    = combinations();
             const failures: Array<[string, string]> = [];

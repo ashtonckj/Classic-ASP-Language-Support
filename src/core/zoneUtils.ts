@@ -1,0 +1,604 @@
+/**
+ * zoneUtils.ts
+ * Core shared utilities for zone detection inside .asp files.
+ */
+
+export type Zone = 'asp' | 'css' | 'js' | 'html';
+
+// ---------------------------------------------------------------------------
+// Low-level scanners
+// ---------------------------------------------------------------------------
+
+/**
+ * Starting at `start` (the opening quote), skip past a VBScript double-quoted
+ * string. VBScript uses `""` as the escape for a literal quote (no backslash
+ * escaping). Returns the index *after* the closing quote, or end-of-string if
+ * the string is never closed.
+ */
+function skipVbsString(text: string, start: number): number {
+    let i = start + 1; // skip the opening "
+    while (i < text.length) {
+        if (text[i] === '"') {
+            if (text[i + 1] === '"') { i += 2; continue; } // "" escaped quote
+            return i + 1; // past the closing quote
+        }
+        i++;
+    }
+    return text.length;
+}
+
+// ---------------------------------------------------------------------------
+// ASP block scanner
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when `offset` falls inside a <% ... %> ASP block.
+ */
+function isInsideAspBlock(fullText: string, offset: number): boolean {
+    let pos = 0;
+    let inAsp = false;
+
+    while (pos < fullText.length) {
+        if (!inAsp) {
+            const openIdx = fullText.indexOf('<%', pos);
+            if (openIdx === -1 || openIdx >= offset) return false;
+            inAsp = true;
+            pos = openIdx + 2;
+        } else {
+            const closeIdx = fullText.indexOf('%>', pos);
+            if (closeIdx === -1) return true;         // unclosed block — offset is inside
+            if (offset < closeIdx + 2) return true;   // offset is before or within %>
+            inAsp = false;
+            pos = closeIdx + 2;
+        }
+    }
+
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// Context-aware tag finder
+// ---------------------------------------------------------------------------
+
+/**
+ * Scan `text` from position `from` and return the index of the next real
+ * occurrence of `tag` (e.g. `'<style'`, `'<script'`, `'</style>'`) that is
+ * NOT inside:
+ *   • an HTML comment   (<!-- ... -->)
+ *   • an ASP block      (<% ... %>)
+ *   • a VBScript string or comment inside an ASP block
+ *   • a sibling HTML tag's attribute list (e.g. a `<script` string inside
+ *     an onclick="..." attribute of some other tag)
+ *
+ * Returns -1 if none is found before `stopBefore` (default: end-of-string).
+ *
+ * How the walk works
+ * ------------------
+ * Four boolean state bits are maintained:
+ *   inAsp        — inside <% ... %>
+ *   inHtmlComment — inside <!-- ... -->
+ *   inHtmlTag    — inside the attribute list of a (non-matching) HTML tag
+ *   inHtmlString — inside a quoted attribute value ("..." or '...') within
+ *                  an HTML tag; sub-state of inHtmlTag
+ *
+ * The `>` character only closes an HTML tag (inHtmlTag → false) when we are
+ * NOT inside a quoted attribute value (inHtmlString), preventing a `>` that
+ * appears in e.g. onclick="a > b" from prematurely ending the tag walk.
+ *
+ * Inside an ASP block, VBScript strings and comments are treated as OPAQUE: a
+ * `<script`/`<style` (or even a `%>`) that appears inside a `"…"` string or a
+ * `'` comment is source data, not markup, so it never starts a JS/CSS zone. This
+ * is what keeps `<% Response.Write "<script>…</script>" %>` from turning the rest
+ * of the document into a JS zone. A comment ends at the block's `%>` or the end of
+ * line, whichever comes first (ASP's `%>` ends the block even mid-comment, so real
+ * markup after `<% ' note %>` is still detected).
+ *
+ * NOTE: this is intentionally more conservative than isInsideAspBlock, which is
+ * purely lexical (first `%>` wins, even in a string — the engine's rule, used for
+ * zone COLOURING). Here we favour never mis-reading string/comment content as a
+ * tag, because a false JS/CSS zone produces a cascade of bogus diagnostics.
+ */
+export function findNextRealTag(
+    text: string,
+    tag: string,
+    from: number,
+    stopBefore: number = text.length,
+): number {
+    let i = from;
+    let inAsp         = false;
+    let inHtmlComment = false;
+    let inHtmlTag     = false;
+    let inHtmlString  = false;
+    let htmlStringQuote = '';
+
+    while (i < stopBefore) {
+        const ch = text[i];
+
+        // ── Inside an ASP block ──────────────────────────────────────────────
+        if (inAsp) {
+            // Skip VBScript strings whole — their contents (including any `<script>`,
+            // `<style>`, or `%>`) are data, never markup.
+            if (ch === '"') {
+                i = skipVbsString(text, i);
+                continue;
+            }
+            // A `'` comment runs to end-of-line OR the block's `%>`, whichever comes
+            // first (ASP's `%>` ends the block even mid-comment). We stop *before*
+            // the `%>` so the block-close check below still fires and real markup
+            // after `<% ' note %>` is detected.
+            if (ch === "'") {
+                const nl    = text.indexOf('\n', i);
+                const close = text.indexOf('%>', i);
+                i = (close !== -1 && (nl === -1 || close < nl))
+                    ? close
+                    : (nl === -1 ? text.length : nl);
+                continue;
+            }
+            if (ch === '%' && text[i + 1] === '>') {
+                inAsp = false;
+                i += 2;
+                continue;
+            }
+            i++;
+            continue;
+        }
+
+        // ── Inside an HTML comment ───────────────────────────────────────────
+        if (inHtmlComment) {
+            if (text.startsWith('-->', i)) {
+                inHtmlComment = false;
+                i += 3;
+                continue;
+            }
+            i++;
+            continue;
+        }
+
+        // ── Inside a quoted attribute value ─────────────────────────────────
+        // Must be checked before the generic inHtmlTag branch so that a `>`
+        // inside onclick="a > b" does not prematurely close the tag.
+        if (inHtmlString) {
+            if (ch === htmlStringQuote) {
+                inHtmlString  = false;
+                htmlStringQuote = '';
+            }
+            i++;
+            continue;
+        }
+
+        // ── Inside an HTML tag's attribute list ─────────────────────────────
+        if (inHtmlTag) {
+            if (ch === '"' || ch === "'") {
+                inHtmlString    = true;
+                htmlStringQuote = ch;
+                i++;
+                continue;
+            }
+            if (ch === '>') {
+                inHtmlTag = false;
+            }
+            i++;
+            continue;
+        }
+
+        // ── Outside all special contexts ─────────────────────────────────────
+        if (ch === '<') {
+            if (text.startsWith('!--', i + 1)) {
+                inHtmlComment = true;
+                i += 4;
+                continue;
+            }
+            if (text[i + 1] === '%') {
+                inAsp = true;
+                i += 2;
+                continue;
+            }
+
+            // Check whether this `<` is the tag we're looking for.
+            if (text.slice(i, i + tag.length).toLowerCase() === tag) {
+                const afterTag = i + tag.length;
+                const next = text[afterTag];
+                if (next === undefined || /[\s>/]/.test(next)) {
+                    return i;
+                }
+            }
+
+            // A `<` with no tag-name character after it is literal body text
+            // ("Show rows where qty < 5"), not markup. Treating it as a tag opener
+            // started an attribute-list walk that ran to the next `>` — which could
+            // be the `>` of the following <script>/<style> tag, so that whole
+            // embedded block was never recognised as a JS/CSS zone.
+            const afterAngle = text[i + 1];
+            if (afterAngle === undefined || !/[A-Za-z/!?]/.test(afterAngle)) {
+                i++;
+                continue;
+            }
+
+            // Some other HTML tag — track its attribute list so we don't
+            // accidentally match our target inside an attribute value.
+            inHtmlTag = true;
+            i++;
+            continue;
+        }
+
+        i++;
+    }
+
+    return -1;
+}
+
+// ---------------------------------------------------------------------------
+// Public helpers (isInsideCssBlock / isInsideJsBlock) used by getZone
+// ---------------------------------------------------------------------------
+
+interface JsBlockInfo {
+    inside: boolean;
+    isVbs: boolean; // true → treat as asp zone
+}
+
+/**
+ * Find the index of the `>` that terminates the opening tag beginning at/after
+ * `from`. A `>` is only the terminator when it is NOT inside:
+ *   • an ASP block            `<% … %>`  — the `>` in `type="<%= x %>"` is the
+ *     end of the ASP delimiter, not the tag (lexical: first `%>` wins, matching
+ *     the ASP engine — see isInsideAspBlock).
+ *   • a quoted attribute value `"…"` / `'…'` — the `>` in `title="a > b"` is
+ *     literal attribute text.
+ * Returns -1 if no terminator is found (e.g. an unterminated ASP block).
+ */
+export function findTagEnd(text: string, from: number): number {
+    let i = from;
+    let inString = false;
+    let quote = '';
+
+    while (i < text.length) {
+        const ch = text[i];
+
+        // ASP blocks are recognized lexically FIRST — before the attribute-string
+        // state below. `<%` opens a server block regardless of surrounding HTML
+        // quoting (the ASP engine runs before HTML parsing) and the first `%>`
+        // closes it. If this were checked after `inString`, an attribute's opening
+        // quote (e.g. title="<%= … %>") would swallow the `<%` as string text, and
+        // a `>` emitted inside the ASP expression could be mistaken for the tag end.
+        if (ch === '<' && text[i + 1] === '%') {
+            const aspEnd = text.indexOf('%>', i + 2);
+            if (aspEnd === -1) { return -1; } // unterminated ASP block
+            i = aspEnd + 2;
+            continue;
+        }
+        if (inString) {
+            if (ch === quote) { inString = false; quote = ''; }
+            i++;
+            continue;
+        }
+        if (ch === '"' || ch === "'") { inString = true; quote = ch; i++; continue; }
+        if (ch === '>') { return i; }
+        i++;
+    }
+    return -1;
+}
+
+/**
+ * Case-insensitive, whitespace-tolerant search for an HTML closing tag such as
+ * `</style>` or `</script>`, starting at `from`. HTML tag names are not
+ * case-sensitive, so `</STYLE>` and `</style >` must match too.
+ *
+ * ASP blocks are skipped: a `</style>` that appears inside a `<% … %>` server
+ * block is not a real element close (it is VBScript source, evaluated before the
+ * browser ever sees markup). CSS/JS *string* content is deliberately NOT skipped
+ * — per the HTML spec, a literal `</style>`/`</script>` inside a <style>/<script>
+ * rawtext element really does close it.
+ *
+ * Returns the match start index (-1 if none) and matched length so callers can
+ * advance past it. `tagName` is always a fixed literal, so there is no
+ * regex-injection concern.
+ */
+export function findClosingTag(
+    text: string,
+    tagName: string,
+    from: number,
+): { index: number; length: number } {
+    const re = new RegExp(`</${tagName}\\s*>`, 'iy');
+    let i = from;
+
+    while (i < text.length) {
+        if (text[i] === '<' && text[i + 1] === '%') {
+            const aspEnd = text.indexOf('%>', i + 2);
+            i = aspEnd === -1 ? text.length : aspEnd + 2;
+            continue;
+        }
+        if (text[i] === '<') {
+            re.lastIndex = i;
+            const m = re.exec(text);
+            if (m) { return { index: i, length: m[0].length }; }
+        }
+        i++;
+    }
+    return { index: -1, length: 0 };
+}
+
+/**
+ * Returns true if `offset` is inside a real `<style>…</style>` block —
+ * one that is not inside an HTML comment, an ASP block or a script.
+ */
+function isInsideCssBlock(text: string, offset: number): boolean {
+    return getCssBlockRanges(text).some(block => offset >= block.start && offset <= block.end);
+}
+
+/**
+ * Walks all real `<script>…</script>` blocks and returns information about
+ * whether `offset` falls inside one, and if so what kind.
+ */
+function isInsideJsBlock(text: string, offset: number): JsBlockInfo {
+    const NOT_INSIDE: JsBlockInfo = { inside: false, isVbs: false };
+    let searchFrom = 0;
+
+    while (true) {
+        const scriptOpen = findNextRealTag(text, '<script', searchFrom, offset);
+        if (scriptOpen === -1) return NOT_INSIDE;
+
+        const scriptTagEnd = findTagEnd(text, scriptOpen);
+        if (scriptTagEnd === -1) return NOT_INSIDE;
+
+        if (offset <= scriptTagEnd) return NOT_INSIDE;
+
+        const attrs = text.slice(scriptOpen + 7, scriptTagEnd);
+        const { index: scriptClose, length: closeLen } = findClosingTag(text, 'script', scriptTagEnd + 1);
+
+        if (scriptClose === -1 || offset <= scriptClose) {
+            // Offset is inside this script block
+            if (isVbScriptTag(attrs)) {
+                return { inside: true, isVbs: true };
+            }
+            const typeMatch = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
+            const isNonJs = typeMatch && !/javascript|module/i.test(typeMatch[1]);
+            if (!isNonJs) {
+                return { inside: true, isVbs: false };
+            }
+            // Known non-JS type (e.g. text/template) — not a JS zone
+            return NOT_INSIDE;
+        }
+
+        searchFrom = scriptClose + closeLen;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// VBScript tag helper (unchanged)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true if the attributes of a <script> tag indicate VBScript —
+ * both server-side and client-side should be treated as the ASP zone.
+ */
+function isVbScriptTag(attrs: string): boolean {
+    const typeMatch = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
+    if (typeMatch && /vbscript/i.test(typeMatch[1])) { return true; }
+    if (/\blanguage\s*=\s*["']vbscript["']/i.test(attrs)) { return true; }
+    return false;
+}
+
+/**
+ * Body ranges of every real `<script>` block that holds VBScript — either
+ * `language="vbscript"` or `type="…vbscript"`, client-side or `runat="server"`.
+ * The range spans the text between the opening tag's `>` and the `</script>`
+ * (exclusive), or end-of-file for an unclosed block.
+ *
+ * getZone already reports these as the `asp` zone; this exposes the same ranges
+ * to callers that need to map VBScript spans rather than probe a single offset
+ * (rename's occurrence scanner, for one).
+ */
+export function getVbScriptBlockRanges(text: string): Array<{ start: number; end: number }> {
+    return scriptBlocks(text).filter(block => isVbScriptTag(block.attrs)).map(({ start, end }) => ({ start, end }));
+}
+
+/**
+ * Every real `<script>` block, whatever its language: the body (from after the
+ * opening tag's `>` to the `</script>`, or end of file when unclosed) and the
+ * opening tag's attributes.
+ */
+function scriptBlocks(text: string): Array<{ start: number; end: number; attrs: string }> {
+    const blocks: Array<{ start: number; end: number; attrs: string }> = [];
+    let searchFrom = 0;
+
+    while (true) {
+        const scriptOpen = findNextRealTag(text, '<script', searchFrom);
+        if (scriptOpen === -1) { break; }
+
+        const scriptTagEnd = findTagEnd(text, scriptOpen);
+        if (scriptTagEnd === -1) { break; }
+
+        const attrs = text.slice(scriptOpen + '<script'.length, scriptTagEnd);
+        const { index: scriptClose, length: closeLen } = findClosingTag(text, 'script', scriptTagEnd + 1);
+        blocks.push({ start: scriptTagEnd + 1, end: scriptClose === -1 ? text.length : scriptClose, attrs });
+
+        if (scriptClose === -1) { break; }
+        searchFrom = scriptClose + closeLen;
+    }
+
+    return blocks;
+}
+
+/**
+ * Body ranges of every real `<style>` block. The range spans the text between
+ * the opening tag's `>` and the `</style>` (exclusive), or end-of-file for an
+ * unclosed block.
+ *
+ * A `<style>` written inside a script — `var tpl = "<style>…</style>"` — is
+ * script text, not a stylesheet, so it is skipped.
+ */
+export function getCssBlockRanges(text: string): Array<{ start: number; end: number }> {
+    const ranges: Array<{ start: number; end: number }> = [];
+    const scripts = scriptBlocks(text);
+    let script = 0;
+    let searchFrom = 0;
+
+    while (true) {
+        const styleOpen = findNextRealTag(text, '<style', searchFrom);
+        if (styleOpen === -1) { break; }
+
+        while (script < scripts.length && scripts[script].end < styleOpen) { script++; }
+        if (script < scripts.length && scripts[script].start <= styleOpen) {
+            searchFrom = scripts[script].end;
+            continue;
+        }
+
+        const styleTagEnd = findTagEnd(text, styleOpen);
+        if (styleTagEnd === -1) { break; }
+
+        const { index: styleClose, length: closeLen } = findClosingTag(text, 'style', styleTagEnd + 1);
+        ranges.push({ start: styleTagEnd + 1, end: styleClose === -1 ? text.length : styleClose });
+
+        if (styleClose === -1) { break; }
+        searchFrom = styleClose + closeLen;
+    }
+
+    return ranges;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Precomputed zone lookup
+//
+// getZone answers for ONE offset by rescanning from the start of the document
+// every time. Anything that has to classify every line of a file therefore does
+// quadratic work — an 8,000-line embedded <script> block took ~11 seconds to
+// parse, almost all of it rescanning text already scanned. These build each
+// zone's ranges in one linear pass instead, then answer by binary search.
+//
+// The block lists are produced by forward scans, so each is already sorted and
+// non-overlapping, which is what makes the binary search valid.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Every `<% … %>` block, as offsets. An unclosed `<%` runs to end of document,
+ * matching isInsideAspBlock. Bounds are EXCLUSIVE at both ends, because that
+ * function reports inside as `open < offset < close + 2`.
+ */
+export function getAspBlockRanges(text: string): Array<{ start: number; end: number }> {
+    const ranges: Array<{ start: number; end: number }> = [];
+    let pos = 0;
+
+    while (pos < text.length) {
+        const open = text.indexOf('<%', pos);
+        if (open === -1) { break; }
+
+        const close = text.indexOf('%>', open + 2);
+        ranges.push({ start: open, end: close === -1 ? Number.MAX_SAFE_INTEGER : close + 2 });
+        if (close === -1) { break; }
+        pos = close + 2;
+    }
+
+    return ranges;
+}
+
+/**
+ * Every `<script>` body that is actually JavaScript. VBScript blocks and known
+ * non-JS types (e.g. text/template) are excluded, because getZone reports those
+ * as 'asp' and 'html' — not 'js'. Bounds are INCLUSIVE, as in getCssBlockRanges.
+ */
+export function getJsBlockRanges(text: string): Array<{ start: number; end: number }> {
+    return scriptBlocks(text)
+        .filter(({ attrs }) => {
+            const typeMatch = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i);
+            const isNonJs   = typeMatch && !/javascript|module/i.test(typeMatch[1]);
+            return !isVbScriptTag(attrs) && !isNonJs;
+        })
+        .map(({ start, end }) => ({ start, end }));
+}
+
+/** A `%>` outside every block, or a `<%` that is never closed. */
+export interface AspTagProblem {
+    offset: number;
+    kind: 'stray' | 'unclosed';
+}
+
+/**
+ * The `<%` / `%>` mistakes in a page, by the same lexical rule IIS uses: a
+ * block runs from `<%` to the first `%>` after it, even one in a string or a
+ * comment. A `%>` in a VBScript `<script>` body is part of that script, not
+ * stray. In page order.
+ */
+export function aspTagProblems(text: string, zones: ZoneResolver = createZoneResolver(text)): AspTagProblem[] {
+    const problems: AspTagProblem[] = [];
+    for (let at = text.indexOf('%>'); at !== -1; at = text.indexOf('%>', at + 2)) {
+        if (zones.zoneAt(at) !== 'asp') { problems.push({ offset: at, kind: 'stray' }); }
+    }
+    // Only the last block can be unclosed: an unclosed one runs to the end of the page.
+    const last = zones.aspBlocks[zones.aspBlocks.length - 1];
+    if (last && last.end === Number.MAX_SAFE_INTEGER) { problems.push({ offset: last.start, kind: 'unclosed' }); }
+    return problems.sort((a, b) => a.offset - b.offset);
+}
+
+/** Binary search over sorted, non-overlapping ranges. */
+export function inRanges(
+    ranges: ReadonlyArray<{ start: number; end: number }>,
+    offset: number,
+    exclusive: boolean,
+): boolean {
+    let lo = 0;
+    let hi = ranges.length - 1;
+
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        const r   = ranges[mid];
+        if (exclusive ? offset <= r.start : offset < r.start) { hi = mid - 1; }
+        else if (exclusive ? offset >= r.end : offset > r.end) { lo = mid + 1; }
+        else { return true; }
+    }
+
+    return false;
+}
+
+export interface ZoneResolver {
+    zoneAt(offset: number): Zone;
+    /** The ranges the zones are read from, each sorted and non-overlapping, bounds as their functions document. */
+    readonly aspBlocks:  ReadonlyArray<{ start: number; end: number }>;
+    readonly cssBlocks:  ReadonlyArray<{ start: number; end: number }>;
+    readonly vbsScripts: ReadonlyArray<{ start: number; end: number }>;
+    readonly jsBlocks:   ReadonlyArray<{ start: number; end: number }>;
+}
+
+/**
+ * Scans `text` once, then answers zone queries without touching it again.
+ *
+ * Equivalent to calling getZone(text, offset) for the same text — the order of
+ * the checks below mirrors getZone's own precedence, and zoneResolver.test.ts
+ * asserts the two agree at EVERY offset of several awkward documents.
+ */
+export function createZoneResolver(text: string): ZoneResolver {
+    const aspBlocks  = getAspBlockRanges(text);
+    const cssBlocks  = getCssBlockRanges(text);
+    const vbsScripts = getVbScriptBlockRanges(text);
+    const jsBlocks   = getJsBlockRanges(text);
+
+    return {
+        aspBlocks, cssBlocks, vbsScripts, jsBlocks,
+        zoneAt(offset: number): Zone {
+            if (inRanges(aspBlocks, offset, true))   { return 'asp'; }
+            if (inRanges(cssBlocks, offset, false))  { return 'css'; }
+            // A server-side <script language="vbscript"> body is an ASP zone;
+            // getZone reaches that conclusion inside its own JS check, so this
+            // has to be tested before the JavaScript blocks, not after.
+            if (inRanges(vbsScripts, offset, false)) { return 'asp'; }
+            if (inRanges(jsBlocks, offset, false))   { return 'js'; }
+            return 'html';
+        },
+    };
+}
+
+export function getZone(fullText: string, offset: number): Zone {
+    // 1. ASP zone — <% ... %> blocks
+    if (isInsideAspBlock(fullText, offset)) { return 'asp'; }
+
+    // 2. CSS zone — inside a real <style> … </style>
+    if (isInsideCssBlock(fullText, offset)) { return 'css'; }
+
+    // 3. Script zone — inside a real <script> … </script>
+    const jsInfo = isInsideJsBlock(fullText, offset);
+    if (jsInfo.inside) {
+        return jsInfo.isVbs ? 'asp' : 'js';
+    }
+
+    // 4. Fall back to HTML
+    return 'html';
+}

@@ -1,8 +1,8 @@
 import * as assert from 'assert';
 import * as path from 'path';
-import { describeDeclaration } from '../../providers/aspHoverProvider';
+import { describeDeclaration } from '../../asp/aspHoverProvider';
 import { declarationsOf, resolveAt, type WorkspaceHost } from '../../vbscript/references';
-import { parseIncludeDirectives, resolveIncludeDirective } from '../../utils/includeDirectives';
+import { parseIncludeDirectives, resolveIncludeDirective } from '../../core/includeDirectives';
 
 const root = path.resolve('/site');
 const at = (p: string) => path.resolve(root, p);

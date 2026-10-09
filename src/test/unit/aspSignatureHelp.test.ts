@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { findActiveCall } from '../../providers/aspSignatureHelpProvider';
+import { findActiveCall } from '../../asp/aspSignatureHelpProvider';
 import { BUILTIN_FUNCTION_DOCS, VBSCRIPT_FUNCTIONS, builtinSignature } from '../../constants/aspKeywords';
 
 // The active-parameter counter must skip string literals: a comma or paren inside

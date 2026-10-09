@@ -36,9 +36,9 @@ function wrap(modulePath, names) {
     }
 }
 
-wrap('../out/utils/symbolParser.js', ['extractSymbols']);
-wrap('../out/providers/aspStructureDiagnosticsProvider.js', ['scanAspStructure', 'scanMissingSet', 'findMissingSet', 'getMatchedBlockPairs']);
-wrap('../out/providers/aspRenameProvider.js', ['findSymbolLocations']);
+wrap('../out/vbscript/symbolParser.js', ['extractSymbols']);
+wrap('../out/asp/aspStructureDiagnosticsProvider.js', ['scanAspStructure', 'scanMissingSet', 'findMissingSet', 'getMatchedBlockPairs']);
+wrap('../out/asp/aspRenameProvider.js', ['findSymbolLocations']);
 
 process.on('exit', () => {
     const out = path.join(__dirname, '..', 'out', 'vbscript-corpus.json');

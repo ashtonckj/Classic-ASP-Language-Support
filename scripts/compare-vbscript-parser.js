@@ -42,14 +42,17 @@ const args = process.argv.slice(2);
 // The providers import vscode; the unit-test stub stands in for it.
 require(path.join(root, 'out/test/unit/_mochaSetup.js'));
 const current = {
-    extractSymbols:   require(path.join(root, 'out/utils/symbolParser.js')).extractSymbols,
-    scanAspStructure: require(path.join(root, 'out/providers/aspStructureDiagnosticsProvider.js')).scanAspStructure,
+    extractSymbols:   require(path.join(root, 'out/vbscript/symbolParser.js')).extractSymbols,
+    scanAspStructure: require(path.join(root, 'out/asp/aspStructureDiagnosticsProvider.js')).scanAspStructure,
 };
 const { symbolsFromTree, parsePage, lineAt } = require(path.join(root, 'out/vbscript/symbols.js'));
 const { bindPage, bindScriptScope } = require(path.join(root, 'out/vbscript/binder.js'));
 const { buildScriptScope } = require(path.join(root, 'out/vbscript/scriptScope.js'));
-const { parseIncludeDirectives, resolveIncludeDirective } = require(path.join(root, 'out/utils/includeDirectives.js'));
+const { parseIncludeDirectives, resolveIncludeDirective } = require(path.join(root, 'out/core/includeDirectives.js'));
 const { pagePrograms } = require(path.join(root, 'out/vbscript/pageSegments.js'));
+
+/** A compiled module of the baseline, which may predate the folder layout of 2026-10. */
+const inEitherLayout = (out, now, before) => fs.existsSync(path.join(out, now)) ? path.join(out, now) : path.join(out, before);
 
 const baselineIndex = args.indexOf('--baseline');
 const baselineDir = baselineIndex === -1 ? null
@@ -61,8 +64,8 @@ if (baselineDir) {
     require(path.join(out, 'test/unit/_mochaSetup.js'));
     baseline = {
         ref:              fs.existsSync(path.join(baselineDir, 'REF')) ? fs.readFileSync(path.join(baselineDir, 'REF'), 'utf8').trim() : baselineDir,
-        extractSymbols:   require(path.join(out, 'utils/symbolParser.js')).extractSymbols,
-        scanAspStructure: require(path.join(out, 'providers/aspStructureDiagnosticsProvider.js')).scanAspStructure,
+        extractSymbols:   require(inEitherLayout(out, 'vbscript/symbolParser.js', 'utils/symbolParser.js')).extractSymbols,
+        scanAspStructure: require(inEitherLayout(out, 'asp/aspStructureDiagnosticsProvider.js', 'providers/aspStructureDiagnosticsProvider.js')).scanAspStructure,
     };
 }
 

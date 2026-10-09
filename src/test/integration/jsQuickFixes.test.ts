@@ -43,7 +43,7 @@ async function openAndWaitForSquiggle(
     // Diagnostics are debounced; poll rather than guess a duration.
     for (let waited = 0; waited < 6000; waited += 100) {
         const here = vscode.languages.getDiagnostics(doc.uri)
-            .filter(d => d.source === 'Classic ASP (JS)' && d.range.intersection(range));
+            .filter(d => d.source === 'Classic ASP' && typeof d.code === 'number' && d.range.intersection(range));
         if (here.length) { return { doc, range }; }
         await sleep(100);
     }

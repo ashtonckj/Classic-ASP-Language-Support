@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { claimsAsp, competitorsToMention, findCompetitors } from '../../competingExtensions';
+import { afterDismissal, claimsAsp, competitorsToMention, findCompetitors } from '../../platform/competingExtensions';
 
 // Two other Classic ASP extensions register the same language and grammar as
 // this one, and then fight it over how .asp files are coloured. These pick
@@ -83,16 +83,20 @@ describe('competitorsToMention', () => {
     const found = findCompetitors([SYNTAXES, CLASSIC_SUPPORT], SELF.id);
 
     it('mentions all of them when nothing was answered before', () => {
-        assert.strictEqual(competitorsToMention(found, [], 0, 1000).length, 2);
+        assert.strictEqual(competitorsToMention(found, []).length, 2);
     });
 
     it('leaves out one the user chose to keep, without regard to case', () => {
-        const mention = competitorsToMention(found, ['JTJOO.classic-asp-html'], 0, 1000);
+        const mention = competitorsToMention(found, ['JTJOO.classic-asp-html']);
         assert.deepStrictEqual(mention.map(c => c.id), ['zbecknell.asp-classic-support']);
     });
 
-    it('stays quiet until a closed notification has waited its turn', () => {
-        assert.strictEqual(competitorsToMention(found, [], 2000, 1000).length, 0);
-        assert.strictEqual(competitorsToMention(found, [], 2000, 2000).length, 2);
+    it('asks again after one close, and takes a second close as Keep Both', () => {
+        const once = afterDismissal(found, [], []);
+        assert.deepStrictEqual(once.kept, []);
+        assert.strictEqual(competitorsToMention(found, once.kept).length, 2, 'asked again next start');
+
+        const twice = afterDismissal(found, once.kept, once.dismissed);
+        assert.strictEqual(competitorsToMention(found, twice.kept).length, 0);
     });
 });

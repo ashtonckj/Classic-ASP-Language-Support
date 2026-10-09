@@ -1,11 +1,10 @@
 /**
  * symbols.ts
  *
- * Reads the declared symbols of a page from its syntax trees, in the same
- * shape extractSymbols returns, so the two can be compared entry by entry and
- * the tree can later stand in for the line scanner behind the same API.
- *
- * Where extractSymbols makes a deliberate choice, this follows it:
+ * Reads the declared symbols of a page from its syntax trees, in the
+ * FileSymbols shape (symbolParser.ts) that completion, the Outline, Ctrl+T and
+ * the colouring read. It took over from a line scanner, and keeps that
+ * scanner's deliberate choices:
  *   - A plain `x = …` records an implicit variable only when the page has no
  *     Option Explicit, and only for a name not seen before.
  *   - A For Each variable is implicit; a For counter is not recorded.
@@ -19,7 +18,7 @@
 import type * as A from './ast';
 import { parseProgram } from './parser';
 import { pagePrograms } from './pageSegments';
-import type { FileSymbols } from '../utils/symbolParser';
+import type { FileSymbols } from './symbolParser';
 import { COM_METHOD_RETURN_TYPES, normalizeProgId } from '../constants/comObjects';
 
 export interface ParsedPage {
@@ -62,7 +61,7 @@ function valueOf(match: RegExpExecArray | null): string | null {
 export function parsePage(text: string): ParsedPage {
     const programs = pagePrograms(text).map(p => parseProgram(text, p.segments, p.server));
     const lineStarts = [0];
-    // Lines split at `\n` only, as extractSymbols and VS Code's CRLF files count them.
+    // Lines split at `\n` only, as VS Code counts the lines of a CRLF file.
     for (let i = 0; i < text.length; i++) {
         if (text[i] === '\n') { lineStarts.push(i + 1); }
     }
@@ -106,7 +105,8 @@ export function walkStatements(
     }
 }
 
-const PROC_KIND: Record<A.ProcedureStmt['procKind'], 'Function' | 'Sub' | 'Property'> = {
+/** The keyword a procedure is declared with, as it is written: `Sub`, `Function`, `Property`. */
+export const PROCEDURE_WORD: Record<A.ProcedureStmt['procKind'], 'Function' | 'Sub' | 'Property'> = {
     function: 'Function', sub: 'Sub', property: 'Property',
 };
 
@@ -140,19 +140,25 @@ export function symbolsOfPage(page: ParsedPage, filePath: string): FileSymbols {
 
     const line = (offset: number) => lineAt(page, offset);
     const hasOptionExplicit = statements.some(s => s.kind === 'OptionExplicit');
-    const seen = (name: string) => result.variables.some(v => v.name.toLowerCase() === name);
+    // Lower-cased names already in result.variables: a Set, as a page can assign thousands of times.
+    const variableNames = new Set<string>();
+    const seen = (name: string) => variableNames.has(name);
+    const addVariable = (variable: FileSymbols['variables'][number]) => {
+        result.variables.push(variable);
+        variableNames.add(variable.name.toLowerCase());
+    };
 
     for (const s of statements) {
         switch (s.kind) {
             case 'Dim':
                 for (const d of s.declarators) {
-                    result.variables.push({ name: d.name.text, line: line(s.start), filePath });
+                    addVariable({ name: d.name.text, line: line(s.start), filePath });
                 }
                 break;
 
             case 'ForEach':
                 if (s.variable.name && !seen(s.variable.name)) {
-                    result.variables.push({ name: s.variable.text, line: line(s.start), filePath, implicit: true });
+                    addVariable({ name: s.variable.text, line: line(s.start), filePath, implicit: true });
                 }
                 break;
 
@@ -160,7 +166,7 @@ export function symbolsOfPage(page: ParsedPage, filePath: string): FileSymbols {
                 if (s.set || hasOptionExplicit || s.target.kind !== 'Ident' || seen(s.target.name.name)) { break; }
                 const owner = owners.get(s);
                 if (owner && owner.procKind !== 'sub' && owner.name.name === s.target.name.name) { break; }
-                result.variables.push({ name: s.target.name.text, line: line(s.start), filePath, implicit: true });
+                addVariable({ name: s.target.name.text, line: line(s.start), filePath, implicit: true });
                 break;
             }
 
@@ -173,7 +179,7 @@ export function symbolsOfPage(page: ParsedPage, filePath: string): FileSymbols {
             case 'Procedure':
                 result.functions.push({
                     name:       s.name.text,
-                    kind:       PROC_KIND[s.procKind],
+                    kind:       PROCEDURE_WORD[s.procKind],
                     params:     s.paramList ? sourceOf(text, s.paramList) : '',
                     paramNames: s.params.map(p => p.name.text),
                     line:       line(s.start),

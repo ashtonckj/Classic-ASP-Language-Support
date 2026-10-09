@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import { typeText } from './_typing';
 
 // Close what the test opened. Each test here opens a document and never closed
 // it, so across a full run the editors accumulated -- by the time the later
@@ -37,7 +38,7 @@ async function typeAndWait(
     text: string,
     settled: (doc: vscode.TextDocument) => boolean,
 ): Promise<void> {
-    await vscode.commands.executeCommand('type', { text });
+    await typeText(text);
     const start = Date.now();
     while (!settled(editor.document) && Date.now() - start < 3000) {
         await sleep(20);

@@ -5,12 +5,10 @@ import * as vscode from 'vscode';
 // backgroundColor is painted on the same layer as the text, above VS Code's own
 // selection highlight. With a visible-enough ASP-region colour, selecting text
 // inside a <% %> block made the selection disappear — the decoration painted
-// right over it. The ASP tint is now always painted in full, everywhere, and a
-// second decoration (highlight.ts, overlapWithSelections) using the theme's own
-// selection colour is layered ON TOP of it over just the part a selection
-// covers — the two translucent layers blend, so the result still reads as
-// tinted ASP code AND as a normal selection, rather than either signal
-// replacing the other. A selection never affects a region it doesn't overlap.
+// right over it. Over the part a selection covers, the tint is now painted at
+// half strength (highlight.ts, splitBySelections), so the editor's own
+// selection shows through while the text still reads as ASP code. A selection
+// never affects a region it doesn't overlap.
 //
 // What this suite can and cannot prove. `TextEditor.setDecorations` is a frozen
 // own property on the real editor object — `writable: false, configurable:

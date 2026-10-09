@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import { execFileSync } from 'child_process';
 import * as path from 'path';
 import { tokenize, TokenKind } from '../../vbscript/lexer';
-import { pagePrograms } from '../../vbscript/pageSegments';
+import { pageLanguage, pagePrograms } from '../../vbscript/pageSegments';
 import { parsePage, lineAt, symbolsFromTree } from '../../vbscript/symbols';
 
 // Every "accepts" and "reports" case below was checked against cscript.exe,
@@ -293,6 +293,19 @@ describe('VBScript page programs', () => {
         assert.deepStrictEqual(diagnostics(text), []);
     });
 
+    it("reads no VBScript in a JScript page's <% %> code, but still reads its VBScript script blocks", () => {
+        const code = '<%\nfunction f(a) { return a + 1; }\nfor (var i = 0; i < 3; i++) { Response.Write(f(i)); }\n%>';
+        for (const directive of ['<%@ Language="JScript" %>', '<%@ LANGUAGE=JavaScript CODEPAGE=65001 %>']) {
+            assert.strictEqual(pageLanguage(directive + code), 'jscript');
+            assert.deepStrictEqual(pagePrograms(directive + code), []);
+            assert.deepStrictEqual(diagnostics(directive + code), []);
+        }
+        const withScript = '<%@ Language="JScript" %>\n<% var x = 1; %>\n<script language="vbscript">\nSub A\nEnd Sub\n</script>';
+        assert.deepStrictEqual(pagePrograms(withScript).map(p => p.server), [false]);
+        assert.strictEqual(pageLanguage('<%@ Language="VBScript" %>\n<% x = 1 %>'), 'vbscript');
+        assert.strictEqual(pageLanguage('<% x = 1 %>'), 'vbscript');
+    });
+
     it('finds no VBScript in markup with no server code', () => {
         assert.deepStrictEqual(pagePrograms('<p>x = 1</p>'), []);
     });
@@ -303,6 +316,15 @@ describe('VBScript page programs', () => {
 });
 
 describe('symbolsFromTree', () => {
+    it('lists the variables of a page with 20,000 assignments without slowing down', () => {
+        // Each assignment once looked through every variable found so far.
+        const lines = Array.from({ length: 20000 }, (_, i) => `v${i} = ${i}`);
+        const started = Date.now();
+        const symbols = symbolsFromTree(`<%\n${lines.join('\n')}\n%>`, 'x.asp');
+        assert.strictEqual(symbols.variables.length, 20000);
+        assert.ok(Date.now() - started < 1500, `took ${Date.now() - started} ms`);
+    });
+
     it('reads every kind of symbol from a typical page', () => {
         const text = [
             '<%@ Language="VBScript" %>',

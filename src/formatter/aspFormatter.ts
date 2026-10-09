@@ -1,5 +1,9 @@
-import * as vscode from 'vscode';
-import { isRemAt, removeStrings } from '../utils/documentHelper';
+import { codeWithoutStrings, splitCodeAndComment, vbStatements, vbStringSegments } from '../core/vbLexical';
+import type { FormatterSettings, PrettierSettings } from '../platform/settings';
+import { ASP_MEMBER_DOCS, VBSCRIPT_BARE_FUNCTIONS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
+import { getStringAlignColumn, isBlockOpener, VBSCRIPT_BLOCK_CLOSERS } from '../vbscript/indentRules';
+import { parsePage } from '../vbscript/symbols';
+import { bindPage } from '../vbscript/binder';
 
 // ─── Settings ──────────────────────────────────────────────────────────────
 
@@ -9,6 +13,23 @@ export interface AspFormatterSettings {
     indentSize:        number;
     aspTagsOnSameLine: boolean;
     htmlIndentMode:    string;   // 'flat' | 'continuation'
+    /** What the page declares outside its procedures; see pageNames. */
+    pageNames?:        ReadonlySet<string>;
+}
+
+/**
+ * The names a page declares outside its procedures and classes — its Dims,
+ * Consts, Subs, Functions and Classes — lower-cased.
+ *
+ * A built-in function of the same name is the page's own from then on, even
+ * where it is called: after `Dim hex`, cscript reads `hex(255)` as the
+ * variable (Type mismatch), and after `Function Len(s)`, `Len("abc")` calls
+ * the page's function. The formatter leaves those names as the author wrote them.
+ */
+export function pageNames(code: string): Set<string> {
+    const binding = bindPage('', parsePage(code));
+    const page = binding.scopes[0];
+    return new Set(binding.declarations.filter(d => d.scope === page && !d.implicit).map(d => d.name));
 }
 
 /**
@@ -28,15 +49,14 @@ export function delimitersAtColumnZero(settings: AspFormatterSettings): boolean 
     return settings.htmlIndentMode === 'flat';
 }
 
-export function getAspSettings(): AspFormatterSettings {
-    const config         = vscode.workspace.getConfiguration('classicAsp');
-    const prettierConfig = vscode.workspace.getConfiguration('classicAsp.prettier');
+/** The block formatter's settings: the VBScript ones, with the indent unit Prettier uses. */
+export function aspFormatterSettings(formatter: FormatterSettings, prettier: PrettierSettings): AspFormatterSettings {
     return {
-        keywordCase:       config.get<string>('keywordCase',             'PascalCase'),
-        useTabs:           prettierConfig.get<boolean>('useTabs',        false),
-        indentSize:        prettierConfig.get<number>('tabWidth',        2),
-        aspTagsOnSameLine: config.get<boolean>('aspTagsOnSameLine',      false),
-        htmlIndentMode:    config.get<string>('htmlIndentMode',          'continuation'),
+        keywordCase:       formatter.keywordCase,
+        useTabs:           prettier.useTabs,
+        indentSize:        prettier.tabWidth,
+        aspTagsOnSameLine: formatter.aspTagsOnSameLine,
+        htmlIndentMode:    formatter.htmlIndentMode,
     };
 }
 
@@ -86,7 +106,7 @@ export function formatSingleAspBlock(
             ? trimmedBlock.slice(3, -2).trim()
             : trimmedBlock.slice(4, -2).trim();
         return {
-            formatted: '<%= ' + applyKeywordCase(content, settings.keywordCase) + ' %>',
+            formatted: '<%= ' + applyKeywordCase(content, settings.keywordCase, settings.pageNames) + ' %>',
             endLevel:  startLevel,
         };
     }
@@ -94,7 +114,7 @@ export function formatSingleAspBlock(
     // ── Single-line block: <% statement %> ─────────────────────────────────
     if (!block.includes('\n')) {
         const content          = block.slice(2, -2).trim();
-        const formattedContent = applyKeywordCase(content, settings.keywordCase);
+        const formattedContent = applyKeywordCase(content, settings.keywordCase, settings.pageNames);
 
         // Determine the VBScript indent level for this lone statement.
         const selectCaseStack: number[] = [];
@@ -201,7 +221,7 @@ function formatMultiLineAspBlock(
                 const indent       = applyIndentForLine(content, aspIndentLevel, selectCaseStack);
                 aspIndentLevel     = indent.printLevel;
                 const aspIndent    = getIndentString(baseLevel + aspIndentLevel, settings.useTabs, settings.indentSize);
-                const formatted    = applyKeywordCase(content, settings.keywordCase);
+                const formatted    = applyKeywordCase(content, settings.keywordCase, settings.pageNames);
 
                 if (settings.aspTagsOnSameLine) {
                     formattedLines.push('<% ' + formatted);
@@ -235,7 +255,7 @@ function formatMultiLineAspBlock(
 
             const content = trimmed.slice(0, -2).trim();
             if (content) {
-                const formatted = applyKeywordCase(content, settings.keywordCase);
+                const formatted = applyKeywordCase(content, settings.keywordCase, settings.pageNames);
                 let   aspIndent: string;
 
                 if (prevHadContinuation) {
@@ -327,7 +347,7 @@ function formatMultiLineAspBlock(
         const indent            = applyIndentForLine(trimmed, aspIndentLevel, selectCaseStack);
         aspIndentLevel          = indent.printLevel;
         const aspIndent         = getIndentString(baseLevel + aspIndentLevel, settings.useTabs, settings.indentSize);
-        const formattedContent  = applyKeywordCase(trimmed, settings.keywordCase);
+        const formattedContent  = applyKeywordCase(trimmed, settings.keywordCase, settings.pageNames);
 
         updateContinuationState(formattedContent, aspIndent, {
             prevHadContinuation, continuationAlignCol, inMultilineString,
@@ -358,7 +378,7 @@ export function applyIndentBefore(
     level:            number,
     selectCaseStack:  number[],
 ): { level: number } {
-    const lower = removeStrings(line).toLowerCase().trim();
+    const lower = codeWithoutStrings(line).toLowerCase().trim();
 
     // End Select — pop the Select Case stack.
     if (/^\s*end\s+select\b/.test(lower)) {
@@ -374,14 +394,8 @@ export function applyIndentBefore(
         };
     }
 
-    // Standard dedent-before keywords.
-    // "Next" must NOT match "On Error Resume Next" — that is not a For/Next closer.
-    if (
-        /^\s*end\s+(if|sub|function|with|class|property)\b/.test(lower)             ||
-        (/^\s*(loop|next|wend)(\s|$)/.test(lower) && !/resume\s+next/.test(lower))  ||
-        /^\s*else(\s|$)/.test(lower)                                                 ||
-        /^\s*elseif\b/.test(lower)
-    ) {
+    // A closer, or Else / ElseIf, by the rules Enter and Tab use (indentRules).
+    if (VBSCRIPT_BLOCK_CLOSERS.test(lower) || /^(else|elseif)\b/.test(lower)) {
         return { level: Math.max(0, level - 1) };
     }
 
@@ -396,7 +410,7 @@ export function applyIndentAfter(
     level:           number,
     selectCaseStack: number[],
 ): number {
-    const lower = removeStrings(line).toLowerCase().trim();
+    const lower = codeWithoutStrings(line).toLowerCase().trim();
 
     // Single-line If ... Then <statement> — no indent change.
     if (/\bif\b.*\bthen\b\s+\S/.test(lower)) return level;
@@ -410,26 +424,10 @@ export function applyIndentAfter(
     // Case / Case Else — body is one deeper than the Case label.
     if (/^\s*case(\s|$)/.test(lower)) return level + 1;
 
-    // Standard indent-after keywords.
-    // Each rule has a guard to prevent false positives on closing keywords
-    // that happen to contain an opener word (e.g. "End With" contains "With").
-    if (
-        /\bif\b.*\bthen\b/.test(lower)                                              ||
-        /\bfor\b\s+\w+\s*=/.test(lower)                                             ||
-        /\bfor\s+each\b/.test(lower)                                                ||
-        // "While" must NOT match "Loop While ..." (that is a Do/Loop post-condition closer).
-        (/\bwhile\b/.test(lower)   && !/^\s*loop\b/.test(lower))                    ||
-        /\bdo\b(\s+while|\s+until)?(\s|$)/.test(lower)                              ||
-        /\bsub\b\s+\w+/.test(lower)                                                ||
-        /\bfunction\b\s+\w+/.test(lower)                                           ||
-        // "With" must NOT match "End With".
-        (/\bwith\b/.test(lower)    && !/^\s*end\s+with\b/.test(lower))             ||
-        // "Class" must NOT match "End Class".
-        (/\bclass\b\s+\w+/.test(lower) && !/^\s*end\s+class\b/.test(lower))      ||
-        /\bproperty\s+(get|let|set)\b/.test(lower)                                  ||
-        /^\s*else(\s|$)/.test(lower)                                                 ||
-        /^\s*elseif\b.*\bthen\b/.test(lower)
-    ) {
+    // An opener, or Else / ElseIf, by the rules Enter and Tab use (indentRules):
+    // a keyword at the start of the statement, so `Exit Do` and `x = obj.With`
+    // open nothing.
+    if (isBlockOpener(lower) || /^else\b/.test(lower) || /^elseif\b.*\bthen\b/.test(lower)) {
         return level + 1;
     }
 
@@ -446,24 +444,7 @@ export function applyIndentAfter(
  * segment.
  */
 function splitStatements(line: string): string[] {
-    const { code } = splitOffComment(line);
-    const parts: string[] = [];
-    let cur   = '';
-    let inStr = false;
-
-    for (let i = 0; i < code.length; i++) {
-        const ch = code[i];
-        if (ch === '"') {
-            if (code[i + 1] === '"') { cur += '""'; i++; continue; } // "" escaped quote
-            inStr = !inStr;
-            cur += ch;
-            continue;
-        }
-        if (ch === ':' && !inStr) { parts.push(cur); cur = ''; continue; }
-        cur += ch;
-    }
-    parts.push(cur);
-
+    const parts = vbStatements(line);
     const nonEmpty = parts.filter(p => p.trim().length > 0);
     return nonEmpty.length > 0 ? nonEmpty : [''];
 }
@@ -551,22 +532,10 @@ function continuationIndent(
         : getIndentString(baseLevel + aspIndentLevel + 1, settings.useTabs, settings.indentSize);
 }
 
+/** The column a line continued after `line` lines up at: under its string, as Enter puts it (indentRules), or -1 for one level in. */
 function calcContinuationColumn(line: string, indent: string): number {
-    const trimmed   = line.trim();
-    const baseLen   = indent.length;
-    const equalsPos = trimmed.indexOf('=');
-
-    if (equalsPos !== -1) {
-        const afterEq = trimmed.slice(equalsPos + 1).trim();
-        if (afterEq.startsWith('"')) {
-            return baseLen + equalsPos + trimmed.slice(equalsPos).indexOf('"');
-        }
-    }
-
-    const quotePos = trimmed.indexOf('"');
-    if (quotePos !== -1) return baseLen + quotePos;
-
-    return -1; // No string — use +1 indent level.
+    const col = getStringAlignColumn(line.trim());
+    return col === -1 ? -1 : indent.length + col;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -588,73 +557,15 @@ function inferLevelFromIndent(indent: string, useTabs: boolean, indentSize: numb
 
 function isSQLStatement(line: string): boolean {
     return /\b(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|ORDER\s+BY|GROUP\s+BY|UNION|CREATE|DROP|ALTER|INNER|LEFT|RIGHT|OUTER|HAVING|DISTINCT|VALUES|INTO)\b/i
-        .test(removeStrings(line));
-}
-
-/**
- * Splits a VBScript code string into alternating non-string / string segments
- * so that keyword and operator transforms are never applied inside literals.
- */
-function splitByStrings(code: string): Array<{ text: string; isString: boolean }> {
-    const parts: Array<{ text: string; isString: boolean }> = [];
-    let   current  = '';
-    let   inString = false;
-
-    for (let i = 0; i < code.length; i++) {
-        if (code[i] === '"') {
-            if (i + 1 < code.length && code[i + 1] === '"') {
-                current += '""';
-                i++;
-                continue;
-            }
-            if (inString) {
-                current += '"';
-                parts.push({ text: current, isString: true });
-                current  = '';
-                inString = false;
-            } else {
-                if (current) parts.push({ text: current, isString: false });
-                current  = '"';
-                inString = true;
-            }
-        } else {
-            current += code[i];
-        }
-    }
-
-    if (current) parts.push({ text: current, isString: inString });
-    return parts;
-}
-
-/**
- * Splits a line into its code portion and a trailing VBScript comment (`' …`),
- * respecting string literals so an apostrophe inside "…" is not mistaken for the
- * start of a comment. `comment` includes its leading `'` (or is '' when none).
- */
-function splitOffComment(line: string): { code: string; comment: string } {
-    let inString = false;
-    for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"') {
-            if (line[i + 1] === '"') { i++; continue; } // "" = escaped quote
-            inString = !inString;
-        } else if (!inString && (ch === "'" || isRemAt(line, i))) {
-            return { code: line.slice(0, i), comment: line.slice(i) };
-        }
-    }
-    return { code: line, comment: '' };
+        .test(codeWithoutStrings(line));
 }
 
 // ─── Keyword casing ────────────────────────────────────────────────────────
 
 // Multi-word and special-cased keywords that need exact casing.
-const PROPER_CASING_MAP: Record<string, string> = {
+export const PROPER_CASING_MAP: Record<string, string> = {
     'elseif': 'ElseIf', 'redim': 'ReDim', 'byval': 'ByVal',
-    'byref': 'ByRef', 'isnull': 'IsNull', 'isempty': 'IsEmpty',
-    'isnumeric': 'IsNumeric', 'isarray': 'IsArray', 'isobject': 'IsObject',
-    'isdate': 'IsDate', 'readonly': 'ReadOnly', 'writeonly': 'WriteOnly',
-    'typename': 'TypeName', 'vartype': 'VarType', 'getobject': 'GetObject',
-    'createobject': 'CreateObject', 'getref': 'GetRef', 'endif': 'EndIf',
+    'byref': 'ByRef', 'readonly': 'ReadOnly', 'writeonly': 'WriteOnly', 'endif': 'EndIf',
     'endsub': 'EndSub', 'endfunction': 'EndFunction', 'endwith': 'EndWith',
     'endselect': 'EndSelect', 'endclass': 'EndClass', 'endproperty': 'EndProperty',
     'exitfor': 'ExitFor', 'exitdo': 'ExitDo', 'exitsub': 'ExitSub',
@@ -673,12 +584,12 @@ const PROPER_CASING_MAP: Record<string, string> = {
  * not the formatter's business. After a dot the name really is the API's, and
  * casing it to match the documentation is worth doing.
  */
-const MEMBER_CASING_MAP: Record<string, string> = {
+export const MEMBER_CASING_MAP: Record<string, string> = {
     'absolutepage': 'AbsolutePage', 'absoluteposition': 'AbsolutePosition', 'add': 'Add',
     'addheader': 'AddHeader', 'addnew': 'AddNew', 'appendtolog': 'AppendToLog',
     'atendofline': 'AtEndOfLine', 'atendofstream': 'AtEndOfStream', 'begintrans': 'BeginTrans',
     'binaryread': 'BinaryRead', 'binarywrite': 'BinaryWrite', 'buildpath': 'BuildPath',
-    'cacheecontrol': 'CacheControl', 'clearheaders': 'ClearHeaders', 'clientcertificate': 'ClientCertificate',
+    'cachecontrol': 'CacheControl', 'clearheaders': 'ClearHeaders', 'clientcertificate': 'ClientCertificate',
     'close': 'Close', 'closetext': 'CloseText', 'codepage': 'CodePage',
     'commandtext': 'CommandText', 'commandtype': 'CommandType', 'committrans': 'CommitTrans',
     'connectionstring': 'ConnectionString', 'contentlength': 'ContentLength', 'contenttype': 'ContentType',
@@ -688,7 +599,7 @@ const MEMBER_CASING_MAP: Record<string, string> = {
     'datelastaccessed': 'DateLastAccessed', 'datelastmodified': 'DateLastModified', 'deletefile': 'DeleteFile',
     'deletefolder': 'DeleteFolder', 'dictionary': 'Dictionary', 'driveexists': 'DriveExists',
     'exists': 'Exists', 'expiresabsolute': 'ExpiresAbsolute', 'fileexists': 'FileExists',
-    'filesystemobject': 'FileSystemObject', 'folderexists': 'FolderExists', 'form': 'Form',
+    'filesystemobject': 'FileSystemObject', 'filter': 'Filter', 'folderexists': 'FolderExists', 'form': 'Form',
     'getabsolutepathname': 'GetAbsolutePathName', 'getbasename': 'GetBaseName', 'getdrive': 'GetDrive',
     'getdrivename': 'GetDriveName', 'getextensionname': 'GetExtensionName', 'getfile': 'GetFile',
     'getfilename': 'GetFileName', 'getfolder': 'GetFolder', 'getlasterror': 'GetLastError',
@@ -708,38 +619,30 @@ const MEMBER_CASING_MAP: Record<string, string> = {
     'shortpath': 'ShortPath', 'skipline': 'SkipLine', 'totalbytes': 'TotalBytes',
     'urlencode': 'URLEncode', 'write': 'Write', 'writeblanklines': 'WriteBlankLines',
     'writeline': 'WriteLine',
+    // Every member of the ASP objects, as src/constants spells it: Response.End, Err.Number …
+    ...Object.fromEntries(Object.values(ASP_MEMBER_DOCS).map(({ label }) => {
+        const member = label.slice(label.indexOf('.') + 1);
+        return [member.toLowerCase(), member];
+    })),
 };
 
-const VBSCRIPT_FUNCTIONS_MAP: Record<string, string> = {
-    'cbool': 'CBool', 'cbyte': 'CByte', 'ccur': 'CCur', 'cdate': 'CDate',
-    'cdbl': 'CDbl', 'cint': 'CInt', 'clng': 'CLng', 'csng': 'CSng',
-    'cstr': 'CStr', 'cvar': 'CVar',
-    'isarray': 'IsArray', 'isdate': 'IsDate', 'isempty': 'IsEmpty',
-    'isnull': 'IsNull', 'isnumeric': 'IsNumeric', 'isobject': 'IsObject',
-    'lcase': 'LCase', 'ucase': 'UCase', 'ltrim': 'LTrim', 'rtrim': 'RTrim',
-    'instr': 'InStr', 'instrrev': 'InStrRev', 'strreverse': 'StrReverse',
-    'strcomp': 'StrComp',
-    'dateserial': 'DateSerial', 'timeserial': 'TimeSerial',
-    'datevalue': 'DateValue', 'timevalue': 'TimeValue',
-    'dateadd': 'DateAdd', 'datediff': 'DateDiff', 'datepart': 'DatePart',
-    'formatdatetime': 'FormatDateTime', 'formatnumber': 'FormatNumber',
-    'formatcurrency': 'FormatCurrency', 'formatpercent': 'FormatPercent',
-    'monthname': 'MonthName', 'weekdayname': 'WeekdayName',
-    'lbound': 'LBound', 'ubound': 'UBound',
-    'createobject': 'CreateObject', 'getobject': 'GetObject',
-    'msgbox': 'MsgBox', 'inputbox': 'InputBox',
-    'typename': 'TypeName', 'vartype': 'VarType', 'getref': 'GetRef',
-    'eval': 'Eval', 'loadpicture': 'LoadPicture', 'scriptengine': 'ScriptEngine',
-    'scriptenginebuildversion': 'ScriptEngineBuildVersion',
-    'scriptenginemajorversion': 'ScriptEngineMajorVersion',
-    'scriptengineminorversion': 'ScriptEngineMinorVersion',
-    'rgb': 'RGB', 'escape': 'Escape', 'unescape': 'Unescape',
-    'getlocale': 'GetLocale', 'setlocale': 'SetLocale',
-};
+/**
+ * The built-in functions, spelled as src/constants spells them, by lower-cased name.
+ *
+ * Every one of them may also be a variable's name — cscript compiles `Dim hex`,
+ * `Dim day` and `Dim date` alike — so a function is cased only where it is used
+ * as one; see isFunctionUse.
+ */
+export const VBSCRIPT_FUNCTIONS_MAP: Record<string, string> = Object.fromEntries(
+    VBSCRIPT_FUNCTIONS.map(name => [name.toLowerCase(), name]),
+);
+
+/** The functions that may be used without arguments, as a value: `If Date > due`, `x = Now`. */
+const BARE_FUNCTIONS = new Set(VBSCRIPT_BARE_FUNCTIONS.map(name => name.toLowerCase()));
 
 // General VBScript keywords ordered longest-first so multi-word keywords
 // like "end function" are matched before single-word ones like "end".
-const KEYWORDS_SORTED: string[] = [
+export const KEYWORDS_SORTED: string[] = [
     'if', 'then', 'else', 'elseif', 'end if', 'select case', 'case',
     'case else', 'end select', 'for', 'to', 'step', 'next', 'for each',
     'in', 'while', 'wend', 'do', 'loop', 'until', 'exit do',
@@ -750,12 +653,7 @@ const KEYWORDS_SORTED: string[] = [
     'or', 'not', 'xor', 'eqv', 'imp', 'is', 'nothing',
     'null', 'empty', 'true', 'false', 'option explicit', 'randomize', 'with',
     'end with', 'exit', 'mod', 'byval', 'byref', 'default', 'erase',
-    'let', 'resume', 'stop', 'get', 'len', 'mid', 'left',
-    'right', 'trim', 'replace', 'split', 'join', 'filter', 'string',
-    'space', 'chr', 'asc', 'int', 'fix', 'abs', 'sgn',
-    'sqr', 'exp', 'log', 'sin', 'cos', 'tan', 'atn',
-    'round', 'rnd', 'array', 'date', 'time', 'now', 'timer',
-    'year', 'month', 'day', 'weekday', 'hour', 'minute', 'second',
+    'let', 'resume', 'stop', 'get',
     'response', 'request', 'server', 'session', 'application',
 ].sort((a, b) => b.length - a.length);
 
@@ -775,30 +673,67 @@ const MEMBER_CASING_REGEXES = Object.entries(MEMBER_CASING_MAP).map(([lower, pro
     replacement: proper,
 }));
 
-const VBSCRIPT_FUNCTION_REGEXES = Object.entries(VBSCRIPT_FUNCTIONS_MAP).map(([lower, proper]) => ({
-    re: new RegExp('\\b' + lower + '\\b', 'gi'),
-    replacement: proper,
-}));
+// Longest first, so ScriptEngineMajorVersion is not read as ScriptEngine.
+const FUNCTION_NAME_RE = new RegExp(
+    '\\b(?:' + Object.keys(VBSCRIPT_FUNCTIONS_MAP).sort((a, b) => b.length - a.length).join('|') + ')\\b',
+    'gi',
+);
 
-const HANDLED_KEYWORDS = new Set([
-    ...Object.keys(VBSCRIPT_FUNCTIONS_MAP),
-    ...Object.keys(PROPER_CASING_MAP),
-]);
+/** Words after which a name is being declared, not used: `Dim a, hex`, `For day = 1`, `Function Len(`. */
+const DECLARES_BEFORE = /\b(?:Dim|ReDim(?:\s+Preserve)?|Const|Private|Public|Static|Set|For(?:\s+Each)?|Sub|Function|Property\s+(?:Get|Let|Set)|Class)\s+(?:[\w\s(),]*,\s*)?$/i;
+
+/**
+ * True when the built-in function name at `start`–`end` of `text` (one stretch
+ * of a line's code between its strings) is used as the function there — called,
+ * or read for its value — rather than as the name of the page's own variable.
+ *
+ *   Hex(255)  MsgBox "hi"  If Date > due   → the function
+ *   Dim hex   hex = 5   rs.Filter   For day = 1 To 7   Function Len(s)  → a name
+ */
+function isFunctionUse(text: string, start: number, end: number, first: boolean, last: boolean): boolean {
+    if (text[start - 1] === '.') { return false; }
+    const before = text.slice(0, start);
+    if (DECLARES_BEFORE.test(before)) { return false; }
+
+    const after = text.slice(end);
+    if (/^\s*\(/.test(after)) { return true; }
+
+    const startsStatement = (first && /^\s*$/.test(before)) || /(?::|\bThen|\bElse)\s*$/i.test(before);
+    if (startsStatement && /^\s*=/.test(after)) { return false; }
+    // A statement call with its argument after a space: `MsgBox "hi"`, `Execute code`.
+    if (startsStatement && (/^\s+[^\s=.:]/.test(after) || (!last && /^\s+$/.test(after)))) { return true; }
+
+    return BARE_FUNCTIONS.has(text.slice(start, end).toLowerCase());
+}
+
+/**
+ * `text` with each built-in function used as one written by `spell`. A name in
+ * `own` is the page's own (see pageNames) and is left alone.
+ */
+function caseFunctions(
+    text: string, first: boolean, last: boolean, own: ReadonlySet<string> | undefined, spell: (name: string) => string,
+): string {
+    return text.replace(FUNCTION_NAME_RE, (name: string, offset: number) =>
+        !own?.has(name.toLowerCase()) && isFunctionUse(text, offset, offset + name.length, first, last) ? spell(name) : name);
+}
+
+const HANDLED_KEYWORDS = new Set(Object.keys(PROPER_CASING_MAP));
 
 const KEYWORD_REGEXES = KEYWORDS_SORTED.map(kw => ({
     kw,
     re: new RegExp('\\b' + kw.replace(/\s+/g, '\\s+') + '\\b', 'gi'),
 }));
 
-export function applyKeywordCase(code: string, caseStyle: string): string {
+export function applyKeywordCase(code: string, caseStyle: string, ownNames?: ReadonlySet<string>): string {
     // Split off a trailing VBScript comment FIRST — keyword casing and operator/
     // comma spacing must never touch comment text. Previously a comment such as
     // `' loop through next items` was keyword-cased to `' Loop through Next items`
     // and a URL like `' see http://x/y` became `' see http: / / x/y`.
-    const { code: codeOnly, comment } = splitOffComment(code);
-    const formatted = splitByStrings(codeOnly).map(part => {
+    const { code: codeOnly, comment } = splitCodeAndComment(code);
+    const parts = vbStringSegments(codeOnly);
+    const formatted = parts.map((part, index) => {
         if (part.isString) return part.text;
-        let s = applyKeywordCaseToText(part.text, caseStyle);
+        let s = applyKeywordCaseToText(part.text, caseStyle, index === 0, index === parts.length - 1, ownNames);
         s = formatOperators(s);
         s = formatCommas(s);
         return s;
@@ -806,7 +741,9 @@ export function applyKeywordCase(code: string, caseStyle: string): string {
     return formatted + comment;
 }
 
-function applyKeywordCaseToText(text: string, caseStyle: string): string {
+function applyKeywordCaseToText(
+    text: string, caseStyle: string, first: boolean, last: boolean, ownNames: ReadonlySet<string> | undefined,
+): string {
     let result = text;
 
     if (caseStyle === 'PascalCase') {
@@ -816,16 +753,12 @@ function applyKeywordCaseToText(text: string, caseStyle: string): string {
         for (const { re, replacement } of MEMBER_CASING_REGEXES) {
             result = result.replace(re, replacement);
         }
-        for (const { re, replacement } of VBSCRIPT_FUNCTION_REGEXES) {
-            result = result.replace(re, replacement);
-        }
+        result = caseFunctions(result, first, last, ownNames, name => VBSCRIPT_FUNCTIONS_MAP[name.toLowerCase()]);
     } else {
         // The built-in functions follow the chosen case like every other
         // keyword. Given their mixed-case names in every mode, lowercase came
         // out as `len(trim(s)) & UCase(s)`.
-        for (const { re } of VBSCRIPT_FUNCTION_REGEXES) {
-            result = result.replace(re, m => formatKeyword(m, caseStyle));
-        }
+        result = caseFunctions(result, first, last, ownNames, name => formatKeyword(name, caseStyle));
     }
 
     for (const { kw, re } of KEYWORD_REGEXES) {

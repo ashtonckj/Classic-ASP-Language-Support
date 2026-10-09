@@ -1,7 +1,7 @@
 {
     "name": "classic-asp-language-support",
     "displayName": "Classic ASP Language Support",
-    "description": "Classic ASP & VBScript for VS Code: formatter, IntelliSense, Go to Definition, Rename, error checking and syntax highlighting.",
+    "description": "Classic ASP & VBScript: formatter, IntelliSense, Go to Definition, Rename, error checking and syntax highlighting. For VS Code, and editors that install from Open VSX.",
     "version": "0.7.0",
     "icon": "images/icon.png",
     "publisher": "ashtonckj",
@@ -198,6 +198,7 @@
         "configuration": [
             {
                 "title": "VBScript Formatting",
+                "order": 1,
                 "properties": {
                     "classicAsp.keywordCase": {
                         "type": "string",
@@ -231,11 +232,17 @@
                             "The <% and %> delimiters sit at the indent of the HTML around them, so a block reads as part of the markup it is nested in. This is the default."
                         ],
                         "description": "Where the <% and %> delimiters sit relative to the surrounding HTML. The VBScript inside the block is indented the same either way — only the delimiters move."
-                    },
+                    }
+                }
+            },
+            {
+                "title": "Includes",
+                "order": 2,
+                "properties": {
                     "classicAsp.virtualRoot": {
                         "type": "string",
                         "default": "",
-                        "description": "Absolute path to your IIS web application root, used to resolve #include virtual=\"...\" directives. Leave empty to use the workspace folder root (the default, which works for most projects)."
+                        "description": "Absolute path to your IIS web application root, used to resolve #include virtual=\"...\" and root-relative links such as href=\"/css/site.css\". Leave empty to use the workspace folder root (the default, which works for most projects)."
                     },
                     "classicAsp.defaultIncludes": {
                         "type": "array",
@@ -249,6 +256,7 @@
             },
             {
                 "title": "HTML, CSS & JavaScript Formatting (via Prettier)",
+                "order": 3,
                 "properties": {
                     "classicAsp.prettier.printWidth": {
                         "type": "number",
@@ -349,6 +357,7 @@
             },
             {
                 "title": "Syntax Highlighting",
+                "order": 4,
                 "properties": {
                     "classicAsp.highlightAspRegions": {
                         "type": "boolean",
@@ -379,6 +388,7 @@
             },
             {
                 "title": "Old names (moved to classicAsp)",
+                "order": 5,
                 "properties": {
                     "aspLanguageSupport.keywordCase": {
                         "type": "string",
