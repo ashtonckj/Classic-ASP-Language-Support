@@ -1,4 +1,7 @@
 import * as assert from 'assert';
+import * as vscode from 'vscode';
+import { fakeDocument } from './_helpers';
+import { HtmlCompletionProvider } from '../../html/htmlCompletionProvider';
 import { maskAspBlocks, vbScriptBalancedBetween } from '../../html/htmlLanguageFeatures';
 import { pageBlocks } from '../../vbscript/pageAnalysis';
 import { parsePage } from '../../vbscript/symbols';
@@ -38,5 +41,40 @@ describe('vbScriptBalancedBetween', () => {
 
     it('is false for a loop opened between them and not closed', () => {
         assert.strictEqual(between('<li><% For Each x In list %></li>'), false);
+    });
+});
+
+// Tag, closing-tag and attribute suggestions, as a .html file gives them: read
+// from the page's parse, so text in a comment, a script or a style is not markup.
+describe('HtmlCompletionProvider', () => {
+    const provider = new HtmlCompletionProvider();
+    const labels = (text: string, trigger?: string): string[] => {
+        const at = text.indexOf('|');
+        const document = fakeDocument(text.replace('|', ''));
+        const items = provider.provideCompletionItems(
+            document as never, document.positionAt(at) as never, undefined as never,
+            { triggerCharacter: trigger, triggerKind: trigger ? 1 : 0 } as never,
+        ) as vscode.CompletionItem[];
+        return items.map(item => String(item.label));
+    };
+
+    it('closes the element the parse says is open, not a tag in a comment, script or style', () => {
+        assert.deepStrictEqual(labels('<div><!-- <p> -->\n</|', '/'), ['/div']);
+        assert.deepStrictEqual(labels('<div><script>var s="<p>";</script>\n</|', '/'), ['/div']);
+        assert.deepStrictEqual(labels('<div><style>.a::after{content:"<b>"}</style>\n</|', '/'), ['/div']);
+    });
+
+    it('closes a custom element', () => {
+        assert.deepStrictEqual(labels('<my-el>\n</|', '/'), ['/my-el']);
+    });
+
+    it('offers no markup inside a comment', () => {
+        assert.deepStrictEqual(labels('<!-- note: use <|', '<'), []);
+    });
+
+    it('offers attributes on a later line of a tag, leaving out the ones it has', () => {
+        const offered = labels('<div\n  class="a"\n  |');
+        assert.ok(offered.includes('id'), 'id');
+        assert.ok(!offered.includes('class'), 'class is already on the tag');
     });
 });

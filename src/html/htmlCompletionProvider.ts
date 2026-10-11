@@ -6,8 +6,8 @@ import {
     isInsideAttrValue,
     isInsideTagForAttributes
 } from '../platform/documentHelper';
-import { textOf, zonesFor } from '../platform/documentState';
-import { attributeHasValues, htmlAttributeValueCompletions } from './htmlLanguageFeatures';
+import { zonesFor } from '../platform/documentState';
+import { attributeHasValues, attributesOnTag, htmlAttributeValueCompletions, inHtmlComment, unclosedElementBefore } from './htmlLanguageFeatures';
 
 
 // ── Cached completion items — built once, reused on every keystroke ────────
@@ -58,81 +58,20 @@ function getAttributeCompletions(tagName: string): vscode.CompletionItem[] {
     return items;
 }
 
-// ── Closing tag scanner ────────────────────────────────────────────────────
+// ── Closing tag ────────────────────────────────────────────────────────────
 
 /**
- * Walks backward from `position` through the document to find the nearest
- * unclosed HTML block-level (and inline) tag.
- *
- * Rules:
- *  - Self-closing / void tags are skipped entirely.
- *  - ASP blocks (<% ... %>) are skipped so VBScript doesn't confuse the scan.
- *  - Matched open/close pairs cancel each other out (stack-based).
- *
- * Returns the unclosed tag name and the leading whitespace of the line it
- * opened on (used to snap the closing tag to the correct indent level).
- * Returns null when no unclosed tag is found.
+ * The nearest unclosed element before `position`, and the leading whitespace
+ * of the line it opened on (used to snap the closing tag to its indent).
  */
 function findUnclosedTag(
     document: vscode.TextDocument,
     position: vscode.Position
 ): { tag: string; openerIndent: string } | null {
-    const fullText = textOf(document);
-    const cursorOffset = document.offsetAt(position);
-
-    // We only scan up to the cursor position
-    const before = fullText.slice(0, cursorOffset);
-
-    const stack: string[] = [];
-
-    // Regex matches either:
-    //   opening tag  <tagname ...>   (group 1 = tag name)
-    //   closing tag  </tagname>      (group 2 = tag name)
-    //   ASP block    <% ... %>       (group 3 = whole block, to skip)
-    const tagPattern = /(<\s*\/\s*([a-zA-Z][a-zA-Z0-9]*)\s*>)|(<\s*([a-zA-Z][a-zA-Z0-9]*)(?:\s[^>]*)?>)|(<%-?[\s\S]*?%>)/g;
-
-    let m: RegExpExecArray | null;
-    const tokens: Array<{ open: boolean; tag: string; index: number }> = [];
-
-    while ((m = tagPattern.exec(before)) !== null) {
-        if (m[5]) { continue; }  // ASP block — skip
-
-        if (m[2]) {
-            // Closing tag </tag>
-            tokens.push({ open: false, tag: m[2].toLowerCase(), index: m.index });
-        } else if (m[4]) {
-            // Opening tag <tag ...>
-            const tag = m[4].toLowerCase();
-            if (!isSelfClosingTag(tag)) {
-                // Also skip tags that are self-closed inline: <br />, <input ... />
-                const full = m[0];
-                if (!full.trimEnd().endsWith('/>')) {
-                    tokens.push({ open: true, tag, index: m.index });
-                }
-            }
-        }
-    }
-
-    // Walk tokens in reverse, balancing close tags against opens
-    for (let i = tokens.length - 1; i >= 0; i--) {
-        const tok = tokens[i];
-        if (!tok.open) {
-            // Closing tag — push onto stack so the matching open is skipped
-            stack.push(tok.tag);
-        } else {
-            // Opening tag — if it matches the top of the close stack, pop it
-            if (stack.length > 0 && stack[stack.length - 1] === tok.tag) {
-                stack.pop();
-            } else {
-                // Unmatched opener — this is what we want to close
-                const pos         = document.positionAt(tok.index);
-                const openerIndent = document.lineAt(pos.line).text.match(/^([ \t]*)/)?.[1] ?? '';
-                return { tag: tok.tag, openerIndent };
-            }
-        }
-    }
-
-    return null;
+    const element = unclosedElementBefore(document, position);
+    if (!element) { return null; }
+    const line = document.positionAt(element.start).line;
+    return { tag: element.tag, openerIndent: document.lineAt(line).text.match(/^([ \t]*)/)?.[1] ?? '' };
 }
 
 // ── Completion provider ────────────────────────────────────────────────────
@@ -148,6 +87,8 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
 
         const offset = document.offsetAt(position);
         if (zonesFor(document).zoneAt(offset) !== 'html') { return []; }
+        // A .html file offers no markup inside a comment either.
+        if (inHtmlComment(document, offset)) { return []; }
 
         const textBefore = document.lineAt(position.line).text.substring(0, position.character);
         const currentIndent = textBefore.match(/^([ \t]*)/)?.[1] ?? '';
@@ -223,15 +164,12 @@ export class HtmlCompletionProvider implements vscode.CompletionItemProvider {
         if (!insideAttrValue && isInsideTagForAttributes(document, position)) {
             const tagName = getCurrentTagName(document, position);
             if (tagName) {
-                // Fire attribute completions on the very first space after the tag
-                // name, on explicit trigger, or when the user is already typing an
-                // attribute name — the old check required at least one character to
-                // be typed after the space which silently suppressed the first trigger.
-                const afterTagName = textBefore.match(/<\w+\s+(.*)$/);
-                const hasSpaceAfterTag = afterTagName !== null;
-                if (hasSpaceAfterTag || context.triggerCharacter === ' ') {
-                    return getAttributeCompletions(tagName);
-                }
+                // Anywhere in the tag, on any of its lines, as in a .html file;
+                // an attribute the tag already has is not offered again.
+                const written = attributesOnTag(document, position);
+                const typing  = textBefore.match(/[\w-]*$/)?.[0].toLowerCase() ?? '';
+                return getAttributeCompletions(tagName)
+                    .filter(item => item.label === typing || !written.has(String(item.label).toLowerCase()));
             }
         }
 

@@ -18,6 +18,7 @@ import type { BlockEvent } from '../vbscript/pageAnalysis';
 import { analysedPage } from '../asp/vbscriptWorkspace';
 import { fromLspCompletion, fromLspMarkdown, fromLspRange } from '../platform/lspConvert';
 import { loadHtmlService } from '../core/lazyModule';
+import { isSelfClosingTag } from '../constants/htmlTags';
 
 let _service: HtmlLs.LanguageService | undefined;
 
@@ -92,6 +93,41 @@ export function htmlAttributeValueCompletions(
     // The service read the page line for line, so its ranges are the page's.
     return htmlService().doComplete(page.document, position, page.html).items
         .map(value => fromLspCompletion(value, { kind: vscode.CompletionItemKind.Value, useRange: true }));
+}
+
+/**
+ * The innermost element still open at `position`, found the way VS Code's own
+ * HTML support finds what `</` closes: from the parse, so a tag inside a
+ * comment, a script or a style is not one.
+ */
+export function unclosedElementBefore(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): { tag: string; start: number } | undefined {
+    const offset = document.offsetAt(position);
+    const page   = parse(document);
+    const text   = page.document.getText();
+    for (let node: HtmlLs.Node | undefined = page.html.findNodeBefore(offset); node; node = node.parent) {
+        if (!node.tag || isSelfClosingTag(node.tag)) { continue; }
+        if (text.slice(node.start, node.startTagEnd).endsWith('/>')) { continue; }
+        if (node.endTagStart === undefined || node.endTagStart > offset) { return { tag: node.tag, start: node.start }; }
+    }
+    return undefined;
+}
+
+/** The attribute names already written on the tag at `position`, lower-cased. */
+export function attributesOnTag(document: vscode.TextDocument, position: vscode.Position): Set<string> {
+    const node = parse(document).html.findNodeAt(document.offsetAt(position));
+    return new Set(Object.keys(node.attributes ?? {}).map(name => name.toLowerCase()));
+}
+
+/** True when `offset` is inside an HTML comment, where a .html file offers no markup. */
+export function inHtmlComment(document: vscode.TextDocument, offset: number): boolean {
+    if (offset < 4) { return false; }
+    const text  = parse(document).document.getText();
+    const open  = text.lastIndexOf('<!--', offset - 4);
+    const close = text.lastIndexOf('-->', offset - 3);
+    return open >= 0 && close < open;
 }
 
 /** True when the HTML data lists values for this attribute, so picking it should show them. */
