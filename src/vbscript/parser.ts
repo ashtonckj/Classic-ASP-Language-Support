@@ -1054,6 +1054,8 @@ class Parser {
     private parseMultiplicative(): A.Expr { return this.parsePunctLevel(['*', '/'], () => this.parseUnary()); }
 
     private parseUnary(): A.Expr {
+        // VBScript takes `Not` after any operator: `a & Not b`, `1 + Not 2`.
+        if (this.word() === 'not') { return this.parseNot(); }
         if (this.isPunct('-') || this.isPunct('+')) {
             if (!this.enter()) { return this.missingExpr(); }
             const t = this.advance();
