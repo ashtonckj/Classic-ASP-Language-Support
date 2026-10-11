@@ -17,7 +17,7 @@ import { AspSignatureHelpProvider } from './aspSignatureHelpProvider';
 import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache } from './aspWorkspaceSymbolProvider';
 import { registerIncludeGraph } from './includeGraph';
 import { IgnoreCodeActionProvider } from '../platform/ignoreActions';
-import { forgetIncludeFile, IncludePathCompletionProvider, preloadIncludeSymbols } from './includeProvider';
+import { forgetIncludeFile, IncludePathCompletionProvider, preloadIncludeSymbols, watchIncludeSettings } from './includeProvider';
 import { IncludeDocumentLinkProvider } from '../html/linkProvider';
 import { PATH_TRIGGER_CHARACTERS } from '../platform/pathCompletion';
 
@@ -33,6 +33,7 @@ export function registerAspFeatures(context: vscode.ExtensionContext): void {
     preloadIncludes(vscode.window.activeTextEditor?.document);
     // Which pages include which, read in the background for F12, hover and rename.
     registerIncludeGraph(context);
+    context.subscriptions.push(...watchIncludeSettings());
 
     context.subscriptions.push(
         // "Ignore on this line" / "Ignore in this file" for any of this extension's problems.

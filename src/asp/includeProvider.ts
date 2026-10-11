@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { FileSymbols } from '../vbscript/symbolParser';
 import { resolveIncludePathsIn } from '../core/includeDirectives';
-import { defaultIncludesSetting, virtualRootSetting } from '../platform/settings';
+import { defaultIncludesSetting, onSettingsChange, virtualRootSetting } from '../platform/settings';
 import { loadIncludeTree } from '../workers/analysisClient';
 import { pathKey, withoutBom } from '../core/paths';
 import { openBuffers, openDocument } from '../platform/documentState';
@@ -299,6 +299,22 @@ export function forgetIncludeFile(fsPath: string): void {
     _includeCacheGeneration++;
     _includeSymbolEpoch++;
     _includeSymbolCache.delete(key);
+}
+
+/**
+ * Forgets every include's symbols when what an include path resolves to, or
+ * which files every page includes, changes. Registered from registerAspFeatures.
+ */
+export function watchIncludeSettings(): vscode.Disposable[] {
+    const forgetAll = () => {
+        _includeCacheGeneration++;
+        _includeSymbolEpoch++;
+        _includeSymbolCache.clear();
+    };
+    return [
+        onSettingsChange(['classicAsp.virtualRoot', 'classicAsp.defaultIncludes'], forgetAll),
+        vscode.workspace.onDidChangeWorkspaceFolders(forgetAll),
+    ];
 }
 
 // The folder of every cached include, watched without recursing into it. A save
