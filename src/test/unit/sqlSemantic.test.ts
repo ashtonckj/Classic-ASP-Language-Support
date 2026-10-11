@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { isSql } from '../../vbscript/sqlTokens';
+import { emitSqlTokensForGroup, isSql } from '../../vbscript/sqlTokens';
 
 // SQL-in-string detection must not light up plain English that happens to
 // contain SQL keywords, while still recognising real SQL (including UPDATE…SET
@@ -28,5 +28,33 @@ describe('isSql — precision vs recall', () => {
         ]) {
             it(`accepts: ${s}`, () => assert.strictEqual(isSql(s), true));
         }
+    });
+});
+
+// Words in a 'literal' or after a -- comment are data: 'Tom and Jerry' has no
+// AND in it, and a comment names no table.
+describe('emitSqlTokensForGroup — literals and comments', () => {
+    const coloured = (sql: string): string[] => {
+        const tokens: string[] = [];
+        const group = {
+            stitched: sql,
+            omLine: new Int32Array(sql.length),
+            omCol:  Int32Array.from({ length: sql.length }, (_, i) => i),
+        };
+        emitSqlTokensForGroup({ push: (_line, col, length) => { tokens.push(sql.slice(col, col + length)); } }, group);
+        return tokens;
+    };
+
+    it('colours nothing inside a quoted value', () => {
+        const words = coloured("SELECT id FROM t WHERE name = 'Tom and Jerry select from' AND d = '2020-01-01'");
+        assert.ok(words.includes('SELECT') && words.includes('AND'), JSON.stringify(words));
+        for (const inside of ['Tom', 'and', 'select', 'from', '2020', '01']) {
+            assert.ok(!words.includes(inside), `${inside} in ${JSON.stringify(words)}`);
+        }
+    });
+
+    it('colours nothing after a -- comment', () => {
+        const words = coloured('SELECT id FROM t -- where from comment');
+        assert.ok(!words.includes('where') && !words.includes('comment'), JSON.stringify(words));
     });
 });

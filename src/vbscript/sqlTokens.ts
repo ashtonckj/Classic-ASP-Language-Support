@@ -560,7 +560,10 @@ export function emitSqlTokensForGroup(
     builder: TokenSink,
     group: SqlStringGroup
 ): void {
-    const { stitched, omLine, omCol } = group;
+    const { omLine, omCol } = group;
+    // The words inside a 'literal' or after a -- comment are data, not SQL:
+    // 'Tom and Jerry' holds no keyword. Blanked to spaces, so offsets stay.
+    const stitched = group.stitched.replace(/'(?:[^']|'')*'|--[^\n]*/g, text => ' '.repeat(text.length));
 
     const claimed = new Uint8Array(stitched.length);
 
