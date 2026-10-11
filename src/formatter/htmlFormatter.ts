@@ -2,7 +2,6 @@ import type * as prettier from 'prettier';
 import { formatSingleAspBlock, aspFormatterSettings, delimitersAtColumnZero, pageNames, type AspFormatterSettings } from './aspFormatter';
 import { aspTagProblems, findNextRealTag, findTagEnd, findClosingTag, getVbScriptBlockRanges } from '../core/zoneUtils';
 import { analyseHtmlStructure } from '../core/htmlStructure';
-import { VOID_ELEMENTS } from '../constants/htmlTags';
 import { pageLanguage } from '../vbscript/pageSegments';
 import { formatterSettings, prettierSettings as readPrettierSettings, type PrettierSettings } from '../platform/settings';
 import { loadPrettier } from '../core/lazyModule';
@@ -126,10 +125,6 @@ export class PlaceholderNames {
     /** A placeholder id: `ASPPH3_00000000_aspfmt0`. */
     id(prefix: string, number: number): string { return `${prefix}${number}_${this.tag}_${this.tail}`; }
 }
-
-// A closing tag for a void element — `</br>`, `</img>` — which HTML has no
-// such thing as.
-const VOID_CLOSING_TAG_RE = new RegExp(`</(${[...VOID_ELEMENTS].join('|')})\\s*>`, 'gi');
 
 // ─── JS event attribute masking ───────────────────────────────────────────
 
@@ -1083,21 +1078,12 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
     const quotesMap = new OffsetMap();
     let maskedCode = quoteUnquotedValues(masked.toString(), unquoted, quotesMap);
 
-    // Strip closing tags on void elements (</br>, </input>, …) that Prettier
-    // hard-fails on. Done AFTER masking so a void closer that lives inside a
-    // VBScript string or ASP block (e.g. Response.Write "</br>") is already a
-    // placeholder here and is preserved — the previous raw-text strip silently
-    // deleted it. Real HTML void closers are still removed; the structure
-    // diagnostic continues to flag them for the user to fix.
-    const voidMap = new OffsetMap();
-    maskedCode = replaceRecorded(maskedCode, VOID_CLOSING_TAG_RE, () => '', voidMap);
-
     // Insert implied </td> </tr> … closers so Prettier doesn't mis-nest tables
     // whose optional end tags were omitted (very common in Classic ASP).
     const tableMap = new OffsetMap();
     maskedCode = insertImpliedTableEndTags(maskedCode, tableMap);
 
-    return { maskedCode, aspBlocks, hiddenTags, maps: [blocksMap, quotesMap, voidMap, tableMap] };
+    return { maskedCode, aspBlocks, hiddenTags, maps: [blocksMap, quotesMap, tableMap] };
 }
 
 async function layOutAsWritten(run: FormatRun, page: MaskedPage, firstPass: string): Promise<string> {

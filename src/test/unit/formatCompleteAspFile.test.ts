@@ -88,11 +88,11 @@ describe('formatPage — the result says what happened', () => {
     });
 });
 
-// Void-element closing tags (</br>, </input>, …) that Prettier rejects are
-// stripped from the HTML, but that strip must NOT reach into VBScript strings or
-// ASP blocks (it used to run on the raw file and delete `</br>` from strings —
-// silent data loss). It now runs after ASP/JS masking.
-describe('formatCompleteAspFile — void-tag strip stays out of strings', () => {
+// A void element's closing tag (</br>, </input>, …) is text wherever it is not
+// markup — in a string, a comment, an attribute value — and must come through.
+// One in the markup stops the format: the structure check reports it first in
+// the editor, and Prettier cannot read it.
+describe('formatCompleteAspFile — void closing tags', () => {
     it('preserves a void closing tag emitted from a VBScript string', async () => {
         const input = '<%\nResponse.Write "</br>"\n%>';
         const out = await formatCompleteAspFile(input);
@@ -102,10 +102,14 @@ describe('formatCompleteAspFile — void-tag strip stays out of strings', () => 
         );
     });
 
-    it('still removes a real HTML void closing tag', async () => {
-        const input = '<div></div>\n</br>\n<p>x</p>';
-        const out = await formatCompleteAspFile(input);
-        assert.ok(!/<\/br>/i.test(out), `a real </br> element should be removed; got ${JSON.stringify(out)}`);
+    it('preserves one in a JS string, an HTML comment and an attribute value', async () => {
+        const input = '<script>\n  var s = "line</br>next";\n</script>\n<!-- a</br>b -->\n<div title="a</br>b">x</div>\n';
+        assert.strictEqual(await formatCompleteAspFile(input), input);
+    });
+
+    it('refuses, rather than drops, one in the markup', async () => {
+        const result = await formatPage('<div></div>\n<p>a</br>b</p>\n');
+        assert.ok(!result.ok && result.reason === 'prettier' && result.line === 1, JSON.stringify(result));
     });
 });
 

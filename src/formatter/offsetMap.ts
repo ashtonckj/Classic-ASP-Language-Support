@@ -6,7 +6,7 @@
  * Before Prettier sees a page, the formatter rewrites it several times: the
  * VBScript `<script>` bodies are taken out, inline event handlers and every
  * `<% %>` block are put behind placeholders (a 30-line block becomes one line),
- * stray void closers are dropped and implied table end tags are put in. When
+ * unquoted values holding a block are quoted and implied table end tags are put in. When
  * Prettier then reports an error at a line and column, they are the masked
  * text's, which can be dozens of lines away from the user's. Each rewrite
  * records what it replaced where, and the maps, read back in turn, give the
