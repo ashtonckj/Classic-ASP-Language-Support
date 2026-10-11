@@ -431,8 +431,20 @@ export function substituteAspBlock(asp: string, sentinel: string | undefined): s
     const blanked = blankNonNewlines(asp);
     const totalLen = blanked.length;
 
-    // Count any leading newlines — these must be preserved in the output so
-    // that line numbers stay correct.
+    // The token goes in the first stretch between line breaks long enough for
+    // it, and every line break stays: dropping them put the JavaScript after a
+    // multi-line block onto the line of a `//` comment before it.
+    let from = 0;
+    while (from < totalLen) {
+        const lineEnd = blanked.indexOf('\n', from);
+        const end = lineEnd === -1 ? totalLen : lineEnd;
+        if (end - from >= token.length) {
+            return blanked.slice(0, from) + token + blanked.slice(from + token.length);
+        }
+        from = end + 1;
+    }
+
+    // No stretch fits: the block is laid out on lines too short for the token.
     let leadingNewlines = 0;
     while (leadingNewlines < totalLen && blanked[leadingNewlines] === '\n') {
         leadingNewlines++;

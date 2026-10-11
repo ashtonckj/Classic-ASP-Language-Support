@@ -46,6 +46,16 @@ describe('substituteAspBlock — statement placeholder is terminated', () => {
         assert.strictEqual(out.length, '<% If x Then %>'.length, 'width preserved');
     });
 
+    // Without its line breaks, the JavaScript after the block joined the line of
+    // a `//` comment before it, and was read as part of the comment.
+    it('keeps every line break of a block written over several lines', () => {
+        const asp = '<%\r\nIf x Then\r\n%>';
+        const out = substituteAspBlock(asp, undefined);
+        assert.strictEqual(out.length, asp.length);
+        assert.strictEqual(out.split('\n').length, asp.split('\n').length);
+        assert.ok(out.includes('_asp;'), JSON.stringify(out));
+    });
+
     it('leaves an expression block as a bare value (no semicolon)', () => {
         const out = substituteAspBlock('<%= userId %>', '_asp_userId');
         assert.ok(out.startsWith('_asp_userId'), `value token; got ${JSON.stringify(out)}`);
