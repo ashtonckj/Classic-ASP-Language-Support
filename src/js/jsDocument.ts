@@ -31,3 +31,19 @@ export function jsRange(
     const inPage = toDocumentSpan(fileName, span, preambleLength);
     return inPage && new vscode.Range(document.positionAt(inPage.start), document.positionAt(inPage.end));
 }
+
+/**
+ * A JSDoc comment as Markdown, the way VS Code's own JavaScript support shows
+ * it: the text, then each `@tag`. Untrusted, as it comes from the page.
+ */
+export function jsDocMarkdown(
+    documentation: ts.SymbolDisplayPart[] | undefined,
+    tags: ts.JSDocTagInfo[] | undefined,
+): string {
+    const docsText = documentation?.map(p => p.text).join('') ?? '';
+    const tagsText = tags?.map(tag => {
+        const body = tag.text?.map(p => p.text).join('') ?? '';
+        return body ? `*@${tag.name}* — ${body}` : `*@${tag.name}*`;
+    }).join('\n\n') ?? '';
+    return [docsText, tagsText].filter(Boolean).join('\n\n');
+}

@@ -11,7 +11,7 @@
  */
 
 import * as vscode from 'vscode';
-import { jsQueryAt, jsRange } from './jsDocument';
+import { jsDocMarkdown, jsQueryAt, jsRange } from './jsDocument';
 import { VIRTUAL_FILENAME } from './jsUtils';
 
 export class JsHoverProvider implements vscode.HoverProvider {
@@ -30,14 +30,9 @@ export class JsHoverProvider implements vscode.HoverProvider {
         if (!info || token.isCancellationRequested) { return undefined; }
 
         const displayText = info.displayParts?.map(p => p.text).join('') ?? '';
-        const docsText    = info.documentation?.map(p => p.text).join('') ?? '';
-        const tagsText    = info.tags?.map(tag => {
-            const name    = tag.name;
-            const tagBody = tag.text?.map(p => p.text).join('') ?? '';
-            return tagBody ? `*@${name}* — ${tagBody}` : `*@${name}*`;
-        }).join('\n\n') ?? '';
+        const docs        = jsDocMarkdown(info.documentation, info.tags);
 
-        if (!displayText && !docsText) { return undefined; }
+        if (!displayText && !docs) { return undefined; }
 
         // Format exactly like VS Code's built-in JS hover:
         //   ```typescript
@@ -46,8 +41,7 @@ export class JsHoverProvider implements vscode.HoverProvider {
         //   Documentation text here.
         const md = new vscode.MarkdownString('', true);
         if (displayText) { md.appendCodeblock(displayText, 'typescript'); }
-        if (docsText)    { md.appendMarkdown(docsText); }
-        if (tagsText)    { md.appendMarkdown('\n\n' + tagsText); }
+        if (docs)        { md.appendMarkdown(docs); }
 
         const range = info.textSpan && jsRange(document, preambleLength, VIRTUAL_FILENAME, info.textSpan);
         return new vscode.Hover(md, range);

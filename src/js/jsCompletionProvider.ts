@@ -27,7 +27,7 @@
 
 import * as vscode from 'vscode';
 import { getJsLanguageService } from './jsUtils';
-import { jsQueryAt } from './jsDocument';
+import { jsDocMarkdown, jsQueryAt } from './jsDocument';
 import { tsKindToVsKind } from './jsTsKinds';
 
 interface ItemData {
@@ -136,21 +136,10 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         if (!details || token.isCancellationRequested) { return item; }
 
         const displayText = details.displayParts?.map(p => p.text).join('') ?? '';
-        const docsText    = details.documentation?.map(p => p.text).join('') ?? '';
-        const tagsText    = details.tags?.map(tag => {
-            const body = tag.text?.map(p => p.text).join('') ?? '';
-            return body ? `*@${tag.name}* — ${body}` : `*@${tag.name}*`;
-        }).join('\n\n') ?? '';
+        const docs        = jsDocMarkdown(details.documentation, details.tags);
 
         if (displayText) { item.detail = displayText; }
-
-        if (docsText || tagsText) {
-            const md = new vscode.MarkdownString('', true);
-            if (docsText) { md.appendMarkdown(docsText); }
-            if (docsText && tagsText) { md.appendMarkdown('\n\n'); }
-            if (tagsText) { md.appendMarkdown(tagsText); }
-            item.documentation = md;
-        }
+        if (docs) { item.documentation = new vscode.MarkdownString(docs, true); }
 
         // ── Call-snippet injection ───────────────────────────────────────────
         if (data.isFunctionLike && !item.insertText) {
