@@ -172,10 +172,12 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
         return Promise.resolve();
     }
 
-    const virtualRoot = getVirtualRoot(document.uri.fsPath);
+    // Undefined when nothing says where the site starts: the worker then resolves
+    // each include's virtual= from its own folder, as the page checks do.
+    const virtualRoot = configuredVirtualRoot(document.uri.fsPath);
     const generation = _includeCacheGeneration;
     const requestKey = [
-        pathKey(virtualRoot),
+        pathKey(virtualRoot ?? ''),
         ...roots.map(pathKey).sort(),
     ].join('|');
 

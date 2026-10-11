@@ -323,7 +323,7 @@ export async function checkVbscriptPage(key: string, request: ChecksRequest): Pr
  * unsaved text of open files, by lower-cased path.
  */
 export async function loadIncludeTree(
-    key: string, roots: string[], virtualRoot: string, openFiles: Record<string, string>,
+    key: string, roots: string[], virtualRoot: string | undefined, openFiles: Record<string, string>,
 ): Promise<IncludeWorkerEntry[] | undefined> {
     const result = await includeWorker.request(key, { roots, virtualRoot, openFiles });
     return result && !result.failed ? result.entries : undefined;

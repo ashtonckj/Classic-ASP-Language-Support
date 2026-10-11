@@ -7,6 +7,7 @@
  */
 
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import type { FileSymbols } from '../vbscript/symbolParser';
 import { symbolsOfPage } from '../vbscript/symbols';
 import { ParseCache } from '../vbscript/parseCache';
@@ -17,7 +18,8 @@ import { pathKey, withoutBom } from '../core/paths';
 export interface IncludeWorkerRequest {
     id: number;
     roots: string[];
-    virtualRoot: string;
+    /** The site root, or undefined when nothing says where it is: each file's own folder then, as in the checks. */
+    virtualRoot: string | undefined;
     // Unsaved text for any include open in the editor, keyed by pathKey.
     // This thread has no vscode API, so it cannot see editor buffers by
     // itself — the extension host reads them and sends the text across.
@@ -43,7 +45,7 @@ const parsed = new ParseCache(200, 4_000_000);
 
 async function loadTree(
     filePath: string,
-    virtualRoot: string,
+    virtualRoot: string | undefined,
     visited: Set<string>,
     results: IncludeWorkerEntry[],
     openFiles: Record<string, string>,
@@ -67,7 +69,7 @@ async function loadTree(
         return;
     }
 
-    const children = resolveIncludePathsIn(text, filePath, virtualRoot);
+    const children = resolveIncludePathsIn(text, filePath, virtualRoot ?? path.dirname(filePath));
     results.push({
         filePath,
         symbols: symbolsOfPage(parsed.parse(filePath, text), filePath),

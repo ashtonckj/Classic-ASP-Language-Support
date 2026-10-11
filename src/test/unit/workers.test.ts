@@ -69,6 +69,16 @@ describe('worker entries', function () {
         assert.strictEqual(page.slice(answer.outline[0].nameStart, answer.outline[0].nameStart + 5), 'greet');
     });
 
+    // With no site root known, the page checks read a nested virtual= from the
+    // include's own folder; completion has to find the same file.
+    it('the include worker resolves a nested virtual= from the include\'s folder when no root is known', async () => {
+        const inc = path.resolve('/site/lib/inc.asp');
+        const [answer] = await ask('includeSymbolWorker.js', [
+            { id: 1, roots: [inc], virtualRoot: undefined, openFiles: { [inc.toLowerCase()]: '<!--#include virtual="/db.asp"-->' } },
+        ]) as Array<Answer & { entries: Array<{ children: string[] }> }>;
+        assert.deepStrictEqual(answer.entries[0].children, [path.resolve('/site/lib/db.asp')]);
+    });
+
     it('the include worker reads an open file from the text it is sent', async () => {
         const [answer] = await ask('includeSymbolWorker.js', [
             { id: 1, roots: ['C:/inc.asp'], virtualRoot: 'C:/', openFiles: { 'c:/inc.asp': '<% Dim y %>' } },
