@@ -3,7 +3,6 @@ import * as path from 'path';
 import { isExternalPath, FILE_LINK_ATTRIBUTES } from './htmlLinkUtils';
 import { getVirtualRoot } from '../asp/includeProvider';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../core/includeDirectives';
-import { isFile } from '../core/paths';
 import { textOf, zonesFor } from '../platform/documentState';
 import { pathCompletions } from '../platform/pathCompletion';
 
@@ -30,8 +29,9 @@ export class IncludeDocumentLinkProvider implements vscode.DocumentLinkProvider 
                 const includePath = directive.raw;
                 const fullPath    = resolveIncludeDirective(directive, document.uri.fsPath, virtualRoot);
 
-                if (!isFile(fullPath)) continue;
-
+                // Not checked for existence, as HTML links are not: a stat per
+                // include blocked the editor on a slow or dead network share,
+                // and a missing include already has its own warning.
                 // Underline only the path string, not the whole directive
                 const pathStart = lineText.indexOf(includePath, directive.index);
                 const link      = new vscode.DocumentLink(
