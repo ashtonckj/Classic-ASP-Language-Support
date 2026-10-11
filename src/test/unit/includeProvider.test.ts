@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as stub from './_vscodeStub';
 import { fakeDocument } from './_helpers';
-import { areIncludeSymbolsReady, collectIncludeSymbols, preloadIncludeSymbols, readIncludeText } from '../../asp/includeProvider';
+import { areIncludeSymbolsReady, collectIncludeSymbols, getVirtualRoot, preloadIncludeSymbols, readIncludeText } from '../../asp/includeProvider';
 
 describe('readIncludeText', () => {
     let dir: string;
@@ -55,4 +55,23 @@ describe('include symbols read from an unsaved buffer', function () {
             assert.deepStrictEqual(functionNames(page), ['Saved']);
         });
     }
+});
+
+// virtual="/inc/db.asp" in a page of the second folder of a multi-root
+// workspace named a file under the first folder.
+describe('getVirtualRoot', () => {
+    const a = path.resolve(path.sep, 'sites', 'a');
+    const b = path.resolve(path.sep, 'sites', 'b');
+    afterEach(() => { stub.workspace.workspaceFolders = undefined; });
+
+    it('is the root of the workspace folder holding the page', () => {
+        stub.workspace.workspaceFolders = [{ uri: { fsPath: a } }, { uri: { fsPath: b } }];
+        assert.strictEqual(getVirtualRoot(path.join(b, 'admin', 'page.asp')), b);
+        assert.strictEqual(getVirtualRoot(path.join(a, 'page.asp')), a);
+    });
+
+    it('is the first folder for a page outside every folder', () => {
+        stub.workspace.workspaceFolders = [{ uri: { fsPath: a } }, { uri: { fsPath: b } }];
+        assert.strictEqual(getVirtualRoot(path.resolve(path.sep, 'elsewhere', 'page.asp')), a);
+    });
 });

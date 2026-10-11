@@ -29,7 +29,7 @@ const parseCached = (fsPath: string, text: string): ParsedPage => parsed.parse(f
 const bound = new BindCache(20);
 
 /** What else decides where a page's includes are. */
-const includeSettings = () => `${configuredVirtualRoot() ?? ''}|${defaultIncludesSetting().join('|')}`;
+const includeSettings = (docPath: string) => `${configuredVirtualRoot(docPath) ?? ''}|${defaultIncludesSetting().join('|')}`;
 
 /**
  * The files the parser reads for `document`. Which pages include a file comes
@@ -41,7 +41,7 @@ export function editorWorkspace(document: vscode.TextDocument, options: { freshI
     const docPath = document.uri.fsPath;
     const docText = document.getText();
     let graph: Map<string, string[]> | undefined;
-    const settings = includeSettings();
+    const settings = includeSettings(docPath);
 
     const host: WorkspaceHost = {
         read: fsPath => samePath(fsPath, docPath) ? docText : readIncludeText(fsPath),
@@ -108,7 +108,7 @@ export async function checkedPage(document: vscode.TextDocument): Promise<Checke
     const request: ChecksRequest = {
         text: document.getText(),
         docPath,
-        configuredRoot: configuredVirtualRoot(),
+        configuredRoot: configuredVirtualRoot(docPath),
         defaultIncludes: defaultIncludeCandidates(getVirtualRoot(docPath)),
         // The worker reads files from disk; an include open with unsaved
         // changes counts as the editor shows it.

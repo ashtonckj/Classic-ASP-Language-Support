@@ -117,7 +117,7 @@ export function findMissingIncludes(
 /** Missing-include warnings for a saved page; an untitled one has no folder to look in. */
 export function scanIncludes(document: vscode.TextDocument): vscode.Diagnostic[] {
     if (document.uri.scheme !== 'file') { return []; }
-    return findMissingIncludes(textOf(document), document.uri.fsPath, configuredVirtualRoot())
+    return findMissingIncludes(textOf(document), document.uri.fsPath, configuredVirtualRoot(document.uri.fsPath))
         .map(found => makeDiagnostic(
             new vscode.Range(document.positionAt(found.start), document.positionAt(found.end)),
             found.message,

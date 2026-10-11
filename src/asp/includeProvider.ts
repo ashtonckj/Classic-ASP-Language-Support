@@ -16,12 +16,13 @@ import { pathCompletions } from '../platform/pathCompletion';
 //
 // Priority:
 //   1. classicAsp.virtualRoot setting (explicit user override)
-//   2. First workspace folder root (common case — user opened VS Code at app root)
+//   2. The root of the workspace folder holding the document (the first folder
+//      for a document outside them all)
 //   3. Directory of the current document (last resort fallback)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function getVirtualRoot(documentPath: string): string {
-    return configuredVirtualRoot() ?? path.dirname(documentPath);
+    return configuredVirtualRoot(documentPath) ?? path.dirname(documentPath);
 }
 
 /**
@@ -29,7 +30,7 @@ export function getVirtualRoot(documentPath: string): string {
  * nor an open folder says where the site starts, and the document's own folder
  * is just a guess.
  */
-export function configuredVirtualRoot(): string | undefined {
+export function configuredVirtualRoot(documentPath?: string): string | undefined {
     const userSetting = virtualRootSetting();
 
     if (userSetting) {
@@ -40,7 +41,8 @@ export function configuredVirtualRoot(): string | undefined {
         return expanded;
     }
 
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const folder = documentPath ? vscode.workspace.getWorkspaceFolder(vscode.Uri.file(documentPath)) : undefined;
+    return (folder ?? vscode.workspace.workspaceFolders?.[0])?.uri.fsPath;
 }
 
 /**
