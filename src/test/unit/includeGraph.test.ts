@@ -68,6 +68,19 @@ describe('includeGraph — which pages include which', () => {
         assert.deepStrictEqual(includers(lib, 'lib.inc'), ['third.asp']);
     });
 
+    it('finishes its background read even when a page changes during it', async () => {
+        const lib = fakeDocument('', { fsPath: file('lib.inc') }) as unknown as vscode.TextDocument;
+        stub.fireConfigurationChange('classicAsp.virtualRoot'); // starts a background read
+        fs.writeFileSync(file('page.asp'), '<% x = 1 %>');
+        stub.fireFileEvent('change', file('page.asp'));
+        await aspIndexSettled();
+        await new Promise(resolve => setTimeout(resolve, 200));
+        // Written with no watcher event: only a read of the whole workspace on
+        // this thread, which a finished background read makes unnecessary, sees it.
+        fs.writeFileSync(file('other.asp'), '<% y = 1 %>');
+        assert.deepStrictEqual(includers(lib, 'lib.inc'), ['other.asp']);
+    });
+
     it('counts an unsaved include the way the buffer has it', () => {
         const page = fakeDocument('<!--#include file="lib.inc"-->', { fsPath: file('page.asp') });
         page.setText('<% x = 1 %>');

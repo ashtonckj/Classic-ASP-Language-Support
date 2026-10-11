@@ -36,11 +36,21 @@ export const workspace = {
         dispose: () => { /* no-op */ },
     }),
     onDidChangeWorkspaceFolders: () => ({ dispose: () => { /* no-op */ } }),
-    onDidChangeConfiguration:    () => ({ dispose: () => { /* no-op */ } }),
+    onDidChangeConfiguration: (listener: (event: { affectsConfiguration(key: string): boolean }) => void) => {
+        configListeners.push(listener);
+        return { dispose: () => { configListeners = configListeners.filter(l => l !== listener); } };
+    },
     onDidCloseTextDocument:      () => ({ dispose: () => { /* no-op */ } }),
     getWorkspaceFolder: (uri: { fsPath: string }) =>
         workspace.workspaceFolders?.find(folder => uri.fsPath.startsWith(folder.uri.fsPath)),
 };
+
+let configListeners: Array<(event: { affectsConfiguration(key: string): boolean }) => void> = [];
+
+/** Tells every settings listener the code under test registered that `key` changed. */
+export function fireConfigurationChange(key: string): void {
+    for (const listener of configListeners) { listener({ affectsConfiguration: section => key === section || key.startsWith(section + '.') }); }
+}
 
 type FileEvent = 'create' | 'change' | 'delete';
 const fileListeners: Record<FileEvent, Array<(uri: StubUri) => void>> = { create: [], change: [], delete: [] };
