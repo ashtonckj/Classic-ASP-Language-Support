@@ -40,8 +40,12 @@ export function cssLanguageService(): CssLs.LanguageService {
  */
 export function stripAspExpressions(css: string): string {
     return css.replace(/<%[\s\S]*?%>/g, (match, offset) => {
-        // Check what immediately precedes the ASP tag (ignoring whitespace)
-        const before = css.slice(0, offset).trimEnd();
+        // Check what immediately precedes the ASP tag (ignoring whitespace).
+        // Only the few characters the checks below need: slicing everything
+        // before every block was quadratic in a style with thousands of them.
+        let end = offset;
+        while (end > 0 && /\s/.test(css[end - 1])) { end--; }
+        const before = css.slice(Math.max(0, end - 5), end);
 
         // Pick a context-appropriate filler:
         //   • after '#'            → hex digit '0'   (#000000 …)
