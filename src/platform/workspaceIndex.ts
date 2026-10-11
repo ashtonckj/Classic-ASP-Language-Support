@@ -276,6 +276,9 @@ function fileDeleted(fsPath: string): void {
     if (index.files.delete(fsPath)) { notify({ deleted: [fsPath] }); return; }
 
     // Not a file the index knows, so perhaps a folder: its files went with it.
+    // A name with an extension is taken as a file, as fileCreated takes it, so
+    // a build deleting thousands of files does not scan the index for each.
+    if (path.extname(fsPath) !== '') { return; }
     const prefix = fsPath.endsWith(path.sep) ? fsPath : fsPath + path.sep;
     const deleted = [...index.files].filter(file => file.startsWith(prefix));
     for (const file of deleted) { index.files.delete(file); }
