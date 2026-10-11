@@ -1372,11 +1372,9 @@ function restoreAspBlocks(
             }
 
             case 'inline': {
-                const isExpression = block.code.trimStart().startsWith('<%=') ||
-                                     block.code.trimStart().startsWith('<% =');
                 scan = at + block.token!.length;
 
-                if (isExpression) {
+                if (isAspExpression(block.code)) {
                     // <%= ... %> is an inline expression — part of the HTML content.
                     // Restore it exactly in place without touching any surrounding
                     // whitespace, and keep it on one line: breaking it would
@@ -1420,24 +1418,12 @@ function restoreAspBlocks(
                 scan = afterIdx;
 
                 // A block is "inline placed" when Prettier left non-whitespace
-                // content before the placeholder on the same line.
-                // EXCEPTION: if that content contains an unclosed quote the
-                // placeholder is sitting inside an attribute value
-                // (e.g. value="<!--ID-->" or onclick="...<!--ID-->...").
-                // In that case we must restore inline — no newlines inserted —
-                // because breaking the attribute value open corrupts the HTML.
-                const hasContentBefore = textBeforeOnLine.trimStart().length > 0;
-                const isInsideQuote    = hasContentBefore && (() => {
-                    let inQ: string | null = null;
-                    for (const ch of textBeforeOnLine) {
-                        if (!inQ && (ch === '"' || ch === "'")) { inQ = ch; }
-                        else if (inQ && ch === inQ)             { inQ = null; }
-                    }
-                    return inQ !== null; // still inside a quote → unclosed
-                })();
-                const isExpression     = block.code.trimStart().startsWith('<%=') ||
-                                         block.code.trimStart().startsWith('<% =');
-                const isInlinePlacedHere = hasContentBefore && !isInsideQuote && !isExpression;
+                // content before the placeholder on the same line — unless that
+                // content leaves a quote open: the placeholder is then inside an
+                // attribute value, and breaking it open corrupts the HTML.
+                const afterContent       = isInlinePlaced(textBeforeOnLine);
+                const isExpression       = isAspExpression(block.code);
+                const isInlinePlacedHere = afterContent && !isExpression;
 
                 // Every restore below replaces the spaces and tabs in front of
                 // the placeholder along with it.
@@ -1494,7 +1480,7 @@ function restoreAspBlocks(
 
                 // Expression sitting inline in tag text content (e.g. <td><%= val %></td>)
                 // — restore it exactly as-is with no indentation applied.
-                if (isExpression && hasContentBefore && !isInsideQuote) {
+                if (isExpression && afterContent) {
                     restored.push(formatted.trim());
                     break;
                 }
@@ -1529,7 +1515,7 @@ function restoreAspBlocks(
                 // front. The group's tag column belongs at the start of a line:
                 // mid-line it was a run of spaces, which the next format broke
                 // the line at.
-                if (hasContentBefore && !isInsideQuote) {
+                if (afterContent) {
                     restored.push(blanksBefore + indentedBlock.slice(leadingBlanks(indentedBlock).length));
                     break;
                 }
