@@ -146,7 +146,6 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
 
         if (docsText || tagsText) {
             const md = new vscode.MarkdownString('', true);
-            md.isTrusted = true;
             if (docsText) { md.appendMarkdown(docsText); }
             if (docsText && tagsText) { md.appendMarkdown('\n\n'); }
             if (tagsText) { md.appendMarkdown(tagsText); }

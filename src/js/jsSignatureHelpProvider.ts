@@ -49,22 +49,14 @@ export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
             // Wrap documentation in MarkdownString so JSDoc formatting renders
             const sigDocText = sig.documentation?.map(p => p.text).join('') ?? '';
             if (sigDocText) {
-                const sigMd = new vscode.MarkdownString(sigDocText, true);
-                sigMd.isTrusted = true;
-                si.documentation = sigMd;
+                si.documentation = new vscode.MarkdownString(sigDocText, true);
             }
 
             si.parameters = sig.parameters.map(p => {
                 const paramLabel   = p.displayParts.map(q => q.text).join('');
                 const paramDocText = p.documentation?.map(q => q.text).join('') ?? '';
 
-                const paramDoc = paramDocText
-                    ? (() => {
-                        const md = new vscode.MarkdownString(paramDocText, true);
-                        md.isTrusted = true;
-                        return md;
-                    })()
-                    : undefined;
+                const paramDoc = paramDocText ? new vscode.MarkdownString(paramDocText, true) : undefined;
 
                 return new vscode.ParameterInformation(paramLabel, paramDoc);
             });

@@ -45,7 +45,6 @@ export class JsHoverProvider implements vscode.HoverProvider {
         //   ```
         //   Documentation text here.
         const md = new vscode.MarkdownString('', true);
-        md.isTrusted = true;
         if (displayText) { md.appendCodeblock(displayText, 'typescript'); }
         if (docsText)    { md.appendMarkdown(docsText); }
         if (tagsText)    { md.appendMarkdown('\n\n' + tagsText); }
