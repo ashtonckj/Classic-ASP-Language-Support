@@ -2,10 +2,10 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { FileSymbols } from '../vbscript/symbolParser';
-import { parseIncludeDirectives, resolveIncludeDirective, resolveIncludePathsIn } from '../core/includeDirectives';
+import { resolveIncludePathsIn } from '../core/includeDirectives';
 import { defaultIncludesSetting, virtualRootSetting } from '../platform/settings';
 import { loadIncludeTree } from '../workers/analysisClient';
-import { isFile, pathKey, withoutBom } from '../core/paths';
+import { pathKey, withoutBom } from '../core/paths';
 import { openBuffers, openDocument } from '../platform/documentState';
 import { pathCompletions } from '../platform/pathCompletion';
 
@@ -41,26 +41,6 @@ export function configuredVirtualRoot(): string | undefined {
     }
 
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Include path resolution
-// Returns the resolved absolute paths of all #include directives in the text.
-// Supports file="..." (relative to current doc) and virtual="..." (virtual root).
-//
-// An include that does not resolve is left out quietly. The open page reports
-// its own as an "Include file not found" warning on the directive's line
-// (findMissingIncludes), which names the file and the virtualRoot setting. This
-// runs over every page of the workspace to build the include graph for F12,
-// hover and rename, so a pop-up from here named a file the user had not opened.
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Resolves all #include paths from a single file's text — one level only.
-export function resolveDirectIncludes(documentText: string, documentPath: string): string[] {
-    const virtualRoot = getVirtualRoot(documentPath);
-    return parseIncludeDirectives(documentText)
-        .map(directive => resolveIncludeDirective(directive, documentPath, virtualRoot))
-        .filter(isFile);
 }
 
 /**
@@ -364,8 +344,7 @@ export class IncludePathCompletionProvider implements vscode.CompletionItemProvi
         const typedSoFar  = includeMatch[2];
         const docDir      = path.dirname(document.uri.fsPath);
 
-        // Use the same resolution logic as resolveDirectIncludes so completions
-        // browse from the correct root for both file="..." and virtual="..."
+        // Browse from the root each directive kind resolves against
         const baseDir = includeType === 'virtual'
             ? getVirtualRoot(document.uri.fsPath)
             : docDir;
