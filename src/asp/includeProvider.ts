@@ -139,10 +139,15 @@ function cachedTreeReady(fsPath: string, visited: Set<string>): boolean {
     const cached = _includeSymbolCache.get(key);
     if (!cached) { return false; }
 
-    // An entry parsed before the newest keystroke in a dirty include is stale.
-    // A clean document is left alone: its buffer and the file on disk agree.
+    // An entry read from disk is stale once the include has unsaved edits. One
+    // read from an unsaved buffer is stale once that exact buffer is gone: a
+    // later keystroke, an undo back to the saved text, a revert, or a close
+    // without saving, none of which change the file on disk.
     const open = openDocument(fsPath);
-    if (open?.isDirty && cached.bufferVersion !== open.version) { return false; }
+    const stale = cached.bufferVersion === undefined
+        ? open?.isDirty
+        : cached.bufferVersion !== open?.version;
+    if (stale) { return false; }
 
     return cached.children.every(child => cachedTreeReady(child, visited));
 }
