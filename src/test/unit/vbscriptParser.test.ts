@@ -80,6 +80,10 @@ describe('VBScript parser — code VBScript accepts', () => {
         'x = -Not a',
         'x = a Mod Not b',
         'x = a = Not b',
+        // After a continuation, a `.` carries on the line before, indented or not.
+        'Set rs = conn _\n.Execute(sql)',
+        'x = d _\n    .Count',
+        'With o\nx = d _\n  .Count\nEnd With',
         'x = -2 ^ 2 + 2 ^ -1',
         'x = 1 <= 2 >= 3 <> 4 =< 5',
         'Set x = New C',

@@ -242,8 +242,11 @@ function lexRange(
             while (j < to && isSpace(text[j])) { j++; }
             if (j < to && (text[j] === '\r' || text[j] === '\n')) {
                 j += text[j] === '\r' && text[j + 1] === '\n' ? 2 : 1;
+                // The next line carries on the expression: `conn _` then
+                // `    .Execute(sql)` is conn.Execute, not a With member.
+                while (j < to && isSpace(text[j])) { j++; }
                 i = j;
-                spaceBefore = true;
+                spaceBefore = false;
                 continue;
             }
             push(TokenKind.Invalid, i, i + 1, '_', { error: 'Invalid character' });
