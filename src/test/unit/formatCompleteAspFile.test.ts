@@ -170,6 +170,16 @@ describe('formatCompleteAspFile — a <script> or <style> body with <% %> statem
         assert.strictEqual(await formatCompleteAspFile(once), once);
     });
 
+    it('is left as written when an expression stands where a statement or a rule starts', async () => {
+        for (const source of [
+            '<script><%= js %></script>\n',
+            '<script>\nif (ready)\n<%= adminCall %>\nshow();\n</script>\n',
+            '<style>\n.a { <%= rules %> }\n</style>\n',
+        ]) {
+            assert.strictEqual(await formatCompleteAspFile(source), source);
+        }
+    });
+
     it('still formats a body with only <%= %> expressions', async () => {
         assert.strictEqual(await formatCompleteAspFile('<script>var x=<%= y %>;</script>\n'), '<script>\n  var x = <%= y %>;\n</script>\n');
     });

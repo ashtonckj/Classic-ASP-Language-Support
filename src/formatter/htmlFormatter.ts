@@ -665,15 +665,20 @@ function putBackVbScriptBodies(code: string, bodies: string[], settings: AspForm
 // block one level deeper. Such a body is taken out and put back as written.
 
 /**
- * Takes out every <script>/<style> body that holds a `<% %>` statement (not
- * just `<%= %>` expressions). `bodies` lines up with computeRawTextRanges'
- * order, null for a body left in.
+ * Takes out every <script>/<style> body that holds a `<% %>` statement, or a
+ * `<%= %>` standing where a statement or a rule starts — what it writes may be
+ * code of any shape, and Prettier ended `<script><%= js %></script>` with a `;`.
+ * `bodies` lines up with computeRawTextRanges' order, null for a body left in.
  */
 function takeAspScriptBodies(code: string, map: OffsetMap): { masked: string; bodies: Array<string | null> } {
     const ranges = computeRawTextRanges(code);
     const bodies = ranges.map(([start, end]) => {
         const body = code.slice(start, end);
-        return (body.match(/<%[\s\S]*?%>/g) ?? []).some(block => !isAspExpression(block)) ? body : null;
+        const isCode = (m: RegExpMatchArray) => {
+            const before = body.slice(0, m.index).trimEnd();
+            return !isAspExpression(m[0]) || before === '' || ';{})'.includes(before[before.length - 1]);
+        };
+        return [...body.matchAll(/<%[\s\S]*?%>/g)].some(isCode) ? body : null;
     });
     let masked = '';
     let last = 0;
