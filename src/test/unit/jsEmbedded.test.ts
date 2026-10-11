@@ -144,3 +144,18 @@ describe('buildVirtualJsContent — a Const list', () => {
         assert.ok(preamble.includes('var _asp_A: number;') && preamble.includes('var _asp_B: string;'), preamble);
     });
 });
+
+// A page is not a module of the workspace, and hover must not show what is in a
+// file on disk just because a <script> names it.
+describe('the JS language service reads no file a page imports', () => {
+    after(() => { disposeJsLanguageService(); });
+
+    it('does not load the file an import names', () => {
+        const svc = getJsLanguageService();
+        const page = `<script>\nimport { leaked } from ${JSON.stringify(__filename)};\nleaked;\n</script>\n`;
+        svc.updateContent(buildVirtualJsContent(page, 0).virtualContent);
+        const program = svc.getProgram();
+        assert.ok(program, 'no program');
+        assert.ok(!program.getSourceFiles().some(f => f.fileName.toLowerCase().includes('jsembedded')), 'read the imported file');
+    });
+});

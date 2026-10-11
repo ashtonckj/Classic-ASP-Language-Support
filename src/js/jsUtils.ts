@@ -524,6 +524,9 @@ function makeBrowserCompilerOptions(): ts.CompilerOptions {
         strict:  false,
         // Prevent @types/node from leaking in and replacing browser DOM typings.
         types:   [],
+        // A page's `import` or `/// <reference>` is not read from disk: hover
+        // would show the contents of any file the page names.
+        noResolve: true,
         noImplicitAny:                false,
         noImplicitReturns:            false,
         noUnusedLocals:               false,
