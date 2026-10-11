@@ -204,7 +204,9 @@ function lexRange(
             let j = i + 1;
             while (j < to && isIdentChar(text[j])) { j++; }
             const word = text.slice(i, j).toLowerCase();
-            if (word === 'rem') {
+            // After a `.`, `Rem` is a member name: `x = a.Rem`.
+            const prev = tokens[tokens.length - 1];
+            if (word === 'rem' && !(prev?.kind === TokenKind.Punct && prev.value === '.')) {
                 const end = lineEnd(j);
                 comments.push({ start: i, end });
                 i = end;

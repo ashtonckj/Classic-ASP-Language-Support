@@ -76,6 +76,7 @@ describe('VBScript parser — code VBScript accepts', () => {
         'x = a Is Nothing',
         'x = Not a = b',
         'x = a & Not b',
+        'x = a.Rem',
         'x = 1 + Not 2',
         'x = -Not a',
         'x = a Mod Not b',
