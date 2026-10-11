@@ -90,6 +90,8 @@ export interface MemberUse {
     file: string;
     span: A.Span;
     scope: Scope;
+    /** What it is a member of: `rs.Fields("a")` for `rs.Fields("a").Name`. None after `.` in a With. */
+    object?: A.Expr | null;
 }
 
 export interface BindingDiagnostic {
@@ -473,11 +475,11 @@ class Binder {
      * stack until its object has been read.
      */
     private expr(root: A.Expr, scope: Scope, file: string): void {
-        const stack: (A.Expr | A.Name)[] = [root];
+        const stack: (A.Expr | A.Name & { object: A.Expr | null })[] = [root];
         while (stack.length > 0) {
             const e = stack.pop()!;
             if (!('kind' in e)) {
-                this.binding.members.push({ name: e.name, file, span: { start: e.start, end: e.end }, scope });
+                this.binding.members.push({ name: e.name, file, span: { start: e.start, end: e.end }, scope, object: e.object });
                 continue;
             }
             switch (e.kind) {
@@ -488,7 +490,7 @@ class Binder {
                     if (e.object?.kind === 'Me') {
                         this.member(e.name, scope, file);
                     } else {
-                        if (e.name.name) { stack.push(e.name); }
+                        if (e.name.name) { stack.push({ ...e.name, object: e.object }); }
                         if (e.object) { stack.push(e.object); }
                     }
                     break;
