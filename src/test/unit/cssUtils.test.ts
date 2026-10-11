@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, stripAspExpressions } from '../../css/cssUtils';
+import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, inlineStyleValues, stripAspExpressions } from '../../css/cssUtils';
 
 // The ASP→placeholder swap must preserve BOTH length and interior
 // newlines, or CSS diagnostics after the expression land on the wrong line/column
@@ -120,6 +120,17 @@ describe('inline style="" context (getInlineStyleContext / buildInlineCssDoc)', 
         const ctx = getInlineStyleContext(content, content.indexOf('red'));
         assert.ok(ctx, 'expected an inline context');
         assert.strictEqual(content.slice(ctx!.valueStart, ctx!.valueEnd), 'color: red');
+    });
+
+    it('is not fooled by data-style, or by a quote inside an ASP block', () => {
+        const data = '<div data-style="primary large">x</div>';
+        assert.strictEqual(getInlineStyleContext(data, data.indexOf('large')), null);
+        assert.deepStrictEqual(inlineStyleValues(data), []);
+
+        const asp = '<p style="color:<%= c("x") %>; width:1px">hi</p>';
+        const ctx = getInlineStyleContext(asp, asp.indexOf('width'));
+        assert.ok(ctx, 'expected an inline context');
+        assert.strictEqual(asp.slice(ctx!.valueStart, ctx!.valueEnd), 'color:<%= c("x") %>; width:1px');
     });
 
     it('handles an empty inline style value', () => {

@@ -156,7 +156,8 @@ export function getInlineStyleContext(
     // cursor is actually inside. Matching the first one broke when two styled
     // elements shared a line: the cursor in the second value fell outside the
     // first value's range and no CSS help was offered.
-    const styleAttrRe = /style\s*=\s*(["'])/gi;
+    // After whitespace, so `data-style="…"` is not one.
+    const styleAttrRe = /(?<=\s)style\s*=\s*(["'])/gi;
     let styleMatch: RegExpExecArray | null;
     let openingQuote = '';
     let valueStart = -1;
@@ -167,7 +168,7 @@ export function getInlineStyleContext(
     if (valueStart === -1) return null;
 
     // Find closing quote — search forward from valueStart (not offset) so that an empty value style="" where offset === closeQuoteIdx still works
-    const closeQuoteIdx = content.indexOf(openingQuote, valueStart);
+    const closeQuoteIdx = closingQuote(content, openingQuote, valueStart);
     if (closeQuoteIdx === -1) return null;
 
     // Cursor must be between valueStart and closeQuoteIdx (inclusive of both ends).
@@ -183,6 +184,21 @@ export function getInlineStyleContext(
     const wrappedOffset = INLINE_PREFIX.length + relativeOffset + 2;
 
     return { valueStart, valueEnd, wrappedOffset };
+}
+
+/**
+ * Where an attribute value that opened with `quote` closes. A quote inside an
+ * ASP block, as in `color:<%= c("x") %>`, is VBScript's, not the attribute's.
+ */
+function closingQuote(content: string, quote: string, from: number): number {
+    for (;;) {
+        const close = content.indexOf(quote, from);
+        const asp   = content.indexOf('<%', from);
+        if (close === -1 || asp === -1 || asp > close) { return close; }
+        const aspEnd = content.indexOf('%>', asp + 2);
+        if (aspEnd === -1) { return -1; }
+        from = aspEnd + 2;
+    }
 }
 
 /**
@@ -221,13 +237,13 @@ export function inlinePageOffset(valueStart: number, inlineOffset: number): numb
  */
 export function inlineStyleValues(content: string): Array<{ valueStart: number; valueEnd: number }> {
     const values: Array<{ valueStart: number; valueEnd: number }> = [];
-    const attribute = /\bstyle\s*=\s*("|')/gi;
+    const attribute = /(?<=\s)style\s*=\s*("|')/gi;
 
     let match: RegExpExecArray | null;
     while ((match = attribute.exec(content)) !== null) {
         const quote      = match[1];
         const valueStart = match.index + match[0].length;
-        const valueEnd   = content.indexOf(quote, valueStart);
+        const valueEnd   = closingQuote(content, quote, valueStart);
         if (valueEnd === -1) { break; }
 
         // getInlineStyleContext is the authority on whether an offset really is
