@@ -11,6 +11,8 @@
  * formatter its strings) first.
  */
 
+import { vbStatements } from '../core/vbLexical';
+
 // ── VBScript block keyword constants ───────────────────────────────────────
 
 // Optional VBScript access modifiers that may precede Sub / Function / Property /
@@ -68,6 +70,20 @@ export const CLOSER_TO_OPENER: { closer: RegExp; opener: RegExp; isMidBlock?: bo
  * Tab handlers so they can never disagree.
  */
 export function isBlockOpener(line: string): boolean {
+    // Several statements joined by `:` open a block only if more open than
+    // close: `For i = 1 To 3 : Next` opens nothing, as the formatter reads it.
+    const statements = vbStatements(line).map(s => s.trim()).filter(Boolean);
+    if (statements.length > 1) {
+        let depth = 0;
+        for (const s of statements) {
+            if (VBSCRIPT_BLOCK_CLOSERS.test(s)) { depth--; } else if (opensBlock(s)) { depth++; }
+        }
+        return depth > 0;
+    }
+    return opensBlock(line);
+}
+
+function opensBlock(line: string): boolean {
     if (!VBSCRIPT_BLOCK_OPENERS.test(line)) { return false; }
     const isSingleLineIf = /^If\b.+\bThen\s+\S/i.test(line) && !/^If\b.+\bThen\s*'/i.test(line);
     return !isSingleLineIf;

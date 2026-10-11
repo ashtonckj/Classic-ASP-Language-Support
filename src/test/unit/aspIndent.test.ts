@@ -10,6 +10,13 @@ describe('isBlockOpener', () => {
         assert.strictEqual(isBlockOpener('If x Then y = 1'), false);
     });
 
+    it('is false for a block opened and closed on one line with colons', () => {
+        for (const line of ['For i = 1 To 3 : Next', 'Do While x : Loop', 'With o : .a = 1 : End With', 'Sub S() : End Sub']) {
+            assert.strictEqual(isBlockOpener(line), false, line);
+        }
+        assert.strictEqual(isBlockOpener('If x Then : y = 1'), true);
+    });
+
     it('is true for a multi-line If … Then (bare, or with only a comment)', () => {
         assert.strictEqual(isBlockOpener('If x Then'), true);
         assert.strictEqual(isBlockOpener("If x Then   ' note"), true);
