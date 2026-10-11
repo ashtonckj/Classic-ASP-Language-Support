@@ -114,6 +114,11 @@ describe('AspDocumentSymbolProvider — variables', () => {
         assert.deepStrictEqual(names(total.children), []);
     });
 
+    it('omits a Const or a COM object made inside a Sub', async () => {
+        const text = '<%\nSub Main()\n  Const LIMIT = 5\n  Set conn = Server.CreateObject("ADODB.Connection")\nEnd Sub\n%>';
+        assert.deepStrictEqual(names(await outline(text)), ['Main']);
+    });
+
     it('does not list a COM variable twice', async () => {
         const text = '<%\nDim conn\nSet conn = Server.CreateObject("ADODB.Connection")\n%>';
         assert.strictEqual(names(await outline(text)).filter(n => n === 'conn').length, 1);

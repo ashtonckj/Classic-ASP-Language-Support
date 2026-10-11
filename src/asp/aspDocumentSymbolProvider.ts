@@ -118,8 +118,18 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
             place(startLine, sym);
         }
 
+        // Only names declared outside every Function/Sub/Property body — an
+        // in-body local belongs to that routine, not the file outline, and without
+        // Option Explicit the implicit-assignment pass would otherwise fill the
+        // outline with every temporary the page assigns. A Class member is not a
+        // local, so `Private items` still shows, nested under its Class.
+        const bodies = symbols.functions.filter(f => f.endLine >= 0);
+        const isLocal = (line: number) => bodies.some(f => f.line <= line && line <= f.endLine);
+        const constants    = symbols.constants.filter(c => !isLocal(c.line));
+        const comVariables = symbols.comVariables.filter(cv => !isLocal(cv.line));
+
         // ── Constants ─────────────────────────────────────────────────────────
-        for (const c of symbols.constants) {
+        for (const c of constants) {
             const line    = Math.max(0, Math.min(c.line, document.lineCount - 1));
             const lineEnd = document.lineAt(line).range.end;
             const range   = new vscode.Range(new vscode.Position(line, 0), lineEnd);
@@ -141,7 +151,7 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
         }
 
         // ── COM object variables (Set x = Server.CreateObject) ────────────────
-        for (const cv of symbols.comVariables) {
+        for (const cv of comVariables) {
             const line    = Math.max(0, Math.min(cv.line, document.lineCount - 1));
             const lineEnd = document.lineAt(line).range.end;
             const range   = new vscode.Range(new vscode.Position(line, 0), lineEnd);
@@ -163,16 +173,9 @@ export class AspDocumentSymbolProvider implements vscode.DocumentSymbolProvider 
         }
 
         // ── Variables (Dim) ───────────────────────────────────────────────────
-        // Only those declared outside every Function/Sub/Property body — an
-        // in-body local belongs to that routine, not the file outline, and without
-        // Option Explicit the implicit-assignment pass would otherwise fill the
-        // outline with every temporary the page assigns. A Class member is not a
-        // local, so `Private items` still shows, nested under its Class.
-        const bodies = symbols.functions.filter(f => f.endLine >= 0);
-        const isLocal = (line: number) => bodies.some(f => f.line <= line && line <= f.endLine);
         const alreadyListed = new Set<string>([
-            ...symbols.comVariables.map(cv => cv.name.toLowerCase()),
-            ...symbols.constants.map(c => c.name.toLowerCase()),
+            ...comVariables.map(cv => cv.name.toLowerCase()),
+            ...constants.map(c => c.name.toLowerCase()),
         ]);
 
         for (const v of symbols.variables) {
