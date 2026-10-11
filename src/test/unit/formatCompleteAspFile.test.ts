@@ -414,8 +414,19 @@ describe('formatCompleteAspFile — ASP inside an HTML tag stays inside it', () 
             `the tag should stay on one line; got:\n${out}`);
     });
 
+    it('keeps a block inside an unquoted attribute value', async () => {
+        const link = await formatCompleteAspFile('<a href=page.asp?id=<%=id%>>x</a>\n');
+        assert.match(link, /^<a href=("?)page\.asp\?id=<%= id %>\1>x<\/a>\n$/);
+        const img = await formatCompleteAspFile('<img src=<%= s %> alt=x>\n');
+        assert.match(img, /^<img src=("?)<%= s %>\1 alt="x" \/>\n$/);
+        const statement = await formatCompleteAspFile('<a href=p.asp?<% If a Then %>b=1<% End If %>>x</a>\n');
+        assert.match(statement, /^<a href=("?)p\.asp\?<% If a Then %>b=1<% End If %>\1>x<\/a>\n$/);
+    });
+
     it('settles in one pass for every in-tag shape', async () => {
         for (const source of [
+            '<a href=page.asp?id=<%=id%>>x</a>\n',
+            '<img src=<%= s %>>\n',
             '<input type="text" <% If sel Then %>checked<% End If %> name="a">\n',
             '<input <% If a Then %>checked<% End If %>>\n',
             '<input value="<% If a Then %>x<% End If %>">\n',

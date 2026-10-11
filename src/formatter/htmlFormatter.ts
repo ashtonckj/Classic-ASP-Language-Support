@@ -28,6 +28,9 @@ interface AspBlock {
     kind:       AspBlockKind;
     /** The exact string emitted in place of the block, for kinds that need one. */
     token?:     string;
+    /** In an attribute value: its quote ('' when unquoted), and its text before the block. */
+    quote?:     string;
+    prefix?:    string;
 }
 
 /** A tag kept out of Prettier's sight behind `<!--id-->` — see analyseHtmlStructure. */
@@ -201,6 +204,10 @@ function hasUnclosedAspTags(code: string): boolean {
 class EmittedContext {
     private inTag     = false;
     private attrQuote = '';
+    /** Inside an unquoted attribute value: `href=page.asp?id=`. */
+    private unquoted  = false;
+    /** The current attribute value so far, its quote excluded. */
+    private value     = '';
     private inComment = false;
     private dashes    = 0;
     /** The last character that is not a space or a tab. */
@@ -220,8 +227,14 @@ class EmittedContext {
         // nothing after it, it opens no tag; `<!` and `<!-` each open one.
         if (this.pending.length >= 2) { return 'midtag'; }
         if (this.attrQuote) { return 'inline'; }
-        if (this.inTag)     { return 'midtag'; }
+        // Straight after `=`, or inside an unquoted value, the block is part of the value.
+        if (this.inTag)     { return this.unquoted || this.lastSolid === '=' ? 'inline' : 'midtag'; }
         return 'normal';
+    }
+
+    /** For an `inline` block: the value's quote ('' when unquoted) and its text before the block. */
+    attribute(): { quote: string; prefix: string } {
+        return { quote: this.attrQuote, prefix: this.attrQuote || this.unquoted ? this.value : '' };
     }
 
     private step(ch: string): void {
@@ -255,17 +268,48 @@ class EmittedContext {
             return;
         }
         if (this.attrQuote) {
-            if (ch === this.attrQuote) { this.attrQuote = ''; }
+            if (ch === this.attrQuote) { this.attrQuote = ''; } else { this.value += ch; }
             return;
         }
         if (this.inTag) {
-            if (ch === '>') { this.inTag = false; }
-            // A quote opens a value only straight after `=` (spaces allowed).
-            else if ((ch === '"' || ch === "'") && before === '=') { this.attrQuote = ch; }
+            if (ch === '>' || /\s/.test(ch)) {
+                if (ch === '>') { this.inTag = false; }
+                this.unquoted = false;
+            } else if (this.unquoted) {
+                this.value += ch;
+            } else if (before === '=') {
+                // A quote opens a value only straight after `=` (spaces allowed);
+                // anything else there starts an unquoted one.
+                if (ch === '"' || ch === "'") { this.attrQuote = ch; this.value = ''; } else { this.unquoted = true; this.value = ch; }
+            }
             return;
         }
         if (ch === '<') { this.pending = '<'; }
     }
+}
+
+/**
+ * Quotes each unquoted attribute value that holds a placeholder, given where
+ * each value starts and where a placeholder in it ends, in page order. Prettier
+ * ends an unquoted value at its first `=`, so `href=a.asp?id=<%= id %>` came
+ * back as `href="a.asp?id" ="…"`.
+ */
+function quoteUnquotedValues(text: string, values: Array<[number, number]>, map: OffsetMap): string {
+    let out = '';
+    let last = 0;
+    for (const [start, from] of values) {
+        if (start < last) { continue; }   // a second placeholder in a value already quoted
+        let end = from;
+        while (end < text.length && text[end] !== '>' && !/\s/.test(text[end])) { end++; }
+        const quote = text.slice(start, end).includes('"') ? "'" : '"';
+        out += text.slice(last, start);
+        map.replaced(start, start, out.length, out.length + 1);
+        out += quote + text.slice(start, end);
+        map.replaced(end, end, out.length, out.length + 1);
+        out += quote;
+        last = end;
+    }
+    return out + text.slice(last);
 }
 
 // ─── Raw-text (<script>/<style>) ASP handling ───────────────────────────────
@@ -689,6 +733,7 @@ export async function formatPage(code: string): Promise<FormatResult> {
     // ── Steps 4 and 5: Format each block's VBScript, and put it back ────────
     const blocks = formatAspBlocks(run, page, prettifiedCode, located.placeholderAt);
     const restored = restoreAspBlocks(run, page, prettifiedCode, located, blocks);
+    if (typeof restored !== 'string') { return restored; }
 
     // ── Step 5b: Restore JS event-handler attribute values ──────────────────
     // Must happen after ASP blocks are restored so token text is never
@@ -769,6 +814,8 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
     const masked    = new TextBuilder();
     const blocksMap = new OffsetMap();
     const context   = new EmittedContext();
+    /** Each unquoted attribute value with a placeholder in it: where it starts, and where the placeholder ends. */
+    const unquoted: Array<[number, number]> = [];
 
     // Tags Prettier must not see: one branch's copy of a tag another branch of
     // the same If opens or closes, or a tag whose partner VBScript writes. Read
@@ -891,7 +938,7 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
             kind === 'midtag' ? paddedToken('aspmid',  index, aspBlock.length - 4, collisions.aspmid)  :
             undefined;
 
-        aspBlocks.push({ code: aspBlock, id, lineNumber, kind, token });
+        aspBlocks.push({ code: aspBlock, id, lineNumber, kind, token, ...(kind === 'inline' ? context.attribute() : {}) });
 
         // Replace leading whitespace + block with the placeholder
         // (strip the leadingWS we already emitted so the placeholder
@@ -913,10 +960,13 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
             default:        emit(`<!--${id}-->`);   break;
         }
         blocksMap.replaced(replacedFrom, end, placedAt, masked.length);
+        const placed = aspBlocks[aspBlocks.length - 1];
+        if (placed.quote === '') { unquoted.push([placedAt - placed.prefix!.length, masked.length]); }
         pos = end;
     }
 
-    let maskedCode = masked.toString();
+    const quotesMap = new OffsetMap();
+    let maskedCode = quoteUnquotedValues(masked.toString(), unquoted, quotesMap);
 
     // Strip closing tags on void elements (</br>, </input>, …) that Prettier
     // hard-fails on. Done AFTER masking so a void closer that lives inside a
@@ -932,7 +982,7 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
     const tableMap = new OffsetMap();
     maskedCode = insertImpliedTableEndTags(maskedCode, tableMap);
 
-    return { maskedCode, aspBlocks, hiddenTags, maps: [blocksMap, voidMap, tableMap] };
+    return { maskedCode, aspBlocks, hiddenTags, maps: [blocksMap, quotesMap, voidMap, tableMap] };
 }
 
 async function layOutAsWritten(run: FormatRun, page: MaskedPage, firstPass: string): Promise<string> {
@@ -1018,6 +1068,14 @@ async function layOutAsWritten(run: FormatRun, page: MaskedPage, firstPass: stri
     return prettifiedCode;
 }
 
+function blockRemoved(block: AspBlock): FormatRefusal {
+    return {
+        ok: false, reason: 'block-removed', severity: 'warning',
+        message: `Formatting skipped — an ASP block on line ${block.lineNumber + 1} was removed by Prettier. `
+            + `This usually happens when a <% %> block is in an unexpected position inside an HTML tag.`,
+    };
+}
+
 function locatePlaceholders(page: MaskedPage, prettifiedCode: string): PlaceholderPositions | FormatRefusal {
     const { aspBlocks, hiddenTags } = page;
 
@@ -1029,15 +1087,8 @@ function locatePlaceholders(page: MaskedPage, prettifiedCode: string): Placehold
         block.token!);
     const found = findInOrder(prettifiedCode, needles);
 
-    for (let i = 0; i < aspBlocks.length; i++) {
-        if (found[i] === -1) {
-            return {
-                ok: false, reason: 'block-removed', severity: 'warning',
-                message: `Formatting skipped — an ASP block on line ${aspBlocks[i].lineNumber + 1} was removed by Prettier. `
-                    + `This usually happens when a <% %> block is in an unexpected position inside an HTML tag.`,
-            };
-        }
-    }
+    const lost = aspBlocks.find((_, i) => found[i] === -1);
+    if (lost) { return blockRemoved(lost); }
 
     const hiddenAt = findInOrder(prettifiedCode, hiddenTags.map(tag => `<!--${tag.id}-->`));
     if (hiddenAt.includes(-1)) {
@@ -1146,7 +1197,7 @@ function restoreAspBlocks(
     prettifiedCode: string,
     { placeholderAt, hiddenAt }: PlaceholderPositions,
     { formattedBlocks, blockTagIndents }: FormattedBlocks,
-): string {
+): string | FormatRefusal {
     const { aspBlocks, hiddenTags } = page;
     const aspSettings = run.asp;
     const prettierSettings = run.prettier;
@@ -1254,11 +1305,8 @@ function restoreAspBlocks(
                 const value = /\s*=\s*["']1["']/y;
                 value.lastIndex = at + block.token!.length;
                 const m = value.exec(prettifiedCode);
-                if (!m) {
-                    restored.push(block.token!);
-                    scan = at + block.token!.length;
-                    break;
-                }
+                // Prettier read the placeholder as something else; putting the token back would lose the block.
+                if (!m) { return blockRemoved(block); }
                 restored.dropEndWhile(isWhitespace);
                 restored.push(` ${formatted}`);
                 scan = at + block.token!.length + m[0].length;
