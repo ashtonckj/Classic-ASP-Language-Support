@@ -387,6 +387,11 @@ describe('formatMultiLineAspBlock — a continuation that also closes the block'
         assert.strictEqual(out.formatted, '<%\nIf a And _\n  b Then\n%>');
     });
 
+    it('does not read a comment ending in _ as a continuation', () => {
+        const out = formatSingleAspBlock("<%\nx = 1 ' trailing_\ny = 2\n%>", settings, '', 0);
+        assert.strictEqual(out.formatted, "<%\nx = 1 ' trailing_\ny = 2\n%>");
+    });
+
     it('keeps a multi-part SQL concatenation aligned', () => {
         const out = formatSingleAspBlock(
             '<% sql = "SELECT a" & _\n  " FROM t" & _\n  " WHERE x=1" %>', settings, '', 0);

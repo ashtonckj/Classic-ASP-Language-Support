@@ -1,4 +1,4 @@
-import { codeWithoutStrings, splitCodeAndComment, vbStatements, vbStringSegments } from '../core/vbLexical';
+import { codeWithoutStrings, endsWithContinuation, splitCodeAndComment, vbStatements, vbStringSegments } from '../core/vbLexical';
 import type { FormatterSettings, PrettierSettings } from '../platform/settings';
 import { ASP_MEMBER_DOCS, VBSCRIPT_BARE_FUNCTIONS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
 import { getStringAlignColumn, isBlockOpener, VBSCRIPT_BLOCK_CLOSERS } from '../vbscript/indentRules';
@@ -315,7 +315,7 @@ function formatMultiLineAspBlock(
                 formattedLines.push(
                     continuationIndent(continuationAlignCol, baseLevel, aspIndentLevel, settings) + trimmed);
 
-                if (!trimmed.trimEnd().endsWith('_')) {
+                if (!endsWithContinuation(trimmed)) {
                     prevHadContinuation = false;
                     inMultilineString   = false;
                     isInSQLBlock        = false;
@@ -335,7 +335,7 @@ function formatMultiLineAspBlock(
                     continuationIndent(continuationAlignCol, baseLevel, aspIndentLevel, settings) + trimmed);
             }
 
-            if (!trimmed.trimEnd().endsWith('_')) {
+            if (!endsWithContinuation(trimmed)) {
                 prevHadContinuation = false;
                 inMultilineString   = false;
                 isInSQLBlock        = false;
@@ -492,7 +492,7 @@ function updateContinuationState(
     state:         ContinuationState,
     setState:      (v: ContinuationState) => void,
 ): void {
-    if (formattedLine.trimEnd().endsWith('_')) {
+    if (endsWithContinuation(formattedLine)) {
         const col   = calcContinuationColumn(formattedLine, aspIndent);
         const isSql = isSQLStatement(formattedLine);
         setState({
