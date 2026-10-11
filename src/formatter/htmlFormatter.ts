@@ -615,6 +615,52 @@ function putBackVbScriptBodies(code: string, bodies: string[], settings: AspForm
     return out + code.slice(last);
 }
 
+// ─── <script>/<style> bodies with <% %> statements ─────────────────────────
+// A statement block in JavaScript or CSS stands for code Prettier cannot see:
+// `if (ready)\n<% If admin Then %>\nshow();` read with the block as a bare word
+// gained a `;` that made show() unconditional, and every format indented the
+// block one level deeper. Such a body is taken out and put back as written.
+
+/**
+ * Takes out every <script>/<style> body that holds a `<% %>` statement (not
+ * just `<%= %>` expressions). `bodies` lines up with computeRawTextRanges'
+ * order, null for a body left in.
+ */
+function takeAspScriptBodies(code: string, map: OffsetMap): { masked: string; bodies: Array<string | null> } {
+    const ranges = computeRawTextRanges(code);
+    const bodies = ranges.map(([start, end]) => {
+        const body = code.slice(start, end);
+        return (body.match(/<%[\s\S]*?%>/g) ?? []).some(block => !isAspExpression(block)) ? body : null;
+    });
+    let masked = '';
+    let last = 0;
+    for (const k of ranges.map((_, k) => k).filter(k => bodies[k] !== null).sort((a, b) => ranges[a][0] - ranges[b][0])) {
+        const [start, end] = ranges[k];
+        masked += code.slice(last, start);
+        map.replaced(start, end, masked.length, masked.length);
+        last = end;
+    }
+    return { masked: masked + code.slice(last), bodies };
+}
+
+/** Puts the bodies back as they were, with the closing tag under its opening tag. Null when the elements no longer line up. */
+function putBackAspScriptBodies(code: string, bodies: Array<string | null>): string | null {
+    if (bodies.every(body => body === null)) { return code; }
+    const ranges = computeRawTextRanges(code);
+    if (ranges.length !== bodies.length) { return null; }
+
+    const lower = code.toLowerCase();
+    let out = code;
+    // From the end, so each range is still where it was found.
+    for (const k of ranges.map((_, k) => k).filter(k => bodies[k] !== null).sort((a, b) => ranges[b][0] - ranges[a][0])) {
+        const [start, end] = ranges[k];
+        const tagAt = Math.max(lower.lastIndexOf('<script', start), lower.lastIndexOf('<style', start));
+        const tagIndent = /^[ \t]*/.exec(code.slice(code.lastIndexOf('\n', tagAt) + 1, tagAt))![0];
+        out = out.slice(0, start) + bodies[k]!.replace(/\n[ \t]*$/, '\n' + tagIndent) + out.slice(end);
+    }
+    return out;
+}
+
 /**
  * What formatting a page came to: the formatted text, or why the page was left
  * as it was. The formatter tells nobody; formatCommands.ts decides what the
@@ -680,8 +726,10 @@ export async function formatPage(code: string): Promise<FormatResult> {
     // Each stage records what it replaced, so a Prettier error can be traced to the user's line.
     const bodiesMap = new OffsetMap();
     const jsAttrMap = new OffsetMap();
+    const aspBodiesMap = new OffsetMap();
     const vbscriptBodies = takeVbScriptBodies(code, bodiesMap);
-    const { masked: jsPreMasked, masks: jsAttrMasks } = maskJsEventAttrs(vbscriptBodies.masked, run.names, jsAttrMap);
+    const aspBodies = takeAspScriptBodies(vbscriptBodies.masked, aspBodiesMap);
+    const { masked: jsPreMasked, masks: jsAttrMasks } = maskJsEventAttrs(aspBodies.masked, run.names, jsAttrMap);
 
     // <script>/<style> body ranges — ASP blocks inside them need a JS/CSS-safe
     // identifier placeholder, not an HTML comment (which Prettier would parse as
@@ -690,7 +738,7 @@ export async function formatPage(code: string): Promise<FormatResult> {
 
     // ── Step 2: Mask all ASP blocks ──────────────────────────────────────────
     const page = maskAspBlocks(run, jsPreMasked, rawRanges);
-    page.maps.unshift(bodiesMap, jsAttrMap);
+    page.maps.unshift(bodiesMap, aspBodiesMap, jsAttrMap);
 
     // ── Step 3: Run Prettier on the masked HTML ──────────────────────────────
     let prettifiedCode: string;
@@ -741,10 +789,12 @@ export async function formatPage(code: string): Promise<FormatResult> {
     // ── Step 6: Fix broken whitespace-sensitive tags (<textarea>, <pre>) ─────
     const restoredCode = fixWhitespaceSensitiveTags(restoreJsEventAttrs(restored, jsAttrMasks));
 
-    // ── Step 7: Put back the VBScript <script> bodies, formatted ────────────
+    // ── Step 7: Put back the <script>/<style> bodies, and the VBScript ones formatted ──
     // Should Prettier have dropped or added a block, nothing is changed rather
     // than a body landing in the wrong one.
-    return { ok: true, text: putBackVbScriptBodies(restoredCode, vbscriptBodies.bodies, run.asp) ?? code };
+    const withAspBodies = putBackAspScriptBodies(restoredCode, aspBodies.bodies);
+    if (withAspBodies === null) { return { ok: true, text: code }; }
+    return { ok: true, text: putBackVbScriptBodies(withAspBodies, vbscriptBodies.bodies, run.asp) ?? code };
 }
 
 // ─── The stages of formatPage ──────────────────────────────────────────────

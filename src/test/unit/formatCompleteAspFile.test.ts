@@ -147,6 +147,30 @@ describe('formatCompleteAspFile — ASP inside <script> keeps JS order', () => {
     });
 });
 
+// A statement block stands for code Prettier cannot see, so reading it as a
+// bare word added `;` and `,` that changed what the script does.
+describe('formatCompleteAspFile — a <script> or <style> body with <% %> statements', () => {
+    const script = '<script>\nif (ready)\n<% If isAdmin Then %>\nshowAdmin();\n<% End If %>\n'
+        + 'var a = [<% For i = 1 To 3 %><%= i %>,<% Next %>];\n<% x = 1 %>\n</script>\n';
+
+    it('is left exactly as written', async () => {
+        assert.strictEqual(await formatCompleteAspFile(script), script);
+        const style = '<style>\n<% If dark Then %>\nbody{color:#fff}\n<% End If %>\n</style>\n';
+        assert.strictEqual(await formatCompleteAspFile(style), style);
+    });
+
+    it('settles in one pass inside other elements, its closing tag under its opening tag', async () => {
+        const once = await formatCompleteAspFile(`<div><p>x</p>\n${script}</div>\n`);
+        assert.ok(once.includes('if (ready)\n<% If isAdmin Then %>\nshowAdmin();\n'), once);
+        assert.match(once, /\n {2}<script>[\s\S]*\n {2}<\/script>\n/);
+        assert.strictEqual(await formatCompleteAspFile(once), once);
+    });
+
+    it('still formats a body with only <%= %> expressions', async () => {
+        assert.strictEqual(await formatCompleteAspFile('<script>var x=<%= y %>;</script>\n'), '<script>\n  var x = <%= y %>;\n</script>\n');
+    });
+});
+
 // The directive on line 1 of nearly every Classic ASP page must survive a full
 // Format Document pass intact — a split `<%@` is a compile error in IIS.
 describe('formatCompleteAspFile — processing directive', () => {
