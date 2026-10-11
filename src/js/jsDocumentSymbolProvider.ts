@@ -37,7 +37,8 @@ const KINDS: Record<JsOutlineKind, vscode.SymbolKind> = {
 
 function toDocumentSymbol(document: vscode.TextDocument, symbol: JsOutlineSymbol): vscode.DocumentSymbol {
     const range     = new vscode.Range(document.positionAt(symbol.start), document.positionAt(symbol.end));
-    const selection = new vscode.Range(document.positionAt(symbol.nameStart), document.positionAt(symbol.nameStart + symbol.name.length));
+    // A callback's name is a label longer than the code it names: `forEach(a) callback` for `a=>1`.
+    const selection = new vscode.Range(document.positionAt(symbol.nameStart), document.positionAt(Math.min(symbol.nameStart + symbol.name.length, symbol.end)));
     const converted = new vscode.DocumentSymbol(symbol.name, symbol.detail, KINDS[symbol.kind], range, selection);
     converted.children = symbol.children.map(child => toDocumentSymbol(document, child));
     return converted;

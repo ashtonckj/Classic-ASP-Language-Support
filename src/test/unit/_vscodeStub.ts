@@ -164,6 +164,10 @@ export class DocumentSymbol {
         // symbol took down the whole Outline. Reproduce it so a unit test can
         // catch that rather than waiting for the Extension Host.
         if (!name) { throw new Error('name must not be falsy'); }
+        const before = (a: Position, b: Position) => a.line < b.line || (a.line === b.line && a.character < b.character);
+        if (before(selectionRange.start, range.start) || before(range.end, selectionRange.end)) {
+            throw new Error('selectionRange must be contained in fullRange');
+        }
     }
 }
 
