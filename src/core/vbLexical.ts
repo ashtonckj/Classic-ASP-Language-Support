@@ -42,6 +42,10 @@ function isNameChar(ch: string | undefined): boolean {
     return ch !== undefined && /[\p{L}\p{Nd}_]/u.test(ch);
 }
 
+function isLetter(ch: string | undefined): boolean {
+    return ch !== undefined && /\p{L}/u.test(ch);
+}
+
 /** Scans one line of VBScript from `from`. */
 export function scanVbLine(line: string, from = 0): VbLine {
     const strings: VbStringRange[] = [];
@@ -73,10 +77,12 @@ export function scanVbLine(line: string, from = 0): VbLine {
             i = close === -1 ? line.length : close + 1;
             continue;
         }
-        if (isNameChar(ch)) {
+        // A name starts at a letter. A number does not run on into one, so in
+        // `x = 5rem note` the Rem still starts a comment, as the engine reads it.
+        if (isLetter(ch)) {
             let j = i + 1;
             while (isNameChar(line[j])) { j++; }
-            if (j - i === 3 && line.slice(i, j).toLowerCase() === 'rem') { codeEnd = i; break; }
+            if (j - i === 3 && line.slice(i, j).toLowerCase() === 'rem' && line[i - 1] !== '.') { codeEnd = i; break; }
             i = j;
             continue;
         }
@@ -87,7 +93,11 @@ export function scanVbLine(line: string, from = 0): VbLine {
     if (codeEnd === line.length && !(strings.length > 0 && !strings[strings.length - 1].closed)) {
         let k = line.length - 1;
         while (k >= from && /\s/.test(line[k])) { k--; }
-        continues = k >= from && line[k] === '_' && !isNameChar(line[k - 1])
+        // `_` ends a name only when the name began with a letter: `a_` is a
+        // name, while after `1` or a space the `_` is a continuation.
+        let s = k;
+        while (s > from && isNameChar(line[s - 1])) { s--; }
+        continues = k >= from && line[k] === '_' && !isLetter(line[s])
             && !(strings.length > 0 && strings[strings.length - 1].end > k);
     }
     return { codeEnd, strings, continues };

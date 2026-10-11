@@ -92,6 +92,12 @@ describe('splitCodeAndComment', () => {
         assert.deepStrictEqual(splitCodeAndComment('Rem old code'), { code: '', comment: 'Rem old code' });
         assert.deepStrictEqual(splitCodeAndComment('x = 1 rem note'), { code: 'x = 1 ', comment: 'rem note' });
     });
+
+    // As the parser and the engine read them.
+    it('takes off a Rem straight after a number, and keeps a member named Rem', () => {
+        assert.deepStrictEqual(splitCodeAndComment('x = 5rem note'), { code: 'x = 5', comment: 'rem note' });
+        assert.deepStrictEqual(splitCodeAndComment('x = a.Rem'), { code: 'x = a.Rem', comment: '' });
+    });
 });
 
 describe('endsWithContinuation', () => {
@@ -100,6 +106,7 @@ describe('endsWithContinuation', () => {
         assert.strictEqual(endsWithContinuation('sql = "SELECT"_  '), true);
         assert.strictEqual(endsWithContinuation('x = (a)_'), true);
         assert.strictEqual(endsWithContinuation('_'), true);
+        assert.strictEqual(endsWithContinuation('x = 1_'), true);
     });
 
     it('is false for a name ending in _, a _ in a string, and a _ in a comment', () => {
