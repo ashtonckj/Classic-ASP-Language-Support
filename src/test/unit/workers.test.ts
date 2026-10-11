@@ -1,6 +1,9 @@
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { Worker } from 'node:worker_threads';
+import { AnalysisWorker } from '../../workers/analysisClient';
 
 // Each worker entry is started from the compiled output, as the extension
 // starts it: one that cannot load a module (vscode, say) fails here, not in
@@ -71,5 +74,31 @@ describe('worker entries', function () {
             { id: 1, roots: ['C:/inc.asp'], virtualRoot: 'C:/', openFiles: { 'c:/inc.asp': '<% Dim y %>' } },
         ]) as Array<Answer & { entries: Array<{ symbols: { variables: Array<{ name: string }> } }> }>;
         assert.deepStrictEqual(answer.entries.map(e => e.symbols.variables.map(v => v.name)), [['y']]);
+    });
+});
+
+// A worker stuck in a loop on one page used to hold its feature up for good:
+// nothing answered, and every later request waited behind it.
+describe('AnalysisWorker', function () {
+    this.timeout(20000);
+    let dir: string;
+    before(() => {
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'asp-worker-'));
+        fs.writeFileSync(path.join(dir, 'echo.js'), [
+            "const { parentPort } = require('node:worker_threads');",
+            'parentPort.on(\'message\', m => { if (m.hang) { for (;;) { /* stuck */ } } parentPort.postMessage({ id: m.id, value: m.value }); });',
+        ].join('\n'));
+    });
+    after(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+    it('gives up on a job that takes too long, and the next one gets a fresh worker', async () => {
+        const worker = new AnalysisWorker<{ hang?: boolean; value?: number }, Answer & { value?: number }>(
+            'test', path.join(dir, 'echo.js'), () => false, () => false, () => false, 200);
+        try {
+            assert.strictEqual(await worker.request('page', { hang: true }), undefined);
+            assert.strictEqual((await worker.request('page', { value: 7 }))?.value, 7);
+        } finally {
+            worker.dispose();
+        }
     });
 });

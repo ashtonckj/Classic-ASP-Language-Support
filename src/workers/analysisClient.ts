@@ -59,6 +59,10 @@ export type { AspColouringResult, SqlWarning } from '../vbscript/aspColouring';
 // leave the feature off rather than spawning a thread per keystroke forever.
 const MAX_CONSECUTIVE_FAILURES = 3;
 
+// A job not answered in this long is taken as a worker stuck in a loop: it is
+// stopped, so the next request starts a fresh one instead of waiting forever.
+const JOB_TIMEOUT_MS = 30_000;
+
 // Answers kept for reuse, for the most recent documents only.
 const MAX_REMEMBERED = 8;
 
@@ -67,7 +71,7 @@ type Resolver<R> = (result: R | undefined) => void;
 interface Job<I, R> { input: I; resolvers: Resolver<R>[]; }
 
 /** A long-lived worker thread and the requests waiting for it. */
-class AnalysisWorker<I extends object, R extends WorkerAnswer> {
+export class AnalysisWorker<I extends object, R extends WorkerAnswer> {
     private worker: Worker | undefined;
     private nextId   = 1;
     private failures = 0;
@@ -75,6 +79,7 @@ class AnalysisWorker<I extends object, R extends WorkerAnswer> {
     // Waiting jobs, at most one per document, in the order they were asked for.
     private readonly queued = new Map<string, Job<I, R>>();
     private readonly lastAnswer = new Map<string, { input: I; result: R }>();
+    private jobTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor(
         /** What the worker does, for the log: "JavaScript analysis". */
@@ -86,6 +91,7 @@ class AnalysisWorker<I extends object, R extends WorkerAnswer> {
         private readonly worthKeeping: (result: R) => boolean,
         /** True for a job to send ahead of the others waiting. */
         private readonly urgent: (input: I) => boolean = () => false,
+        private readonly jobTimeoutMs = JOB_TIMEOUT_MS,
     ) {}
 
     request(key: string, input: I): Promise<R | undefined> {
@@ -146,6 +152,7 @@ class AnalysisWorker<I extends object, R extends WorkerAnswer> {
     }
 
     private teardown(): void {
+        clearTimeout(this.jobTimer);
         const worker = this.worker;
         this.worker = undefined;
         this.failAllPending();
@@ -163,6 +170,7 @@ class AnalysisWorker<I extends object, R extends WorkerAnswer> {
                 // A worker torn down can still post what it was working on; it
                 // must not answer, or free the slot of, the job its successor has.
                 if (this.worker !== worker) { return; }
+                clearTimeout(this.jobTimer);
                 this.failures = 0;
                 if (result.error) { log.error(`The ${this.name} worker failed on a page`, result.error); }
                 const pending = this.inFlight;
@@ -209,6 +217,11 @@ class AnalysisWorker<I extends object, R extends WorkerAnswer> {
 
         const id = this.nextId++;
         this.inFlight = { ...job, id, key };
+        this.jobTimer = setTimeout(() => {
+            this.failures++;
+            log.warn(`The ${this.name} worker gave no answer in ${this.jobTimeoutMs / 1000} s, so it was stopped.`);
+            this.teardown();
+        }, this.jobTimeoutMs);
         try {
             worker.postMessage({ ...job.input, id });
         } catch {
