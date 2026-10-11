@@ -441,6 +441,29 @@ describe('formatCompleteAspFile — ASP inside an HTML tag stays inside it', () 
     });
 });
 
+// A browser renders a line break between two words as a space, and every
+// character of <pre> and <textarea> as it is.
+describe('formatCompleteAspFile — whitespace the page renders stays as written', () => {
+
+    // A newline straight after either tag is not rendered, so Prettier may drop it.
+    it('keeps the blanks before an expression inside <pre> and <textarea>', async () => {
+        const source = '<div><pre>\n  <%= x %></pre></div>\n<textarea>\n  <%= x %></textarea>\n';
+        const out = await formatCompleteAspFile(source);
+        assert.match(out, /<pre>\n? {2}<%= x %><\/pre>/);
+        assert.match(out, /<textarea>\n? {2}<%= x %><\/textarea>/);
+    });
+
+    it('keeps statement blocks inside <pre> where they are', async () => {
+        const source = '<pre>\n  a\n    <% If b Then %>\n  c\n<% End If %>d</pre>\n';
+        assert.strictEqual(await formatCompleteAspFile(source), source);
+    });
+
+    it('does not split text glued to a statement block on both sides', async () => {
+        const source = '<span>abc<% If x Then %>def<% End If %>ghi</span>\n';
+        assert.strictEqual(await formatCompleteAspFile(source), source);
+    });
+});
+
 // Prettier formats an on* value as JavaScript, and once the attribute is too long
 // for printWidth it moves the value onto a line of its own. The masked value was
 // then never found again, and the page's event handler came back as the mask

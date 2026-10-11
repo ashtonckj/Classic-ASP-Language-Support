@@ -326,14 +326,14 @@ function rawTokenFor(id: string): string {
 
 /**
  * Byte ranges [start, end) of every real <script>/<style> element BODY (between
- * the opening tag's `>` and the closing tag). Reuses the zone scanners so ASP
- * blocks, quoted attributes, and VBScript strings are handled the same way the
- * rest of the extension handles them.
+ * the opening tag's `>` and the closing tag) — or of the elements named. Reuses
+ * the zone scanners so ASP blocks, quoted attributes, and VBScript strings are
+ * handled the same way the rest of the extension handles them.
  */
-function computeRawTextRanges(text: string): Array<[number, number]> {
+function computeRawTextRanges(text: string, names: readonly string[] = ['script', 'style']): Array<[number, number]> {
     const ranges: Array<[number, number]> = [];
-    for (const tag of ['<script', '<style'] as const) {
-        const name = tag.slice(1); // 'script' | 'style'
+    for (const name of names) {
+        const tag = '<' + name;
         let from = 0;
         while (true) {
             const open = findNextRealTag(text, tag, from);
@@ -816,6 +816,8 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
     const context   = new EmittedContext();
     /** Each unquoted attribute value with a placeholder in it: where it starts, and where the placeholder ends. */
     const unquoted: Array<[number, number]> = [];
+    // Bodies whose whitespace is rendered as written.
+    const verbatimRanges = computeRawTextRanges(jsPreMasked, ['pre', 'textarea']);
 
     // Tags Prettier must not see: one branch's copy of a tag another branch of
     // the same If opens or closes, or a tag whose partner VBScript writes. Read
@@ -929,6 +931,13 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
         // by the old placeholder is pulled back together the next time it is
         // formatted.
         if (kind === 'normal' && isAspExpression(aspBlock)) { kind = 'text'; }
+        // A statement block is masked as text, so left where it is, wherever a
+        // line break would be rendered: inside <pre> or <textarea>, or glued to
+        // text on both sides — `abc<% If x Then %>def` would render `abc def`.
+        const isText = (ch: string | undefined) => ch !== undefined && /[^\s<>]/.test(ch);
+        if (kind === 'normal' && (isInRawText(pos, verbatimRanges) || (isText(jsPreMasked[pos - 1]) && isText(jsPreMasked[end])))) {
+            kind = 'text';
+        }
 
         // `midtag` is emitted as `name="1"`, four characters more than the
         // name itself, so the name is padded to that much less.
@@ -943,8 +952,9 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
         // Replace leading whitespace + block with the placeholder
         // (strip the leadingWS we already emitted so the placeholder
         //  takes its place cleanly)
+        // Only a comment placeholder: before any other the blanks may be rendered text or a JS string's.
         let replacedFrom = pos;
-        if (leadingWS && lineTrailing.endsWith(leadingWS)) {
+        if (kind === 'normal' && leadingWS && lineTrailing.endsWith(leadingWS)) {
             replacedFrom -= leadingWS.length;
             masked.dropEnd(leadingWS.length);
             lineTrailing = lineTrailing.slice(0, lineTrailing.length - leadingWS.length);
