@@ -285,9 +285,16 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
     // of both, so it is only warned about where it is joined into SQL.
     const sqlFuncs    = new Set<string>();
     const nonStrFuncs = new Set<string>();
+    // Grouped once: filtering every assignment per Function was quadratic on
+    // pages with thousands of Functions.
+    const byProcedure = new Map<A.ProcedureStmt | null, Assignment[]>();
+    for (const a of assignments) {
+        const list = byProcedure.get(a.procedure);
+        if (list) { list.push(a); } else { byProcedure.set(a.procedure, [a]); }
+    }
     for (const stmt of statements) {
         if (stmt.kind !== 'Procedure' || stmt.procKind !== 'function' || !stmt.closer) { continue; }
-        const returns = assignments.filter(a => a.procedure === stmt && a.name === stmt.name.name);
+        const returns = (byProcedure.get(stmt) ?? []).filter(a => a.name === stmt.name.name);
         if (returns.some(a => a.stitchedValue && looksLikeSql(a.stitchedValue))) {
             sqlFuncs.add(stmt.name.name);
         } else if (returns.length === 0) {
