@@ -160,6 +160,9 @@ class AnalysisWorker<I extends object, R extends WorkerAnswer> {
             const worker = new Worker(this.workerPath);
 
             worker.on('message', (result: R) => {
+                // A worker torn down can still post what it was working on; it
+                // must not answer, or free the slot of, the job its successor has.
+                if (this.worker !== worker) { return; }
                 this.failures = 0;
                 if (result.error) { log.error(`The ${this.name} worker failed on a page`, result.error); }
                 const pending = this.inFlight;
