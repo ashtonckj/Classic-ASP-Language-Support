@@ -465,6 +465,32 @@ describe('formatCompleteAspFile — ASP inside an HTML tag stays inside it', () 
     });
 });
 
+// What ASP writes into a value may hold either quote, so the one the author
+// chose around it is the one that keeps the page working.
+describe('formatCompleteAspFile — the quotes around ASP output stay as written', () => {
+
+    afterEach(() => { testSettings.delete('classicAsp.prettier.singleQuote'); });
+
+    it('keeps single quotes round an attribute value and a JS string', async () => {
+        const out = await formatCompleteAspFile("<script>var html = '<%= rowHtml %>';</script>\n<div title='<%= t %>'>x</div>\n");
+        assert.strictEqual(out, "<script>\n  var html = '<%= rowHtml %>';\n</script>\n<div title='<%= t %>'>x</div>\n");
+    });
+
+    it('keeps double quotes when Prettier would pick single ones', async () => {
+        testSettings.set('classicAsp.prettier.singleQuote', true);
+        const out = await formatCompleteAspFile('<script>var a = "x <%= y %>", b = "it\'s";</script>\n');
+        assert.strictEqual(out, '<script>\n  var a = "x <%= y %>",\n    b = "it\'s";\n</script>\n');
+    });
+
+    it('leaves an unquoted value unquoted', async () => {
+        assert.strictEqual(await formatCompleteAspFile('<a href=page.asp?id=<%=id%>>x</a>\n'), '<a href=page.asp?id=<%= id %>>x</a>\n');
+    });
+
+    it('still lets Prettier pick the quotes of values without ASP', async () => {
+        assert.strictEqual(await formatCompleteAspFile("<div title='a'>x</div>\n"), '<div title="a">x</div>\n');
+    });
+});
+
 // A browser renders a line break between two words as a space, and every
 // character of <pre> and <textarea> as it is.
 describe('formatCompleteAspFile — whitespace the page renders stays as written', () => {

@@ -354,6 +354,53 @@ function isInRawText(pos: number, ranges: Array<[number, number]>): boolean {
     return ranges.some(([s, e]) => pos >= s && pos < e);
 }
 
+/** The quote and the text so far of the JS or CSS string that `line` ends inside, if it ends inside one. */
+function stringAtEnd(line: string): { quote: string; prefix: string } | undefined {
+    let quote = '';
+    let start = 0;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (quote) {
+            if (ch === '\\') { i++; } else if (ch === quote) { quote = ''; }
+        } else if (ch === '"' || ch === "'" || ch === '`') {
+            quote = ch;
+            start = i + 1;
+        } else if (ch === '/' && line[i + 1] === '/') {
+            break;
+        }
+    }
+    return quote === '"' || quote === "'" ? { quote, prefix: line.slice(start) } : undefined;
+}
+
+/**
+ * Gives each attribute value and JS/CSS string that holds a placeholder back
+ * the quote it was written with — none, for an unquoted value. Prettier picks
+ * its own, but what ASP writes into the value may hold the one it picked.
+ * Left alone wherever the text before the placeholder is not as it was.
+ */
+function restoreQuotes(text: string, blocks: AspBlock[]): string {
+    const found = findInOrder(text, blocks.map(placeholderOf));
+    // From the end, so the places found before each are still where they were.
+    for (let i = blocks.length - 1; i >= 0; i--) {
+        const { quote, prefix, kind } = blocks[i];
+        const at = found[i];
+        if (quote === undefined || prefix === undefined || at === -1) { continue; }
+        const open = at - prefix.length - 1;
+        const now = text[open];
+        if ((now !== '"' && now !== "'") || now === quote || text.slice(open + 1, at) !== prefix) { continue; }
+
+        const js = kind === 'rawtext';
+        let close = at;
+        while (close < text.length && text[close] !== now) { close += js && text[close] === '\\' ? 2 : 1; }
+        if (close >= text.length) { continue; }
+        let body = text.slice(open + 1, close);
+        if (js) { body = body.replace(/\\[\s\S]|['"]/g, m => m === quote ? '\\' + m : m); }
+        else if (quote && body.includes(quote)) { continue; }
+        text = text.slice(0, open) + quote + body + quote + text.slice(close + 1);
+    }
+    return text;
+}
+
 // ─── Implied table end-tag normaliser ───────────────────────────────────────
 
 /**
@@ -772,7 +819,7 @@ export async function formatPage(code: string): Promise<FormatResult> {
     }
 
     // ── Step 3b: Lay the page out the way it is going to end up ─────────────
-    prettifiedCode = await layOutAsWritten(run, page, prettifiedCode);
+    prettifiedCode = restoreQuotes(await layOutAsWritten(run, page, prettifiedCode), page.aspBlocks);
 
     // ── Step 3c: Verify all placeholders survived Prettier ──────────────────
     const located = locatePlaceholders(page, prettifiedCode);
@@ -834,6 +881,12 @@ interface FormattedBlocks {
 type FormatRefusal = Exclude<FormatResult, { ok: true }>;
 
 const commentFor = (block: AspBlock) => `<!--${block.id}-->`;
+
+/** What a block is found by in Prettier's output: for a statement block, the id inside its comment. */
+const placeholderOf = (block: AspBlock) =>
+    block.kind === 'rawtext' ? rawTokenFor(block.id) :
+    block.kind === 'normal'  ? block.id              :
+    block.token!;
 
 function prettierOptionsFor(prettierSettings: PrettierSettings): prettier.Options {
     return {
@@ -997,7 +1050,9 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
             kind === 'midtag' ? paddedToken('aspmid',  index, aspBlock.length - 4, collisions.aspmid)  :
             undefined;
 
-        aspBlocks.push({ code: aspBlock, id, lineNumber, kind, token, ...(kind === 'inline' ? context.attribute() : {}) });
+        // Where the block sits in a quoted value or string, so its quote can be put back — see restoreQuotes.
+        const quoting = kind === 'inline' ? context.attribute() : kind === 'rawtext' ? stringAtEnd(masked.currentLine().text) : undefined;
+        aspBlocks.push({ code: aspBlock, id, lineNumber, kind, token, ...quoting });
 
         // Replace leading whitespace + block with the placeholder
         // (strip the leadingWS we already emitted so the placeholder
@@ -1141,11 +1196,7 @@ function locatePlaceholders(page: MaskedPage, prettifiedCode: string): Placehold
 
     // ── Step 3c: Verify all placeholders survived Prettier ──────────────────
 
-    const needles = aspBlocks.map(block =>
-        block.kind === 'rawtext' ? rawTokenFor(block.id) :
-        block.kind === 'normal'  ? block.id              :
-        block.token!);
-    const found = findInOrder(prettifiedCode, needles);
+    const found = findInOrder(prettifiedCode, aspBlocks.map(placeholderOf));
 
     const lost = aspBlocks.find((_, i) => found[i] === -1);
     if (lost) { return blockRemoved(lost); }
