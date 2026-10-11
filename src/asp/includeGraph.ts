@@ -22,7 +22,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../core/includeDirectives';
-import { pathKey } from '../core/paths';
+import { pathKey, withoutBom } from '../core/paths';
 import { aspFiles, getWorkspaceAspFiles, onAspFilesChange } from '../platform/workspaceIndex';
 import { onSettingsChange } from '../platform/settings';
 import { getVirtualRoot, readIncludeText } from './includeProvider';
@@ -69,7 +69,7 @@ async function readAllInBackground(): Promise<void> {
     const next = new Map<string, Entry>();
     for (const fsPath of await aspFiles()) {
         let text: string;
-        try { text = await fs.promises.readFile(fsPath, 'utf8'); } catch { continue; }
+        try { text = withoutBom(await fs.promises.readFile(fsPath, 'utf8')); } catch { continue; }
         next.set(pathKey(fsPath), entryOf(fsPath, text));
         if (generation !== started) { return; }
     }
@@ -82,7 +82,7 @@ async function readAllInBackground(): Promise<void> {
 async function reread(files: string[]): Promise<void> {
     for (const fsPath of files) {
         let text: string;
-        try { text = await fs.promises.readFile(fsPath, 'utf8'); } catch { continue; }
+        try { text = withoutBom(await fs.promises.readFile(fsPath, 'utf8')); } catch { continue; }
         entries.set(pathKey(fsPath), entryOf(fsPath, text));
         changed();
     }

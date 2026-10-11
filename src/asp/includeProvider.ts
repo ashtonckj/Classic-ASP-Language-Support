@@ -5,7 +5,7 @@ import type { FileSymbols } from '../vbscript/symbolParser';
 import { parseIncludeDirectives, resolveIncludeDirective, resolveIncludePathsIn } from '../core/includeDirectives';
 import { defaultIncludesSetting, virtualRootSetting } from '../platform/settings';
 import { loadIncludeTree } from '../workers/analysisClient';
-import { isFile, pathKey } from '../core/paths';
+import { isFile, pathKey, withoutBom } from '../core/paths';
 import { openBuffers, openDocument } from '../platform/documentState';
 import { pathCompletions } from '../platform/pathCompletion';
 
@@ -73,7 +73,7 @@ export function resolveDirectIncludes(documentText: string, documentPath: string
 export function readIncludeText(fsPath: string): string | null {
     const open = openDocument(fsPath);
     if (open) { return open.getText(); }
-    try { return fs.readFileSync(fsPath, 'utf8'); } catch { return null; }
+    try { return withoutBom(fs.readFileSync(fsPath, 'utf8')); } catch { return null; }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

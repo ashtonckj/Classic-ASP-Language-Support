@@ -12,7 +12,7 @@ import { symbolsOfPage } from '../vbscript/symbols';
 import { ParseCache } from '../vbscript/parseCache';
 import { resolveIncludePathsIn } from '../core/includeDirectives';
 import { serveWorker, type WorkerAnswer } from './serveWorker';
-import { pathKey } from '../core/paths';
+import { pathKey, withoutBom } from '../core/paths';
 
 export interface IncludeWorkerRequest {
     id: number;
@@ -57,7 +57,7 @@ async function loadTree(
     const unsaved = openFiles[key];
     let text: string;
     try {
-        text = unsaved !== undefined ? unsaved : await fs.readFile(filePath, 'utf8');
+        text = unsaved !== undefined ? unsaved : withoutBom(await fs.readFile(filePath, 'utf8'));
     } catch {
         results.push({
             filePath,

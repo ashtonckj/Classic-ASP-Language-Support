@@ -19,7 +19,7 @@ import { bindAt } from './references';
 import type { ScopeHost } from './scriptScope';
 import { symbolsOfPage, type ParsedPage } from './symbols';
 import { resolveIncludeDirective } from '../core/includeDirectives';
-import { pathKey, samePath } from '../core/paths';
+import { pathKey, samePath, withoutBom } from '../core/paths';
 import { ASP_OBJECT_NAMES, VBSCRIPT_CONSTANTS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
 
 export interface ChecksRequest {
@@ -58,7 +58,7 @@ export function checkPageFiles(request: ChecksRequest, parse: (fsPath: string, t
         if (samePath(fsPath, docPath)) { return text; }
         const open = request.openFiles[pathKey(fsPath)];
         if (open !== undefined) { return open; }
-        try { return fs.readFileSync(fsPath, 'utf8'); } catch { return null; }
+        try { return withoutBom(fs.readFileSync(fsPath, 'utf8')); } catch { return null; }
     };
 
     // ── Missing Set, with the object types known from the page and its includes ──
