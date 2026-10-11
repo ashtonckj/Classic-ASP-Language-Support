@@ -64,6 +64,14 @@ suite('Emmet abbreviations are offered in the markup (integration)', () => {
     });
 });
 
+suite('Emmet stays out of HTML comments (integration)', () => {
+
+    test('an abbreviation inside a comment is not offered, as in a .html file', async () => {
+        const labels = await completionsAtEndOf('<body>\n<!-- ul>li*2\n-->\n</body>\n', 1);
+        assert.ok(!hasEmmetExpansion(labels, 'ul>li*2'), `got ${JSON.stringify(labels.slice(0, 25))}`);
+    });
+});
+
 suite('Emmet stays out of VBScript (integration)', () => {
 
     test('an abbreviation inside a <% %> block is not offered', async () => {

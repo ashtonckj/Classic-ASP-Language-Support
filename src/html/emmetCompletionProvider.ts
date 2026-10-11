@@ -5,6 +5,7 @@ import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocume
 import { textOf, zonesFor } from '../platform/documentState';
 import { fromLspCompletion, type LspCompletionItem } from '../platform/lspConvert';
 import { loadEmmetHelper } from '../core/lazyModule';
+import { inHtmlComment } from './htmlLanguageFeatures';
 
 /**
  * Emmet abbreviations in the suggest widget, offered only where the caret is
@@ -79,8 +80,11 @@ export class EmmetCompletionProvider implements vscode.CompletionItemProvider {
         // around the caret. `asp` is VBScript and `js` belongs to the embedded
         // TypeScript service — expanding an abbreviation in either would
         // replace working code with markup.
-        const zone = zonesFor(document).zoneAt(document.offsetAt(position));
+        const offset = document.offsetAt(position);
+        const zone = zonesFor(document).zoneAt(offset);
         if (zone !== 'html' && zone !== 'css') { return; }
+        // A .html file does not expand abbreviations inside a comment either.
+        if (zone === 'html' && inHtmlComment(document, offset)) { return; }
         const syntax = zone === 'css' ? 'css' : 'html';
 
         // The helper reads an LSP document. Its own language id is what it uses
