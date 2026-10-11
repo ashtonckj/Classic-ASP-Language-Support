@@ -265,6 +265,14 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
 
         // ── HTML context handling ───────────────────────────────────────
 
+        // Script and style bodies are not markup: `i<n;i++)` is not a tag to
+        // close. Only the <script>/<style> tag just typed, which the caret is
+        // already past, still opens its body.
+        if (zone !== 'html' && !/<(script|style)\b[^>]*>$/i.test(textBefore)) {
+            void insertAndPlaceCaret(editor, position, `\n${indent}`, new vscode.Position(position.line + 1, indent.length));
+            return;
+        }
+
         // HTML comment: <!-- | -->
         if (textBefore.trim().endsWith('<!--') && textAfter.trim().startsWith('-->')) {
             void insertAndPlaceCaret(editor, new vscode.Range(position, line.range.end),

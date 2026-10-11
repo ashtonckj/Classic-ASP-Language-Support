@@ -64,6 +64,24 @@ suite('Enter / Tab handlers (integration)', () => {
         assert.strictEqual(editor.selection.active.character, 8);
     });
 
+    test('Enter in a <script> body adds no HTML closing tag after a < comparison', async () => {
+        const editor = await openAsp('<script>\n    for (var i=0;i<n;i++)\n</script>');
+        setCursor(editor, 1, editor.document.lineAt(1).text.length);
+
+        await runAndWait(editor, 'asp.insertLineBreak');
+
+        assert.strictEqual(editor.document.getText().replace(/\r\n/g, '\n'), '<script>\n    for (var i=0;i<n;i++)\n    \n</script>');
+    });
+
+    test('Enter right after <script> still opens its body', async () => {
+        const editor = await openAsp('<script></script>');
+        setCursor(editor, 0, '<script>'.length);
+
+        await runAndWait(editor, 'asp.insertLineBreak');
+
+        assert.strictEqual(editor.document.getText().replace(/\r\n/g, '\n'), '<script>\n    \n</script>');
+    });
+
     test('Enter at column 0 of a spaces-only line preserves the trailing spaces', async () => {
         const editor = await openAsp('    ');
         setCursor(editor, 0, 0);
