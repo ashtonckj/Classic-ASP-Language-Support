@@ -115,6 +115,18 @@ describe('getZone — robust tag-boundary scanning', () => {
         assert.strictEqual(getZone(text, text.indexOf('.b')), 'css');
     });
 
+    // A string cannot span lines: one still being typed must not hide the page below it.
+    it('ends a VBScript string left open at the line break or at its %>', () => {
+        for (const text of [
+            '<% x = "abc %>\n<script>\nvar a = 1;\n</script>',
+            '<% x = "abc\n%>\n<script>\nvar a = 1;\n</script>',
+            '<% x = "abc %>\r\n<style>\n.a { color: red }\n</style>',
+        ]) {
+            const at = text.includes('var a') ? text.indexOf('var a') : text.indexOf('color');
+            assert.strictEqual(getZone(text, at), text.includes('var a') ? 'js' : 'css', JSON.stringify(text));
+        }
+    });
+
     // A <script>/<style> inside a VBScript string or comment is data, not markup.
     // It must never open a JS/CSS zone — otherwise ASP that emits HTML via strings
     // (very common) floods the file with bogus JS/CSS diagnostics.

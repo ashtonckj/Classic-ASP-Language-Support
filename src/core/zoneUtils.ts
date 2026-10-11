@@ -12,19 +12,26 @@ export type Zone = 'asp' | 'css' | 'js' | 'html';
 /**
  * Starting at `start` (the opening quote), skip past a VBScript double-quoted
  * string. VBScript uses `""` as the escape for a literal quote (no backslash
- * escaping). Returns the index *after* the closing quote, or end-of-string if
- * the string is never closed.
+ * escaping). Returns the index *after* the closing quote.
+ *
+ * A string cannot span lines, so one never closed ends at the line break, or
+ * at a `%>` in it, which ends the block as the engine reads it. Running on
+ * instead hid every <script> and <style> below a quote still being typed.
  */
 function skipVbsString(text: string, start: number): number {
     let i = start + 1; // skip the opening "
+    let firstClose = -1;
     while (i < text.length) {
-        if (text[i] === '"') {
+        const ch = text[i];
+        if (ch === '"') {
             if (text[i + 1] === '"') { i += 2; continue; } // "" escaped quote
             return i + 1; // past the closing quote
         }
+        if (ch === '\n' || ch === '\r') { return firstClose === -1 ? i : firstClose; }
+        if (ch === '%' && text[i + 1] === '>' && firstClose === -1) { firstClose = i; }
         i++;
     }
-    return text.length;
+    return firstClose === -1 ? text.length : firstClose;
 }
 
 // ---------------------------------------------------------------------------
