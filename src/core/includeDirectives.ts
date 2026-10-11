@@ -52,9 +52,13 @@ export function resolveIncludeDirective(
     documentPath: string,
     virtualRoot: string,
 ): string {
+    // IIS reads `\` as `/`; on macOS and Linux path treats it as a name character.
+    const raw = directive.raw.replace(/\\/g, '/');
+    // A path starting `//` names a network share, which IIS never includes
+    // from, and reading one would send the user's Windows credentials there.
     return directive.type === 'virtual'
-        ? path.join(virtualRoot, directive.raw.replace(/^\//, ''))
-        : path.resolve(path.dirname(documentPath), directive.raw);
+        ? path.join(virtualRoot, raw.replace(/^\/+/, ''))
+        : path.resolve(path.dirname(documentPath), raw.replace(/^\/{2,}/, ''));
 }
 
 /** A directive path to rewrite: where it is written, and what to write instead. */
