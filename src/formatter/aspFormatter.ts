@@ -837,6 +837,17 @@ function splitOpaque(code: string): Array<{ text: string; opaque: boolean }> {
             }
         }
 
+        // A bracketed identifier [a/b] is a name, whatever characters it holds.
+        if (ch === '[') {
+            const end = code.indexOf(']', i + 1);
+            if (end !== -1) {
+                flush();
+                parts.push({ text: code.slice(i, end + 1), opaque: true });
+                i = end + 1;
+                continue;
+            }
+        }
+
         const prevCh = i > 0 ? code[i - 1] : '';
 
         // A number with an exponent — 1.5E-3, 2E+10, .5E-2 — is one literal, sign

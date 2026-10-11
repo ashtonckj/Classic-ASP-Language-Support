@@ -144,6 +144,10 @@ describe('applyKeywordCase — numeric / date literals', () => {
         assert.ok(out.includes('#12/25/2024#'), `date literal must stay intact; got ${JSON.stringify(out)}`);
     });
 
+    it('does not space the characters inside a [bracketed] identifier', () => {
+        assert.strictEqual(applyKeywordCase('x = [a/b]+[c-d,e]', 'PascalCase'), 'x = [a/b] + [c-d,e]');
+    });
+
     it('still spaces a genuine & concatenation operator', () => {
         const out = applyKeywordCase('a="x"&y', 'PascalCase');
         assert.ok(out.includes('"x" & y'), `concatenation & should be spaced; got ${JSON.stringify(out)}`);
