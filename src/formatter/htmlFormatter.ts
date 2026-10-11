@@ -2,6 +2,7 @@ import type * as prettier from 'prettier';
 import { formatSingleAspBlock, aspFormatterSettings, delimitersAtColumnZero, pageNames, type AspFormatterSettings } from './aspFormatter';
 import { aspTagProblems, findNextRealTag, findTagEnd, findClosingTag, getVbScriptBlockRanges } from '../core/zoneUtils';
 import { analyseHtmlStructure } from '../core/htmlStructure';
+import { VOID_ELEMENTS } from '../constants/htmlTags';
 import { pageLanguage } from '../vbscript/pageSegments';
 import { formatterSettings, prettierSettings as readPrettierSettings, type PrettierSettings } from '../platform/settings';
 import { loadPrettier } from '../core/lazyModule';
@@ -922,7 +923,9 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
     // top to bottom they look unbalanced, and Prettier re-nests the page around
     // them or appends a closing tag of its own. Each is hidden behind a comment
     // and put back afterwards, the indent it belongs at included.
-    const hidden = analyseHtmlStructure(jsPreMasked).hidden;
+    // Every element, not only the structural ones: `<p class="x">` opened in
+    // both branches gained a `</p>` after the first.
+    const hidden = analyseHtmlStructure(jsPreMasked, undefined, name => !VOID_ELEMENTS.has(name)).hidden;
     const hiddenTags: HiddenTagPlaceholder[] = [];
     let   nextHidden = 0;
 

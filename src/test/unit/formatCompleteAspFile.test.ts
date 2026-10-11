@@ -630,6 +630,15 @@ describe('formatCompleteAspFile — a tag each branch of an If opens', () => {
         assert.ok(/^<form action="b\.asp">$/m.test(out), `the second <form> belongs at the first one's indent:\n${out}`);
     });
 
+    it('adds no closing tag for any element both branches open', async () => {
+        for (const tag of ['p', 'span', 'a', 'li']) {
+            const out = await settlesInOnePass(
+                `<div><% If a Then %><${tag} class="x"><% Else %><${tag} class="y"><% End If %>text</${tag}></div>\n`);
+            // `</${tag}` alone: Prettier may put the closing tag's `>` on the next line.
+            assert.strictEqual(count(out, `</${tag}`), 1, out);
+        }
+    });
+
     it('keeps a closing tag whose opening tag Response.Write writes', async () => {
         const out = await settlesInOnePass('<% Response.Write "<table class=""grid"">" %>\n<tr><td>x</td></tr>\n</table>\n');
         assert.strictEqual(count(out, '</table>'), 1, out);

@@ -136,8 +136,13 @@ interface BranchFrame {
  * The If / Select Case structure comes from the VBScript syntax tree:
  * `events` when the caller already has them (the VBScript worker read them),
  * otherwise the page is parsed here.
+ *
+ * `tracked` says which elements are followed: the structural ones by default,
+ * as the diagnostics want; the formatter hides a branch's copy of any element.
  */
-export function analyseHtmlStructure(fullText: string, events?: BlockEvent[]): HtmlStructure {
+export function analyseHtmlStructure(
+    fullText: string, events?: BlockEvent[], tracked: (name: string) => boolean = name => STRUCTURAL_TAGS.has(name),
+): HtmlStructure {
     const branchEvents = (events ?? pageBlocks(parsePage(fullText)).events).filter(e => e.block !== 'other');
     let nextEvent = 0;
     let   issues: StructureIssue[] = [];
@@ -302,7 +307,7 @@ export function analyseHtmlStructure(fullText: string, events?: BlockEvent[]): H
         for (const literal of strings) {
             for (const m of literal.matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9]*)/g)) {
                 const name = m[2].toLowerCase();
-                if (!STRUCTURAL_TAGS.has(name)) { continue; }
+                if (!tracked(name)) { continue; }
                 written.set(name, (written.get(name) ?? 0) + (m[1] ? -1 : 1));
             }
         }
@@ -416,7 +421,7 @@ export function analyseHtmlStructure(fullText: string, events?: BlockEvent[]): H
         }
 
         // Only care about structural tags, and not a self-closed <tag />
-        if (STRUCTURAL_TAGS.has(tagName) && !raw.trimEnd().endsWith('/>')) {
+        if (tracked(tagName) && !raw.trimEnd().endsWith('/>')) {
             record(isClose
                 ? { type: 'close', name: tagName, start: i, end: tagEnd }
                 : { type: 'open',  entry: { name: tagName, start: i, end: tagEnd } });
