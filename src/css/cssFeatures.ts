@@ -10,6 +10,8 @@ import { guarded } from '../platform/guardedProvider';
 import { CssCompletionProvider } from './cssCompletionProvider';
 import { CssHoverProvider } from './cssHoverProvider';
 import { CssColorProvider } from './cssColorProvider';
+import { styleAttributeAt } from './cssUtils';
+import { zonesFor } from '../platform/documentState';
 
 // One pending re-trigger at a time, so moving the caret faster than its 50 ms
 // delay does not queue several.
@@ -21,18 +23,10 @@ function suggestInEmptyStyle(event: vscode.TextEditorSelectionChangeEvent): void
     if (doc.languageId !== 'asp') return;
     if (event.selections.length !== 1 || !event.selections[0].isEmpty) return;
 
-    // Only the text around the caret is read: this runs on every cursor
-    // move, and asking for the whole page made the editor copy all of it.
-    const caret       = event.selections[0].active;
-    const offset      = doc.offsetAt(caret);
-    const searchStart = Math.max(0, offset - 200);
-    const before      = doc.getText(new vscode.Range(doc.positionAt(searchStart), caret));
-    const match       = before.match(/style\s*=\s*(["'])([\s\S]*)$/i);
-    if (!match) return;
-
-    const valueStart = searchStart + match.index! + match[0].length - match[2].length;
-    const next       = doc.getText(new vscode.Range(caret, doc.positionAt(offset + 1)));
-    if (next === match[1] && offset === valueStart) {
+    // The zones are read once per version, so this costs a lookup per cursor move.
+    const offset = doc.offsetAt(event.selections[0].active);
+    const value  = styleAttributeAt(zonesFor(doc), offset);
+    if (value && value.start === value.end) {
         clearTimeout(styleTimeout);
         styleTimeout = setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);
     }
