@@ -1,16 +1,30 @@
 import * as vscode from 'vscode';
-import { buildInlineCssDoc, cssLanguageService, INLINE_PREFIX, styleAttributeAt } from './cssUtils';
+import type { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
+import { buildInlineCssDoc, cssLanguageService, inlineDocOffset, inlinePageOffset, styleAttributeAt } from './cssUtils';
 import { getParsedCssBlockAt } from './cssPageStylesheet';
 import { textOf, zonesFor } from '../platform/documentState';
 import { fromLspCompletion, type LspCompletionItem } from '../platform/lspConvert';
 
 /**
- * The CSS service's items as VS Code's, for a <style> block and an inline
- * style alike. Their ranges are left out: each is read from a document built
- * around the CSS, whose positions are not the page's.
+ * The CSS service's items as VS Code's, each replacing the range the service
+ * gave it — `background-co` whole, though the editor's word stops at the `-` —
+ * moved from the document built around the CSS onto the page.
  */
-function convertItems(lsItems: LspCompletionItem[]): vscode.CompletionItem[] {
-    return lsItems.map(item => fromLspCompletion(item, { kind: vscode.CompletionItemKind.Property }));
+function convertItems(
+    document: vscode.TextDocument, cssDoc: LsTextDocument, lsItems: LspCompletionItem[], toPage: (cssOffset: number) => number,
+): vscode.CompletionItem[] {
+    return lsItems.map(item => {
+        const converted = fromLspCompletion(item, { kind: vscode.CompletionItemKind.Property });
+        const edit = item.textEdit;
+        if (edit) {
+            const range = 'range' in edit ? edit.range : edit.replace;
+            converted.range = new vscode.Range(
+                document.positionAt(toPage(cssDoc.offsetAt(range.start))),
+                document.positionAt(toPage(cssDoc.offsetAt(range.end))),
+            );
+        }
+        return converted;
+    });
 }
 
 export class CssCompletionProvider implements vscode.CompletionItemProvider {
@@ -29,17 +43,9 @@ export class CssCompletionProvider implements vscode.CompletionItemProvider {
         if (value) {
             const lsDoc = buildInlineCssDoc(document.uri.toString(), fullText, document.version, value.start, value.end);
             const stylesheet = cssLanguageService().parseStylesheet(lsDoc);
-            // Padded by 2 so the CSS service always lands inside the "* { … }" declaration list.
-            const lsPosition = lsDoc.positionAt(INLINE_PREFIX.length + offset - value.start + 2);
+            const lsPosition = lsDoc.positionAt(inlineDocOffset(value.start, offset));
             const lsItems = cssLanguageService().doComplete(lsDoc, lsPosition, stylesheet).items;
-
-            // For inline styles, filter out suggestions that only make sense inside a full stylesheet (e.g. @media, selectors)
-            const filtered = lsItems.filter(item => {
-                const label = typeof item.label === 'string' ? item.label : (item.label as any).label;
-                return !label.startsWith('@') && !label.startsWith('.');
-            });
-
-            return convertItems(filtered);
+            return convertItems(document, lsDoc, lsItems, o => inlinePageOffset(value.start, o));
         }
 
         // ── <style> block ──────────────────────────────────────────────────────
@@ -49,6 +55,7 @@ export class CssCompletionProvider implements vscode.CompletionItemProvider {
         if (!block) return [];
 
         const lsPosition = block.cssDoc.positionAt(offset - block.range.start);
-        return convertItems(cssLanguageService().doComplete(block.cssDoc, lsPosition, block.stylesheet).items);
+        const lsItems = cssLanguageService().doComplete(block.cssDoc, lsPosition, block.stylesheet).items;
+        return convertItems(document, block.cssDoc, lsItems, o => o + block.range.start);
     }
 }

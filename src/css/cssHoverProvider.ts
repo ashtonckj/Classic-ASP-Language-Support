@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { buildInlineCssDoc, cssLanguageService, INLINE_PREFIX, styleAttributeAt } from './cssUtils';
+import { buildInlineCssDoc, cssLanguageService, inlineDocOffset, styleAttributeAt } from './cssUtils';
 import { getParsedCssBlockAt } from './cssPageStylesheet';
 import { textOf, zonesFor } from '../platform/documentState';
 import { fromLspMarkdown } from '../platform/lspConvert';
@@ -18,7 +18,7 @@ export class CssHoverProvider implements vscode.HoverProvider {
         if (value) {
             const lsDoc = buildInlineCssDoc(document.uri.toString(), fullText, document.version, value.start, value.end);
             const stylesheet = cssLanguageService().parseStylesheet(lsDoc);
-            const lsPosition = lsDoc.positionAt(INLINE_PREFIX.length + offset - value.start + 2);
+            const lsPosition = lsDoc.positionAt(inlineDocOffset(value.start, offset));
             const hover      = cssLanguageService().doHover(lsDoc, lsPosition, stylesheet);
             if (!hover) return null;
             return new vscode.Hover(fromLspMarkdown(hover.contents));
