@@ -71,7 +71,7 @@ export function registerAspFeatures(context: vscode.ExtensionContext): void {
         registerIncludeUpdatesOnRename(),
 
         vscode.languages.registerDocumentSymbolProvider(
-            'asp', guarded('AspDocumentSymbolProvider', new AspDocumentSymbolProvider()),
+            'asp', guarded('AspDocumentSymbolProvider', new AspDocumentSymbolProvider()), { label: 'VBScript' },
         ),
         vscode.languages.registerSignatureHelpProvider(
             'asp',

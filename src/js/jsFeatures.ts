@@ -46,7 +46,7 @@ export function registerJsFeatures(context: vscode.ExtensionContext): void {
             'asp', guarded('JsRenameProvider', new JsRenameProvider(), { userErrors: ['prepareRename', 'provideRenameEdits'] }),
         ),
         vscode.languages.registerDocumentSymbolProvider(
-            'asp', guarded('JsDocumentSymbolProvider', new JsDocumentSymbolProvider()),
+            'asp', guarded('JsDocumentSymbolProvider', new JsDocumentSymbolProvider()), { label: 'JavaScript' },
         ),
         // Turns the JS squiggles into something actionable — a misspelt DOM member
         // reports "Did you mean 'getElementById'?", and TypeScript supplies the edit.

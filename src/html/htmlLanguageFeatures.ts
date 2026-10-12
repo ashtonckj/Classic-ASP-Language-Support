@@ -84,6 +84,29 @@ export class HtmlHoverProvider implements vscode.HoverProvider {
     }
 }
 
+// ── Outline ───────────────────────────────────────────────────────────────────
+
+/** An element of the service's outline, and the ones inside it, as VS Code's. LSP counts symbol kinds from 1. */
+function fromLspSymbol(symbol: HtmlLs.DocumentSymbol): vscode.DocumentSymbol {
+    const converted = new vscode.DocumentSymbol(
+        symbol.name, symbol.detail ?? '', symbol.kind - 1, fromLspRange(symbol.range), fromLspRange(symbol.selectionRange),
+    );
+    converted.children = (symbol.children ?? []).map(fromLspSymbol);
+    return converted;
+}
+
+/**
+ * The page's element tree — `html`, `body`, `section#orders.card`… — as the
+ * Outline and breadcrumbs of a .html file show it, beside the VBScript and
+ * JavaScript symbols their own providers give.
+ */
+export class HtmlDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
+    provideDocumentSymbols(document: vscode.TextDocument): vscode.DocumentSymbol[] {
+        const page = parse(document);
+        return htmlService().findDocumentSymbols2(page.document, page.html).map(fromLspSymbol);
+    }
+}
+
 // ── Completion ────────────────────────────────────────────────────────────────
 
 /**

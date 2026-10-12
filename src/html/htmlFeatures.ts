@@ -2,15 +2,16 @@
  * htmlFeatures.ts  (html/)
  *
  * Registers the markup features of an ASP page: tag and attribute completion,
- * Emmet, hover, linked editing of a tag pair, the href/src links and their path
- * completion, and the quick fix for a void element's closing tag.
+ * Emmet, hover, the element outline, linked editing of a tag pair, the
+ * href/src links and their path completion, and the quick fix for a void
+ * element's closing tag.
  */
 
 import * as vscode from 'vscode';
 import { guarded } from '../platform/guardedProvider';
 import { HtmlCompletionProvider } from './htmlCompletionProvider';
 import { EmmetCompletionProvider } from './emmetCompletionProvider';
-import { HtmlHoverProvider, HtmlLinkedEditingProvider } from './htmlLanguageFeatures';
+import { HtmlDocumentSymbolProvider, HtmlHoverProvider, HtmlLinkedEditingProvider } from './htmlLanguageFeatures';
 import { HtmlAttributeLinkProvider, HtmlAttributePathCompletionProvider, inLinkValue } from './linkProvider';
 import { zonesFor } from '../platform/documentState';
 import { VoidElementQuickFixProvider } from './htmlStructureDiagnosticsProvider';
@@ -67,6 +68,12 @@ export function registerHtmlFeatures(context: vscode.ExtensionContext): void {
 
         vscode.languages.registerHoverProvider(
             'asp', guarded('HtmlHoverProvider', new HtmlHoverProvider()),
+        ),
+
+        // VS Code shows each symbol provider's results as a group of the Outline,
+        // named by this label, beside the VBScript and JavaScript ones.
+        vscode.languages.registerDocumentSymbolProvider(
+            'asp', guarded('HtmlDocumentSymbolProvider', new HtmlDocumentSymbolProvider()), { label: 'HTML' },
         ),
 
         // VS Code's own feature, as in a .html file: it runs only when the user

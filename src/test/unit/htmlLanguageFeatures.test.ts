@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { fakeDocument } from './_helpers';
 import { HtmlCompletionProvider } from '../../html/htmlCompletionProvider';
-import { vbScriptBalancedBetween } from '../../html/htmlLanguageFeatures';
+import { HtmlDocumentSymbolProvider, vbScriptBalancedBetween } from '../../html/htmlLanguageFeatures';
 import { maskAsp } from '../../core/zoneUtils';
 import { pageBlocks } from '../../vbscript/pageAnalysis';
 import { parsePage } from '../../vbscript/symbols';
@@ -24,6 +24,37 @@ describe('maskAsp', () => {
 
     it('does not end a block at a %> inside a VBScript string', () => {
         assert.strictEqual(maskAsp('<% s = "%><b>" %><i>'), ' '.repeat(17) + '<i>');
+    });
+});
+
+// The Outline of a .html file shows its element tree; a page's shows it too,
+// with the ASP blanked so a <%= %> or a Response.Write string is not markup.
+describe('HtmlDocumentSymbolProvider', () => {
+    const PAGE = [
+        '<%',
+        'Sub WriteRow(id)',
+        '    Response.Write "<tr><td>" & id & "</td></tr>"',
+        'End Sub',
+        '%>',
+        '<html>',
+        '<head><title><%= pageTitle %></title></head>',
+        '<body>',
+        '    <section id="orders" class="card">',
+        '        <table><% WriteRow 1 %></table>',
+        '    </section>',
+        '    <script>function greet() {}</script>',
+        '</body>',
+        '</html>',
+    ].join('\n');
+
+    // Each symbol and the ones inside it, as `name(child, …)`; the stub
+    // DocumentSymbol throws on a selection range outside the range.
+    const tree = (symbols: vscode.DocumentSymbol[]): string =>
+        symbols.map(s => s.children.length ? `${s.name}(${tree(s.children)})` : s.name).join(', ');
+
+    it('gives the element tree, and nothing from the VBScript', () => {
+        const symbols = new HtmlDocumentSymbolProvider().provideDocumentSymbols(fakeDocument(PAGE));
+        assert.strictEqual(tree(symbols), 'html(head(title), body(section#orders.card(table), script))');
     });
 });
 
