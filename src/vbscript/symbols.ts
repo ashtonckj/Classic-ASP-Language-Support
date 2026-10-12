@@ -60,12 +60,26 @@ function valueOf(match: RegExpExecArray | null): string | null {
 
 export function parsePage(text: string): ParsedPage {
     const programs = pagePrograms(text).map(p => parseProgram(text, p.segments, p.server));
-    const lineStarts = [0];
-    // Lines split at `\n` only, as VS Code counts the lines of a CRLF file.
+    return { text, programs, lineStarts: lineStartsOf(text) };
+}
+
+/**
+ * The offset each of the page's lines starts at, split where a TextDocument
+ * splits them — at \r\n, \n or a lone \r — so every offset matches the
+ * editor's own.
+ */
+function lineStartsOf(text: string): number[] {
+    const starts: number[] = [];
+    let start = 0;
     for (let i = 0; i < text.length; i++) {
-        if (text[i] === '\n') { lineStarts.push(i + 1); }
+        const ch = text.charCodeAt(i);
+        if (ch !== 10 && ch !== 13) { continue; }
+        starts.push(start);
+        if (ch === 13 && text.charCodeAt(i + 1) === 10) { i++; }
+        start = i + 1;
     }
-    return { text, programs, lineStarts };
+    starts.push(start);
+    return starts;
 }
 
 /** 0-based line of an offset. */

@@ -1,5 +1,13 @@
 import * as assert from 'assert';
-import { symbolsFromTree } from '../../vbscript/symbols';
+import { parsePage, symbolsFromTree } from '../../vbscript/symbols';
+
+// The outline and the colouring both place things by these lines, which must be the editor's.
+describe('parsePage — line table', () => {
+    it('splits at \\r\\n, \\n and a lone \\r, as a TextDocument does', () => {
+        assert.deepStrictEqual(parsePage('<%\rDim a\r\nDim b\nx\r%>').lineStarts, [0, 3, 10, 16, 18]);
+        assert.deepStrictEqual(symbolsFromTree('<%\rDim a\rDim b\r%>', 'x.asp').variables.map(v => v.line), [1, 2]);
+    });
+});
 
 // Class / Property Get/Let/Set are now extracted as symbols.
 // Inline `<% Dim x %>` declarations are captured.

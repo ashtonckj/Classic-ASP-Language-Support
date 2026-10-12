@@ -24,7 +24,7 @@ import {
     SqlStringGroup, emitSqlTokensForGroup, TokenSink,
 } from './sqlTokens';
 import type * as A from './ast';
-import { parsePage, serverObjects, symbolsOfPage, walkStatements } from './symbols';
+import { lineAt, parsePage, serverObjects, symbolsOfPage, walkStatements } from './symbols';
 import { bindPage, type Scope } from './binder';
 import {
     concatOperands, isConcat, isStringLiteral, statementExpressions, stringValue, walkExpression,
@@ -55,25 +55,6 @@ export interface AspColouringResult {
     error?:   string;
 }
 
-/**
- * The offset each of the page's lines starts at, split where a TextDocument
- * splits them — at \r\n, \n or a lone \r — so every offset matches the
- * editor's own.
- */
-function lineStartsOf(text: string): number[] {
-    const starts: number[] = [];
-    let start = 0;
-    for (let i = 0; i < text.length; i++) {
-        const ch = text.charCodeAt(i);
-        if (ch !== 10 && ch !== 13) { continue; }
-        starts.push(start);
-        if (ch === 13 && text.charCodeAt(i + 1) === 10) { i++; }
-        start = i + 1;
-    }
-    starts.push(start);
-    return starts;
-}
-
 /** The page's own symbols followed by its includes', as completion sees them. */
 function withIncludes(own: FileSymbols, includes: FileSymbols): FileSymbols {
     own.variables.push(...includes.variables);
@@ -90,7 +71,6 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
     const page = parsePage(fullText);
     const allSymbols = withIncludes(symbolsOfPage(page, docPath), request.includeSymbols);
 
-    const lineStarts = lineStartsOf(fullText);
 
     const tokens: number[] = [];
     const builder: TokenSink = {
@@ -122,13 +102,8 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
 
     /** 0-based line and column of an offset, on the lines the editor counts. */
     function positionOf(offset: number): { line: number; col: number } {
-        let lo = 0;
-        let hi = lineStarts.length - 1;
-        while (lo < hi) {
-            const mid = (lo + hi + 1) >> 1;
-            if (lineStarts[mid] <= offset) { lo = mid; } else { hi = mid - 1; }
-        }
-        return { line: lo, col: offset - lineStarts[lo] };
+        const line = lineAt(page, offset);
+        return { line, col: offset - page.lineStarts[line] };
     }
 
     function isSqlOrFragment(t: string): boolean {
