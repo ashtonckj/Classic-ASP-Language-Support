@@ -28,6 +28,11 @@ describe('stripAspExpressions — length + newline preserving', () => {
         );
     });
 
+    it('keeps a CRLF and blanks a block left unclosed, as the HTML service is given them', () => {
+        assert.strictEqual(stripAspExpressions('a {\r\n color: <%= c\r\n%>; }'), 'a {\r\n color: aaaaa\r\naa; }');
+        assert.strictEqual(stripAspExpressions('a { color: <%= c'), 'a { color: aaaaa');
+    });
+
     it('keeps a hex placeholder the same length', () => {
         const input = 'color:#<%=c%>;';
         assert.strictEqual(stripAspExpressions(input).length, input.length);

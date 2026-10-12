@@ -2,23 +2,28 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { fakeDocument } from './_helpers';
 import { HtmlCompletionProvider } from '../../html/htmlCompletionProvider';
-import { maskAspBlocks, vbScriptBalancedBetween } from '../../html/htmlLanguageFeatures';
+import { vbScriptBalancedBetween } from '../../html/htmlLanguageFeatures';
+import { maskAsp } from '../../core/zoneUtils';
 import { pageBlocks } from '../../vbscript/pageAnalysis';
 import { parsePage } from '../../vbscript/symbols';
 
 // The HTML language service reads the page with its ASP turned to spaces, so a
 // `<%= x %>` is nothing to it, and every position still lines up.
-describe('maskAspBlocks', () => {
+describe('maskAsp', () => {
     it('turns each block to spaces of the same length', () => {
         const text = '<a href="<%= url %>">x</a>';
-        const masked = maskAspBlocks(text);
+        const masked = maskAsp(text);
         assert.strictEqual(masked, `<a href="${' '.repeat('<%= url %>'.length)}">x</a>`);
         assert.strictEqual(masked.length, text.length);
     });
 
     it('keeps line breaks, CRLF included, and masks an unclosed block to the end', () => {
-        assert.strictEqual(maskAspBlocks('<p>\r\n<%\r\nIf a Then\r\n%>\r\n</p>'), '<p>\r\n  \r\n         \r\n  \r\n</p>');
-        assert.strictEqual(maskAspBlocks('<p><% x'), '<p>    ');
+        assert.strictEqual(maskAsp('<p>\r\n<%\r\nIf a Then\r\n%>\r\n</p>'), '<p>\r\n  \r\n         \r\n  \r\n</p>');
+        assert.strictEqual(maskAsp('<p><% x'), '<p>    ');
+    });
+
+    it('does not end a block at a %> inside a VBScript string', () => {
+        assert.strictEqual(maskAsp('<% s = "%><b>" %><i>'), ' '.repeat(17) + '<i>');
     });
 });
 

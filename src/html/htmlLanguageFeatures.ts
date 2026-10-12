@@ -12,7 +12,7 @@ import * as vscode from 'vscode';
 import { otherSetting } from '../platform/settings';
 import type * as HtmlLs from 'vscode-html-languageservice';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-import { getAspBlockRanges } from '../core/zoneUtils';
+import { getAspBlockRanges, maskAsp } from '../core/zoneUtils';
 import { textOf, zonesFor } from '../platform/documentState';
 import type { BlockEvent } from '../vbscript/pageAnalysis';
 import { analysedPage } from '../asp/vbscriptWorkspace';
@@ -31,14 +31,6 @@ function htmlService(): HtmlLs.LanguageService {
     return (_service ??= htmlLanguageServiceModule().getLanguageService());
 }
 
-/**
- * The page with every `<% … %>` block turned to spaces. Line breaks stay, so
- * every offset, line and column still points at the same place.
- */
-export function maskAspBlocks(text: string): string {
-    return text.replace(/<%[\s\S]*?(?:%>|$)/g, block => block.replace(/[^\r\n]/g, ' '));
-}
-
 interface ParsedPage {
     version:  number;
     document: LsTextDocument;
@@ -53,7 +45,7 @@ function parse(document: vscode.TextDocument): ParsedPage {
     if (cached && cached.version === document.version) { return cached; }
 
     const lsDocument = LsTextDocument.create(
-        document.uri.toString(), 'html', document.version, maskAspBlocks(textOf(document)),
+        document.uri.toString(), 'html', document.version, maskAsp(textOf(document)),
     );
     const page = { version: document.version, document: lsDocument, html: htmlService().parseHTMLDocument(lsDocument) };
     _parsed.set(document, page);

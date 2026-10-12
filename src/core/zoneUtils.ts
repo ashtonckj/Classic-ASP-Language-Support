@@ -35,6 +35,60 @@ function skipVbsString(text: string, start: number): number {
 }
 
 // ---------------------------------------------------------------------------
+// ASP blocks as the markup around them sees them
+// ---------------------------------------------------------------------------
+
+/**
+ * Every `<% … %>` block, as the HTML and CSS around it read past it: from `<%`
+ * to the `%>` that ends it, or to the end of the page when none does.
+ *
+ * Unlike getAspBlockRanges, a `%>` inside a VBScript string closed on its own
+ * line, or inside a `'` comment that the line ends first, does not end the
+ * block: `<% s = "%><script>" %>` writes no <script> into the markup. IIS
+ * rejects such a page anyway; reading the string as markup would turn
+ * everything after it into a bogus script or style.
+ */
+export function aspMarkupBlocks(text: string): Array<{ start: number; end: number }> {
+    const blocks: Array<{ start: number; end: number }> = [];
+    let open = text.indexOf('<%');
+    while (open !== -1) {
+        let i = open + 2;
+        let end = text.length;
+        while (i < text.length) {
+            const ch = text[i];
+            if (ch === '"') { i = skipVbsString(text, i); continue; }
+            if (ch === "'") {
+                const nl    = text.indexOf('\n', i);
+                const close = text.indexOf('%>', i);
+                i = close !== -1 && (nl === -1 || close < nl) ? close : (nl === -1 ? text.length : nl);
+                continue;
+            }
+            if (ch === '%' && text[i + 1] === '>') { end = i + 2; break; }
+            i++;
+        }
+        blocks.push({ start: open, end });
+        open = text.indexOf('<%', end);
+    }
+    return blocks;
+}
+
+/**
+ * The page with every ASP block (aspMarkupBlocks) filled with `fill(blockStart)`
+ * — a space unless the caller needs a token there. Line breaks, `\r` included,
+ * stay, so every offset, line and column still points at the same place.
+ */
+export function maskAsp(text: string, fill: (blockStart: number) => string = () => ' '): string {
+    let masked = '';
+    let from = 0;
+    for (const block of aspMarkupBlocks(text)) {
+        const ch = fill(block.start);
+        masked += text.slice(from, block.start) + text.slice(block.start, block.end).replace(/[^\r\n]/g, () => ch);
+        from = block.end;
+    }
+    return masked + text.slice(from);
+}
+
+// ---------------------------------------------------------------------------
 // ASP block scanner
 // ---------------------------------------------------------------------------
 

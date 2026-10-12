@@ -6,7 +6,7 @@
 
 import type * as CssLs from 'vscode-css-languageservice';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-import { findNextRealTag, findTagEnd, findClosingTag } from '../core/zoneUtils';
+import { findNextRealTag, findTagEnd, findClosingTag, maskAsp } from '../core/zoneUtils';
 import { loadCssService } from '../core/lazyModule';
 
 let _cssService: CssLs.LanguageService | undefined;
@@ -39,30 +39,19 @@ export function cssLanguageService(): CssLs.LanguageService {
  * invalid CSS and get the same placeholder treatment.
  */
 export function stripAspExpressions(css: string): string {
-    return css.replace(/<%[\s\S]*?%>/g, (match, offset) => {
-        // Check what immediately precedes the ASP tag (ignoring whitespace).
-        // Only the few characters the checks below need: slicing everything
-        // before every block was quadratic in a style with thousands of them.
+    // The placeholder keeps the block's length and line breaks: the service's
+    // positions are mapped back by line and character.
+    return maskAsp(css, offset => {
+        // Only the few characters before the block that the checks need:
+        // slicing everything before every block was quadratic in a style with
+        // thousands of them.
         let end = offset;
         while (end > 0 && /\s/.test(css[end - 1])) { end--; }
         const before = css.slice(Math.max(0, end - 5), end);
 
-        // Pick a context-appropriate filler:
-        //   • after '#'            → hex digit '0'   (#000000 …)
-        //   • inside rgb()/hsl()   → digit '0'       (one numeric argument)
-        //   • otherwise            → letter 'a'      (valid value/selector token)
-        const filler =
-            before.endsWith('#') || /(?:rgba?|hsla?)\(\s*$/.test(before) ? '0' : 'a';
-
-        // CRITICAL: the placeholder MUST have the SAME length as the match AND
-        // preserve interior newlines. The CSS language service maps diagnostics
-        // back by (line, character); a shorter or single-line placeholder shifted
-        // every warning after the expression onto the wrong column/line.
-        let out = '';
-        for (let i = 0; i < match.length; i++) {
-            out += match[i] === '\n' ? '\n' : filler;
-        }
-        return out;
+        // A hex digit after '#' (#000000 …) and inside rgb()/hsl(), otherwise a
+        // letter, a valid value or selector token.
+        return before.endsWith('#') || /(?:rgba?|hsla?)\(\s*$/.test(before) ? '0' : 'a';
     });
 }
 
