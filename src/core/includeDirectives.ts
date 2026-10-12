@@ -6,7 +6,7 @@ import { pathKey } from './paths';
  *
  * Parsing and resolving `<!--#include file="…"-->` / `virtual="…"` directives.
  *
- * Imports no vscode APIs, so the include worker can use it too. That is the
+ * Imports no vscode APIs, so the VBScript worker can use it too. That is the
  * point of it existing: the same directive pattern and the same file/virtual
  * resolution rules were written out three times — once for the synchronous
  * path, once for the worker's request builder, once inside the worker — and

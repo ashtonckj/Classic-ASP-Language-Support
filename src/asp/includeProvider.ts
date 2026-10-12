@@ -180,7 +180,7 @@ export function areIncludeSymbolsReady(document: vscode.TextDocument): boolean {
 }
 
 /**
- * Loads the document's include tree on the include worker. Repeated callers share the
+ * Loads the document's include tree on the VBScript worker. Repeated callers share the
  * same in-flight request, and stale results are ignored after cache invalidation.
  */
 export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<void> {
