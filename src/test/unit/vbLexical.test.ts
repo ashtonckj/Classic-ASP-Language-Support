@@ -95,6 +95,8 @@ describe('endsWithContinuation', () => {
         assert.strictEqual(endsWithContinuation('x = (a)_'), true);
         assert.strictEqual(endsWithContinuation('_'), true);
         assert.strictEqual(endsWithContinuation('x = 1_'), true);
+        assert.strictEqual(endsWithContinuation('x = y _'), true);
+        assert.strictEqual(endsWithContinuation("<p>it's</p><% x = y _", 14), true);
     });
 
     it('is false for a name ending in _, a _ in a string, and a _ in a comment', () => {
