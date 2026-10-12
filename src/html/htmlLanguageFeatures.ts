@@ -12,24 +12,13 @@ import * as vscode from 'vscode';
 import { otherSetting } from '../platform/settings';
 import type * as HtmlLs from 'vscode-html-languageservice';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-import { getAspBlockRanges, maskAsp } from '../core/zoneUtils';
+import { getAspBlockRanges, htmlService, inRanges } from '../core/zoneUtils';
 import { textOf, zonesFor } from '../platform/documentState';
 import type { BlockEvent } from '../vbscript/pageAnalysis';
 import { analysedPage } from '../asp/vbscriptWorkspace';
 import { fromLspCompletion, fromLspMarkdown, fromLspRange } from '../platform/lspConvert';
 import { loadHtmlService } from '../core/lazyModule';
 import { isSelfClosingTag } from '../constants/htmlTags';
-
-let _service: HtmlLs.LanguageService | undefined;
-
-/** The library, loaded on first use: a page nobody hovers never needs it. */
-function htmlLanguageServiceModule(): typeof HtmlLs {
-    return loadHtmlService();
-}
-
-function htmlService(): HtmlLs.LanguageService {
-    return (_service ??= htmlLanguageServiceModule().getLanguageService());
-}
 
 interface ParsedPage {
     version:  number;
@@ -45,7 +34,7 @@ function parse(document: vscode.TextDocument): ParsedPage {
     if (cached && cached.version === document.version) { return cached; }
 
     const lsDocument = LsTextDocument.create(
-        document.uri.toString(), 'html', document.version, maskAsp(textOf(document)),
+        document.uri.toString(), 'html', document.version, zonesFor(document).markup.masked,
     );
     const page = { version: document.version, document: lsDocument, html: htmlService().parseHTMLDocument(lsDocument) };
     _parsed.set(document, page);
@@ -115,16 +104,12 @@ export function attributesOnTag(document: vscode.TextDocument, position: vscode.
 
 /** True when `offset` is inside an HTML comment, where a .html file offers no markup. */
 export function inHtmlComment(document: vscode.TextDocument, offset: number): boolean {
-    if (offset < 4) { return false; }
-    const text  = parse(document).document.getText();
-    const open  = text.lastIndexOf('<!--', offset - 4);
-    const close = text.lastIndexOf('-->', offset - 3);
-    return open >= 0 && close < open;
+    return inRanges(zonesFor(document).markup.comments, offset, true);
 }
 
 /** True when the HTML data lists values for this attribute, so picking it should show them. */
 export function attributeHasValues(tagName: string, attribute: string): boolean {
-    return htmlLanguageServiceModule().getDefaultHTMLDataProvider()
+    return loadHtmlService().getDefaultHTMLDataProvider()
         .provideValues(tagName.toLowerCase(), attribute.toLowerCase()).length > 0;
 }
 

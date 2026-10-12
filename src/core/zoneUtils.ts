@@ -385,7 +385,7 @@ export interface PageMarkup {
     /** The ASP blocks blanked in `masked` (aspMarkupBlocks). */
     aspBlocks: OffsetRange[];
     tags: MarkupTag[];
-    /** `<!--` to past `-->`, or to the end of the page. */
+    /** `<!--` to past `-->`; one never closed ends at Number.MAX_SAFE_INTEGER, as an unclosed ASP block does, so the end of the page is inside it. Bounds exclusive, as aspBlocks. */
     comments: OffsetRange[];
     /** Each <script> body, from past the opening tag's `>` to its `</script>`, or the end of the page. */
     scripts: Array<OffsetRange & { language: 'javascript' | 'vbscript' | 'other' }>;
@@ -485,7 +485,7 @@ export function scanMarkup(text: string): PageMarkup {
         }
     }
     closeBody(text.length);
-    if (commentStart !== -1) { markup.comments.push({ start: commentStart, end: text.length }); }
+    if (commentStart !== -1) { markup.comments.push({ start: commentStart, end: Number.MAX_SAFE_INTEGER }); }
     return markup;
 }
 

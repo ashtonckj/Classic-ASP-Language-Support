@@ -77,6 +77,11 @@ describe('HtmlCompletionProvider', () => {
         assert.deepStrictEqual(labels('<!-- note: use <|', '<'), []);
     });
 
+    it('does not take a <!-- in a script string or an attribute for a comment', () => {
+        assert.ok(labels('<script>var s = "<!--";</script>\n<|', '<').includes('div'));
+        assert.ok(labels('<a title="<!--">x</a>\n<|', '<').includes('div'));
+    });
+
     it('offers attributes on a later line of a tag, leaving out the ones it has', () => {
         const offered = labels('<div\n  class="a"\n  |');
         assert.ok(offered.includes('id'), 'id');
