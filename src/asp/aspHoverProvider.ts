@@ -3,7 +3,7 @@ import { withIncludeSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../html/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
 import {
-    ASP_MEMBER_DOCS, ASP_OBJECTS, ASP_OBJECT_NAMES, AspObjectDef, BUILTIN_FUNCTION_DOCS, VBSCRIPT_CONSTANTS, isBuiltinName,
+    ASP_MEMBER_DOCS, ASP_OBJECTS, AspObjectDef, BUILTIN_FUNCTION_DOCS, VBSCRIPT_CONSTANTS, isBuiltinName,
 } from '../constants/aspKeywords';
 import * as path from 'path';
 import { declarationsOf, resolveAt, type BoundPage, type Target } from '../vbscript/references';
@@ -12,8 +12,8 @@ import type { Declaration } from '../vbscript/binder';
 import { PROCEDURE_WORD, sourceOf, walkStatements, type ParsedPage } from '../vbscript/symbols';
 import { analysedPage, editorWorkspace } from './vbscriptWorkspace';
 import { pathKey, samePath } from '../core/paths';
-import { contextAt, textOf } from '../platform/documentState';
-import { enclosingWithObject } from './aspCompletionProvider';
+import { contextAt } from '../platform/documentState';
+import { withObjectAt, withObjectType } from '../vbscript/pageAnalysis';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // VBScript keyword docs for hover
@@ -252,7 +252,6 @@ export class AspHoverProvider implements vscode.HoverProvider {
         // block (`<div class='box'><% If x Then %>`) is not taken for a comment.
         const caret = contextAt(document, position);
         if (caret.zone !== 'asp' || caret.inVbStringOrComment) return null;
-        const fullText = textOf(document);
 
         const wordRange = document.getWordRangeAtPosition(position, /\w+/);
         if (!wordRange) return null;
@@ -272,32 +271,20 @@ export class AspHoverProvider implements vscode.HoverProvider {
         const charBeforeWord = lineText.charAt(wordRange.start.character - 1);
         if (charBeforeWord === '.') {
             const textBeforeDot = lineText.substring(0, wordRange.start.character - 1);
-            const withObject    = () => /^[A-Za-z_]\w*$/.exec(enclosingWithObject(fullText, position.line, wordRange.start.character) ?? '')?.[0];
-            const objectName    = /\b(\w+)$/.exec(textBeforeDot)?.[1] ?? (/[)\]]$/.test(textBeforeDot) ? undefined : withObject());
-            if (objectName) {
-                const objName    = objectName.toLowerCase();
+            const named         = /\b(\w+)$/.exec(textBeforeDot)?.[1];
+            const comTypes      = new Map(allSymbols.comVariables.map(cv => [cv.name.toLowerCase(), cv.progId]));
+            // An intrinsic object or a COM variable by name; a bare `.EOF` in a With block is its object's.
+            const type = named ? withObjectType({ name: named }, comTypes)
+                : /[)\]]$/.test(textBeforeDot) ? undefined
+                : withObjectType(withObjectAt(page.blocks.withBlocks, document.offsetAt(wordRange.start)), comTypes);
 
-                // An intrinsic object first: Response, Request, Server and the
-                // rest are always in scope and are never declared, so they will
-                // not be among the collected symbols.
-                const aspMember = ASP_MEMBER_DOCS[`${objName}.${wordKey}`];
-                if (aspMember) {
-                    return new vscode.Hover(
-                        new vscode.MarkdownString(
-                            `**${aspMember.label}** *(${aspMember.kind})*\n\n${aspMember.doc}`,
-                        )
-                    );
-                }
-
-                const comVar     = allSymbols.comVariables.find(cv => cv.name.toLowerCase() === objName);
-                if (comVar) {
-                    const memberDoc = COM_MEMBER_DOCS[`${comVar.progId}.${wordKey}`];
-                    if (memberDoc) {
-                        return new vscode.Hover(
-                            new vscode.MarkdownString(`**${memberDoc.label}**\n\n${memberDoc.doc}`)
-                        );
-                    }
-                }
+            const aspMember = ASP_MEMBER_DOCS[`${type}.${wordKey}`];
+            if (aspMember) {
+                return new vscode.Hover(new vscode.MarkdownString(`**${aspMember.label}** *(${aspMember.kind})*\n\n${aspMember.doc}`));
+            }
+            const memberDoc = COM_MEMBER_DOCS[`${type}.${wordKey}`];
+            if (memberDoc) {
+                return new vscode.Hover(new vscode.MarkdownString(`**${memberDoc.label}**\n\n${memberDoc.doc}`));
             }
         }
 

@@ -129,10 +129,15 @@ export function sourceOf(text: string, span: A.Span): string {
     return text.slice(span.start, span.end).replace(/[ \t]*_[ \t]*(?:\r\n|\r|\n)[ \t]*/g, ' ').trim();
 }
 
-function isCreateObject(callee: A.Expr): boolean {
-    if (callee.kind === 'Ident') { return callee.name.name === 'createobject'; }
-    return callee.kind === 'Member' && callee.name.name === 'createobject'
-        && callee.object?.kind === 'Ident' && callee.object.name.name === 'server';
+/** The ProgID of `CreateObject("…")` or `Server.CreateObject("…")`, normalised; undefined for any other expression. */
+export function createdProgId(e: A.Expr): string | undefined {
+    if (e.kind !== 'Call' || e.args.length !== 1) { return undefined; }
+    const callee = e.callee;
+    const creates = callee.kind === 'Ident' ? callee.name.name === 'createobject'
+        : callee.kind === 'Member' && callee.name.name === 'createobject'
+            && callee.object?.kind === 'Ident' && callee.object.name.name === 'server';
+    const arg = e.args[0];
+    return creates && arg?.kind === 'Literal' && arg.type === 'string' ? normalizeProgId(arg.raw.slice(1, -1).replace(/""/g, '"')) : undefined;
 }
 
 export function symbolsFromTree(text: string, filePath: string): FileSymbols {
@@ -222,16 +227,8 @@ export function symbolsOfPage(page: ParsedPage, filePath: string): FileSymbols {
     }
     const sets = statements.filter((s): s is A.AssignStmt => s.kind === 'Assign' && s.set && s.target.kind === 'Ident');
     for (const s of sets) {
-        const v = s.value;
-        if (v.kind !== 'Call' || !isCreateObject(v.callee) || v.args.length !== 1) { continue; }
-        const arg = v.args[0];
-        if (arg?.kind !== 'Literal' || arg.type !== 'string') { continue; }
-        result.comVariables.push({
-            name:   (s.target as A.IdentExpr).name.text,
-            progId: normalizeProgId(arg.raw.slice(1, -1).replace(/""/g, '"')),
-            line:   line(s.start),
-            filePath,
-        });
+        const progId = createdProgId(s.value);
+        if (progId) { result.comVariables.push({ name: (s.target as A.IdentExpr).name.text, progId, line: line(s.start), filePath }); }
     }
 
     const comVarIndex = new Map(result.comVariables.map(cv => [cv.name.toLowerCase(), cv.progId]));
