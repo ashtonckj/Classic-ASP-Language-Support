@@ -216,11 +216,6 @@ export async function aspFiles(): Promise<string[]> {
     return [...(await _walking).files];
 }
 
-/** True once the folders have been walked. */
-export function isAspIndexReady(): boolean {
-    return _index !== undefined;
-}
-
 /** Calls `listener` with each change to the ASP files. A change with no files means "everything may have changed". */
 export function onAspFilesChange(listener: (change: AspFilesChange) => void): vscode.Disposable {
     _listeners.add(listener);
