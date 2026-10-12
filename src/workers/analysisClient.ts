@@ -95,7 +95,7 @@ export class AnalysisWorker<I extends object, R extends WorkerAnswer> {
     private readonly cancelFlag = new Int32Array(new SharedArrayBuffer(4));
 
     constructor(
-        /** What the worker does, for the log: "JavaScript analysis". */
+        /** What the worker does, for the log: "VBScript analysis". */
         private readonly name: string,
         private readonly workerPath: string,
         /** True when two requests would get the same answer. */
