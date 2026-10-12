@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { FileSymbols } from '../vbscript/symbolParser';
+import type { ScopeRequest } from '../vbscript/pageChecks';
 import { includeRoot, resolveIncludePathsIn } from '../core/includeDirectives';
 import { defaultIncludesSetting, onSettingsChange, virtualRootSetting } from '../platform/settings';
 import { loadIncludeTree } from '../workers/analysisClient';
@@ -58,13 +59,30 @@ export function readIncludeText(fsPath: string): string | null {
     try { return withoutBom(fs.readFileSync(fsPath, 'utf8')); } catch { return null; }
 }
 
+/**
+ * What the VBScript worker needs to read `document` with its includes, as the
+ * checks and the include symbols both do. The worker reads files from disk; an
+ * include open with unsaved changes counts as the editor shows it.
+ */
+export function scopeRequest(document: vscode.TextDocument): ScopeRequest {
+    const docPath = document.uri.fsPath;
+    return {
+        text: document.getText(),
+        docPath,
+        configuredRoot: configuredVirtualRoot(docPath),
+        defaultIncludes: defaultIncludeCandidates(getVirtualRoot(docPath)),
+        openFiles: openBuffers(document).texts,
+    };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Symbol collection
 //
 // The active document is always parsed synchronously from its current editor
-// buffer. Include files are loaded and parsed by a worker thread and cached
-// independently, so editing the active document never forces a synchronous walk
-// of the include tree on the extension-host thread.
+// buffer. Include files are loaded and parsed by the VBScript worker thread
+// (the same reading of the include tree its checks use) and cached here per
+// file, so editing the active document never forces a synchronous walk of the
+// include tree on the extension-host thread.
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface IncludeSymbolCacheEntry {
@@ -172,12 +190,10 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
         return Promise.resolve();
     }
 
-    // Undefined when nothing says where the site starts: the worker then resolves
-    // each include's virtual= from its own folder, as the page checks do.
-    const virtualRoot = configuredVirtualRoot(document.uri.fsPath);
+    const request = scopeRequest(document);
     const generation = _includeCacheGeneration;
     const requestKey = [
-        pathKey(virtualRoot ?? ''),
+        pathKey(request.configuredRoot ?? ''),
         ...roots.map(pathKey).sort(),
     ].join('|');
 
@@ -186,12 +202,12 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
         return pending.promise;
     }
 
-    // The worker cannot ask the editor, so it is sent the unsaved text of open files.
-    const { texts: openFiles, versions: openVersions } = openBuffers();
+    // Which buffer each unsaved text was read from, to tell when it goes stale.
+    const openVersions = openBuffers(document).versions;
 
     // Include loading is best-effort: the worker never rejects, and a load that
     // failed or was superseded leaves the cache as it was.
-    const promise = loadIncludeTree(requestKey, roots, virtualRoot, openFiles).then(entries => {
+    const promise = loadIncludeTree(requestKey, request).then(entries => {
         if (!entries || generation !== _includeCacheGeneration) { return; }
         for (const entry of entries) {
             const key = pathKey(entry.filePath);

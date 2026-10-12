@@ -43,13 +43,13 @@ describe('worker entries', function () {
         ['aspColouringWorker.js',
             { id: 1, text: PAGE, docPath: 'C:/page.asp', includeSymbols: NO_SYMBOLS },
             { id: 2, text: null, docPath: 'C:/page.asp', includeSymbols: NO_SYMBOLS }],
-        ['includeSymbolWorker.js',
-            { id: 1, roots: ['C:/inc.asp'], virtualRoot: 'C:/', openFiles: { 'c:/inc.asp': '<% Dim y %>' } },
-            { id: 2, roots: null, virtualRoot: 'C:/', openFiles: {} }],
+        ['vbscriptWorker.js',
+            { id: 1, kind: 'includes', text: '<!--#include file="inc.asp"-->', docPath: 'C:/page.asp', configuredRoot: 'C:/', defaultIncludes: [], openFiles: {} },
+            { id: 2, kind: 'includes', text: null, docPath: 'C:/page.asp', configuredRoot: 'C:/', defaultIncludes: [], openFiles: {} }],
     ];
 
     for (const [entry, good, bad] of cases) {
-        it(`${entry} answers, and answers a request that throws with the error`, async () => {
+        it(`${entry} answers ${(good as { kind?: string }).kind ?? 'a'} request, and answers one that throws with the error`, async () => {
             const [first, second, third] = await ask(entry, [good, bad, { ...good, id: 3 }]);
             assert.strictEqual(first.id, 1);
             assert.ok(!first.failed);
@@ -71,18 +71,20 @@ describe('worker entries', function () {
 
     // With no site root known, the page checks read a nested virtual= from the
     // include's own folder; completion has to find the same file.
-    it('the include worker resolves a nested virtual= from the include\'s folder when no root is known', async () => {
+    it('the VBScript worker resolves a nested virtual= from the include\'s folder when no root is known', async () => {
         const inc = path.resolve('/site/lib/inc.asp');
-        const [answer] = await ask('includeSymbolWorker.js', [
-            { id: 1, roots: [inc], virtualRoot: undefined, openFiles: { [inc.toLowerCase()]: '<!--#include virtual="/db.asp"-->' } },
-        ]) as Array<Answer & { entries: Array<{ children: string[] }> }>;
+        const [answer] = await ask('vbscriptWorker.js', [{
+            id: 1, kind: 'includes', text: '<!--#include file="lib/inc.asp"-->', docPath: path.resolve('/site/page.asp'),
+            configuredRoot: undefined, defaultIncludes: [], openFiles: { [inc.toLowerCase()]: '<!--#include virtual="/db.asp"-->' },
+        }]) as Array<Answer & { entries: Array<{ children: string[] }> }>;
         assert.deepStrictEqual(answer.entries[0].children, [path.resolve('/site/lib/db.asp')]);
     });
 
-    it('the include worker reads an open file from the text it is sent', async () => {
-        const [answer] = await ask('includeSymbolWorker.js', [
-            { id: 1, roots: ['C:/inc.asp'], virtualRoot: 'C:/', openFiles: { 'c:/inc.asp': '<% Dim y %>' } },
-        ]) as Array<Answer & { entries: Array<{ symbols: { variables: Array<{ name: string }> } }> }>;
+    it('the VBScript worker reads an open include from the text it is sent', async () => {
+        const [answer] = await ask('vbscriptWorker.js', [{
+            id: 1, kind: 'includes', text: '<!--#include file="inc.asp"-->', docPath: 'C:/page.asp',
+            configuredRoot: 'C:/', defaultIncludes: [], openFiles: { [path.resolve('C:/inc.asp').toLowerCase()]: '<% Dim y %>' },
+        }]) as Array<Answer & { entries: Array<{ symbols: { variables: Array<{ name: string }> } }> }>;
         assert.deepStrictEqual(answer.entries.map(e => e.symbols.variables.map(v => v.name)), [['y']]);
     });
 });

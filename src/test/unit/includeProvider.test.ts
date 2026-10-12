@@ -5,6 +5,9 @@ import * as path from 'path';
 import * as stub from './_vscodeStub';
 import { fakeDocument } from './_helpers';
 import { areIncludeSymbolsReady, collectIncludeSymbols, getVirtualRoot, preloadIncludeSymbols, readIncludeText } from '../../asp/includeProvider';
+import { editorWorkspace } from '../../asp/vbscriptWorkspace';
+import { buildScriptScope } from '../../vbscript/scriptScope';
+import { symbolsOfPage } from '../../vbscript/symbols';
 
 describe('readIncludeText', () => {
     let dir: string;
@@ -55,6 +58,43 @@ describe('include symbols read from an unsaved buffer', function () {
             assert.deepStrictEqual(functionNames(page), ['Saved']);
         });
     }
+});
+
+// Completion's include symbols and the binder behind F12, rename and the checks
+// must agree on which files a page includes.
+describe('the files a page includes', function () {
+    this.timeout(20000);
+    let dir: string;
+    beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'asp-include-parity-')); });
+    afterEach(() => {
+        stub.testSettings.delete('classicAsp.defaultIncludes');
+        fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('are the same for completion as for the script scope', async () => {
+        const write = (name: string, text: string) => {
+            fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+            fs.writeFileSync(path.join(dir, name), text);
+        };
+        // No folder is open and no virtualRoot is set, so virtual= starts at each file's own folder.
+        write('lib/a.inc', '<!--#include file="b.inc"--><!--#include virtual="/nested/n.inc"--><% Sub A : End Sub %>');
+        write('lib/b.inc', '<!--#include file="a.inc"--><!--#include file="shared.inc"--><% Sub B : End Sub %>');
+        write('lib/nested/n.inc', '<% Sub N : End Sub %>');
+        write('lib/shared.inc', '<% Sub Shared : End Sub %>');
+        write('defaults/d.inc', '<% Sub D : End Sub %>');
+        stub.testSettings.set('classicAsp.defaultIncludes', ['defaults/d.inc']);
+        const pagePath = path.join(dir, 'page.asp');
+        const page = fakeDocument('<!--#include virtual="/lib/a.inc"--><!--#include file="lib/shared.inc"--><% Sub Page : End Sub %>', { fsPath: pagePath });
+
+        await preloadIncludeSymbols(page as never);
+        const completion = collectIncludeSymbols(page as never).functions.map(f => f.name).sort();
+
+        const scope = buildScriptScope(pagePath, page.getText(), editorWorkspace(page as never));
+        const bound = scope.files.filter(file => file !== scope.root).flatMap(file => symbolsOfPage(file.page, file.path).functions.map(f => f.name)).sort();
+
+        assert.deepStrictEqual(completion, ['A', 'B', 'D', 'N', 'Shared']);
+        assert.deepStrictEqual(completion, bound);
+    });
 });
 
 // virtual="/inc/db.asp" in a page of the second folder of a multi-root

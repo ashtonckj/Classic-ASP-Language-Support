@@ -6,8 +6,8 @@
  *   • jsAnalysisWorker.ts   — the type-aware JavaScript colouring and the JS
  *     squiggles, both from one TypeScript pass;
  *   • aspColouringWorker.ts — the VBScript and SQL colouring, and the SQL warnings;
- *   • vbscriptWorker.ts     — the VBScript page's symbols and blocks, and its checks;
- *   • includeSymbolWorker.ts — the symbols of a page's include tree.
+ *   • vbscriptWorker.ts     — the VBScript page's symbols and blocks, its checks,
+ *     and the symbols of its include tree.
  *
  * Each is a long-lived worker thread of its own, so none waits behind another,
  * and all are driven the same way:
@@ -45,12 +45,10 @@ import type { WorkerAnswer } from './serveWorker';
 import type { JsAnalysisResult } from './jsAnalysisWorker';
 import type { AspColouringRequest, AspColouringResult } from '../vbscript/aspColouring';
 import type { FileSymbols } from '../vbscript/symbolParser';
-import type { ChecksResult, PageResult } from './vbscriptWorker';
+import type { ChecksResult, IncludesResult, PageResult } from './vbscriptWorker';
 import type { PageAnalysis } from '../vbscript/pageAnalysis';
-import type { ChecksRequest, PageChecks } from '../vbscript/pageChecks';
-import type { IncludeWorkerEntry, IncludeWorkerRequest, IncludeWorkerResult } from './includeSymbolWorker';
+import type { ChecksRequest, IncludeFile, PageChecks, ScopeRequest } from '../vbscript/pageChecks';
 
-export type { IncludeWorkerEntry } from './includeSymbolWorker';
 export type { JsAnalysisResult, PlainJsDiagnostic } from './jsAnalysisWorker';
 export type { AspColouringResult, SqlWarning } from '../vbscript/aspColouring';
 
@@ -252,26 +250,21 @@ const aspWorker = new AnalysisWorker<AspColouringInput, AspColouringResult>(
     result => !result.failed,
 );
 
-type VbscriptInput = { kind: 'page'; text: string; docPath: string } | (ChecksRequest & { kind: 'checks' });
+type VbscriptInput =
+    | { kind: 'page'; text: string; docPath: string }
+    | (ChecksRequest & { kind: 'checks' })
+    | (ScopeRequest & { kind: 'includes' });
 
-const vbscriptWorker = new AnalysisWorker<VbscriptInput, PageResult | ChecksResult>(
+const vbscriptWorker = new AnalysisWorker<VbscriptInput, PageResult | ChecksResult | IncludesResult>(
     'VBScript analysis',
     path.join(__dirname, 'vbscriptWorker.js'),
-    // Checks read the includes from disk, which may have changed since, so
-    // only a page's own reading is shared.
+    // Checks and includes read files from disk, which may have changed since,
+    // so only a page's own reading is shared. includeProvider already shares
+    // an include load under way for the same includes.
     (a, b) => a.kind === 'page' && b.kind === 'page' && a.text === b.text && a.docPath === b.docPath,
     result => !result.failed && 'symbols' in result,
     // What completion is waiting on goes before checks nobody is waiting on.
-    input => input.kind === 'page',
-);
-
-const includeWorker = new AnalysisWorker<Omit<IncludeWorkerRequest, 'id'>, IncludeWorkerResult>(
-    'include loading',
-    path.join(__dirname, 'includeSymbolWorker.js'),
-    // The files may have changed on disk since, so a load is never shared here;
-    // includeProvider already shares one under way for the same includes.
-    () => false,
-    () => false,
+    input => input.kind !== 'checks',
 );
 
 /**
@@ -317,15 +310,12 @@ export async function checkVbscriptPage(key: string, request: ChecksRequest): Pr
 }
 
 /**
- * Every file of the include trees under `roots`, each with its symbols and the
+ * Every file the page of `request` includes, each with its symbols and the
  * includes it names, or undefined when a newer load for the same `key`
- * superseded this one or the worker could not answer. `openFiles` is the
- * unsaved text of open files, by lower-cased path.
+ * superseded this one or the worker could not answer.
  */
-export async function loadIncludeTree(
-    key: string, roots: string[], virtualRoot: string | undefined, openFiles: Record<string, string>,
-): Promise<IncludeWorkerEntry[] | undefined> {
-    const result = await includeWorker.request(key, { roots, virtualRoot, openFiles });
+export async function loadIncludeTree(key: string, request: ScopeRequest): Promise<IncludeFile[] | undefined> {
+    const result = await vbscriptWorker.request(`includes:${key}`, { ...request, kind: 'includes' }) as IncludesResult | undefined;
     return result && !result.failed ? result.entries : undefined;
 }
 
@@ -344,5 +334,4 @@ export function disposeAnalysisWorkers(): void {
     jsWorker.dispose();
     aspWorker.dispose();
     vbscriptWorker.dispose();
-    includeWorker.dispose();
 }
