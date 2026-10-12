@@ -7,9 +7,10 @@
  *   summary, article, aside, header, footer, main, dialog
  * — and closing tags of void elements (`</br>`).
  *
- * Skips the inside of <!-- … --> comments, <% … %> blocks, <script> and <style>,
- * and self-closing tags. A tag pair split across the branches of a VBScript If or
- * Select is read the way the page runs.
+ * The tags are the HTML scanner's (zoneUtils' scanMarkup), so the inside of
+ * <!-- … --> comments, <% … %> blocks, <script> and <style> is skipped as a .html
+ * file skips it, and so are self-closing tags. A tag pair split across the
+ * branches of a VBScript If or Select is read the way the page runs.
  *
  * Free of vscode: the structure diagnostics (html/htmlStructureDiagnosticsProvider)
  * report what this finds, and the formatter reads it to know which tags it must
@@ -19,6 +20,7 @@
 import { pageBlocks, type BlockEvent } from '../vbscript/pageAnalysis';
 import { parsePage } from '../vbscript/symbols';
 import { VOID_ELEMENTS } from '../constants/htmlTags';
+import { inRanges, scanMarkup } from './zoneUtils';
 
 // ── Structural tags we care about ────────────────────────────────────────────
 
@@ -34,21 +36,6 @@ export const STRUCTURAL_TAGS = new Set([
     'article', 'aside', 'header', 'footer', 'main', 'dialog',
 ]);
 
-
-// Sticky (/y) close-tag matchers for the raw-text elements. Anchoring at
-// lastIndex tests in place; the previous `fullText.slice(i)` built a copy of the
-// whole remaining document for EVERY character inside a <script> or <style>
-// body, making the scan quadratic in file size. lastIndex is set before each
-// use, so sharing one regex across calls is safe.
-const SCRIPT_CLOSE_RE = /<\/script\s*>/iy;
-const STYLE_CLOSE_RE  = /<\/style\s*>/iy;
-
-/** True when a raw-text close tag starts exactly at `i`. */
-function closesAt(re: RegExp, text: string, i: number): boolean {
-    if (text[i] !== '<') { return false; }
-    re.lastIndex = i;
-    return re.test(text);
-}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -313,122 +300,54 @@ export function analyseHtmlStructure(
         }
     };
 
-    // Track skipped zones so we don't match tags inside ASP/script/style/comments
-    let inHtmlComment = false;
-    let inScript      = false;
-    let inStyle       = false;
+    // The page's tags, as the HTML scanner reads them over the page with its ASP
+    // blanked: one inside a comment, a <script> or a <style>, or written by ASP
+    // into an attribute value, is not a tag.
+    const markup    = scanMarkup(fullText);
+    const rawBodies = [...markup.scripts, ...markup.styles].sort((a, b) => a.start - b.start);
+    let nextTag = 0;
 
-    let i = 0;
-
-    while (i < fullText.length) {
-
-        // ── HTML comment  <!-- ... --> ────────────────────────────────────────
-        if (!inHtmlComment && fullText[i] === '<' && fullText.startsWith('<!--', i)) {
-            inHtmlComment = true;
-            i += 4;
-            continue;
-        }
-        if (inHtmlComment) {
-            if (fullText.startsWith('-->', i)) { inHtmlComment = false; i += 3; }
-            else { i++; }
-            continue;
-        }
-
-        // ── ASP block  <% ... %> — its If / Else / End If shape the branches ──
-        if (fullText[i] === '<' && fullText[i + 1] === '%') {
-            const closeAt = fullText.indexOf('%>', i + 2);
-            const code    = fullText.slice(i + 2, closeAt === -1 ? fullText.length : closeAt);
-            noteWrittenTags(code);
-            const blockEnd = closeAt === -1 ? fullText.length : closeAt;
-            while (nextEvent < branchEvents.length && branchEvents[nextEvent].at < i) { nextEvent++; }
-            for (; nextEvent < branchEvents.length && branchEvents[nextEvent].at < blockEnd; nextEvent++) {
-                if (inScript || inStyle) { continue; }
-                const event = branchEvents[nextEvent];
-                const block = event.block as 'if' | 'select';
-                if (event.type === 'open')        { openBranch(block); }
-                else if (event.type === 'branch') { nextBranch(block); }
-                else                              { closeBranch(block); }
-            }
-            i = closeAt === -1 ? fullText.length : closeAt + 2;
-            continue;
-        }
-
-        // ── Skip script / style block content ────────────────────────────────
-        if (inScript) {
-            if (closesAt(SCRIPT_CLOSE_RE, fullText, i)) { inScript = false; }
-            i++;
-            continue;
-        }
-        if (inStyle) {
-            if (closesAt(STYLE_CLOSE_RE, fullText, i)) { inStyle = false; }
-            i++;
-            continue;
-        }
-
-        // ── HTML tag ──────────────────────────────────────────────────────────
-        if (fullText[i] !== '<') { i++; continue; }
-
-        // A `<` with no tag-name character after it is literal body text
-        // ("Total: 5 < 10"), not markup. Scanning it to the next `>` consumed the
-        // real closing tag that followed and produced a false "Missing closing
-        // tag" — which in turn blocks Format Document.
-        const afterAngle = fullText[i + 1];
-        if (afterAngle === undefined || !/[A-Za-z/!?]/.test(afterAngle)) { i++; continue; }
-
-        // Collect the full tag (up to next >), skipping ASP blocks inside attrs
-        let tagEnd = i + 1;
-        let inStr: string | null = null;
-        while (tagEnd < fullText.length) {
-            const ch = fullText[tagEnd];
-            if (inStr) {
-                if (ch === inStr) inStr = null;
-                tagEnd++;
+    const readTagsBefore = (until: number): void => {
+        for (; nextTag < markup.tags.length && markup.tags[nextTag].start < until; nextTag++) {
+            const tag = markup.tags[nextTag];
+            if (!tag.name || tag.name === 'script' || tag.name === 'style') { continue; }
+            if (tag.close && VOID_ELEMENTS.has(tag.name)) {
+                voids.push({
+                    start: tag.start, end: tag.end, kind: 'void', name: tag.name, tag: { start: tag.start, end: tag.end },
+                    message: `</${tag.name}> is invalid — <${tag.name}> is a void element and cannot have a closing tag.`,
+                });
                 continue;
             }
-            if (ch === '"' || ch === "'") { inStr = ch; tagEnd++; continue; }
-            // Skip embedded ASP blocks inside attributes: <tag attr="<%= x %>">
-            if (ch === '<' && fullText[tagEnd + 1] === '%') {
-                while (tagEnd < fullText.length) {
-                    if (fullText[tagEnd] === '%' && fullText[tagEnd + 1] === '>') { tagEnd += 2; break; }
-                    tagEnd++;
-                }
-                continue;
-            }
-            if (ch === '>') { tagEnd++; break; }
-            tagEnd++;
+            if (!tracked(tag.name) || tag.selfClosing) { continue; }
+            record(tag.close
+                ? { type: 'close', name: tag.name, start: tag.start, end: tag.end }
+                : { type: 'open',  entry: { name: tag.name, start: tag.start, end: tag.end } });
         }
+    };
 
-        const raw     = fullText.slice(i, tagEnd);
-        const isClose = raw.startsWith('</');
+    // ── ASP blocks, in page order with the tags — their If / Else / End If shape the branches
+    for (const block of markup.aspBlocks) {
+        readTagsBefore(block.start);
+        // A block inside a tag's attributes or a comment writes no markup structure.
+        const lastTag = markup.tags[nextTag - 1];
+        if (lastTag && lastTag.end > block.start) { continue; }
+        if (inRanges(markup.comments, block.start, true)) { continue; }
 
-        // Extract tag name
-        const nameMatch = raw.match(/^<\/?([a-zA-Z][a-zA-Z0-9]*)/);
-        if (!nameMatch) { i = tagEnd; continue; }
-        const tagName = nameMatch[1].toLowerCase();
-
-        // Track script/style zones
-        if (!isClose && tagName === 'script') { inScript = true; i = tagEnd; continue; }
-        if (!isClose && tagName === 'style')  { inStyle  = true; i = tagEnd; continue; }
-
-        // ── Void element closing tag check ────────────────────────────────────
-        if (isClose && VOID_ELEMENTS.has(tagName)) {
-            voids.push({
-                start: i, end: tagEnd, kind: 'void', name: tagName, tag: { start: i, end: tagEnd },
-                message: `</${tagName}> is invalid — <${tagName}> is a void element and cannot have a closing tag.`,
-            });
-            i = tagEnd;
-            continue;
+        const closed  = block.end - 2 >= block.start + 2 && fullText.startsWith('%>', block.end - 2);
+        const codeEnd = closed ? block.end - 2 : fullText.length;
+        noteWrittenTags(fullText.slice(block.start + 2, codeEnd));
+        const inRawText = inRanges(rawBodies, block.start, false);
+        while (nextEvent < branchEvents.length && branchEvents[nextEvent].at < block.start) { nextEvent++; }
+        for (; nextEvent < branchEvents.length && branchEvents[nextEvent].at < codeEnd; nextEvent++) {
+            if (inRawText) { continue; }
+            const event = branchEvents[nextEvent];
+            const kind  = event.block as 'if' | 'select';
+            if (event.type === 'open')        { openBranch(kind); }
+            else if (event.type === 'branch') { nextBranch(kind); }
+            else                              { closeBranch(kind); }
         }
-
-        // Only care about structural tags, and not a self-closed <tag />
-        if (tracked(tagName) && !raw.trimEnd().endsWith('/>')) {
-            record(isClose
-                ? { type: 'close', name: tagName, start: i, end: tagEnd }
-                : { type: 'open',  entry: { name: tagName, start: i, end: tagEnd } });
-        }
-
-        i = tagEnd;
     }
+    readTagsBefore(Infinity);
 
     // An If still open at the end of the page (its own warning says so) is
     // resolved as though it closed there.
