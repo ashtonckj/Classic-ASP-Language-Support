@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { collectIncludeSymbols, configuredVirtualRoot, defaultIncludeCandidates, getVirtualRoot, readIncludeText, scopeRequest } from './includeProvider';
+import { configuredVirtualRoot, defaultIncludeCandidates, getVirtualRoot, readIncludeText, scopeRequest } from './includeProvider';
 import { includedByMap } from './includeGraph';
 import { resolveIncludeDirective } from '../core/includeDirectives';
 import type { ParsedPage } from '../vbscript/symbols';
@@ -8,7 +8,7 @@ import { BindCache, type Site, type WorkspaceHost } from '../vbscript/references
 import { defaultIncludesSetting } from '../platform/settings';
 import { pathKey, samePath } from '../core/paths';
 import { analysePage, type PageAnalysis } from '../vbscript/pageAnalysis';
-import { checkPageFiles, type ChecksRequest, type PageChecks } from '../vbscript/pageChecks';
+import { checkPageFiles, type PageChecks } from '../vbscript/pageChecks';
 import { analyseVbscriptPage, checkVbscriptPage, vbscriptWorkerUsable } from '../workers/analysisClient';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -102,10 +102,7 @@ export interface CheckedPage extends PageChecks { version: number; }
  */
 export async function checkedPage(document: vscode.TextDocument): Promise<CheckedPage | undefined> {
     const version = document.version;
-    const request: ChecksRequest = {
-        ...scopeRequest(document),
-        includeComVariables: collectIncludeSymbols(document).comVariables.map(({ name, progId }) => ({ name, progId })),
-    };
+    const request = scopeRequest(document);
 
     // A worker that cannot start is no reason to lose the checks.
     const result = vbscriptWorkerUsable()

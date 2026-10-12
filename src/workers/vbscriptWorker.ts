@@ -24,7 +24,7 @@
 import type { ParsedPage } from '../vbscript/symbols';
 import { ParseCache } from '../vbscript/parseCache';
 import { analysePage, type PageAnalysis } from '../vbscript/pageAnalysis';
-import { checkPageFiles, includeFiles, type ChecksRequest as PageChecksRequest, type IncludeFile, type PageChecks, type ScopeRequest } from '../vbscript/pageChecks';
+import { checkPageFiles, includeFiles, type IncludeFile, type PageChecks, type ScopeRequest } from '../vbscript/pageChecks';
 import { serveWorker, type WorkerAnswer } from './serveWorker';
 
 export interface PageRequest {
@@ -34,7 +34,7 @@ export interface PageRequest {
     docPath: string;
 }
 
-export type ChecksRequest = PageChecksRequest & { id: number; kind: 'checks' };
+export type ChecksRequest = ScopeRequest & { id: number; kind: 'checks' };
 export type IncludesRequest = ScopeRequest & { id: number; kind: 'includes' };
 
 export type PageResult   = PageAnalysis & WorkerAnswer;

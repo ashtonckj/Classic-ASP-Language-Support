@@ -47,7 +47,7 @@ import type { AspColouringRequest, AspColouringResult } from '../vbscript/aspCol
 import type { FileSymbols } from '../vbscript/symbolParser';
 import type { ChecksResult, IncludesResult, PageResult } from './vbscriptWorker';
 import type { PageAnalysis } from '../vbscript/pageAnalysis';
-import type { ChecksRequest, IncludeFile, PageChecks, ScopeRequest } from '../vbscript/pageChecks';
+import type { IncludeFile, PageChecks, ScopeRequest } from '../vbscript/pageChecks';
 
 export type { JsAnalysisResult, PlainJsDiagnostic } from './jsAnalysisWorker';
 export type { AspColouringResult, SqlWarning } from '../vbscript/aspColouring';
@@ -252,7 +252,7 @@ const aspWorker = new AnalysisWorker<AspColouringInput, AspColouringResult>(
 
 type VbscriptInput =
     | { kind: 'page'; text: string; docPath: string }
-    | (ChecksRequest & { kind: 'checks' })
+    | (ScopeRequest & { kind: 'checks' })
     | (ScopeRequest & { kind: 'includes' });
 
 const vbscriptWorker = new AnalysisWorker<VbscriptInput, PageResult | ChecksResult | IncludesResult>(
@@ -304,7 +304,7 @@ export async function analyseVbscriptPage(key: string, text: string, docPath: st
  * undefined when a newer request for that document superseded this one or
  * the worker could not answer.
  */
-export async function checkVbscriptPage(key: string, request: ChecksRequest): Promise<PageChecks | undefined> {
+export async function checkVbscriptPage(key: string, request: ScopeRequest): Promise<PageChecks | undefined> {
     const result = await vbscriptWorker.request(`checks:${key}`, { ...request, kind: 'checks' }) as ChecksResult | undefined;
     return result && !result.failed ? result : undefined;
 }

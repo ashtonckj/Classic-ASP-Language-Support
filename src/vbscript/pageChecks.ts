@@ -37,11 +37,6 @@ export interface ScopeRequest {
     openFiles: Record<string, string>;
 }
 
-export interface ChecksRequest extends ScopeRequest {
-    /** The COM variables the page's includes declare, in include order. */
-    includeComVariables: { name: string; progId: string }[];
-}
-
 export interface PageChecks {
     missingSet: MissingSet[];
     checks:     Check[];
@@ -102,23 +97,24 @@ export function includeFiles(request: ScopeRequest, parse: (fsPath: string, text
     return [...found.values()];
 }
 
-export function checkPageFiles(request: ChecksRequest, parse: (fsPath: string, text: string) => ParsedPage): PageChecks {
+export function checkPageFiles(request: ScopeRequest, parse: (fsPath: string, text: string) => ParsedPage): PageChecks {
     const { text, docPath } = request;
     const host = scopeHost(request, parse);
+    const page = parse(docPath, text);
+    const bound = bindAt(host, docPath);
 
     // ── Missing Set, with the object types known from the page and its includes ──
-    const page = parse(docPath, text);
     const comTypes = new Map<string, string>();
-    for (const variable of [...symbolsOfPage(page, docPath).comVariables, ...request.includeComVariables]) {
-        if (!comTypes.has(variable.name.toLowerCase())) { comTypes.set(variable.name.toLowerCase(), variable.progId); }
+    for (const [filePath, file] of bound?.pages ?? [[docPath, page] as const]) {
+        for (const variable of symbolsOfPage(file, filePath).comVariables) {
+            if (!comTypes.has(variable.name.toLowerCase())) { comTypes.set(variable.name.toLowerCase(), variable.progId); }
+        }
     }
     const missingSet = findMissingSet(page, comTypes);
 
     // ── The parser's checks, on the page bound with its includes ──
     // global.asa has rules of its own.
     const asaChecks = /\.asa$/i.test(docPath) ? globalAsaChecks(text) : [];
-
-    const bound = bindAt(host, docPath);
     if (!bound) { return { missingSet, checks: asaChecks }; }
 
     // An <object runat="server"> in global.asa gives every page that object.
