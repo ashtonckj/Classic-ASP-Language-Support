@@ -104,54 +104,42 @@ export const M_DECLARATION = 1 << 0; // 1
 export const M_READONLY    = 1 << 2; // 4
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SQL detection — requires BOTH a DML/DDL verb AND a clause keyword.
-// Guard: FROM followed by an English article (the/a/an/this/that/my/your etc.)
-// is plain English, not SQL — e.g. "Select an option from the list".
+// SQL detection, by the shape of a statement: it starts with its verb (or with
+// what may come before one: WITH, DECLARE, SET, IF, BEGIN), and the verb has
+// the parts it needs — a clause, or for EXEC the procedure it runs. Prose that
+// happens to hold SQL words starts some other way, or puts an article where a
+// table or column name goes: "Select an option from the list".
 // ─────────────────────────────────────────────────────────────────────────────
 const SQL_VERBS   = /\b(SELECT|INSERT|UPDATE|DELETE|EXEC|EXECUTE|CREATE|DROP|ALTER|TRUNCATE|MERGE)\b/i;
 const SQL_CLAUSES = /\b(FROM|INTO|TABLE|SET|VALUES|WHERE|JOIN|UNION|HAVING|GROUP\s+BY|ORDER\s+BY|RETURNING|DECLARE|BEGIN\s+TRAN|COMMIT|ROLLBACK|USING|WHEN\s+MATCHED|WHEN\s+NOT\s+MATCHED)\b/i;
-const ENGLISH_ARTICLES = /^(the|a|an|this|that|these|those|my|your|our|their|its|her|his)$/i;
+const STATEMENT_START = /^[\s(;]*(?:SELECT|INSERT|UPDATE|DELETE|EXEC|EXECUTE|CREATE|DROP|ALTER|TRUNCATE|MERGE|WITH|DECLARE|SET|IF|BEGIN)\b/i;
+const ARTICLE = '(?:the|a|an|this|that|these|those|my|your|our|their|its|his|her)';
 
 export function isSql(text: string): boolean {
-    if (!SQL_VERBS.test(text) || !SQL_CLAUSES.test(text)) { return false; }
+    // Single-quoted literals are data: 'TOOL_ID:' is not a prose colon.
+    const code = text.replace(/'(?:[^']|'')*'/g, m => ' '.repeat(m.length));
+    if (!STATEMENT_START.test(code)) { return false; }
 
-    // Strip SQL single-quoted string literals before applying prose guards.
-    // This prevents content like 'TOOL_ID:' or 'TOOL_INFO' inside SQL string
-    // parameters from triggering the colon/period guards.
-    const textNoStrings = text.replace(/'(?:[^']|'')*'/g, m => ' '.repeat(m.length));
+    // A stored procedure needs no clause: `EXEC sp_x 5`.
+    const exec = /^[\s(;]*EXEC(?:UTE)?\s+([@[\w][\w.[\]]*)/i.exec(code);
+    if (exec && !new RegExp(`^${ARTICLE}$`, 'i').test(exec[1])) { return true; }
+    if (!SQL_VERBS.test(code) || !SQL_CLAUSES.test(code)) { return false; }
 
-    // Guard: a period that is NOT between two word characters (i.e. not a.b dot notation)
-    // AND NOT between ] and [ (i.e. not [db].[schema].[table] bracket notation)
-    // appearing BEFORE the first SQL clause keyword means this is a sentence, not SQL.
-    // e.g. "Daily total hours (12 hrs) exceeds limit. Base: ..." has a prose period.
-    const firstClauseMatch = SQL_CLAUSES.exec(textNoStrings);
-    if (firstClauseMatch) {
-        const beforeClause = textNoStrings.slice(0, firstClauseMatch.index);
-        if (/(?<![\w\]])\.|\.(?![\w\[*])/.test(beforeClause)) { return false; }
-    }
+    // A sentence's full stop before the first clause — not a.b, [db].[t] or .5.
+    const firstClause = SQL_CLAUSES.exec(code);
+    if (firstClause && /(?<![\w\]])\.(?!\d)|\.(?![\w[*])/.test(code.slice(0, firstClause.index))) { return false; }
 
-    // Guard: a colon that follows a word and is NOT immediately followed by a digit
-    // (time like 7:30), ( or / means this is an error/label string, not SQL.
-    // Real SQL strings never contain word: patterns outside of string literals.
-    // e.g. "Delete from Orders failed: " — the trailing colon gives it away.
-    if (/\w\s*:(?!\s*[\d/()])/.test(textNoStrings)) { return false; }
+    // A label's colon, as in "Delete from Orders failed: ", which SQL never has
+    // outside a literal; a time (7:30) or a `::` scope is not one.
+    if (/\w\s*:(?!\s*[\d/()])/.test(code)) { return false; }
 
-    const fromMatch = textNoStrings.match(/\bFROM\s+(\w+)/i);
-    if (fromMatch && ENGLISH_ARTICLES.test(fromMatch[1])) {
-        const withoutFrom = textNoStrings.replace(/\bFROM\s+\w+/gi, '');
-        if (!SQL_CLAUSES.test(withoutFrom)) { return false; }
-    }
+    // An article where a name goes: "update the record". An article followed
+    // by a SQL word is a one-letter name: `SELECT a FROM t`.
+    const article = new RegExp(`\\b(?:SELECT|INSERT|UPDATE|DELETE|EXEC|EXECUTE)\\s+${ARTICLE}\\s+(\\w+)`, 'i').exec(code);
+    if (article && !SQL_VERBS.test(article[1]) && !SQL_CLAUSES.test(article[1])) { return false; }
 
-    // Guard: a SQL verb immediately followed by an English determiner + a plain
-    // word is prose, not SQL — "update the record", "select a report", "delete a
-    // file". Real SQL after the verb is `*` / DISTINCT / a column list / a table
-    // name / INTO — never "the|a|an <noun>". (An article followed by a SQL keyword,
-    // e.g. "SELECT a FROM t" where `a` is a column, is deliberately left alone.)
-    const verbDet = /\b(SELECT|INSERT|UPDATE|DELETE|EXEC|EXECUTE)\s+(the|a|an|this|that|these|those|my|your|our|their|its|his|her)\s+(\w+)/i
-        .exec(textNoStrings);
-    if (verbDet && !SQL_VERBS.test(verbDet[3]) && !SQL_CLAUSES.test(verbDet[3])) {
-        return false;
-    }
+    // "from the list" is SQL only when some other clause says so.
+    if (new RegExp(`\\bFROM\\s+${ARTICLE}\\b`, 'i').test(code) && !SQL_CLAUSES.test(code.replace(/\bFROM\s+\w+/gi, ''))) { return false; }
 
     return true;
 }

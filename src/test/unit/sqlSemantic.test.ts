@@ -12,6 +12,8 @@ describe('isSql — precision vs recall', () => {
             'You can delete a file from the disk',
             'Insert a new line before the footer',
             'Update your profile and set a new password',
+            'Please select one from the list where possible',
+            'Daily total hours exceeds limit. Delete from Orders where needed',
         ]) {
             it(`rejects: ${s}`, () => assert.strictEqual(isSql(s), false));
         }
@@ -25,6 +27,11 @@ describe('isSql — precision vs recall', () => {
             'INSERT INTO users (name) VALUES (?)',
             'SELECT a.name FROM users a',                     // aliased column (a.name)
             'SELECT TOP 10 * FROM orders ORDER BY total DESC',
+            'EXEC sp_x 5',
+            'EXECUTE dbo.[Refresh Totals] @id',
+            'SELECT .5 * Price FROM t',
+            '  (SELECT a FROM t) UNION (SELECT b FROM u)',
+            'SELECT * FROM a INNER JOIN b ON a.id = b.id',
         ]) {
             it(`accepts: ${s}`, () => assert.strictEqual(isSql(s), true));
         }
