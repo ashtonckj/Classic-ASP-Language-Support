@@ -26,7 +26,15 @@ import * as ts from 'typescript';
 import { getJsLanguageService, VIRTUAL_FILENAME } from '../js/jsUtils';
 import { jsOutline, type JsOutlineSymbol } from '../js/jsOutline';
 import { getJsBlockRanges, inRanges } from '../core/zoneUtils';
+import { workerData } from 'node:worker_threads';
 import { serveWorker, type WorkerAnswer } from './serveWorker';
+
+// Set to 1 by the extension host to stop the call under way (analysisClient).
+// Absent when this file is loaded outside a worker, as the tests do.
+const cancelFlag: Int32Array | undefined = workerData?.cancel;
+const cancellation: ts.HostCancellationToken = {
+    isCancellationRequested: () => cancelFlag !== undefined && Atomics.load(cancelFlag, 0) === 1,
+};
 
 export interface JsAnalysisRequest {
     id:   number;
@@ -57,14 +65,10 @@ export interface JsAnalysisResult extends WorkerAnswer {
 }
 
 function analyse(request: JsAnalysisRequest): JsAnalysisResult {
-    const empty: JsAnalysisResult = {
-        id: request.id, jsRanges: [], spans: [], diagnostics: [], outline: [],
-    };
-
     const jsRanges = getJsBlockRanges(request.text);
-    if (jsRanges.length === 0) { return empty; }
+    if (jsRanges.length === 0) { return emptyAnswer(request); }
 
-    const svc = getJsLanguageService();
+    const svc = getJsLanguageService(cancellation);
     svc.loadPage(request.text, jsRanges);
     // `end` is the `<` of `</script>`, a valid place for a token that abuts the
     // closing tag, so the test is inclusive at both ends.
@@ -117,8 +121,20 @@ function analyse(request: JsAnalysisRequest): JsAnalysisResult {
     };
 }
 
+/** The analysis, or an answer marked `cancelled` when the host stopped it. */
+function analyseUnlessCancelled(request: JsAnalysisRequest): JsAnalysisResult {
+    try {
+        return analyse(request);
+    } catch (error) {
+        if (!(error instanceof ts.OperationCanceledException)) { throw error; }
+        return { ...emptyAnswer(request), cancelled: true };
+    }
+}
+
+function emptyAnswer(request: JsAnalysisRequest): JsAnalysisResult {
+    return { id: request.id, jsRanges: [], spans: [], diagnostics: [], outline: [] };
+}
+
 // Analysis is best-effort: a half-typed document that trips the parser must
 // cost this one refresh, not the worker.
-serveWorker<JsAnalysisRequest, JsAnalysisResult>(analyse, request => ({
-    id: request.id, jsRanges: [], spans: [], diagnostics: [], outline: [],
-}));
+serveWorker<JsAnalysisRequest, JsAnalysisResult>(analyseUnlessCancelled, emptyAnswer);

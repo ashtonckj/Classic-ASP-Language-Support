@@ -68,7 +68,7 @@ export class JsDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
         if (!jsWorkerUsable()) { return outlineOnHost(document); }
 
         const version  = document.version;
-        const analysis = await analyseEmbeddedJs(document.uri.toString(), textOf(document));
+        const analysis = await analyseEmbeddedJs(document.uri.toString(), textOf(document), token);
         if (!analysis || token.isCancellationRequested || document.isClosed || document.version !== version) { return []; }
         if (analysis.outlineError) { log.error('JavaScript outline failed', analysis.outlineError); }
         return analysis.outline.map(symbol => toDocumentSymbol(document, symbol));

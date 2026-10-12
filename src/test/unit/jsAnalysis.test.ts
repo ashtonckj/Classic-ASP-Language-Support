@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as ts from 'typescript';
+import * as vscode from 'vscode';
 import { analyseEmbeddedJs, disposeAnalysisWorkers } from '../../workers/analysisClient';
 import { getJsLanguageService } from '../../js/jsUtils';
 import { getJsBlockRanges } from '../../core/zoneUtils';
@@ -197,6 +198,35 @@ describe('embedded JS analysis — request handling', () => {
     it('never rejects', async function () {
         this.timeout(30000);
         await assert.doesNotReject(() => analyseEmbeddedJs('page.asp', '<script>function ( ( ( </script>'));
+    });
+
+    // A caller that stops waiting (VS Code cancels the colouring request on the
+    // next keystroke) is answered at once, and an analysis nobody waits on any
+    // more is stopped mid-check rather than run to the end.
+    it('stops an analysis whose only caller cancelled', async function () {
+        this.timeout(60000);
+        const file = path.join(__dirname, '../../../test-files/perf-repros/unusable-8k-js.asp');
+        if (!fs.existsSync(file)) { this.skip(); }
+        const big = fs.readFileSync(file, 'utf8');
+        // Parsed once, so each edit below costs a re-check and little else.
+        await analyseEmbeddedJs('big.asp', big);
+        let started = performance.now();
+        await analyseEmbeddedJs('big.asp', big.replace('var node', 'var node1'));
+        const recheck = performance.now() - started;
+
+        const source = new vscode.CancellationTokenSource();
+        const pending = analyseEmbeddedJs('big.asp', big.replace('var node', 'var node2'), source.token);
+        await new Promise(resolve => setTimeout(resolve, recheck / 4));
+        source.cancel();
+        assert.strictEqual(await pending, undefined, 'the cancelled caller is answered with nothing');
+
+        started = performance.now();
+        const next = await analyseEmbeddedJs('small.asp', '<script>var small = 1;</script>');
+        const waited = performance.now() - started;
+        assert.ok(next, 'the next request is answered');
+        // Run to the end, the re-check would hold the worker for three quarters
+        // of `recheck` more.
+        assert.ok(waited < recheck / 2, `waited ${Math.round(waited)} ms behind a cancelled ${Math.round(recheck)} ms re-check`);
     });
 
     it('starts a fresh worker after being disposed', async function () {

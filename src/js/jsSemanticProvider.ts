@@ -162,7 +162,7 @@ export class JsSemanticTokensProvider implements vscode.DocumentSemanticTokensPr
         // host is also where auto-close, indenting and suggestions run — so it
         // cannot be the thread that spends a second type-checking.
         const requestedVersion = document.version;
-        const analysis = await analyseEmbeddedJs(document.uri.toString(), fullText);
+        const analysis = await analyseEmbeddedJs(document.uri.toString(), fullText, token);
 
         if (!analysis || token.isCancellationRequested) { return undefined; }
 

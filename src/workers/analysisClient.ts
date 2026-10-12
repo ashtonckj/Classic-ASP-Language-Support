@@ -21,6 +21,14 @@
  *     several open) knocked each other out, and the loser lost its colouring
  *     and had its squiggles cleared until it was next edited.
  *
+ *   • A job someone is waiting on goes first (`urgent`), and stops the
+ *     background job under way, which is worked out again after it. A worker
+ *     sees that through workerData.cancel, an Int32Array over memory both
+ *     threads share: it reads no message while busy in one long call.
+ *
+ *   • A caller that stops waiting (its CancellationToken) is answered with
+ *     undefined at once; a job nobody waits on any more is dropped, or stopped.
+ *
  *   • The same input is worked out once. A second request for input already
  *     waiting or being worked on shares that answer instead of displacing it,
  *     and one for the input answered last is given that answer again.
@@ -40,6 +48,7 @@
 
 import * as path from 'path';
 import { Worker } from 'node:worker_threads';
+import type * as vscode from 'vscode';
 import { log } from '../platform/log';
 import type { WorkerAnswer } from './serveWorker';
 import type { JsAnalysisResult } from './jsAnalysisWorker';
@@ -78,6 +87,9 @@ export class AnalysisWorker<I extends object, R extends WorkerAnswer> {
     private readonly queued = new Map<string, Job<I, R>>();
     private readonly lastAnswer = new Map<string, { input: I; result: R }>();
     private jobTimer: ReturnType<typeof setTimeout> | undefined;
+    // Set to 1 to ask the worker to stop its job (cancelInFlight); every worker
+    // started gets it as workerData.cancel.
+    private readonly cancelFlag = new Int32Array(new SharedArrayBuffer(4));
 
     constructor(
         /** What the worker does, for the log: "JavaScript analysis". */
@@ -92,32 +104,77 @@ export class AnalysisWorker<I extends object, R extends WorkerAnswer> {
         private readonly jobTimeoutMs = JOB_TIMEOUT_MS,
     ) {}
 
-    request(key: string, input: I): Promise<R | undefined> {
+    /**
+     * The answer for `input`, the current input of `key` (a document's URI,
+     * or a kind of question about it), or undefined when a newer request for
+     * `key` superseded it, `token` was cancelled, or the worker could not answer.
+     */
+    request(key: string, input: I, token?: vscode.CancellationToken): Promise<R | undefined> {
         return new Promise<R | undefined>(resolve => {
-            const last = this.lastAnswer.get(key);
-            if (last && this.sameInput(last.input, input)) {
-                resolve(last.result);
-                return;
-            }
-
-            if (this.inFlight?.key === key && this.sameInput(this.inFlight.input, input)) {
-                this.inFlight.resolvers.push(resolve);
-                return;
-            }
-
-            const waiting = this.queued.get(key);
-            if (waiting && this.sameInput(waiting.input, input)) {
-                waiting.resolvers.push(resolve);
-                return;
-            }
-
-            // Newest wins for this document: what was waiting is already out of
-            // date. It moves to the back, behind any other document's request.
-            this.answer(waiting, undefined);
-            this.queued.delete(key);
-            this.queued.set(key, { input, resolvers: [resolve] });
-            this.send();
+            if (token?.isCancellationRequested) { resolve(undefined); return; }
+            let settled = false;
+            let listener: vscode.Disposable | undefined;
+            const done: Resolver<R> = result => { settled = true; listener?.dispose(); resolve(result); };
+            this.enqueue(key, input, done);
+            if (token && !settled) { listener = token.onCancellationRequested(() => this.withdraw(done)); }
         });
+    }
+
+    private enqueue(key: string, input: I, resolve: Resolver<R>): void {
+        const last = this.lastAnswer.get(key);
+        if (last && this.sameInput(last.input, input)) {
+            resolve(last.result);
+            return;
+        }
+
+        if (this.inFlight?.key === key && this.sameInput(this.inFlight.input, input)) {
+            this.inFlight.resolvers.push(resolve);
+            return;
+        }
+
+        const waiting = this.queued.get(key);
+        if (waiting && this.sameInput(waiting.input, input)) {
+            waiting.resolvers.push(resolve);
+            return;
+        }
+
+        // Newest wins for this key: what was waiting is already out of date.
+        // It moves to the back, behind any other key's request.
+        this.answer(waiting, undefined);
+        this.queued.delete(key);
+        this.queued.set(key, { input, resolvers: [resolve] });
+
+        // Someone is waiting on an urgent job; the background one under way is
+        // stopped, to be worked out again after.
+        if (this.urgent(input) && this.inFlight && !this.urgent(this.inFlight.input)) { this.cancelInFlight(); }
+        this.send();
+    }
+
+    /** Answers a cancelled caller with undefined, and drops its job once nobody waits on it. */
+    private withdraw(resolve: Resolver<R>): void {
+        for (const [key, job] of this.queued) {
+            if (!job.resolvers.includes(resolve)) { continue; }
+            job.resolvers = job.resolvers.filter(r => r !== resolve);
+            if (job.resolvers.length === 0) { this.queued.delete(key); }
+            resolve(undefined);
+            return;
+        }
+        const job = this.inFlight;
+        if (job?.resolvers.includes(resolve)) {
+            job.resolvers = job.resolvers.filter(r => r !== resolve);
+            if (job.resolvers.length === 0) { this.cancelInFlight(); }
+            resolve(undefined);
+        }
+    }
+
+    /**
+     * Asks the worker to stop the job under way. A worker is busy inside one
+     * synchronous call and reads no messages until it ends, so the request goes
+     * through memory both threads share; a worker that does not read it just
+     * finishes the job.
+     */
+    private cancelInFlight(): void {
+        Atomics.store(this.cancelFlag, 0, 1);
     }
 
     /** False once the worker has failed to start too often to try again. */
@@ -162,7 +219,7 @@ export class AnalysisWorker<I extends object, R extends WorkerAnswer> {
         if (this.failures >= MAX_CONSECUTIVE_FAILURES) { return undefined; }
 
         try {
-            const worker = new Worker(this.workerPath);
+            const worker = new Worker(this.workerPath, { workerData: { cancel: this.cancelFlag } });
 
             worker.on('message', (result: R) => {
                 // A worker torn down can still post what it was working on; it
@@ -177,8 +234,18 @@ export class AnalysisWorker<I extends object, R extends WorkerAnswer> {
                 // A reply for anything but the current request is a leftover from a
                 // worker that was replaced; ignore it.
                 const current = pending !== undefined && pending.id === result.id;
-                if (current) { this.remember(pending.key, pending.input, result); }
-                this.answer(pending, current ? result : undefined);
+                if (current && result.cancelled) {
+                    // Stopped for an urgent job: worked out again after it, unless
+                    // nobody waits any more or a newer request has taken its place.
+                    if (pending.resolvers.length > 0 && !this.urgent(pending.input) && !this.queued.has(pending.key)) {
+                        this.queued.set(pending.key, pending);
+                    } else {
+                        this.answer(pending, undefined);
+                    }
+                } else {
+                    if (current) { this.remember(pending.key, pending.input, result); }
+                    this.answer(pending, current ? result : undefined);
+                }
 
                 this.send();
             });
@@ -220,6 +287,7 @@ export class AnalysisWorker<I extends object, R extends WorkerAnswer> {
             log.warn(`The ${this.name} worker gave no answer in ${this.jobTimeoutMs / 1000} s, so it was stopped.`);
             this.teardown();
         }, this.jobTimeoutMs);
+        Atomics.store(this.cancelFlag, 0, 0);
         try {
             worker.postMessage({ ...job.input, id });
         } catch {
@@ -268,13 +336,14 @@ const vbscriptWorker = new AnalysisWorker<VbscriptInput, PageResult | ChecksResu
 );
 
 /**
- * Classification spans and diagnostics for the JavaScript embedded in `text`,
- * the current text of the document `key` (its URI), or undefined when a newer
- * request for that document superseded this one or the worker could not answer.
- * Offsets in the result are page offsets.
+ * Classification spans, diagnostics and the Outline for the JavaScript
+ * embedded in `text`, the current text of the document `key` (its URI), or
+ * undefined when a newer request for that document superseded this one,
+ * `token` was cancelled, or the worker could not answer. Offsets in the result
+ * are page offsets.
  */
-export function analyseEmbeddedJs(key: string, text: string): Promise<JsAnalysisResult | undefined> {
-    return jsWorker.request(key, { text });
+export function analyseEmbeddedJs(key: string, text: string, token?: vscode.CancellationToken): Promise<JsAnalysisResult | undefined> {
+    return jsWorker.request(key, { text }, token);
 }
 
 /**

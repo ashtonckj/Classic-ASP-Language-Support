@@ -261,6 +261,25 @@ export class SymbolInformation {
     ) {}
 }
 
+export class CancellationTokenSource {
+    private listeners: Array<() => void> = [];
+    readonly token = {
+        isCancellationRequested: false,
+        onCancellationRequested: (listener: () => void) => {
+            this.listeners.push(listener);
+            return { dispose: () => { this.listeners = this.listeners.filter(l => l !== listener); } };
+        },
+    };
+
+    cancel(): void {
+        if (this.token.isCancellationRequested) { return; }
+        this.token.isCancellationRequested = true;
+        for (const listener of [...this.listeners]) { listener(); }
+    }
+
+    dispose(): void { this.listeners = []; }
+}
+
 export const DocumentHighlightKind = { Text: 0, Read: 1, Write: 2 };
 
 export class DocumentHighlight {
