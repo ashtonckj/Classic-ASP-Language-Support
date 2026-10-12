@@ -14,8 +14,7 @@ export interface TokenSink {
 // The live legend object is COMBINED_SEMANTIC_LEGEND (jsSemanticProvider.ts),
 // created once and shared by every semantic provider. This block only documents
 // the index → token-type mapping the T_* constants below rely on; keep it in sync
-// with COMBINED_SEMANTIC_LEGEND. (There used to be a second SemanticTokensLegend
-// declared here — it was an unused duplicate and has been removed to avoid drift.)
+// with COMBINED_SEMANTIC_LEGEND.
 //
 // Layout (index order matters — must match COMBINED_SEMANTIC_LEGEND exactly):
 //
@@ -70,8 +69,6 @@ export interface TokenSink {
 //   8  documentation
 //   9  defaultLibrary
 // ─────────────────────────────────────────────────────────────────────────────
-// (The live SemanticTokensLegend is COMBINED_SEMANTIC_LEGEND in
-// jsSemanticProvider.ts — the previously-duplicated copy here was unused.)
 
 // ── VBScript token type indices (positions within COMBINED_SEMANTIC_LEGEND) ──
 // These map to the standard VS Code token types by name, so the editor theme
@@ -219,7 +216,7 @@ const SQL_TYPE_WORDS = new Set([
 export const ALL_SQL_KEYWORDS = new Set([
     ...SQL_DML_WORDS, ...SQL_DDL_WORDS, ...SQL_LOGICAL_WORDS,
     ...SQL_KEYWORD_WORDS, ...SQL_FUNCTION_WORDS, ...SQL_TYPE_WORDS,
-    'temp','temporary','exists','table',
+    'temp','temporary',
 ]);
 
 // Precomputed word→tokenType map for O(1) lookup instead of 6 sequential Set checks.
