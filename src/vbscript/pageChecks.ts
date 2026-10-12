@@ -18,7 +18,7 @@ import { findMissingSet, type MissingSet } from './pageAnalysis';
 import { bindAt } from './references';
 import type { ScopeHost } from './scriptScope';
 import { symbolsOfPage, type ParsedPage } from './symbols';
-import { resolveIncludeDirective } from '../core/includeDirectives';
+import { includeRoot, resolveIncludeDirective } from '../core/includeDirectives';
 import { pathKey, samePath, withoutBom } from '../core/paths';
 import { ASP_OBJECT_NAMES, VBSCRIPT_CONSTANTS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
 
@@ -53,7 +53,7 @@ const BUILTIN_NAMES: ReadonlySet<string> = new Set([
 
 export function checkPageFiles(request: ChecksRequest, parse: (fsPath: string, text: string) => ParsedPage): PageChecks {
     const { text, docPath } = request;
-    const rootOf = (fsPath: string) => request.configuredRoot ?? path.dirname(fsPath);
+    const rootOf = (fsPath: string) => includeRoot(request.configuredRoot, fsPath);
     const read = (fsPath: string): string | null => {
         if (samePath(fsPath, docPath)) { return text; }
         const open = request.openFiles[pathKey(fsPath)];

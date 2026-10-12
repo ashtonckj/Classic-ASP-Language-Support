@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { FileSymbols } from '../vbscript/symbolParser';
-import { resolveIncludePathsIn } from '../core/includeDirectives';
+import { includeRoot, resolveIncludePathsIn } from '../core/includeDirectives';
 import { defaultIncludesSetting, onSettingsChange, virtualRootSetting } from '../platform/settings';
 import { loadIncludeTree } from '../workers/analysisClient';
 import { pathKey, withoutBom } from '../core/paths';
@@ -22,7 +22,7 @@ import { pathCompletions } from '../platform/pathCompletion';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function getVirtualRoot(documentPath: string): string {
-    return configuredVirtualRoot(documentPath) ?? path.dirname(documentPath);
+    return includeRoot(configuredVirtualRoot(documentPath), documentPath);
 }
 
 /**

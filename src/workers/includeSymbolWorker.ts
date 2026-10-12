@@ -7,11 +7,10 @@
  */
 
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import type { FileSymbols } from '../vbscript/symbolParser';
 import { symbolsOfPage } from '../vbscript/symbols';
 import { ParseCache } from '../vbscript/parseCache';
-import { resolveIncludePathsIn } from '../core/includeDirectives';
+import { includeRoot, resolveIncludePathsIn } from '../core/includeDirectives';
 import { serveWorker, type WorkerAnswer } from './serveWorker';
 import { pathKey, withoutBom } from '../core/paths';
 
@@ -69,7 +68,7 @@ async function loadTree(
         return;
     }
 
-    const children = resolveIncludePathsIn(text, filePath, virtualRoot ?? path.dirname(filePath));
+    const children = resolveIncludePathsIn(text, filePath, includeRoot(virtualRoot, filePath));
     results.push({
         filePath,
         symbols: symbolsOfPage(parsed.parse(filePath, text), filePath),

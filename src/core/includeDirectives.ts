@@ -43,6 +43,14 @@ export function parseIncludeDirectives(text: string): IncludeDirective[] {
 }
 
 /**
+ * The folder `virtual="…"` paths in `fromPath` start at: the site root when the
+ * settings or an open folder give one, otherwise the file's own folder.
+ */
+export function includeRoot(configuredRoot: string | undefined, fromPath: string): string {
+    return configuredRoot ?? path.dirname(fromPath);
+}
+
+/**
  * Absolute path for one directive. `virtual="/x"` is resolved from the
  * application root, `file="x"` relative to the file containing the directive —
  * which is what IIS itself does.
