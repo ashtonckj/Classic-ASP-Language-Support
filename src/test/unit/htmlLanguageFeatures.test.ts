@@ -49,42 +49,91 @@ describe('vbScriptBalancedBetween', () => {
     });
 });
 
-// Tag, closing-tag and attribute suggestions, as a .html file gives them: read
-// from the page's parse, so text in a comment, a script or a style is not markup.
+// Tag, closing-tag, attribute and value suggestions, as a .html file gives them:
+// the HTML language service's, read from the page's parse, so text in a
+// comment, a script or a style is not markup.
 describe('HtmlCompletionProvider', () => {
     const provider = new HtmlCompletionProvider();
-    const labels = (text: string, trigger?: string): string[] => {
+    const complete = (text: string): vscode.CompletionItem[] => {
         const at = text.indexOf('|');
         const document = fakeDocument(text.replace('|', ''));
-        const items = provider.provideCompletionItems(
-            document as never, document.positionAt(at) as never, undefined as never,
-            { triggerCharacter: trigger, triggerKind: trigger ? 1 : 0 } as never,
-        ) as vscode.CompletionItem[];
-        return items.map(item => String(item.label));
+        return provider.provideCompletionItems(document, document.positionAt(at))?.items ?? [];
     };
+    const labels = (text: string): string[] => complete(text).map(item => String(item.label));
 
     it('closes the element the parse says is open, not a tag in a comment, script or style', () => {
-        assert.deepStrictEqual(labels('<div><!-- <p> -->\n</|', '/'), ['/div']);
-        assert.deepStrictEqual(labels('<div><script>var s="<p>";</script>\n</|', '/'), ['/div']);
-        assert.deepStrictEqual(labels('<div><style>.a::after{content:"<b>"}</style>\n</|', '/'), ['/div']);
+        assert.deepStrictEqual(labels('<div><!-- <p> -->\n</|'), ['/div']);
+        assert.deepStrictEqual(labels('<div><script>var s="<p>";</script>\n</|'), ['/div']);
+        assert.deepStrictEqual(labels('<div><style>.a::after{content:"<b>"}</style>\n</|'), ['/div']);
     });
 
     it('closes a custom element', () => {
-        assert.deepStrictEqual(labels('<my-el>\n</|', '/'), ['/my-el']);
+        assert.deepStrictEqual(labels('<my-el>\n</|'), ['/my-el']);
+    });
+
+    it('lines a closing tag up with its opening tag', () => {
+        const [item] = complete('  <div>\n      </|');
+        assert.strictEqual((item.insertText as vscode.SnippetString).value ?? item.insertText, '  </div>');
+        assert.strictEqual((item.range as vscode.Range).start.character, 0);
     });
 
     it('offers no markup inside a comment', () => {
-        assert.deepStrictEqual(labels('<!-- note: use <|', '<'), []);
+        assert.deepStrictEqual(labels('<!-- note: use <|'), []);
     });
 
     it('does not take a <!-- in a script string or an attribute for a comment', () => {
-        assert.ok(labels('<script>var s = "<!--";</script>\n<|', '<').includes('div'));
-        assert.ok(labels('<a title="<!--">x</a>\n<|', '<').includes('div'));
+        assert.ok(labels('<script>var s = "<!--";</script>\n<|').includes('div'));
+        assert.ok(labels('<a title="<!--">x</a>\n<|').includes('div'));
+    });
+
+    it('offers every element the HTML data knows, a closer for the open one first', () => {
+        const offered = labels('<section>\n<|');
+        for (const tag of ['div', 'template', 'picture', 'dialog', '/section']) { assert.ok(offered.includes(tag), tag); }
+    });
+
+    it('writes a picked tag whole, laid out by kind, unless the tag goes on after it', () => {
+        const insert = (text: string, tag: string) => {
+            const item = complete(text).find(i => i.label === tag);
+            return item?.insertText instanceof vscode.SnippetString ? item.insertText.value : item?.insertText;
+        };
+        assert.strictEqual(insert('<p>Some text <|\n', 'span'), 'span>$0</span>');
+        assert.strictEqual(insert('<p>Some text <|\n', 'div'), 'div>\n\t$0\n</div>');
+        assert.strictEqual(insert('<p>Some text <|\n', 'br'), 'br $0/>');
+        assert.strictEqual(insert('<di| class="a">', 'div'), 'div');
     });
 
     it('offers attributes on a later line of a tag, leaving out the ones it has', () => {
         const offered = labels('<div\n  class="a"\n  |');
         assert.ok(offered.includes('id'), 'id');
         assert.ok(!offered.includes('class'), 'class is already on the tag');
+    });
+
+    it("offers a tag's own attributes, and goes on to the values of one that has them", () => {
+        const items = complete('<input |');
+        assert.ok(items.some(i => i.label === 'autocomplete'), 'autocomplete');
+        assert.strictEqual(items.find(i => i.label === 'type')?.command?.command, 'editor.action.triggerSuggest');
+        assert.ok(labels('<input type="|">').includes('checkbox'));
+    });
+
+    // A `>` that is not the tag's end, ASP in the tag, or markup-like text
+    // before it, must not end the tag early.
+    it('stays inside the tag past a > in a value, an event handler, ASP, a < in text or a script', () => {
+        for (const text of [
+            '<a title="a > b" |>',
+            '<a onclick="if(a>b)go()" |>',
+            '<a title="<%= x %>" |>',
+            '<p>qty < 5</p>\n<a |>',
+            '<script>\n  if (a<b) { }\n</script>\n<a |>',
+        ]) {
+            assert.ok(labels(text).includes('href'), text);
+        }
+    });
+
+    it('offers no attributes once the tag has closed', () => {
+        assert.ok(!labels('<a title="a > b">text |').includes('href'));
+    });
+
+    it('offers nothing in the ASP inside a tag', () => {
+        assert.deepStrictEqual(labels('<a title="<%= | %>">'), []);
     });
 });

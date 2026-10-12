@@ -2,8 +2,8 @@
  * htmlLanguageFeatures.ts  (html/)
  *
  * What VS Code's own HTML support gives a .html file, for the markup of a page:
- * hovers on tags and attributes, the values an attribute takes (`type="`,
- * `target="`), and linked editing of a tag pair. It is the same library —
+ * tag, attribute and value suggestions, hovers on tags and attributes, and
+ * linked editing of a tag pair. It is the same library —
  * vscode-html-languageservice — run over the page with its ASP blanked out, so
  * a `<%= x %>` between two tags is space to it, not markup it cannot read.
  */
@@ -17,8 +17,6 @@ import { textOf, zonesFor } from '../platform/documentState';
 import type { BlockEvent } from '../vbscript/pageAnalysis';
 import { analysedPage } from '../asp/vbscriptWorkspace';
 import { fromLspCompletion, fromLspMarkdown, fromLspRange } from '../platform/lspConvert';
-import { loadHtmlService } from '../core/lazyModule';
-import { isSelfClosingTag } from '../constants/htmlTags';
 
 interface ParsedPage {
     version:  number;
@@ -63,54 +61,27 @@ export class HtmlHoverProvider implements vscode.HoverProvider {
     }
 }
 
-// ── Attribute values ──────────────────────────────────────────────────────────
-
-/** The values the attribute at `position` takes — `text`, `checkbox`… after `type="`. */
-export function htmlAttributeValueCompletions(
-    document: vscode.TextDocument,
-    position: vscode.Position,
-): vscode.CompletionItem[] {
-    const page = parse(document);
-    // The service read the page line for line, so its ranges are the page's.
-    return htmlService().doComplete(page.document, position, page.html).items
-        .map(value => fromLspCompletion(value, { kind: vscode.CompletionItemKind.Value, useRange: true }));
-}
+// ── Completion ────────────────────────────────────────────────────────────────
 
 /**
- * The innermost element still open at `position`, found the way VS Code's own
- * HTML support finds what `</` closes: from the parse, so a tag inside a
- * comment, a script or a style is not one.
+ * The tags, closing tags, attributes and attribute values a .html file offers
+ * at `position`, with the same `html.completion.attributeDefaultValue` setting.
+ * The service read the page line for line, so its ranges are the page's.
  */
-export function unclosedElementBefore(
-    document: vscode.TextDocument,
-    position: vscode.Position,
-): { tag: string; start: number } | undefined {
-    const offset = document.offsetAt(position);
-    const page   = parse(document);
-    const text   = page.document.getText();
-    for (let node: HtmlLs.Node | undefined = page.html.findNodeBefore(offset); node; node = node.parent) {
-        if (!node.tag || isSelfClosingTag(node.tag)) { continue; }
-        if (text.slice(node.start, node.startTagEnd).endsWith('/>')) { continue; }
-        if (node.endTagStart === undefined || node.endTagStart > offset) { return { tag: node.tag, start: node.start }; }
-    }
-    return undefined;
-}
-
-/** The attribute names already written on the tag at `position`, lower-cased. */
-export function attributesOnTag(document: vscode.TextDocument, position: vscode.Position): Set<string> {
-    const node = parse(document).html.findNodeAt(document.offsetAt(position));
-    return new Set(Object.keys(node.attributes ?? {}).map(name => name.toLowerCase()));
+export function htmlCompletions(document: vscode.TextDocument, position: vscode.Position): vscode.CompletionList {
+    const page = parse(document);
+    const list = htmlService().doComplete(page.document, position, page.html, {
+        attributeDefaultValue: otherSetting<'doublequotes' | 'singlequotes' | 'empty'>('html', 'completion.attributeDefaultValue', document),
+    });
+    return new vscode.CompletionList(
+        list.items.map(item => fromLspCompletion(item, { kind: vscode.CompletionItemKind.Property, useRange: true })),
+        list.isIncomplete,
+    );
 }
 
 /** True when `offset` is inside an HTML comment, where a .html file offers no markup. */
 export function inHtmlComment(document: vscode.TextDocument, offset: number): boolean {
     return inRanges(zonesFor(document).markup.comments, offset, true);
-}
-
-/** True when the HTML data lists values for this attribute, so picking it should show them. */
-export function attributeHasValues(tagName: string, attribute: string): boolean {
-    return loadHtmlService().getDefaultHTMLDataProvider()
-        .provideValues(tagName.toLowerCase(), attribute.toLowerCase()).length > 0;
 }
 
 // ── Linked editing ────────────────────────────────────────────────────────────
