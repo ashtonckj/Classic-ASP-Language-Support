@@ -11,7 +11,7 @@
  * formatter its strings) first.
  */
 
-import { endsWithContinuation } from '../core/vbLexical';
+import { endsWithContinuation, scanVbLine } from '../core/vbLexical';
 import { parseProgram } from './parser';
 import { walkStatements } from './symbols';
 
@@ -74,16 +74,11 @@ export function isBlockOpener(line: string): boolean {
 }
 
 /**
- * Given a line that ends with `& _` or `+ _` and contains a string literal,
- * returns the column index of the opening `"` of that string.
- * Returns -1 if no string literal is found on the line.
- *
- * Example:
- *   `    stmt = "SELECT " & _`  →  11  (column of the first ")
+ * The column of the first string literal's opening `"` on a line that ends
+ * with `& _`, or -1 when there is none: `    stmt = "SELECT " & _` gives 11.
+ * `from` is where the line's VBScript starts, so a quote in the HTML before
+ * a `<%` does not count.
  */
-export function getStringAlignColumn(lineText: string): number {
-    // Strip the trailing ` & _` / ` + _` so we search only the value part.
-    const stripped = lineText.replace(/\s*[&+]\s*_\s*$/, '');
-    const col = stripped.indexOf('"');
-    return col; // -1 if no quote found
+export function getStringAlignColumn(lineText: string, from = 0): number {
+    return scanVbLine(lineText, from).strings[0]?.start ?? -1;
 }

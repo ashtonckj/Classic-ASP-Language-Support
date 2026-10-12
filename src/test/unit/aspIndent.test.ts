@@ -1,5 +1,6 @@
 import * as assert from 'assert';
-import { isBlockOpener } from '../../asp/typing/vbIndent';
+import { isBlockOpener } from '../../vbscript/indentRules';
+import { vbNextLineIndent } from '../../asp/typing/vbIndent';
 import { tagToAutoClose } from '../../asp/typing/autoClose';
 import { continuesOpenJsDocComment } from '../../asp/typing/enterKey';
 import { Zone } from '../../core/zoneUtils';
@@ -47,6 +48,42 @@ describe('isBlockOpener', () => {
         assert.strictEqual(isBlockOpener('Dim x'), false);
         assert.strictEqual(isBlockOpener('x = 1'), false);
         assert.strictEqual(isBlockOpener('Public Balance'), false); // a field, not a block
+    });
+});
+
+// Enter (on the line) and Tab (on the blank line below it) both take the next
+// line's indent from vbNextLineIndent, which follows the formatter's rule.
+describe('vbNextLineIndent', () => {
+    const after = (...lines: string[]) =>
+        vbNextLineIndent({ lineAt: i => ({ text: lines[i] }) }, lines.length - 1, lines[lines.length - 1], '    ');
+
+    it('indents the body after an opener, Else and Case', () => {
+        assert.strictEqual(after('  If x Then'), '      ');
+        assert.strictEqual(after('  Else'), '      ');
+        assert.strictEqual(after('    Case 1'), '        ');
+        assert.strictEqual(after('  Case Else'), '      ');
+        assert.strictEqual(after('<% If x Then'), '    ');
+    });
+
+    it('keeps the indent after a closer, a plain statement and a one-line If', () => {
+        for (const line of ['  End If', '  x = 1', '  If x Then : y = 1', '  For i = 1 To 3 : Next', '  <%']) {
+            assert.strictEqual(after(line), '  ', line);
+        }
+    });
+
+    it('steps back after a statement that closes a block behind a colon', () => {
+        assert.strictEqual(after('        x = 1 : End If'), '    ');
+    });
+
+    it('lines a string joined with & _ up under its first string, not under a quote in the HTML', () => {
+        assert.strictEqual(after('  s = "a" & _'), '      ');
+        const line = '<td class="x"><% s = "a" & _';
+        assert.strictEqual(after(line), ' '.repeat(line.indexOf('"a"')));
+    });
+
+    it('goes back to where the statement started after the last line of a chain', () => {
+        assert.strictEqual(after('If x Then', '    s = "a" & _', '        "b"'), '    ');
+        assert.strictEqual(after('    s = "a"_', '        & "b"'), '    ');
     });
 });
 

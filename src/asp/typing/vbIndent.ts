@@ -10,64 +10,68 @@
 import * as vscode from 'vscode';
 import { isInlineTag, isSelfClosingTag } from '../../constants/htmlTags';
 import { endsWithContinuation, splitCodeAndComment } from '../../core/vbLexical';
-import { CLOSER_TO_OPENER } from '../../vbscript/indentRules';
+import { aspCodeStartOnLine } from '../../platform/documentHelper';
+import { applyIndentForLine } from '../../formatter/aspFormatter';
+import { CLOSER_TO_OPENER, getStringAlignColumn } from '../../vbscript/indentRules';
 
-export {
-    VBSCRIPT_BLOCK_CLOSERS, VBSCRIPT_EXACT_CLOSER, VBSCRIPT_MID_BLOCK, getStringAlignColumn, isBlockOpener,
-} from '../../vbscript/indentRules';
+export { VBSCRIPT_BLOCK_CLOSERS, VBSCRIPT_EXACT_CLOSER, VBSCRIPT_MID_BLOCK } from '../../vbscript/indentRules';
+
+/** Lines by number; a vscode.TextDocument is one. */
+export interface Lines { lineAt(line: number): { text: string } }
+
+const indentOf = (text: string) => /^\s*/.exec(text)![0];
 
 // ── Line-continuation helpers ──────────────────────────────────────────────
 
 /**
- * Given a physical line index `physLine`, walks backward to collect the full
- * logical line that ENDS at `physLine`.
- *
- * Returns:
- *   text      — joined logical text (continuation markers stripped)
- *   startLine — physical line index where the logical line begins
- *               (used to read the correct leading whitespace for indent snapping)
- *
- * Example — if lines 5, 6, 7 look like:
- *   5:  If (a And b) Or _
- *   6:     (c And d) Or _
- *   7:     (e And f) Then
- *
- * getLogicalLineEndingAt(doc, 7) returns:
- *   { text: "If (a And b) Or    (c And d) Or    (e And f) Then", startLine: 5 }
+ * The first line of the `_` chain that ends at `line`: `line` itself unless the
+ * line above continues into it. A blank line ends a chain, as cscript reads it.
  */
-function getLogicalLineEndingAt(
-    document: vscode.TextDocument,
-    physLine: number
-): { text: string; startLine: number } {
-    // Collect the chain by walking backward from physLine - 1 to find the start.
-    // Blank lines between continuation lines are skipped — they are just formatting
-    // whitespace and do not break the chain.  Only a non-blank line that does NOT
-    // end with _ terminates the backward walk.
-    const chainLines: string[] = [document.lineAt(physLine).text];
-    let startLine = physLine;
+function chainStart(document: Lines, line: number): number {
+    let start = line;
+    while (start > 0 && endsWithContinuation(document.lineAt(start - 1).text)) { start--; }
+    return start;
+}
 
-    for (let i = physLine - 1; i >= 0; i--) {
-        const t = document.lineAt(i).text;
-        if (t.trim() === '') {
-            continue; // blank line — skip, keep walking backward
-        }
-        if (endsWithContinuation(t)) {
-            chainLines.unshift(t);
-            startLine = i;
-        } else {
-            break;
-        }
+/**
+ * The statement that ends at `physLine`, its `_` chain joined into one line, and
+ * the line it starts on (whose indent an opener's closer snaps to):
+ *   5:  If (a And b) Or _
+ *   6:     (c And d) Then
+ * gives `If (a And b) Or     (c And d) Then` starting at 5.
+ */
+function getLogicalLineEndingAt(document: Lines, physLine: number): { text: string; startLine: number } {
+    const startLine = chainStart(document, physLine);
+    let text = '';
+    for (let i = startLine; i < physLine; i++) { text += document.lineAt(i).text.replace(/_\s*$/, ' '); }
+    return { text: (text + document.lineAt(physLine).text).trim(), startLine };
+}
+
+/**
+ * The indent of the line after line `line` of VBScript, whose text up to the
+ * caret is `text`. Enter and Tab both ask this, so they indent alike, and by
+ * the formatter's own rule (applyIndentForLine).
+ */
+export function vbNextLineIndent(document: Lines, line: number, text: string, indentUnit: string): string {
+    const indent = indentOf(text);
+    const from = aspCodeStartOnLine(text, text.length);
+
+    if (endsWithContinuation(text, from)) {
+        // A string joined with `& _` lines up under the string it started with.
+        if (!/[&+]\s*_\s*$/.test(text)) { return indent + indentUnit; }
+        const col = getStringAlignColumn(text, from);
+        return col >= 0 ? ' '.repeat(col) : indent;
+    }
+    // The last line of a chain: back to where its statement started.
+    if (line > 0 && endsWithContinuation(document.lineAt(line - 1).text)) {
+        return indentOf(document.lineAt(chainStart(document, line)).text);
     }
 
-    // Strip the trailing ` _` from all but the last line and join,
-    // filtering out any blank lines that were interspersed in the chain.
-    const nonBlank = chainLines.filter(l => l.trim() !== '');
-    const joined = nonBlank
-        .map((l, idx) => idx < nonBlank.length - 1 ? l.replace(/\s_\s*$/, ' ') : l)
-        .join('')
-        .trim();
-
-    return { text: joined, startLine };
+    const code = splitCodeAndComment(text, from).code.slice(from).trim();
+    // From a level deep enough that no closer stops at zero, so only the step counts.
+    const { printLevel, endLevel } = applyIndentForLine(code, 10, []);
+    const step = endLevel - printLevel;
+    return step >= 0 ? indent + indentUnit.repeat(step) : indent.slice(0, Math.max(0, indent.length + step * indentUnit.length));
 }
 
 /**
@@ -288,47 +292,4 @@ export function findEnclosingHtmlChildIndent(
         }
     }
     return null;
-}
-
-// ── String-continuation alignment helpers ─────────────────────────────────
-
-
-/**
- * Scans upward from `fromLine` (exclusive) to find the first line of a
- * VBScript line-continuation chain — i.e. the line whose previous line does
- * NOT end with `_`.  Returns that line's leading whitespace (base indent).
- *
- * If the scan reaches the top of the document without finding a non-continuation
- * predecessor, it returns the indent of the topmost line examined.
- */
-export function findContinuationChainBaseIndent(
-    document: vscode.TextDocument,
-    fromLine: number,
-): string {
-    // Walk upward. The chain looks like:
-    //   anotherlongstmt = "..." & _   <- opener (no _ on the line BEFORE it)
-    //                     "..." & _   <- mid-chain continuation
-    //                     "..."       <- fromLine (last line, no _)
-    //
-    // Skip fromLine itself (no _), then skip every line that DOES end with _,
-    // and return the indent of the first line that does NOT end with _ — that
-    // is the statement opener.
-    let skippedFromLine = false;
-    let lastChainLineIndent = document.lineAt(fromLine).text.match(/^(\s*)/)?.[1] ?? '';
-    for (let i = fromLine; i >= 0; i--) {
-        const text = document.lineAt(i).text;
-        // Blank line = statement boundary — the previous chain line is the opener.
-        if (!text.trim()) { return lastChainLineIndent; }
-        const isContinuation = endsWithContinuation(text);
-        if (!skippedFromLine) {
-            skippedFromLine = true; // fromLine itself — skip it
-            continue;
-        }
-        if (!isContinuation) {
-            return text.match(/^(\s*)/)?.[1] ?? ''; // statement opener
-        }
-        // Line ends with _ — mid-chain continuation, record its indent and keep going
-        lastChainLineIndent = text.match(/^(\s*)/)?.[1] ?? '';
-    }
-    return lastChainLineIndent;
 }

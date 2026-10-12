@@ -12,7 +12,7 @@ import { isInlineTag, isSelfClosingTag } from '../../constants/htmlTags';
 import { ASP_OBJECT_NAMES } from '../../constants/aspKeywords';
 import type { Zone } from '../../core/zoneUtils';
 import { zonesFor } from '../../platform/documentState';
-import { findEnclosingHtmlChildIndent, isBlockOpener } from './vbIndent';
+import { findEnclosingHtmlChildIndent, vbNextLineIndent } from './vbIndent';
 import { getIndentUnit } from './editing';
 
 // ── Tab key handler ────────────────────────────────────────────────────────
@@ -283,11 +283,13 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
         // Find nearest non-empty line above
         let baseIndent   = '';
         let prevLineText = '';
+        let prevLine     = -1;
         for (let i = position.line - 1; i >= 0; i--) {
             const text = editor.document.lineAt(i).text;
             if (text.trim().length > 0) {
                 baseIndent   = text.match(/^(\s*)/)?.[1] ?? '';
                 prevLineText = text.trim();
+                prevLine     = i;
                 break;
             }
         }
@@ -303,13 +305,9 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
             // Use the enclosing HTML opener's child indent — same logic as Enter after %>.
             targetIndent = findEnclosingHtmlChildIndent(editor.document, position.line, indentUnit)
                            ?? baseIndent;
-        } else if (prevLineText.startsWith('<%')) {
-            // After <% — VBScript code is at the same level as <%, no extra indent
-            targetIndent = baseIndent;
-        } else if (inAsp && isBlockOpener(prevLineText)) {
-            targetIndent = baseIndent + indentUnit;
         } else if (inAsp) {
-            targetIndent = baseIndent;
+            // Where Enter at the end of that line would have put the caret.
+            targetIndent = prevLine === -1 ? '' : vbNextLineIndent(editor.document, prevLine, editor.document.lineAt(prevLine).text, indentUnit);
         } else {
             // Plain HTML / <script> / <style>:
             // Add one extra level when the previous line opens a block.
