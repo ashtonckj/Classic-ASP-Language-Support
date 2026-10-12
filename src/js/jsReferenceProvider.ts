@@ -14,31 +14,30 @@
  */
 
 import * as vscode from 'vscode';
-import { jsQueryAt, jsRange } from './jsDocument';
+import { askJs, jsOffsetAt, jsRange } from './jsDocument';
 
 export class JsReferenceProvider implements vscode.ReferenceProvider {
 
-    provideReferences(
+    async provideReferences(
         document: vscode.TextDocument,
         position: vscode.Position,
         context:  vscode.ReferenceContext,
         token:    vscode.CancellationToken,
-    ): vscode.ProviderResult<vscode.Location[]> {
+    ): Promise<vscode.Location[] | undefined> {
 
-        const ready = jsQueryAt(document, position);
-        if (!ready || token.isCancellationRequested) { return undefined; }
+        const offset = jsOffsetAt(document, position);
+        if (offset === undefined) { return undefined; }
 
         // ReferenceEntry does not say which hit is the declaration, so when the
         // caller does not want it, resolve it separately and skip that span.
-        const declarations = new Set<string>();
-        if (!context.includeDeclaration) {
-            for (const def of ready.svc.getDefinitions(ready.offset)) {
-                declarations.add(`${def.fileName}:${def.textSpan.start}`);
-            }
-        }
+        const [definitions, references] = await Promise.all([
+            context.includeDeclaration ? [] : askJs(document, 'getDefinitions', [offset], token),
+            askJs(document, 'getReferences', [offset], token),
+        ]);
+        const declarations = new Set((definitions ?? []).map(def => `${def.fileName}:${def.textSpan.start}`));
 
         const locations: vscode.Location[] = [];
-        for (const ref of ready.svc.getReferences(ready.offset)) {
+        for (const ref of references ?? []) {
             if (declarations.has(`${ref.fileName}:${ref.textSpan.start}`)) { continue; }
             const range = jsRange(document, ref.fileName, ref.textSpan);
             if (range) { locations.push(new vscode.Location(document.uri, range)); }
@@ -50,17 +49,17 @@ export class JsReferenceProvider implements vscode.ReferenceProvider {
 
 export class JsDocumentHighlightProvider implements vscode.DocumentHighlightProvider {
 
-    provideDocumentHighlights(
+    async provideDocumentHighlights(
         document: vscode.TextDocument,
         position: vscode.Position,
         token:    vscode.CancellationToken,
-    ): vscode.ProviderResult<vscode.DocumentHighlight[]> {
+    ): Promise<vscode.DocumentHighlight[] | undefined> {
 
-        const ready = jsQueryAt(document, position);
-        if (!ready || token.isCancellationRequested) { return undefined; }
+        const offset = jsOffsetAt(document, position);
+        if (offset === undefined) { return undefined; }
 
         const highlights: vscode.DocumentHighlight[] = [];
-        for (const perFile of ready.svc.getDocumentHighlights(ready.offset)) {
+        for (const perFile of await askJs(document, 'getDocumentHighlights', [offset], token) ?? []) {
             for (const hit of perFile.highlightSpans) {
                 const range = jsRange(document, perFile.fileName, hit.textSpan);
                 if (!range) { continue; }

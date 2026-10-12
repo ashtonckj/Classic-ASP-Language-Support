@@ -1,21 +1,23 @@
 /**
  * jsAnalysisWorker.ts  (workers/)
  *
- * A worker thread that runs the JavaScript analysis that is recomputed after
- * every edit whether or not the user asked for anything: semantic
- * classification (type-aware colouring), semantic/syntactic diagnostics (the
- * error squiggles), and the Outline, read off the syntax tree the first two
- * have already parsed.
+ * The one TypeScript service of the extension, on a worker thread, as VS
+ * Code's own HTML support keeps its JavaScript service in its language server.
+ * It answers two kinds of request about a page:
  *
- * Why these two and not the rest. TypeScript resolves types lazily, so a query
- * about ONE offset — a completion, a hover, a Go to Definition — only checks
- * what that offset depends on, and measured about a third of a whole-file pass.
- * These two are whole-file by definition and measured over a second each on a
- * 670 KB <script> block, on a thread that also has to run this extension's
- * auto-close, indent and suggestion handling. Moving the on-demand queries here
- * too would be worse, not better: this thread handles one job at a time, so a
- * completion would then have to wait behind a classification it has nothing to
- * do with. They stay on the extension host, where they are cheap and prompt.
+ *   • its analysis, recomputed after every edit whether or not the user asked
+ *     for anything: semantic classification (type-aware colouring),
+ *     semantic/syntactic diagnostics (the error squiggles), and the Outline,
+ *     read off the syntax tree the first two have already parsed;
+ *   • a query — completion, hover, signature help, definition, references,
+ *     highlights, rename, quick fixes — which is one JsLanguageService call,
+ *     named in the request, its answer posted back as TypeScript gives it.
+ *
+ * The analysis is whole-file and takes over a second on a 670 KB <script>;
+ * a query looks at one offset and takes tens of milliseconds. So a query never
+ * waits behind an analysis: the extension host sends it first, and stops the
+ * analysis under way through workerData.cancel, which the service's
+ * cancellation token reads (analysisClient re-sends the analysis after).
  *
  * Nothing here may import vscode — a worker thread has no access to it. That
  * is why jsUtils.ts holds no vscode import and the two enum mappings that did
@@ -36,9 +38,23 @@ const cancellation: ts.HostCancellationToken = {
     isCancellationRequested: () => cancelFlag !== undefined && Atomics.load(cancelFlag, 0) === 1,
 };
 
-export interface JsAnalysisRequest {
+/** The service calls a provider may ask for. */
+export type JsQueryMethod =
+    | 'getCompletions' | 'getCompletionDetails' | 'getQuickInfo' | 'getSignatureHelp'
+    | 'getDefinitions' | 'getReferences' | 'getDocumentHighlights'
+    | 'getRenameInfo' | 'findRenameLocations' | 'getCodeFixes';
+
+export interface JsWorkerRequest {
     id:   number;
+    /** The page, as it is now. */
     text: string;
+    /** A question about the page; without one, the request is for its analysis. */
+    query?: { method: JsQueryMethod; args: unknown[] };
+}
+
+/** What the service call in a query returned. */
+export interface JsQueryAnswer extends WorkerAnswer {
+    value?: unknown;
 }
 
 /** A ts.Diagnostic flattened to what survives being posted between threads. */
@@ -64,9 +80,9 @@ export interface JsAnalysisResult extends WorkerAnswer {
     outlineError?: string;
 }
 
-function analyse(request: JsAnalysisRequest): JsAnalysisResult {
+function analyse(request: JsWorkerRequest): JsAnalysisResult {
     const jsRanges = getJsBlockRanges(request.text);
-    if (jsRanges.length === 0) { return emptyAnswer(request); }
+    if (jsRanges.length === 0) { return { id: request.id, jsRanges, spans: [], diagnostics: [], outline: [] }; }
 
     const svc = getJsLanguageService(cancellation);
     svc.loadPage(request.text, jsRanges);
@@ -121,20 +137,27 @@ function analyse(request: JsAnalysisRequest): JsAnalysisResult {
     };
 }
 
-/** The analysis, or an answer marked `cancelled` when the host stopped it. */
-function analyseUnlessCancelled(request: JsAnalysisRequest): JsAnalysisResult {
+function answerQuery(request: JsWorkerRequest, query: NonNullable<JsWorkerRequest['query']>): JsQueryAnswer {
+    const svc = getJsLanguageService(cancellation);
+    svc.loadPage(request.text);
+    const call = svc[query.method] as (...args: unknown[]) => unknown;
+    return { id: request.id, value: call.apply(svc, query.args) };
+}
+
+/** The answer, or one marked `cancelled` when the host stopped the work. */
+function answer(request: JsWorkerRequest): JsAnalysisResult | JsQueryAnswer {
     try {
-        return analyse(request);
+        return request.query ? answerQuery(request, request.query) : analyse(request);
     } catch (error) {
         if (!(error instanceof ts.OperationCanceledException)) { throw error; }
         return { ...emptyAnswer(request), cancelled: true };
     }
 }
 
-function emptyAnswer(request: JsAnalysisRequest): JsAnalysisResult {
-    return { id: request.id, jsRanges: [], spans: [], diagnostics: [], outline: [] };
+function emptyAnswer(request: JsWorkerRequest): JsAnalysisResult | JsQueryAnswer {
+    return request.query ? { id: request.id } : { id: request.id, jsRanges: [], spans: [], diagnostics: [], outline: [] };
 }
 
-// Analysis is best-effort: a half-typed document that trips the parser must
-// cost this one refresh, not the worker.
-serveWorker<JsAnalysisRequest, JsAnalysisResult>(analyseUnlessCancelled, emptyAnswer);
+// Best-effort: a half-typed document that trips the parser must cost this one
+// answer, not the worker.
+serveWorker<JsWorkerRequest, JsAnalysisResult | JsQueryAnswer>(answer, emptyAnswer);

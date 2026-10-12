@@ -213,6 +213,10 @@ export class SnippetString {
     constructor(public readonly value: string) {}
 }
 
+export class Hover {
+    constructor(public readonly contents: unknown, public readonly range?: Range) {}
+}
+
 /** Keeps what was appended as one Markdown string, as the real class does. */
 export class MarkdownString {
     constructor(public value = '') {}

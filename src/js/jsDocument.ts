@@ -2,23 +2,38 @@
  * jsDocument.ts
  *
  * The editor side of the JavaScript features: what every JS provider does
- * with a document before it asks the TypeScript service anything. jsUtils.ts
- * holds the vscode-free part, which the JS worker runs too.
+ * with a document before it asks the TypeScript service, which lives on the
+ * JS worker (workers/jsAnalysisWorker.ts), anything.
  */
 
 import * as vscode from 'vscode';
-import { textOf, zonesFor } from '../platform/documentState';
 import type * as ts from 'typescript';
-import { getJsLanguageService, VIRTUAL_FILENAME, type JsLanguageService } from './jsUtils';
+import { textOf, zonesFor } from '../platform/documentState';
+import { queryEmbeddedJs } from '../workers/analysisClient';
+import type { JsQueryMethod } from '../workers/jsAnalysisWorker';
+import { VIRTUAL_FILENAME, type JsLanguageService } from './jsUtils';
 
-/** The service with the page loaded, and the caret, or undefined outside a <script> block. */
-export function jsQueryAt(document: vscode.TextDocument, at: vscode.Position | number): { svc: JsLanguageService; offset: number } | undefined {
+/** The caret as a page offset when it is in a <script> block, else undefined. */
+export function jsOffsetAt(document: vscode.TextDocument, at: vscode.Position | number): number | undefined {
     const offset = typeof at === 'number' ? at : document.offsetAt(at);
-    const zones = zonesFor(document);
-    if (zones.zoneAt(offset) !== 'js') { return undefined; }
-    const svc = getJsLanguageService();
-    svc.loadPage(textOf(document), zones.jsBlocks);
-    return { svc, offset };
+    return zonesFor(document).zoneAt(offset) === 'js' ? offset : undefined;
+}
+
+/**
+ * What the JavaScript service's `method` answers about the page as it is now,
+ * or undefined when the request was cancelled, the worker could not answer,
+ * or the page changed meanwhile, which would put the answer's offsets in the
+ * wrong places.
+ */
+export async function askJs<M extends JsQueryMethod>(
+    document: vscode.TextDocument,
+    method:   M,
+    args:     Parameters<JsLanguageService[M]>,
+    token:    vscode.CancellationToken,
+): Promise<ReturnType<JsLanguageService[M]> | undefined> {
+    const version = document.version;
+    const answer = await queryEmbeddedJs(document.uri.toString(), textOf(document), method, args, token);
+    return document.version === version && !token.isCancellationRequested ? answer : undefined;
 }
 
 /**

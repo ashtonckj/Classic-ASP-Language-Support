@@ -1,12 +1,12 @@
 /**
  * jsCompletionProvider.ts  (js/)
  *
- * TypeScript Language Service completions for <script> blocks.
+ * TypeScript Language Service completions for <script> blocks, asked of the
+ * JS worker (jsDocument's askJs).
  *
- * Resolution data is stored on item.data so it survives VS Code's internal
- * serialize/deserialize cycle between provideCompletionItems and resolveCompletionItem.
+ * What resolveCompletionItem needs is kept on item.data.
  *
- * Trigger characters registered in extension.ts: '.', '('
+ * Trigger characters registered in jsFeatures.ts: '.', '('
  *
  * That set is OURS, not TypeScript's: '(' is registered so the suggestion list
  * reopens on a call, but TypeScript's completion API rejects any trigger outside
@@ -26,23 +26,16 @@
  */
 
 import * as vscode from 'vscode';
-import { getJsLanguageService } from './jsUtils';
 import { textOf } from '../platform/documentState';
-import { jsDocMarkdown, jsQueryAt } from './jsDocument';
+import { askJs, jsDocMarkdown, jsOffsetAt } from './jsDocument';
 import { tsKindToVsKind } from './jsTsKinds';
 
 interface ItemData {
-    name:    string;
-    /** The caret, as a page offset. */
-    offset:  number;
-    /**
-     * The virtual file the list was worked out from. The one language service
-     * serves every page, so by the time an item is resolved it may hold another
-     * page's script, or a later version of this one; the details are asked of
-     * the text the item came from.
-     */
-    content: string;
-    source?: string;
+    document: vscode.TextDocument;
+    name:     string;
+    /** The caret the list was worked out for, as a page offset. */
+    offset:   number;
+    source?:  string;
     /** True when the entry kind is Function or Method — used in resolveCompletionItem
      *  to decide whether to inject a call-snippet. */
     isFunctionLike: boolean;
@@ -53,16 +46,15 @@ const FRESH_CONTEXT_CHARS = new Set([' ', '\t', '\n', ';', '{', '}', '(', ',', '
 
 export class JsCompletionProvider implements vscode.CompletionItemProvider {
 
-    provideCompletionItems(
+    async provideCompletionItems(
         document: vscode.TextDocument,
         position: vscode.Position,
         token:    vscode.CancellationToken,
         context:  vscode.CompletionContext,
-    ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
+    ): Promise<vscode.CompletionList | undefined> {
 
-        const query = jsQueryAt(document, position);
-        if (!query || token.isCancellationRequested) { return undefined; }
-        const { svc, offset } = query;
+        const offset = jsOffsetAt(document, position);
+        if (offset === undefined) { return undefined; }
         const text = textOf(document);
 
         // ── Determine trigger character ──────────────────────────────────────
@@ -71,8 +63,8 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         const prevChar        = offset > 0 ? text[offset - 1] : '';
         const triggerChar     = explicitTrigger ?? (prevChar === '.' ? '.' : undefined);
 
-        const completions = svc.getCompletions(offset, triggerChar);
-        if (!completions || token.isCancellationRequested) { return undefined; }
+        const completions = await askJs(document, 'getCompletions', [offset, triggerChar], token);
+        if (!completions) { return undefined; }
 
         const items = completions.entries
             // Internal projection variables must never surface to the user.
@@ -106,7 +98,7 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
                                  || item.kind === vscode.CompletionItemKind.Method;
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (item as any).data = { name: entry.name, offset, content: text, source: entry.source, isFunctionLike } satisfies ItemData;
+            (item as any).data = { document, name: entry.name, offset, source: entry.source, isFunctionLike } satisfies ItemData;
 
             return item;
         });
@@ -119,20 +111,22 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         return new vscode.CompletionList(items, incomplete);
     }
 
-    resolveCompletionItem(
+    async resolveCompletionItem(
         item:  vscode.CompletionItem,
         token: vscode.CancellationToken
-    ): vscode.ProviderResult<vscode.CompletionItem> {
+    ): Promise<vscode.CompletionItem> {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data = (item as any).data as ItemData | undefined;
-        if (!data || token.isCancellationRequested) { return item; }
+        if (!data || data.document.isClosed) { return item; }
 
-        // The page the item came from.
-        const svc = getJsLanguageService();
-        svc.loadPage(data.content);
-        const details = svc.getCompletionDetails(data.name, data.offset, data.source);
-        if (!details || token.isCancellationRequested) { return item; }
+        // Asked of the page as it is now, at the offset the list was worked out
+        // for, as VS Code's own TypeScript support resolves an item. The page
+        // may have moved on by a keystroke or two since; asking about the text
+        // the list came from would load that back into the service, and the
+        // next request would then re-check the whole page twice over.
+        const details = await askJs(data.document, 'getCompletionDetails', [data.name, data.offset, data.source], token);
+        if (!details) { return item; }
 
         const displayText = details.displayParts?.map(p => p.text).join('') ?? '';
         const docs        = jsDocMarkdown(details.documentation, details.tags);

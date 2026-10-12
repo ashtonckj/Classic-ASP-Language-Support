@@ -13,25 +13,21 @@
  */
 
 import * as vscode from 'vscode';
-import { jsQueryAt, jsRange } from './jsDocument';
+import { askJs, jsOffsetAt, jsRange } from './jsDocument';
 
 export class JsDefinitionProvider implements vscode.DefinitionProvider {
 
-    provideDefinition(
+    async provideDefinition(
         document: vscode.TextDocument,
         position: vscode.Position,
         token:    vscode.CancellationToken,
-    ): vscode.ProviderResult<vscode.Location[]> {
+    ): Promise<vscode.Location[] | undefined> {
 
-        const query = jsQueryAt(document, position);
-        if (!query || token.isCancellationRequested) { return undefined; }
-        const { svc, offset } = query;
-
-        const definitions = svc.getDefinitions(offset);
-        if (!definitions.length || token.isCancellationRequested) { return undefined; }
+        const offset = jsOffsetAt(document, position);
+        if (offset === undefined) { return undefined; }
 
         const locations: vscode.Location[] = [];
-        for (const def of definitions) {
+        for (const def of await askJs(document, 'getDefinitions', [offset], token) ?? []) {
             const range = jsRange(document, def.fileName, def.textSpan);
             if (range) { locations.push(new vscode.Location(document.uri, range)); }
         }

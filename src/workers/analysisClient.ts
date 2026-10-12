@@ -3,8 +3,9 @@
  *
  * The extension-host side of the page-analysis workers:
  *
- *   • jsAnalysisWorker.ts   — the type-aware JavaScript colouring and the JS
- *     squiggles, both from one TypeScript pass;
+ *   • jsAnalysisWorker.ts   — the JavaScript service: the type-aware colouring,
+ *     the squiggles and the Outline from one TypeScript pass, and every
+ *     JavaScript query (completion, hover, rename…);
  *   • aspColouringWorker.ts — the VBScript and SQL colouring, and the SQL warnings;
  *   • vbscriptWorker.ts     — the VBScript page's symbols and blocks, its checks,
  *     and the symbols of its include tree.
@@ -40,7 +41,8 @@
  *     given up on.
  *
  * When a worker cannot run at all: the VBScript work is done on the extension
- * host instead (vbscriptWorkspace.ts); the JavaScript and the VBScript/SQL
+ * host instead (vbscriptWorkspace.ts), and so is the JavaScript Outline, which
+ * needs only a parse; the rest of the JavaScript features, the VBScript/SQL
  * colouring and squiggles, and the include symbols completion offers, are left
  * off, as working them out on the host is what slowed typing down before the
  * workers existed.
@@ -51,7 +53,8 @@ import { Worker } from 'node:worker_threads';
 import type * as vscode from 'vscode';
 import { log } from '../platform/log';
 import type { WorkerAnswer } from './serveWorker';
-import type { JsAnalysisResult } from './jsAnalysisWorker';
+import type { JsAnalysisResult, JsQueryAnswer, JsQueryMethod, JsWorkerRequest } from './jsAnalysisWorker';
+import type { JsLanguageService } from '../js/jsUtils';
 import type { AspColouringRequest, AspColouringResult } from '../vbscript/aspColouring';
 import type { FileSymbols } from '../vbscript/symbolParser';
 import type { ChecksResult, IncludesResult, PageResult } from './vbscriptWorker';
@@ -298,13 +301,16 @@ export class AnalysisWorker<I extends object, R extends WorkerAnswer> {
     }
 }
 
-const jsWorker = new AnalysisWorker<{ text: string }, JsAnalysisResult>(
-    'JavaScript analysis',
+const jsWorker = new AnalysisWorker<Omit<JsWorkerRequest, 'id'>, JsAnalysisResult | JsQueryAnswer>(
+    'JavaScript',
     path.join(__dirname, 'jsAnalysisWorker.js'),
-    (a, b) => a.text === b.text,
+    // Only an analysis is shared or kept: a query is asked when it is needed.
+    (a, b) => !a.query && !b.query && a.text === b.text,
     // An empty answer is also what a failed analysis looks like, so it is not
     // kept: asking again is the only way to recover from that.
-    result => result.jsRanges.length > 0,
+    result => 'jsRanges' in result && result.jsRanges.length > 0,
+    // Someone is waiting on a query.
+    input => input.query !== undefined,
 );
 
 type AspColouringInput = Omit<AspColouringRequest, 'id'>;
@@ -343,7 +349,21 @@ const vbscriptWorker = new AnalysisWorker<VbscriptInput, PageResult | ChecksResu
  * are page offsets.
  */
 export function analyseEmbeddedJs(key: string, text: string, token?: vscode.CancellationToken): Promise<JsAnalysisResult | undefined> {
-    return jsWorker.request(key, { text }, token);
+    return jsWorker.request(key, { text }, token) as Promise<JsAnalysisResult | undefined>;
+}
+
+/**
+ * What the JavaScript service's `method` answers about `text`, the current
+ * text of the document `key` (its URI), at page offsets; undefined when a newer
+ * query of the same kind for that document superseded this one, `token` was
+ * cancelled, or the worker could not answer.
+ */
+export async function queryEmbeddedJs<M extends JsQueryMethod>(
+    key: string, text: string, method: M, args: Parameters<JsLanguageService[M]>, token?: vscode.CancellationToken,
+): Promise<ReturnType<JsLanguageService[M]> | undefined> {
+    // Keyed by kind, so a hover does not displace a completion, nor either an analysis.
+    const answer = await jsWorker.request(`${method}:${key}`, { text, query: { method, args } }, token) as JsQueryAnswer | undefined;
+    return answer?.value as ReturnType<JsLanguageService[M]> | undefined;
 }
 
 /**
@@ -387,7 +407,7 @@ export async function loadIncludeTree(key: string, request: ScopeRequest): Promi
     return result && !result.failed ? result.entries : undefined;
 }
 
-/** False when the JavaScript worker cannot run; the Outline is then worked out on the host. */
+/** False when the JavaScript worker cannot run; the Outline is then worked out on the host, and the rest is off. */
 export function jsWorkerUsable(): boolean {
     return jsWorker.usable;
 }

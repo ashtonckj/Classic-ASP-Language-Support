@@ -52,7 +52,7 @@ export function outlineOnHost(document: vscode.TextDocument): vscode.DocumentSym
     const ts: typeof TS = loadTypeScript();
     const { virtualContent } = buildVirtualJsContent(textOf(document), jsRanges);
     // Only the syntax tree is needed — no types — so the script is parsed on
-    // its own rather than through the language service hover and completion share.
+    // its own, with no language service.
     const sourceFile = ts.createSourceFile(VIRTUAL_FILENAME, virtualContent, ts.ScriptTarget.ES2020, true, ts.ScriptKind.JS);
     return jsOutline(ts, sourceFile, jsRanges).map(symbol => toDocumentSymbol(document, symbol));
 }

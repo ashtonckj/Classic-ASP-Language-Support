@@ -26,7 +26,7 @@
 
 import * as vscode from 'vscode';
 import { VIRTUAL_FILENAME } from './jsUtils';
-import { jsQueryAt, jsRange } from './jsDocument';
+import { askJs, jsOffsetAt, jsRange } from './jsDocument';
 
 export class JsRenameProvider implements vscode.RenameProvider {
 
@@ -34,16 +34,17 @@ export class JsRenameProvider implements vscode.RenameProvider {
      * Decides up front whether F2 should open at all, so the user finds out
      * before typing a new name rather than after.
      */
-    prepareRename(
+    async prepareRename(
         document: vscode.TextDocument,
         position: vscode.Position,
         token:    vscode.CancellationToken,
-    ): vscode.ProviderResult<vscode.Range> {
+    ): Promise<vscode.Range | undefined> {
 
-        const ready = jsQueryAt(document, position);
-        if (!ready || token.isCancellationRequested) { return undefined; }
+        const offset = jsOffsetAt(document, position);
+        if (offset === undefined) { return undefined; }
 
-        const info = ready.svc.getRenameInfo(ready.offset);
+        const info = await askJs(document, 'getRenameInfo', [offset], token);
+        if (token.isCancellationRequested) { return undefined; }
         if (!info || !info.canRename) {
             // TypeScript's own explanation is better than anything invented here.
             throw new Error(
@@ -52,25 +53,22 @@ export class JsRenameProvider implements vscode.RenameProvider {
             );
         }
 
-        const range = jsRange(document, VIRTUAL_FILENAME, info.triggerSpan);
-        if (!range) {
-            throw new Error('This name is generated, not part of the page, so it cannot be renamed.');
-        }
-        return range;
+        // The caret is in the page, and so is the name it is on.
+        return jsRange(document, VIRTUAL_FILENAME, info.triggerSpan);
     }
 
-    provideRenameEdits(
+    async provideRenameEdits(
         document: vscode.TextDocument,
         position: vscode.Position,
         newName:  string,
         token:    vscode.CancellationToken,
-    ): vscode.ProviderResult<vscode.WorkspaceEdit> {
+    ): Promise<vscode.WorkspaceEdit | undefined> {
 
-        const ready = jsQueryAt(document, position);
-        if (!ready || token.isCancellationRequested) { return undefined; }
+        const offset = jsOffsetAt(document, position);
+        if (offset === undefined) { return undefined; }
 
-        const locations = ready.svc.findRenameLocations(ready.offset);
-        if (!locations.length) { return undefined; }
+        const locations = await askJs(document, 'findRenameLocations', [offset], token);
+        if (!locations?.length) { return undefined; }
 
         const edit = new vscode.WorkspaceEdit();
         let inDocument = 0;

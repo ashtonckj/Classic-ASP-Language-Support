@@ -7,23 +7,22 @@
  */
 
 import * as vscode from 'vscode';
-import { jsDocMarkdown, jsQueryAt, jsRange } from './jsDocument';
+import { askJs, jsDocMarkdown, jsOffsetAt, jsRange } from './jsDocument';
 import { VIRTUAL_FILENAME } from './jsUtils';
 
 export class JsHoverProvider implements vscode.HoverProvider {
 
-    provideHover(
+    async provideHover(
         document: vscode.TextDocument,
         position: vscode.Position,
         token:    vscode.CancellationToken
-    ): vscode.ProviderResult<vscode.Hover> {
+    ): Promise<vscode.Hover | undefined> {
 
-        const query = jsQueryAt(document, position);
-        if (!query || token.isCancellationRequested) { return undefined; }
-        const { svc, offset } = query;
+        const offset = jsOffsetAt(document, position);
+        if (offset === undefined) { return undefined; }
 
-        const info = svc.getQuickInfo(offset);
-        if (!info || token.isCancellationRequested) { return undefined; }
+        const info = await askJs(document, 'getQuickInfo', [offset], token);
+        if (!info) { return undefined; }
 
         const displayText = info.displayParts?.map(p => p.text).join('') ?? '';
         const docs        = jsDocMarkdown(info.documentation, info.tags);

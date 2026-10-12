@@ -23,7 +23,7 @@
  */
 
 import * as vscode from 'vscode';
-import { jsQueryAt, jsRange } from './jsDocument';
+import { askJs, jsOffsetAt, jsRange } from './jsDocument';
 import { DIAGNOSTIC_SOURCE } from '../platform/diagnostics';
 
 
@@ -31,12 +31,12 @@ export class JsCodeActionProvider implements vscode.CodeActionProvider {
 
     static readonly providedCodeActionKinds = [vscode.CodeActionKind.QuickFix];
 
-    provideCodeActions(
+    async provideCodeActions(
         document: vscode.TextDocument,
         range:    vscode.Range | vscode.Selection,
         context:  vscode.CodeActionContext,
         token:    vscode.CancellationToken,
-    ): vscode.ProviderResult<vscode.CodeAction[]> {
+    ): Promise<vscode.CodeAction[] | undefined> {
 
         const errorCodes = [...new Set(
             context.diagnostics
@@ -49,14 +49,10 @@ export class JsCodeActionProvider implements vscode.CodeActionProvider {
         const start = document.offsetAt(range.start);
         const end   = document.offsetAt(range.end);
 
-        const query = jsQueryAt(document, start);
-        if (!query || token.isCancellationRequested) { return undefined; }
-        const { svc } = query;
+        if (jsOffsetAt(document, start) === undefined) { return undefined; }
 
-        const fixes = svc.getCodeFixes(
-            start, end, errorCodes,
-        );
-        if (!fixes.length || token.isCancellationRequested) { return undefined; }
+        const fixes = await askJs(document, 'getCodeFixes', [start, end, errorCodes], token);
+        if (!fixes?.length) { return undefined; }
 
         const actions: vscode.CodeAction[] = [];
 
