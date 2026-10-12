@@ -5,8 +5,7 @@
  * inside a function call in a <script> block.
  *
  * The docs are MarkdownStrings, so JSDoc formatting (backticks, links, bold)
- * renders. TypeScript answers in the virtual file, which starts with a
- * preamble, so the caret offset goes in shifted by preambleLength.
+ * renders.
  *
  * Registered in extension.ts alongside AspSignatureHelpProvider so the two
  * never conflict — AspSignatureHelpProvider only fires inside ASP zones and
@@ -27,7 +26,7 @@ export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
         const query = jsQueryAt(document, position);
         if (!query || token.isCancellationRequested) { return undefined; }
 
-        const items = query.svc.getSignatureHelp(query.virtualOffset);
+        const items = query.svc.getSignatureHelp(query.offset);
         if (!items || token.isCancellationRequested) { return undefined; }
 
         const help            = new vscode.SignatureHelp();

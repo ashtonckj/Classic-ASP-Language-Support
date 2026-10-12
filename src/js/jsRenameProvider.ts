@@ -7,8 +7,8 @@
  * it will and will not touch.
  *
  * A rename here covers THIS document only. The virtual file the language service
- * sees is assembled from one page: every <script> block in it, plus a generated
- * preamble. So a JS symbol's scope really is the page, and renaming it cannot
+ * sees is assembled from one page: every <script> block in it, plus a file of
+ * declarations generated from it. So a JS symbol's scope really is the page, and renaming it cannot
  * reach another file — which is the honest answer for client-side script.
  *
  * Two cases are refused rather than half-done:
@@ -43,7 +43,7 @@ export class JsRenameProvider implements vscode.RenameProvider {
         const ready = jsQueryAt(document, position);
         if (!ready || token.isCancellationRequested) { return undefined; }
 
-        const info = ready.svc.getRenameInfo(ready.virtualOffset);
+        const info = ready.svc.getRenameInfo(ready.offset);
         if (!info || !info.canRename) {
             // TypeScript's own explanation is better than anything invented here.
             throw new Error(
@@ -52,7 +52,7 @@ export class JsRenameProvider implements vscode.RenameProvider {
             );
         }
 
-        const range = jsRange(document, ready.preambleLength, VIRTUAL_FILENAME, info.triggerSpan);
+        const range = jsRange(document, VIRTUAL_FILENAME, info.triggerSpan);
         if (!range) {
             throw new Error('This name is generated, not part of the page, so it cannot be renamed.');
         }
@@ -69,14 +69,14 @@ export class JsRenameProvider implements vscode.RenameProvider {
         const ready = jsQueryAt(document, position);
         if (!ready || token.isCancellationRequested) { return undefined; }
 
-        const locations = ready.svc.findRenameLocations(ready.virtualOffset);
+        const locations = ready.svc.findRenameLocations(ready.offset);
         if (!locations.length) { return undefined; }
 
         const edit = new vscode.WorkspaceEdit();
         let inDocument = 0;
 
         for (const loc of locations) {
-            const range = jsRange(document, ready.preambleLength, loc.fileName, loc.textSpan);
+            const range = jsRange(document, loc.fileName, loc.textSpan);
             if (!range) {
                 // A location this rename would have to change but cannot reach.
                 // Renaming only part of a symbol's uses is worse than refusing.

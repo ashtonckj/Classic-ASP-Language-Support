@@ -12,17 +12,13 @@
  * Suppressed diagnostic codes are listed in SUPPRESSED_CODES — these are too
  * noisy for small inline scripts that don't import modules. Only structural
  * errors like wrong argument counts and genuine syntax errors are surfaced.
- *
- * preambleLength is subtracted from every diagnostic start position before
- * converting to a VS Code Range, since the virtual file has the preamble
- * prepended and all TS positions are relative to that.
  */
 
 import * as vscode from 'vscode';
 import { CHECK_DELAY, createAspDiagnosticCollection, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
 import { analyseEmbeddedJs } from '../workers/analysisClient';
 import { tsSeverityToVs } from './jsTsKinds';
-import { inRanges } from '../core/zoneUtils';
+import { textOf } from '../platform/documentState';
 
 // Codes suppressed because embedded ASP <script> lacks whole-project context
 // (cross-file globals, jQuery, DOM null-returns, implicit any). ASP-injected
@@ -43,7 +39,7 @@ export const SUPPRESSED_CODES = new Set([
 ]);
 
 async function getDiagnosticsForDocument(document: vscode.TextDocument): Promise<vscode.Diagnostic[]> {
-    const fullText = document.getText();
+    const fullText = textOf(document);
 
     // Worth checking before waking the worker: most pages have no <script>.
     if (!/<script/i.test(fullText)) { return []; }
@@ -54,33 +50,14 @@ async function getDiagnosticsForDocument(document: vscode.TextDocument): Promise
     const analysis = await analyseEmbeddedJs(document.uri.toString(), fullText);
     if (!analysis || analysis.jsRanges.length === 0) { return []; }
 
-    const { jsRanges, preambleLength } = analysis;
-    const diagnostics: vscode.Diagnostic[] = [];
-
-    for (const d of analysis.diagnostics) {
-        if (SUPPRESSED_CODES.has(d.code)) { continue; }
-
-        // Convert virtual-file position back to document space by subtracting
-        // the preamble length. Skip anything that lands inside the preamble itself.
-        const docStart = d.start - preambleLength;
-
-        // Guard against diagnostics that fall inside the preamble itself.
-        if (docStart < 0) { continue; }
-
-        // `end` in getJsBlockRanges is the offset of `<` in `</script>`, which is a
-        // valid position for a token that abuts the closing tag, so the test is
-        // inclusive at both ends.
-        if (!inRanges(jsRanges, docStart, false)) { continue; }
-
-        diagnostics.push(makeDiagnostic(
-            new vscode.Range(document.positionAt(docStart), document.positionAt(docStart + d.length)),
+    return analysis.diagnostics
+        .filter(d => !SUPPRESSED_CODES.has(d.code))
+        .map(d => makeDiagnostic(
+            new vscode.Range(document.positionAt(d.start), document.positionAt(d.start + d.length)),
             d.message,
             tsSeverityToVs(d.category),
             d.code,
         ));
-    }
-
-    return diagnostics;
 }
 
 export function registerJsDiagnostics(context: vscode.ExtensionContext): void {

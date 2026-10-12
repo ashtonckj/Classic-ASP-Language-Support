@@ -32,15 +32,15 @@ export class JsReferenceProvider implements vscode.ReferenceProvider {
         // caller does not want it, resolve it separately and skip that span.
         const declarations = new Set<string>();
         if (!context.includeDeclaration) {
-            for (const def of ready.svc.getDefinitions(ready.virtualOffset)) {
+            for (const def of ready.svc.getDefinitions(ready.offset)) {
                 declarations.add(`${def.fileName}:${def.textSpan.start}`);
             }
         }
 
         const locations: vscode.Location[] = [];
-        for (const ref of ready.svc.getReferences(ready.virtualOffset)) {
+        for (const ref of ready.svc.getReferences(ready.offset)) {
             if (declarations.has(`${ref.fileName}:${ref.textSpan.start}`)) { continue; }
-            const range = jsRange(document, ready.preambleLength, ref.fileName, ref.textSpan);
+            const range = jsRange(document, ref.fileName, ref.textSpan);
             if (range) { locations.push(new vscode.Location(document.uri, range)); }
         }
 
@@ -60,9 +60,9 @@ export class JsDocumentHighlightProvider implements vscode.DocumentHighlightProv
         if (!ready || token.isCancellationRequested) { return undefined; }
 
         const highlights: vscode.DocumentHighlight[] = [];
-        for (const perFile of ready.svc.getDocumentHighlights(ready.virtualOffset)) {
+        for (const perFile of ready.svc.getDocumentHighlights(ready.offset)) {
             for (const hit of perFile.highlightSpans) {
-                const range = jsRange(document, ready.preambleLength, perFile.fileName, hit.textSpan);
+                const range = jsRange(document, perFile.fileName, hit.textSpan);
                 if (!range) { continue; }
                 highlights.push(new vscode.DocumentHighlight(
                     range,

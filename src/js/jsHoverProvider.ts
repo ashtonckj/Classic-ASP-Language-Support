@@ -4,10 +4,6 @@
  * Hover info for symbols inside <script> blocks, laid out like VS Code's own
  * JavaScript hover: the signature in a typescript code block, then the docs.
  * Node.js declarations never show up, because jsUtils leaves out @types/node.
- *
- * TypeScript answers in the virtual file, which starts with a preamble, so the
- * caret offset goes in shifted by preambleLength and the span comes back
- * shifted the other way before it becomes a Range.
  */
 
 import * as vscode from 'vscode';
@@ -24,9 +20,9 @@ export class JsHoverProvider implements vscode.HoverProvider {
 
         const query = jsQueryAt(document, position);
         if (!query || token.isCancellationRequested) { return undefined; }
-        const { svc, virtualOffset, preambleLength } = query;
+        const { svc, offset } = query;
 
-        const info = svc.getQuickInfo(virtualOffset);
+        const info = svc.getQuickInfo(offset);
         if (!info || token.isCancellationRequested) { return undefined; }
 
         const displayText = info.displayParts?.map(p => p.text).join('') ?? '';
@@ -43,7 +39,7 @@ export class JsHoverProvider implements vscode.HoverProvider {
         if (displayText) { md.appendCodeblock(displayText, 'typescript'); }
         if (docs)        { md.appendMarkdown(docs); }
 
-        const range = info.textSpan && jsRange(document, preambleLength, VIRTUAL_FILENAME, info.textSpan);
+        const range = info.textSpan && jsRange(document, VIRTUAL_FILENAME, info.textSpan);
         return new vscode.Hover(md, range);
     }
 }

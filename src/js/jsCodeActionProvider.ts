@@ -16,8 +16,8 @@
  * must not acquire a lightbulb either.
  *
  * A fix is offered only when EVERY edit it carries lands inside the document.
- * The virtual file starts with a generated preamble, and a fix that wanted to
- * rewrite part of that — a projected <% %> value, a cross-frame declaration —
+ * The page is served with a file of generated declarations, and a fix that
+ * wanted to rewrite part of that — a projected <% %> value, a cross-frame declaration —
  * cannot be applied to the page. Applying the rest and dropping that edit would
  * leave the page half-changed, so the whole fix is withheld instead.
  */
@@ -51,10 +51,10 @@ export class JsCodeActionProvider implements vscode.CodeActionProvider {
 
         const query = jsQueryAt(document, start);
         if (!query || token.isCancellationRequested) { return undefined; }
-        const { svc, preambleLength } = query;
+        const { svc } = query;
 
         const fixes = svc.getCodeFixes(
-            start + preambleLength, end + preambleLength, errorCodes,
+            start, end, errorCodes,
         );
         if (!fixes.length || token.isCancellationRequested) { return undefined; }
 
@@ -67,7 +67,7 @@ export class JsCodeActionProvider implements vscode.CodeActionProvider {
 
             for (const change of fix.changes) {
                 for (const textChange of change.textChanges) {
-                    const range = jsRange(document, preambleLength, change.fileName, textChange.span);
+                    const range = jsRange(document, change.fileName, textChange.span);
                     if (!range) { applicable = false; break; }
                     edit.replace(document.uri, range, textChange.newText);
                     edits++;

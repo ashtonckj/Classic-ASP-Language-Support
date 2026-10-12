@@ -25,14 +25,14 @@ export class JsDefinitionProvider implements vscode.DefinitionProvider {
 
         const query = jsQueryAt(document, position);
         if (!query || token.isCancellationRequested) { return undefined; }
-        const { svc, virtualOffset, preambleLength } = query;
+        const { svc, offset } = query;
 
-        const definitions = svc.getDefinitions(virtualOffset);
+        const definitions = svc.getDefinitions(offset);
         if (!definitions.length || token.isCancellationRequested) { return undefined; }
 
         const locations: vscode.Location[] = [];
         for (const def of definitions) {
-            const range = jsRange(document, preambleLength, def.fileName, def.textSpan);
+            const range = jsRange(document, def.fileName, def.textSpan);
             if (range) { locations.push(new vscode.Location(document.uri, range)); }
         }
 

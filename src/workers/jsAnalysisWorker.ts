@@ -23,9 +23,9 @@
  */
 
 import * as ts from 'typescript';
-import { buildVirtualJsContent, getJsLanguageService, VIRTUAL_FILENAME } from '../js/jsUtils';
+import { getJsLanguageService, VIRTUAL_FILENAME } from '../js/jsUtils';
 import { jsOutline, type JsOutlineSymbol } from '../js/jsOutline';
-import { getJsBlockRanges } from '../core/zoneUtils';
+import { getJsBlockRanges, inRanges } from '../core/zoneUtils';
 import { serveWorker, type WorkerAnswer } from './serveWorker';
 
 export interface JsAnalysisRequest {
@@ -35,7 +35,7 @@ export interface JsAnalysisRequest {
 
 /** A ts.Diagnostic flattened to what survives being posted between threads. */
 export interface PlainJsDiagnostic {
-    /** Offset in VIRTUAL-file space, as TypeScript reports it. */
+    /** A page offset. */
     start:    number;
     length:   number;
     code:     number;
@@ -46,9 +46,9 @@ export interface PlainJsDiagnostic {
 export interface JsAnalysisResult extends WorkerAnswer {
     /** Empty when the document has no JavaScript at all. */
     jsRanges: Array<{ start: number; end: number }>;
-    preambleLength: number;
-    /** Classification triples: [virtualOffset, length, encoded] × n. */
+    /** Classification triples: [offset, length, encoded] × n, inside the script only. */
     spans: number[];
+    /** Inside the script only. */
     diagnostics: PlainJsDiagnostic[];
     /** The Outline's entries, in page offsets. */
     outline: JsOutlineSymbol[];
@@ -58,24 +58,29 @@ export interface JsAnalysisResult extends WorkerAnswer {
 
 function analyse(request: JsAnalysisRequest): JsAnalysisResult {
     const empty: JsAnalysisResult = {
-        id: request.id, jsRanges: [], preambleLength: 0, spans: [], diagnostics: [], outline: [],
+        id: request.id, jsRanges: [], spans: [], diagnostics: [], outline: [],
     };
 
     const jsRanges = getJsBlockRanges(request.text);
     if (jsRanges.length === 0) { return empty; }
 
-    const { virtualContent, preambleLength } = buildVirtualJsContent(request.text, 0, jsRanges);
-
     const svc = getJsLanguageService();
-    svc.updateContent(virtualContent);
+    svc.loadPage(request.text, jsRanges);
+    // `end` is the `<` of `</script>`, a valid place for a token that abuts the
+    // closing tag, so the test is inclusive at both ends.
+    const inScript = (offset: number) => inRanges(jsRanges, offset, false);
 
     // Classification first: it builds the program and the type checker that the
     // diagnostics then reuse, so this order pays for the type-check once.
-    const classified = svc.getEncodedSemanticClassifications(0, virtualContent.length);
+    const classified = svc.getEncodedSemanticClassifications(0, request.text.length);
+    const spans: number[] = [];
+    for (let i = 0; i + 2 < classified.spans.length; i += 3) {
+        if (inScript(classified.spans[i])) { spans.push(classified.spans[i], classified.spans[i + 1], classified.spans[i + 2]); }
+    }
 
     const diagnostics: PlainJsDiagnostic[] = [];
     for (const d of [...svc.getSyntacticDiagnostics(), ...svc.getSemanticDiagnostics()]) {
-        if (d.start === undefined || d.length === undefined) { continue; }
+        if (d.start === undefined || d.length === undefined || !inScript(d.start)) { continue; }
         diagnostics.push({
             start:    d.start,
             length:   d.length,
@@ -97,7 +102,7 @@ function analyse(request: JsAnalysisRequest): JsAnalysisResult {
     let outlineError: string | undefined;
     try {
         const sourceFile = svc.getProgram()?.getSourceFile(VIRTUAL_FILENAME);
-        if (sourceFile) { outline = jsOutline(ts, sourceFile, jsRanges, preambleLength); }
+        if (sourceFile) { outline = jsOutline(ts, sourceFile, jsRanges); }
     } catch (err) {
         outlineError = err instanceof Error ? err.stack ?? err.message : String(err);
     }
@@ -105,8 +110,7 @@ function analyse(request: JsAnalysisRequest): JsAnalysisResult {
     return {
         id: request.id,
         jsRanges,
-        preambleLength,
-        spans: Array.from(classified.spans),
+        spans,
         diagnostics,
         outline,
         outlineError,
@@ -116,5 +120,5 @@ function analyse(request: JsAnalysisRequest): JsAnalysisResult {
 // Analysis is best-effort: a half-typed document that trips the parser must
 // cost this one refresh, not the worker.
 serveWorker<JsAnalysisRequest, JsAnalysisResult>(analyse, request => ({
-    id: request.id, jsRanges: [], preambleLength: 0, spans: [], diagnostics: [], outline: [],
+    id: request.id, jsRanges: [], spans: [], diagnostics: [], outline: [],
 }));

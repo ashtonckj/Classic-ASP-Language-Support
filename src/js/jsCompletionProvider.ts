@@ -27,12 +27,13 @@
 
 import * as vscode from 'vscode';
 import { getJsLanguageService } from './jsUtils';
+import { textOf } from '../platform/documentState';
 import { jsDocMarkdown, jsQueryAt } from './jsDocument';
 import { tsKindToVsKind } from './jsTsKinds';
 
 interface ItemData {
     name:    string;
-    /** Offset already adjusted to virtual-file space (i.e. raw offset + preambleLength). */
+    /** The caret, as a page offset. */
     offset:  number;
     /**
      * The virtual file the list was worked out from. The one language service
@@ -61,16 +62,16 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
 
         const query = jsQueryAt(document, position);
         if (!query || token.isCancellationRequested) { return undefined; }
-        const { svc, virtualContent, virtualOffset } = query;
+        const { svc, offset } = query;
+        const text = textOf(document);
 
         // ── Determine trigger character ──────────────────────────────────────
         const explicitTrigger = context.triggerCharacter;
-        // The character before the caret, read from the virtual content at the
-        // preamble-shifted position.
-        const prevChar        = virtualOffset > 0 ? virtualContent[virtualOffset - 1] : '';
+        // The character before the caret.
+        const prevChar        = offset > 0 ? text[offset - 1] : '';
         const triggerChar     = explicitTrigger ?? (prevChar === '.' ? '.' : undefined);
 
-        const completions = svc.getCompletions(virtualOffset, triggerChar);
+        const completions = svc.getCompletions(offset, triggerChar);
         if (!completions || token.isCancellationRequested) { return undefined; }
 
         const items = completions.entries
@@ -104,10 +105,8 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
             const isFunctionLike = item.kind === vscode.CompletionItemKind.Function
                                  || item.kind === vscode.CompletionItemKind.Method;
 
-            // Store the virtual-file offset (already preamble-shifted) so
-            // resolveCompletionItem can pass it straight to the TS service.
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (item as any).data = { name: entry.name, offset: virtualOffset, content: virtualContent, source: entry.source, isFunctionLike } satisfies ItemData;
+            (item as any).data = { name: entry.name, offset, content: text, source: entry.source, isFunctionLike } satisfies ItemData;
 
             return item;
         });
@@ -129,9 +128,9 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         const data = (item as any).data as ItemData | undefined;
         if (!data || token.isCancellationRequested) { return item; }
 
-        // data.offset is already in virtual-file space — pass it directly.
+        // The page the item came from.
         const svc = getJsLanguageService();
-        svc.updateContent(data.content);
+        svc.loadPage(data.content);
         const details = svc.getCompletionDetails(data.name, data.offset, data.source);
         if (!details || token.isCancellationRequested) { return item; }
 

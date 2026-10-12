@@ -271,8 +271,7 @@ const vbscriptWorker = new AnalysisWorker<VbscriptInput, PageResult | ChecksResu
  * Classification spans and diagnostics for the JavaScript embedded in `text`,
  * the current text of the document `key` (its URI), or undefined when a newer
  * request for that document superseded this one or the worker could not answer.
- * Offsets in the result are in virtual-file space; subtract `preambleLength`
- * to get document offsets.
+ * Offsets in the result are page offsets.
  */
 export function analyseEmbeddedJs(key: string, text: string): Promise<JsAnalysisResult | undefined> {
     return jsWorker.request(key, { text });

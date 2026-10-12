@@ -9,27 +9,27 @@
 import * as vscode from 'vscode';
 import { textOf, zonesFor } from '../platform/documentState';
 import type * as ts from 'typescript';
-import { prepareJsQuery, toDocumentSpan, type JsQuery } from './jsUtils';
+import { getJsLanguageService, VIRTUAL_FILENAME, type JsLanguageService } from './jsUtils';
 
-/** The service positioned on `at`, or undefined outside a <script> block. */
-export function jsQueryAt(document: vscode.TextDocument, at: vscode.Position | number): JsQuery | undefined {
+/** The service with the page loaded, and the caret, or undefined outside a <script> block. */
+export function jsQueryAt(document: vscode.TextDocument, at: vscode.Position | number): { svc: JsLanguageService; offset: number } | undefined {
     const offset = typeof at === 'number' ? at : document.offsetAt(at);
-    return prepareJsQuery(textOf(document), offset, zonesFor(document));
+    const zones = zonesFor(document);
+    if (zones.zoneAt(offset) !== 'js') { return undefined; }
+    const svc = getJsLanguageService();
+    svc.loadPage(textOf(document), zones.jsBlocks);
+    return { svc, offset };
 }
 
 /**
- * Where a span TypeScript reports is in the page, or undefined when it is not
- * in the page's own script: in the preamble of declarations the virtual file
- * starts with, or in another file (the DOM types).
+ * Where a span TypeScript reports is in the page, or undefined when it is in
+ * another file: the generated declarations or the DOM types, neither of which
+ * is a place a reader can be sent or an edit applied.
  */
-export function jsRange(
-    document: vscode.TextDocument,
-    preambleLength: number,
-    fileName: string,
-    span: ts.TextSpan,
-): vscode.Range | undefined {
-    const inPage = toDocumentSpan(fileName, span, preambleLength);
-    return inPage && new vscode.Range(document.positionAt(inPage.start), document.positionAt(inPage.end));
+export function jsRange(document: vscode.TextDocument, fileName: string, span: ts.TextSpan): vscode.Range | undefined {
+    return fileName === VIRTUAL_FILENAME
+        ? new vscode.Range(document.positionAt(span.start), document.positionAt(span.start + span.length))
+        : undefined;
 }
 
 /**
