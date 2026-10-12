@@ -4,6 +4,8 @@ import { aspTagProblems, findNextRealTag, findTagEnd, findClosingTag, getVbScrip
 import { analyseHtmlStructure } from '../core/htmlStructure';
 import { VOID_ELEMENTS } from '../constants/htmlTags';
 import { pageLanguage } from '../vbscript/pageSegments';
+import { parsePage, type ParsedPage } from '../vbscript/symbols';
+import { pageBlocks } from '../vbscript/pageAnalysis';
 import { formatterSettings, prettierSettings as readPrettierSettings, type PrettierSettings } from '../platform/settings';
 import { loadPrettier } from '../core/lazyModule';
 import { lineOf, OffsetMap, offsetOf, replaceRecorded, toOriginal } from './offsetMap';
@@ -709,7 +711,8 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     return result.ok ? result.text : code;
 }
 
-export async function formatPage(code: string): Promise<FormatResult> {
+/** `parsed`, when given, is a parse the caller already has; it is used only for the text it is a parse of. */
+export async function formatPage(code: string, parsed?: ParsedPage): Promise<FormatResult> {
     // A `<%` never closed, or a `%>` outside every block, by the lexical rule IIS
     // uses: the first `%>` ends a block, even one at the end of a comment, so
     // `<% 'Response.Write x %>` is a whole block. An unclosed `<%` would run the
@@ -731,14 +734,18 @@ export async function formatPage(code: string): Promise<FormatResult> {
     }
 
     const prettierSettings = readPrettierSettings();
+    // The page is asked for its names and for its If structure, often of the
+    // same text: one parse serves both.
+    const parse = (text: string): ParsedPage => parsed?.text === text ? parsed : (parsed = parsePage(text));
     const run: FormatRun = {
         code,
+        parse,
         // A token's number is part of its length, and Prettier lays a line out
         // by its length, so the numbers start again for every page — see
         // PlaceholderNames.
         names:    new PlaceholderNames(code),
         prettier: prettierSettings,
-        asp:      { ...aspFormatterSettings(formatterSettings(), prettierSettings), pageNames: pageNames(code) },
+        asp:      { ...aspFormatterSettings(formatterSettings(), prettierSettings), pageNames: pageNames(parse(code)) },
         options:  prettierOptionsFor(prettierSettings),
         // Loaded on the first format rather than when the extension starts: nothing
         // else needs it, and loading it added ~40 ms to every window's startup.
@@ -828,6 +835,8 @@ export async function formatPage(code: string): Promise<FormatResult> {
 interface FormatRun {
     /** The page as it was given. */
     code:     string;
+    /** The VBScript parse of `text`, reused while the text is the same. */
+    parse:    (text: string) => ParsedPage;
     names:    PlaceholderNames;
     prettier: PrettierSettings;
     asp:      AspFormatterSettings;
@@ -908,7 +917,7 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
     // and put back afterwards, the indent it belongs at included.
     // Every element, not only the structural ones: `<p class="x">` opened in
     // both branches gained a `</p>` after the first.
-    const hidden = analyseHtmlStructure(jsPreMasked, undefined, name => !VOID_ELEMENTS.has(name)).hidden;
+    const hidden = analyseHtmlStructure(jsPreMasked, pageBlocks(run.parse(jsPreMasked)).events, name => !VOID_ELEMENTS.has(name)).hidden;
     const hiddenTags: HiddenTagPlaceholder[] = [];
     let   nextHidden = 0;
 

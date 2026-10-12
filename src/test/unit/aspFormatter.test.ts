@@ -7,6 +7,7 @@ import {
     pageNames,
     type AspFormatterSettings,
 } from '../../formatter/aspFormatter';
+import { parsePage } from '../../vbscript/symbols';
 
 const DEFAULT_SETTINGS: AspFormatterSettings = {
     keywordCase: 'PascalCase',
@@ -97,7 +98,7 @@ describe('applyKeywordCase — a function name is cased only where it is the fun
     // cscript: after a page-level `Dim hex`, `hex(255)` is the variable (Type
     // mismatch), and after `Function Len(s)`, `Len("abc")` calls the page's own.
     it('leaves a call alone when the page declares the name itself', () => {
-        const own = pageNames('<%\nDim hex\nFunction len(s)\n  Dim day\nEnd Function\nx = 1\n%>');
+        const own = pageNames(parsePage('<%\nDim hex\nFunction len(s)\n  Dim day\nEnd Function\nx = 1\n%>'));
         assert.deepStrictEqual([...own].sort(), ['hex', 'len']);
         assert.strictEqual(applyKeywordCase('x = hex(255) & len(s) & day(now)', 'PascalCase', own), 'x = hex(255) & len(s) & Day(Now)');
     });

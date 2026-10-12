@@ -45,8 +45,8 @@ export function blockDiagnostics(document: vscode.TextDocument, warnings: BlockW
     ));
 }
 
-export function scanAspStructure(document: vscode.TextDocument): vscode.Diagnostic[] {
-    return blockDiagnostics(document, pageBlocks(parsePage(textOf(document))).warnings);
+export function scanAspStructure(document: vscode.TextDocument, warnings?: BlockWarning[]): vscode.Diagnostic[] {
+    return blockDiagnostics(document, warnings ?? pageBlocks(parsePage(textOf(document))).warnings);
 }
 
 // ── ASP tag balance scanner ───────────────────────────────────────────────────
