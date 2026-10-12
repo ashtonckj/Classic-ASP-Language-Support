@@ -9,6 +9,7 @@ import { loadIncludeTree } from '../workers/analysisClient';
 import { pathKey, withoutBom } from '../core/paths';
 import { openBuffers, openDocument } from '../platform/documentState';
 import { pathCompletions } from '../platform/pathCompletion';
+import { isListedAspFile, onAspFilesChange } from '../platform/workspaceIndex';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,7 +217,7 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
                 children: entry.children,
                 bufferVersion: openVersions.get(key),
             });
-            watchIncludeFolder(entry.filePath);
+            void watchIncludeFolder(entry.filePath);
         }
         _includeSymbolEpoch++;
     });
@@ -304,45 +305,55 @@ export function withIncludeSymbols(document: vscode.TextDocument, own: FileSymbo
 }
 
 /**
- * Forgets one file's include symbols, because it was saved or changed on disk.
+ * Forgets one file's include symbols, because it changed on disk.
  *
  * Only that file: saving a page used to throw away every include of every open
  * page, and each of those then went back to the worker to be read and parsed
  * again. A load already under way may have read the old text, so its results
  * are ignored and whatever it covered is loaded again when next asked for.
  */
-export function forgetIncludeFile(fsPath: string): void {
+function forgetIncludeFile(fsPath: string): void {
     const key = pathKey(fsPath);
     if (!_includeSymbolCache.has(key) && _includeLoadPromises.size === 0) { return; }
     _includeCacheGeneration++;
     _includeSymbolEpoch++;
     _includeSymbolCache.delete(key);
+    pruneIncludeFolderWatchers();
+}
+
+function forgetAllIncludes(): void {
+    _includeCacheGeneration++;
+    _includeSymbolEpoch++;
+    _includeSymbolCache.clear();
+    pruneIncludeFolderWatchers();
 }
 
 /**
- * Forgets every include's symbols when what an include path resolves to, or
- * which files every page includes, changes. Registered from registerAspFeatures.
+ * Forgets an include's symbols when it changes on disk — saved in the editor,
+ * or changed by a checkout, another editor, a deploy script — and every
+ * include's when what an include path resolves to, or which files every page
+ * includes, changes. Registered from registerAspFeatures.
  */
-export function watchIncludeSettings(): vscode.Disposable[] {
-    const forgetAll = () => {
-        _includeCacheGeneration++;
-        _includeSymbolEpoch++;
-        _includeSymbolCache.clear();
-    };
+export function watchIncludeChanges(): vscode.Disposable[] {
     return [
-        onSettingsChange(['classicAsp.virtualRoot', 'classicAsp.defaultIncludes'], forgetAll),
-        vscode.workspace.onDidChangeWorkspaceFolders(forgetAll),
+        onAspFilesChange(change => {
+            const files = [...change.created, ...change.changed, ...change.deleted];
+            if (files.length === 0) { forgetAllIncludes(); return; }
+            for (const file of files) { forgetIncludeFile(file); }
+        }),
+        onSettingsChange(['classicAsp.virtualRoot', 'classicAsp.defaultIncludes'], forgetAllIncludes),
+        vscode.workspace.onDidChangeWorkspaceFolders(forgetAllIncludes),
     ];
 }
 
-// The folder of every cached include, watched without recursing into it. A save
-// in the editor is seen by onDidSaveTextDocument, but a change made anywhere
-// else — a git pull, another editor, a deploy script — is not, and the include
-// kept its old symbols until the window was reloaded. Watching these folders,
-// rather than the workspace, also covers includes outside the workspace.
+// The workspace index reports changes to the ASP files it lists. An include it
+// does not list — outside the workspace, or not named like an ASP file — has its
+// folder watched instead, without recursing into it, for as long as an include
+// in that folder is cached.
 const _includeFolderWatchers = new Map<string, vscode.FileSystemWatcher>();
 
-function watchIncludeFolder(filePath: string): void {
+async function watchIncludeFolder(filePath: string): Promise<void> {
+    if (await isListedAspFile(filePath) || !_includeSymbolCache.has(pathKey(filePath))) { return; }
     const folder = path.dirname(filePath);
     const key = pathKey(folder);
     if (_includeFolderWatchers.has(key)) { return; }
@@ -355,6 +366,15 @@ function watchIncludeFolder(filePath: string): void {
     watcher.onDidCreate(forget);
     watcher.onDidDelete(forget);
     _includeFolderWatchers.set(key, watcher);
+}
+
+/** Stops watching the folders no cached include is in any more. */
+function pruneIncludeFolderWatchers(): void {
+    if (_includeFolderWatchers.size === 0) { return; }
+    const needed = new Set([..._includeSymbolCache.keys()].map(key => path.dirname(key)));
+    for (const [folder, watcher] of _includeFolderWatchers) {
+        if (!needed.has(folder)) { watcher.dispose(); _includeFolderWatchers.delete(folder); }
+    }
 }
 
 /** Stops watching include folders. Called from deactivate. */

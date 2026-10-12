@@ -197,7 +197,19 @@ export function getWorkspaceAspFiles(): string[] {
 
 /** Every ASP file in the workspace folders, walked once without blocking the extension host. */
 export async function aspFiles(): Promise<string[]> {
-    if (_index) { return [..._index.files]; }
+    return [...(await walkedIndex()).files];
+}
+
+/**
+ * True when `fsPath` is a file the index lists, so its changes reach
+ * onAspFilesChange listeners — whether or not it was saved in the editor.
+ */
+export async function isListedAspFile(fsPath: string): Promise<boolean> {
+    return (await walkedIndex()).files.has(fsPath);
+}
+
+function walkedIndex(): Promise<FileIndex> {
+    if (_index) { return Promise.resolve(_index); }
     if (!_walking) {
         const generation = _generation;
         _walking = (async () => {
@@ -213,7 +225,7 @@ export async function aspFiles(): Promise<string[]> {
             return _index ?? newIndex(files, extensions, rules);
         })();
     }
-    return [...(await _walking).files];
+    return _walking;
 }
 
 /** Calls `listener` with each change to the ASP files. A change with no files means "everything may have changed". */

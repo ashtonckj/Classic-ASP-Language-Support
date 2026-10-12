@@ -4,7 +4,10 @@ import * as os from 'os';
 import * as path from 'path';
 import * as stub from './_vscodeStub';
 import { fakeDocument } from './_helpers';
-import { areIncludeSymbolsReady, collectIncludeSymbols, getVirtualRoot, preloadIncludeSymbols, readIncludeText } from '../../asp/includeProvider';
+import {
+    areIncludeSymbolsReady, collectIncludeSymbols, disposeIncludeWatchers, getVirtualRoot, preloadIncludeSymbols, readIncludeText, watchIncludeChanges,
+} from '../../asp/includeProvider';
+import { aspIndexSettled, disposeWorkspaceIndex } from '../../platform/workspaceIndex';
 import { editorWorkspace } from '../../asp/vbscriptWorkspace';
 import { buildScriptScope } from '../../vbscript/scriptScope';
 import { symbolsOfPage } from '../../vbscript/symbols';
@@ -95,6 +98,49 @@ describe('the files a page includes', function () {
         assert.deepStrictEqual(completion, ['A', 'B', 'D', 'N', 'Shared']);
         assert.deepStrictEqual(completion, bound);
     });
+});
+
+// A change made outside the editor reaches the include symbols: through the
+// workspace watcher for an include in the workspace, through a watcher on its
+// folder for one outside it.
+describe('include symbols after the include changes on disk', function () {
+    this.timeout(20000);
+    let site: string;
+    let outside: string;
+    let watching: { dispose(): void }[];
+    beforeEach(() => {
+        site = fs.mkdtempSync(path.join(os.tmpdir(), 'asp-include-site-'));
+        outside = fs.mkdtempSync(path.join(os.tmpdir(), 'asp-include-outside-'));
+        stub.workspace.workspaceFolders = [{ uri: { fsPath: site } }];
+        disposeWorkspaceIndex();
+        watching = watchIncludeChanges();
+    });
+    afterEach(() => {
+        for (const disposable of watching) { disposable.dispose(); }
+        disposeIncludeWatchers();
+        disposeWorkspaceIndex();
+        stub.workspace.workspaceFolders = undefined;
+        fs.rmSync(site, { recursive: true, force: true });
+        fs.rmSync(outside, { recursive: true, force: true });
+    });
+
+    for (const [where, folder] of [['in the workspace', () => site], ['outside the workspace', () => outside]] as const) {
+        it(`are read again when an include ${where} changes`, async () => {
+            const libPath = path.join(folder(), 'lib.inc');
+            fs.writeFileSync(libPath, '<% Sub Before : End Sub %>');
+            const page = fakeDocument(`<!--#include file="${libPath}"-->`, { fsPath: path.join(site, 'page.asp') });
+
+            await preloadIncludeSymbols(page as never);
+            await aspIndexSettled();
+            assert.strictEqual(areIncludeSymbolsReady(page as never), true);
+
+            fs.writeFileSync(libPath, '<% Sub After : End Sub %>');
+            stub.fireFileEvent('change', libPath);
+            assert.strictEqual(areIncludeSymbolsReady(page as never), false);
+            await preloadIncludeSymbols(page as never);
+            assert.deepStrictEqual(collectIncludeSymbols(page as never).functions.map(f => f.name), ['After']);
+        });
+    }
 });
 
 // virtual="/inc/db.asp" in a page of the second folder of a multi-root

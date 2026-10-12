@@ -14,10 +14,10 @@ import { AspDocumentSymbolProvider } from './aspDocumentSymbolProvider';
 import { AspHoverProvider } from './aspHoverProvider';
 import { AspReferenceProvider, AspRenameProvider, registerIncludeUpdatesOnRename } from './aspRenameProvider';
 import { AspSignatureHelpProvider } from './aspSignatureHelpProvider';
-import { AspWorkspaceSymbolProvider, clearWorkspaceSymbolCache } from './aspWorkspaceSymbolProvider';
+import { AspWorkspaceSymbolProvider } from './aspWorkspaceSymbolProvider';
 import { registerIncludeGraph } from './includeGraph';
 import { IgnoreCodeActionProvider } from '../platform/ignoreActions';
-import { forgetIncludeFile, IncludePathCompletionProvider, preloadIncludeSymbols, watchIncludeSettings } from './includeProvider';
+import { IncludePathCompletionProvider, preloadIncludeSymbols, watchIncludeChanges } from './includeProvider';
 import { IncludeDocumentLinkProvider } from '../html/linkProvider';
 import { PATH_TRIGGER_CHARACTERS } from '../platform/pathCompletion';
 
@@ -33,7 +33,7 @@ export function registerAspFeatures(context: vscode.ExtensionContext): void {
     preloadIncludes(vscode.window.activeTextEditor?.document);
     // Which pages include which, read in the background for F12, hover and rename.
     registerIncludeGraph(context);
-    context.subscriptions.push(...watchIncludeSettings());
+    context.subscriptions.push(...watchIncludeChanges());
 
     context.subscriptions.push(
         // "Ignore on this line" / "Ignore in this file" for any of this extension's problems.
@@ -86,16 +86,5 @@ export function registerAspFeatures(context: vscode.ExtensionContext): void {
         vscode.languages.registerWorkspaceSymbolProvider(
             guarded('AspWorkspaceSymbolProvider', new AspWorkspaceSymbolProvider()),
         ),
-        // languageId, not the file extension: the document is open, so VS Code has
-        // already classified it — including through the user's own files.associations.
-        // Matching /\.(asp|inc)$/ meant a Classic ASP library kept in a .html file
-        // never invalidated either cache on save, so edits to it stayed invisible
-        // until the window was reloaded.
-        vscode.workspace.onDidSaveTextDocument(doc => {
-            if (doc.languageId === 'asp') {
-                clearWorkspaceSymbolCache(doc.uri.fsPath);
-                forgetIncludeFile(doc.uri.fsPath);
-            }
-        }),
     );
 }

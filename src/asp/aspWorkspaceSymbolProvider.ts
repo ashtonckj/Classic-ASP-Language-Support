@@ -69,11 +69,6 @@ async function symbolsOfFile(filePath: string): Promise<IndexedSymbol[]> {
     return symbols;
 }
 
-export function clearWorkspaceSymbolCache(filePath?: string): void {
-    if (filePath) { _wsCache.delete(filePath); }
-    else          { _wsCache.clear(); }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Provider
 // ─────────────────────────────────────────────────────────────────────────────
