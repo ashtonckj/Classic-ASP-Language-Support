@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as path from 'path';
-import { describeDeclaration } from '../../asp/aspHoverProvider';
+import { describeDeclaration, keywordPhraseAt } from '../../asp/aspHoverProvider';
 import { declarationsOf, resolveAt, type WorkspaceHost } from '../../vbscript/references';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../../core/includeDirectives';
 
@@ -77,5 +77,38 @@ describe('hover on a name the page declares', () => {
     it('gives an object variable its type', () => {
         const text = '<% Set rs = Server.CreateObject("ADODB.Recordset") : rs.Close %>';
         assert.match(hoverOf({ 'page.asp': text }, 'rs', 2, [{ name: 'rs', progId: 'adodb.recordset' }]), /^\*\*rs\*\* — `adodb.recordset`/);
+    });
+});
+
+// A keyword's hover is the longest documented phrase it is part of, spanning all of it.
+describe('keywordPhraseAt', () => {
+    /** The phrase the hover over `word` in `line` covers, as text. */
+    const phraseOver = (line: string, word: string) => {
+        const start = line.indexOf(word);
+        const found = keywordPhraseAt(line, start, start + word.length);
+        return found && line.slice(found.start, found.end);
+    };
+
+    it('covers the whole of On Error Resume Next and On Error GoTo 0 from any of their words', () => {
+        for (const word of ['On', 'Error', 'Resume', 'Next']) {
+            assert.strictEqual(phraseOver('  On Error Resume Next', word), 'On Error Resume Next', word);
+        }
+        for (const word of ['On', 'Error', 'GoTo', '0']) {
+            assert.strictEqual(phraseOver('On  Error GoTo 0 ', word), 'On  Error GoTo 0', word);
+        }
+    });
+
+    it('covers a two-word keyword from either word', () => {
+        assert.strictEqual(phraseOver('End If', 'If'), 'End If');
+        assert.strictEqual(phraseOver('Exit For', 'For'), 'Exit For');
+        assert.strictEqual(phraseOver('For Each item In list', 'Each'), 'For Each');
+        assert.strictEqual(phraseOver('Do While x', 'While'), 'Do While');
+        assert.strictEqual(phraseOver('Loop Until done', 'Until'), 'Loop Until');
+    });
+
+    it('stops at anything but whitespace, and falls back to the word alone', () => {
+        assert.strictEqual(phraseOver('x = 1 : Next', 'Next'), 'Next');
+        assert.strictEqual(phraseOver('If a Then', 'If'), 'If');
+        assert.strictEqual(phraseOver('total = 1', 'total'), undefined);
     });
 });
