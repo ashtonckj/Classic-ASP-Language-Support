@@ -1,11 +1,12 @@
 import * as assert from 'assert';
 import { getCSSLanguageService } from 'vscode-css-languageservice';
-import { buildCssDoc, buildCssBodyDoc } from '../../css/cssUtils';
+import { TextDocument } from 'vscode-languageserver-textdocument';
+import { buildCssBodyDoc, stripAspExpressions } from '../../css/cssUtils';
 import { pageOffset, pagePosition, type ParsedCssBlock } from '../../css/cssPageStylesheet';
 import { getCssBlockRanges } from '../../core/zoneUtils';
 
-// The colour provider and CSS validation used to call buildCssDoc once per
-// <style> block. Each of those calls padded its block with a whitespace prefix
+// The colour provider and CSS validation used to build one document per
+// <style> block padded with a whitespace prefix
 // as long as everything before it on the page, so the work grew with the number
 // of blocks even when the CSS did not — 1 ms at one block, 198 ms at 160, for
 // the same rules in the same size of file. buildCssBodyDoc drops the padding,
@@ -44,8 +45,8 @@ function padded(text: string): Found {
     const diagnostics: string[] = [];
 
     for (const range of getCssBlockRanges(text)) {
-        const doc = buildCssDoc(URI, text, 1, range.start);
-        if (!doc) { continue; }
+        const prefix = text.slice(0, range.start).replace(/[^\n]/g, ' ');
+        const doc = TextDocument.create(URI + '.css', 'css', 1, prefix + stripAspExpressions(text.slice(range.start, range.end)));
         const sheet = cssService.parseStylesheet(doc);
 
         for (const c of cssService.findDocumentColors(doc, sheet)) {

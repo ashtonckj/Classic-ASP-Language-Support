@@ -1,12 +1,13 @@
 /**
  * CSS-specific utilities for building virtual CSS documents from .asp files.
- * Zone detection (deciding the cursor is in a CSS zone) is done by callers via
- * getZone() in zoneUtils.ts; this module only extracts/rewrites the CSS content.
+ * Which parts of the page are CSS — <style> bodies and style="" values — comes
+ * from the page's zones (documentState's zonesFor); this module only extracts
+ * and rewrites the CSS content.
  */
 
 import type * as CssLs from 'vscode-css-languageservice';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-import { findNextRealTag, findTagEnd, findClosingTag, maskAsp } from '../core/zoneUtils';
+import { maskAsp, type OffsetRange, type ZoneResolver } from '../core/zoneUtils';
 import { loadCssService } from '../core/lazyModule';
 
 let _cssService: CssLs.LanguageService | undefined;
@@ -56,58 +57,13 @@ export function stripAspExpressions(css: string): string {
 }
 
 /**
- * Builds a position-aligned virtual CSS TextDocument from the <style> block
- * the cursor is currently inside. Returns null if the offset is not in a CSS zone.
- */
-export function buildCssDoc(
-    uri: string,
-    content: string,
-    version: number,
-    offset: number
-): LsTextDocument | null {
-    let searchFrom = 0;
-    while (true) {
-        // Next real <style> opening tag before the cursor. findNextRealTag skips
-        // ASP blocks, HTML comments, and attribute strings, so it won't match a
-        // `<style` that is merely text inside them. Case-insensitive.
-        const styleOpen = findNextRealTag(content, '<style', searchFrom, offset);
-        if (styleOpen === -1) return null;
-
-        // End of the opening tag — skipping ASP blocks and quoted attribute values
-        // so a `>` inside `type="<%= x %>"` / `title="a > b"` is not mistaken for
-        // the tag terminator (which corrupted the extracted CSS).
-        const styleTagEnd = findTagEnd(content, styleOpen);
-        if (styleTagEnd === -1 || offset <= styleTagEnd) return null;
-
-        const { index: styleClose, length: closeLen } = findClosingTag(content, 'style', styleTagEnd + 1);
-        if (styleClose === -1 || offset <= styleClose) {
-            const cssStart = styleTagEnd + 1;
-            const cssEnd = styleClose === -1 ? content.length : styleClose;
-
-            const prefix = content.slice(0, cssStart).replace(/[^\n]/g, ' ');
-            const rawCss = content.slice(cssStart, cssEnd);
-            const cssContent = prefix + stripAspExpressions(rawCss);
-
-            return LsTextDocument.create(uri + '.css', 'css', version, cssContent);
-        }
-
-        searchFrom = styleClose + closeLen;
-    }
-}
-
-/**
- * A virtual CSS document holding ONE <style> body and nothing else.
+ * A virtual CSS document holding ONE <style> body and nothing else, the way
+ * every CSS feature reads a block (see cssPageStylesheet.ts).
  *
- * buildCssDoc above pads its block with a whitespace prefix as long as
- * everything before it on the page, so an offset in the result is already a page
- * offset. That is convenient, but the two whole-page consumers — validation and
- * the colour provider — call it once per block, and each call rebuilds the whole
- * prefix. Same file, same CSS, only the block count varying, that measured 1 ms
- * at one block and 198 ms at 160: the page re-blanked once per block.
- *
- * This builds only the block, so a page costs the size of its CSS rather than
- * the size of the page times the number of blocks. Positions come back relative
- * to the block, and the caller shifts them: see cssPageStylesheet.ts.
+ * The body is not padded with a prefix as long as everything before it on the
+ * page: that rebuilt the whole prefix once per block, 198 ms at 160 blocks for
+ * the same CSS that took 1 ms in one. Positions come back relative to the
+ * block, and the caller shifts them.
  *
  * Parsing each block on its own is also what keeps the diagnostics right. One
  * document covering every block at once was tried first, and an unterminated
@@ -130,64 +86,14 @@ export function buildCssBodyDoc(
 }
 
 /**
- * Detects if the cursor is inside a style="" attribute value and returns the info needed
- * to build a virtual CSS document for inline styles.
- * Returns null if the cursor is not inside a style="" attribute.
+ * The style="…" value `offset` is in — between its quotes, either end included —
+ * when the offset is in the page's markup. A style attribute written in a
+ * VBScript or JavaScript string, or in a comment, is text there, as it is in a
+ * .html file, and so is the ASP inside a value.
  */
-export function getInlineStyleContext(
-    content: string,
-    offset: number
-): { valueStart: number; valueEnd: number; wrappedOffset: number } | null {
-    const searchStart = Math.max(0, offset - 500);
-    const searchArea = content.slice(searchStart, offset);
-
-    // Find the LAST style=" / style=' before the cursor — that is the attribute the
-    // cursor is actually inside. Matching the first one broke when two styled
-    // elements shared a line: the cursor in the second value fell outside the
-    // first value's range and no CSS help was offered.
-    // After whitespace, so `data-style="…"` is not one.
-    const styleAttrRe = /(?<=\s)style\s*=\s*(["'])/gi;
-    let styleMatch: RegExpExecArray | null;
-    let openingQuote = '';
-    let valueStart = -1;
-    while ((styleMatch = styleAttrRe.exec(searchArea)) !== null) {
-        openingQuote = styleMatch[1];
-        valueStart   = searchStart + styleMatch.index + styleMatch[0].length;
-    }
-    if (valueStart === -1) return null;
-
-    // Find closing quote — search forward from valueStart (not offset) so that an empty value style="" where offset === closeQuoteIdx still works
-    const closeQuoteIdx = closingQuote(content, openingQuote, valueStart);
-    if (closeQuoteIdx === -1) return null;
-
-    // Cursor must be between valueStart and closeQuoteIdx (inclusive of both ends).
-    // The value is fully delimited by the quotes, so a '>' between the cursor and
-    // the closing quote is value text (e.g. content: ">"), not a tag boundary —
-    // the old indexOf('>') check wrongly bailed on those.
-    if (offset < valueStart || offset > closeQuoteIdx) return null;
-
-    const valueEnd = closeQuoteIdx;
-
-    // We pad the offset by 2 so the CSS service always lands inside the declaration list even when the value is completely empty
-    const relativeOffset = offset - valueStart;
-    const wrappedOffset = INLINE_PREFIX.length + relativeOffset + 2;
-
-    return { valueStart, valueEnd, wrappedOffset };
-}
-
-/**
- * Where an attribute value that opened with `quote` closes. A quote inside an
- * ASP block, as in `color:<%= c("x") %>`, is VBScript's, not the attribute's.
- */
-function closingQuote(content: string, quote: string, from: number): number {
-    for (;;) {
-        const close = content.indexOf(quote, from);
-        const asp   = content.indexOf('<%', from);
-        if (close === -1 || asp === -1 || asp > close) { return close; }
-        const aspEnd = content.indexOf('%>', asp + 2);
-        if (aspEnd === -1) { return -1; }
-        from = aspEnd + 2;
-    }
+export function styleAttributeAt(zones: ZoneResolver, offset: number): OffsetRange | undefined {
+    if (zones.zoneAt(offset) !== 'html') { return undefined; }
+    return zones.markup.styleAttributes.find(value => value.start <= offset && offset <= value.end);
 }
 
 /**
@@ -219,29 +125,7 @@ export function inlinePageOffset(valueStart: number, inlineOffset: number): numb
     return valueStart + inlineOffset - INLINE_PREFIX.length;
 }
 
-/**
- * Every `style="…"` attribute value in the page, as offsets. Zones are not
- * looked at: a caller that wants only the page's own markup, and not a
- * `style=` written in a string, checks the zone itself.
- */
-export function inlineStyleValues(content: string): Array<{ valueStart: number; valueEnd: number }> {
-    const values: Array<{ valueStart: number; valueEnd: number }> = [];
-    const attribute = /(?<=\s)style\s*=\s*("|')/gi;
-
-    let match: RegExpExecArray | null;
-    while ((match = attribute.exec(content)) !== null) {
-        const quote      = match[1];
-        const valueStart = match.index + match[0].length;
-        const valueEnd   = closingQuote(content, quote, valueStart);
-        if (valueEnd === -1) { break; }
-
-        // getInlineStyleContext is the authority on whether an offset really is
-        // inside a style attribute value. Ask it about this one.
-        if (getInlineStyleContext(content, valueStart)) {
-            values.push({ valueStart, valueEnd });
-        }
-        attribute.lastIndex = valueEnd + 1;
-    }
-
-    return values;
+/** The offset in the document buildInlineCssDoc built for the value starting at `valueStart`, of a page offset. */
+export function inlineDocOffset(valueStart: number, pageOffset: number): number {
+    return pageOffset - valueStart + INLINE_PREFIX.length;
 }

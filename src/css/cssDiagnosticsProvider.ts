@@ -8,7 +8,7 @@
 import * as vscode from 'vscode';
 import type { DiagnosticSeverity as LsSeverity } from 'vscode-css-languageservice';
 import { CHECK_DELAY, createAspDiagnosticCollection, cssCode, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
-import { buildInlineCssDoc, cssLanguageService, cssLanguageServiceModule, inlinePageOffset, inlineStyleValues } from './cssUtils';
+import { buildInlineCssDoc, cssLanguageService, cssLanguageServiceModule, inlinePageOffset } from './cssUtils';
 import { getParsedCssBlocks, pagePosition } from './cssPageStylesheet';
 import { textOf, zonesFor } from '../platform/documentState';
 
@@ -26,24 +26,6 @@ function mapSeverity(severity: LsSeverity | undefined): vscode.DiagnosticSeverit
         case LsSeverity.Hint:        return vscode.DiagnosticSeverity.Hint;
         case LsSeverity.Information: return vscode.DiagnosticSeverity.Information;
         default:                     return vscode.DiagnosticSeverity.Warning;
-    }
-}
-
-/**
- * Returns true if `pos` falls inside an HTML comment (<!-- ... -->).
- * Used to skip a style attribute inside a comment, because a comment's inside
- * is in the 'html' zone (comments are not a zone of their own), so the zone
- * check alone is not enough.
- */
-function isInsideHtmlComment(content: string, pos: number): boolean {
-    let searchFrom = 0;
-    while (true) {
-        const commentOpen = content.indexOf('<!--', searchFrom);
-        if (commentOpen === -1 || commentOpen >= pos) return false;
-        const commentClose = content.indexOf('-->', commentOpen + 4);
-        if (commentClose === -1) return true;  // unclosed comment — pos is inside it
-        if (pos < commentClose + 3) return true;
-        searchFrom = commentClose + 3;
     }
 }
 
@@ -86,23 +68,19 @@ function validateDocument(
     }
 
     // ── Inline style="" attribute validation ─────────────────────────────────
-    for (const value of inlineStyleValues(fullText)) {
-        // Only a real HTML attribute is validated: a style attribute written in
-        // a JavaScript string — `var tpl = '<div style="colour: red">x</div>'` —
-        // or in a VBScript one is text there, and warning about it would be
-        // warning about a string literal. The inside of an HTML comment is in
-        // the markup zone, so it is ruled out on its own.
-        if (zones.zoneAt(value.valueStart) !== 'html') { continue; }
-        if (isInsideHtmlComment(fullText, value.valueStart)) { continue; }
-
-        const lsDoc = buildInlineCssDoc(document.uri.toString(), fullText, document.version, value.valueStart, value.valueEnd);
+    // Only the page's own markup: a style attribute written in a JavaScript
+    // string — `var tpl = '<div style="colour: red">x</div>'` — in a VBScript
+    // one or in a comment is text there, and warning about it would be warning
+    // about a string literal.
+    for (const value of zones.markup.styleAttributes) {
+        const lsDoc = buildInlineCssDoc(document.uri.toString(), fullText, document.version, value.start, value.end);
         const stylesheet = cssLanguageService().parseStylesheet(lsDoc);
 
         for (const d of cssLanguageService().doValidation(lsDoc, stylesheet)) {
             // Back from the virtual "* { … }" document to the page.
-            const start = inlinePageOffset(value.valueStart, lsDoc.offsetAt(d.range.start));
-            const end   = Math.min(inlinePageOffset(value.valueStart, lsDoc.offsetAt(d.range.end)), value.valueEnd);
-            if (start < value.valueStart) { continue; }
+            const start = inlinePageOffset(value.start, lsDoc.offsetAt(d.range.start));
+            const end   = Math.min(inlinePageOffset(value.start, lsDoc.offsetAt(d.range.end)), value.end);
+            if (start < value.start) { continue; }
 
             diagnostics.push(makeDiagnostic(
                 new vscode.Range(document.positionAt(start), document.positionAt(Math.max(start, end))),

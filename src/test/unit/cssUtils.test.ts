@@ -1,5 +1,6 @@
 import * as assert from 'assert';
-import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, inlineStyleValues, stripAspExpressions } from '../../css/cssUtils';
+import { buildInlineCssDoc, stripAspExpressions, styleAttributeAt } from '../../css/cssUtils';
+import { createZoneResolver } from '../../core/zoneUtils';
 
 // The ASP→placeholder swap must preserve BOTH length and interior
 // newlines, or CSS diagnostics after the expression land on the wrong line/column
@@ -44,132 +45,94 @@ describe('stripAspExpressions — length + newline preserving', () => {
     });
 });
 
-// buildCssDoc must find the <style> block regardless of tag case, otherwise
-// CSS IntelliSense is silently dead inside <STYLE> blocks even though getZone
-// (correctly, after A9) reports the position as the CSS zone.
+// The <style> body every CSS feature reads is the zone map's, found whatever
+// the tag's case, and starting at the opening tag's real end: past an ASP
+// expression or a > in an attribute value, which would otherwise leave markup
+// at the start of the CSS and a false error on every block.
+describe('<style> bodies', () => {
+    const body = (content: string) => {
+        const [range] = createZoneResolver(content).cssBlocks;
+        return range && content.slice(range.start, range.end);
+    };
 
-describe('buildCssDoc — case-insensitive <style>', () => {
-    it('builds a CSS doc inside an uppercase <STYLE> block', () => {
-        const content = '<STYLE>\n.a { color: red; }\n</STYLE>';
-        const offset = content.indexOf('color');
-        const doc = buildCssDoc('file:///x.asp', content, 1, offset);
-        assert.ok(doc !== null, 'expected a CSS doc for uppercase <STYLE>');
+    it('reads an uppercase <STYLE> block and a spaced closing tag', () => {
+        assert.strictEqual(body('<STYLE>\n.a { color: red; }\n</STYLE>'), '\n.a { color: red; }\n');
+        assert.strictEqual(body('<style>\n.a { color: red; }\n</style >'), '\n.a { color: red; }\n');
     });
 
-    it('builds a CSS doc inside a lowercase <style> block (unchanged)', () => {
-        const content = '<style>\n.a { color: red; }\n</style>';
-        const offset = content.indexOf('color');
-        assert.ok(buildCssDoc('file:///x.asp', content, 1, offset) !== null);
+    it('starts past an ASP expression in an attribute', () => {
+        assert.strictEqual(body('<style type="<%= t %>">\n.a { color: red }\n</style>'), '\n.a { color: red }\n');
     });
 
-    it('tolerates whitespace in the closing tag', () => {
-        const content = '<style>\n.a { color: red; }\n</style >';
-        const offset = content.indexOf('color');
-        assert.ok(buildCssDoc('file:///x.asp', content, 1, offset) !== null);
+    it('starts past a > inside a quoted attribute value', () => {
+        assert.strictEqual(body('<style title="a > b">\n.a { color: red }\n</style>'), '\n.a { color: red }\n');
     });
 
-    it('returns null when the offset is outside any style block', () => {
-        const content = '<p>hi</p>';
-        assert.strictEqual(buildCssDoc('file:///x.asp', content, 1, 2), null);
-    });
-
-    // The end of the opening <style …> tag must be found by skipping ASP blocks
-    // and quoted attribute values, not by grabbing the first '>' (which may be
-    // the '>' of a %> or a '>' inside an attribute string). Otherwise the virtual
-    // CSS document starts with leftover markup and every block reports false CSS
-    // errors. (Author-reported edge cases.)
-    it('finds the tag end past an ASP expression in an attribute', () => {
-        const content = '<style type="<%= t %>">\n.a { color: red }\n</style>';
-        const doc = buildCssDoc('file:///x.asp', content, 1, content.indexOf('color'));
-        assert.ok(doc, 'expected a CSS doc');
-        const css = doc!.getText().trimStart();
-        assert.ok(
-            css.startsWith('.a'),
-            `CSS should start at the real tag end; got ${JSON.stringify(css.slice(0, 24))}`,
-        );
-    });
-
-    it('finds the tag end past a > inside a quoted attribute value', () => {
-        const content = '<style title="a > b">\n.a { color: red }\n</style>';
-        const doc = buildCssDoc('file:///x.asp', content, 1, content.indexOf('color'));
-        assert.ok(doc, 'expected a CSS doc');
-        const css = doc!.getText().trimStart();
-        assert.ok(
-            css.startsWith('.a'),
-            `CSS should start at the real tag end; got ${JSON.stringify(css.slice(0, 24))}`,
-        );
-    });
-
-    it('finds the tag end past an ASP expression that emits a quote and >', () => {
-        const content = '<style title="<%= ">" %>">\n.a { color: red }\n</style>';
-        const doc = buildCssDoc('file:///x.asp', content, 1, content.indexOf('color'));
-        assert.ok(doc, 'expected a CSS doc');
-        const css = doc!.getText().trimStart();
-        assert.ok(
-            css.startsWith('.a'),
-            `CSS should start at the real tag end; got ${JSON.stringify(css.slice(0, 24))}`,
-        );
-    });
-
-    it('returns null when the offset is inside the opening tag', () => {
-        const content = '<style type="text/css">.a{}</style>';
-        assert.strictEqual(buildCssDoc('file:///x.asp', content, 1, content.indexOf('type')), null);
+    it('starts past an ASP expression that emits a quote and >', () => {
+        assert.strictEqual(body('<style title="<%= ">" %>">\n.a { color: red }\n</style>'), '\n.a { color: red }\n');
     });
 });
 
-// The inline style="" IntelliSense path (used by css hover/completion/diagnostics)
-// has no getZone coverage, so exercise it directly here.
-describe('inline style="" context (getInlineStyleContext / buildInlineCssDoc)', () => {
+// The style="" values every CSS feature reads: the page's own attributes only.
+describe('styleAttributeAt', () => {
+    const valueAt = (content: string, offset: number) => {
+        const value = styleAttributeAt(createZoneResolver(content), offset);
+        return value && content.slice(value.start, value.end);
+    };
+
     it('locates the value range for a non-empty inline style', () => {
         const content = '<p style="color: red">hi</p>';
-        const ctx = getInlineStyleContext(content, content.indexOf('red'));
-        assert.ok(ctx, 'expected an inline context');
-        assert.strictEqual(content.slice(ctx!.valueStart, ctx!.valueEnd), 'color: red');
+        assert.strictEqual(valueAt(content, content.indexOf('red')), 'color: red');
     });
 
     it('is not fooled by data-style, or by a quote inside an ASP block', () => {
         const data = '<div data-style="primary large">x</div>';
-        assert.strictEqual(getInlineStyleContext(data, data.indexOf('large')), null);
-        assert.deepStrictEqual(inlineStyleValues(data), []);
+        assert.strictEqual(valueAt(data, data.indexOf('large')), undefined);
 
         const asp = '<p style="color:<%= c("x") %>; width:1px">hi</p>';
-        const ctx = getInlineStyleContext(asp, asp.indexOf('width'));
-        assert.ok(ctx, 'expected an inline context');
-        assert.strictEqual(asp.slice(ctx!.valueStart, ctx!.valueEnd), 'color:<%= c("x") %>; width:1px');
+        assert.strictEqual(valueAt(asp, asp.indexOf('width')), 'color:<%= c("x") %>; width:1px');
     });
 
     it('handles an empty inline style value', () => {
         const content = '<p style="">hi</p>';
-        const off = content.indexOf('""') + 1; // the closing quote
-        const ctx = getInlineStyleContext(content, off);
-        assert.ok(ctx, 'expected an inline context for empty value');
-        assert.strictEqual(ctx!.valueStart, ctx!.valueEnd);
+        assert.strictEqual(valueAt(content, content.indexOf('""') + 1), '');
     });
 
-    it('returns null when the cursor is not inside a style attribute', () => {
+    it('returns nothing when the cursor is not inside a style attribute', () => {
         const content = '<p>hello</p>';
-        assert.strictEqual(getInlineStyleContext(content, content.indexOf('hello')), null);
+        assert.strictEqual(valueAt(content, content.indexOf('hello')), undefined);
     });
 
     it('treats a > inside the style value as text, not a tag boundary', () => {
         const content = `<div style="content: '>'; color: red">x</div>`;
-        const ctx = getInlineStyleContext(content, content.indexOf('color'));
-        assert.ok(ctx, 'expected a context despite the > inside the value');
-        assert.strictEqual(content.slice(ctx!.valueStart, ctx!.valueEnd), "content: '>'; color: red");
+        assert.strictEqual(valueAt(content, content.indexOf('color')), "content: '>'; color: red");
     });
 
     it('resolves the SECOND style="" on a line (nearest, not first)', () => {
         const content = '<td style="width:10px">a</td><td style="color:re">b</td>';
-        const off = content.indexOf('color:re') + 'color:re'.length;
-        const ctx = getInlineStyleContext(content, off);
-        assert.ok(ctx, 'expected a context for the second styled element');
-        assert.strictEqual(content.slice(ctx!.valueStart, ctx!.valueEnd), 'color:re');
+        assert.strictEqual(valueAt(content, content.indexOf('color:re') + 'color:re'.length), 'color:re');
+    });
+
+    it('finds a value however far back its attribute starts', () => {
+        const content = `<p style="${'margin: 0; '.repeat(80)}color: red">x</p>`;
+        assert.ok(valueAt(content, content.indexOf('color: red'))?.endsWith('color: red'));
+    });
+
+    it('is nothing in a VBScript or JavaScript string, a comment, or the ASP inside a value', () => {
+        for (const content of [
+            '<% Response.Write "<p style=""color: red"">" %>',
+            '<script>var t = \'<p style="color: red">\';</script>',
+            '<!-- <p style="color: red"> -->',
+            '<p style="color: <%= red %>">',
+        ]) {
+            assert.strictEqual(valueAt(content, content.indexOf('red')), undefined, content);
+        }
     });
 
     it('buildInlineCssDoc wraps the declarations in a ruleset', () => {
         const content = '<p style="color: red">hi</p>';
-        const ctx = getInlineStyleContext(content, content.indexOf('red'))!;
-        const doc = buildInlineCssDoc('file:///x.asp', content, 1, ctx.valueStart, ctx.valueEnd);
+        const value = styleAttributeAt(createZoneResolver(content), content.indexOf('red'))!;
+        const doc = buildInlineCssDoc('file:///x.asp', content, 1, value.start, value.end);
         assert.ok(doc.getText().includes('color: red'));
     });
 });

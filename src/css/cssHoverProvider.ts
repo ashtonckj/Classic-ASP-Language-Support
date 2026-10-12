@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, cssLanguageService } from './cssUtils';
+import { buildInlineCssDoc, cssLanguageService, INLINE_PREFIX, styleAttributeAt } from './cssUtils';
+import { getParsedCssBlockAt } from './cssPageStylesheet';
 import { textOf, zonesFor } from '../platform/documentState';
 import { fromLspMarkdown } from '../platform/lspConvert';
 
@@ -10,36 +11,27 @@ export class CssHoverProvider implements vscode.HoverProvider {
     ): vscode.Hover | null {
         const fullText = textOf(document);
         const offset  = document.offsetAt(position);
-        const zone    = zonesFor(document).zoneAt(offset);
+        const zones   = zonesFor(document);
 
         // ── Inline style="" attribute hover ───────────────────────────────────
-        // Run for all non-css zones — style="" can appear in HTML, ASP, or JS zones.
-        if (zone !== 'css') {
-            const inlineCtx = getInlineStyleContext(fullText, offset);
-            if (inlineCtx) {
-                const lsDoc = buildInlineCssDoc(
-                    document.uri.toString(),
-                    fullText,
-                    document.version,
-                    inlineCtx.valueStart,
-                    inlineCtx.valueEnd
-                );
-                const stylesheet = cssLanguageService().parseStylesheet(lsDoc);
-                const lsPosition = lsDoc.positionAt(inlineCtx.wrappedOffset);
-                const hover      = cssLanguageService().doHover(lsDoc, lsPosition, stylesheet);
-                if (!hover) return null;
-                return new vscode.Hover(fromLspMarkdown(hover.contents));
-            }
-            return null;
+        const value = styleAttributeAt(zones, offset);
+        if (value) {
+            const lsDoc = buildInlineCssDoc(document.uri.toString(), fullText, document.version, value.start, value.end);
+            const stylesheet = cssLanguageService().parseStylesheet(lsDoc);
+            const lsPosition = lsDoc.positionAt(INLINE_PREFIX.length + offset - value.start + 2);
+            const hover      = cssLanguageService().doHover(lsDoc, lsPosition, stylesheet);
+            if (!hover) return null;
+            return new vscode.Hover(fromLspMarkdown(hover.contents));
         }
 
         // ── <style> block hover ───────────────────────────────────────────────
-        const lsDoc = buildCssDoc(document.uri.toString(), fullText, document.version, offset);
-        if (!lsDoc) return null;
+        if (zones.zoneAt(offset) !== 'css') return null;
 
-        const stylesheet = cssLanguageService().parseStylesheet(lsDoc);
-        const lsPosition = lsDoc.positionAt(offset);
-        const hover      = cssLanguageService().doHover(lsDoc, lsPosition, stylesheet);
+        const block = getParsedCssBlockAt(document.uri.toString(), fullText, document.version, zones.cssBlocks, offset);
+        if (!block) return null;
+
+        const lsPosition = block.cssDoc.positionAt(offset - block.range.start);
+        const hover      = cssLanguageService().doHover(block.cssDoc, lsPosition, block.stylesheet);
         if (!hover) return null;
 
         return new vscode.Hover(fromLspMarkdown(hover.contents));

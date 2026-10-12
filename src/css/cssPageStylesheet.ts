@@ -1,23 +1,19 @@
 /**
  * cssPageStylesheet.ts  (css/)
  *
- * The parsed CSS of every <style> block on a page, shared by the two features
- * that both want it after every edit: the colour provider, which VS Code
- * re-requests on every change, and validation, on its 400 ms debounce. They run
- * within a few hundred milliseconds of each other and each used to build and
- * parse the same thing.
+ * The parsed CSS of every <style> block on a page, shared by every CSS feature:
+ * the colour provider, which VS Code re-requests on every change, validation,
+ * on its 400 ms debounce, and completion and hover at the caret. Each used to
+ * build and parse the same thing.
  *
  * Each block is parsed on its own, into a document holding just that block's
  * body — see buildCssBodyDoc for why the blocks are not merged into one
- * document, and why the bodies are no longer padded to page length. Positions
+ * document, and why the bodies are not padded to page length. Positions
  * therefore come back relative to the block, and `pagePosition` / `pageOffset`
  * shift them onto the page.
  *
- * The key carries the block ranges as well as the version, because the two
- * callers do not always agree on which blocks count — validation rejects a
- * <style> written inside a <script> or an HTML comment, the colour provider does
- * not. When they agree, which is every page without such a block, they share one
- * entry and the CSS is parsed once.
+ * The key carries the block ranges as well as the version, so a caller passing
+ * other ranges never gets another caller's parse.
  *
  * The text itself is part of the key rather than just its version. Keying on the
  * version alone assumes a document's version always moves when its content does,
@@ -63,6 +59,17 @@ export function getParsedCssBlocks(
     _cacheKey = key;
     _cacheContent = content;
     return blocks;
+}
+
+/** The parsed <style> block holding `offset`, either end of its body included. */
+export function getParsedCssBlockAt(
+    uri: string,
+    content: string,
+    version: number,
+    ranges: ReadonlyArray<{ start: number; end: number }>,
+    offset: number,
+): ParsedCssBlock | undefined {
+    return getParsedCssBlocks(uri, content, version, ranges).find(b => b.range.start <= offset && offset <= b.range.end);
 }
 
 /**
