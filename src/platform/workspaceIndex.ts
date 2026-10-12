@@ -3,7 +3,8 @@
  *
  * Every ASP file in the workspace folders: by extension (.asp, .inc …) or
  * through the user's own `files.associations` (a site that keeps its Classic
- * ASP in .html files). Ctrl+T, rename and the include graph read the list.
+ * ASP in .html files), less what `files.exclude` and `search.exclude` hide,
+ * as VS Code's own search does. Ctrl+T, rename and the include graph read the list.
  *
  * The folders are walked once and a file watcher keeps the list current from
  * then on, and tells the features that keep something per file (Ctrl+T's
@@ -37,28 +38,53 @@ function escapeGlobChar(c: string): string {
     return /[.+^${}()|[\]\\]/.test(c) ? '\\' + c : c;
 }
 
-// Converts a `files.associations` glob (e.g. `*.html`, or a double-star
-// pattern reaching into subfolders, or `lib/*.asp`) into a RegExp. Supports
-// `*` (any run of non-separator characters), a double-star (any run of
-// characters, including separators), and `?` (one character) — the subset
-// that covers the patterns users actually write for this setting.
+// Converts a `files.associations` or `files.exclude` glob (e.g. `*.html`, or a
+// double-star pattern reaching into subfolders, or `lib/*.asp`) into a RegExp.
+// Supports `*` (any run of non-separator characters), a double-star (any run
+// of characters, including separators), `?` (one character) and `{a,b}` (either)
+// — the subset that covers the patterns users actually write for these settings.
 export function globToRegExp(glob: string): RegExp {
     let pattern = '';
+    let braces = 0;
     for (let i = 0; i < glob.length; i++) {
         const c = glob[i];
         if (c === '*' && glob[i + 1] === '*') {
-            pattern += '.*';
             i++;
-            if (glob[i + 1] === '/') { i++; } // swallow the / after ** so **/ matches zero directories too
+            // **/ matches zero folders too, but only whole folder names.
+            if (glob[i + 1] === '/') { i++; pattern += '(?:.*/)?'; } else { pattern += '.*'; }
         } else if (c === '*') {
             pattern += '[^/]*';
         } else if (c === '?') {
             pattern += '[^/]';
+        } else if (c === '{') {
+            braces++;
+            pattern += '(?:';
+        } else if (c === '}' && braces > 0) {
+            braces--;
+            pattern += ')';
+        } else if (c === ',' && braces > 0) {
+            pattern += '|';
         } else {
             pattern += escapeGlobChar(c);
         }
     }
-    return new RegExp(`^${pattern}$`, 'i');
+    return braces === 0 ? new RegExp(`^${pattern}$`, 'i') : /(?!)/;
+}
+
+/**
+ * True for a path, relative to its workspace folder, that `files.exclude` or
+ * `search.exclude` hides there, as VS Code's own search leaves it out. A
+ * pattern set to a `when` condition is not followed.
+ */
+function exclusionsOf(folder: vscode.Uri | undefined): (relPath: string) => boolean {
+    const patterns = [
+        otherSetting<Record<string, unknown>>('files', 'exclude', folder),
+        otherSetting<Record<string, unknown>>('search', 'exclude', folder),
+    ].flatMap(setting => Object.entries(setting ?? {}).filter(([, on]) => on === true).map(([glob]) => globToRegExp(glob.replace(/\\/g, '/'))));
+    return relPath => {
+        const rel = relPath.replace(/\\/g, '/');
+        return patterns.some(pattern => pattern.test(rel));
+    };
 }
 
 /** The `files.associations` entries that map to the "asp" language, each compiled once per scan rather than once per file. A pattern containing a path separator matches against the file's path relative to the workspace folder; a bare pattern (the common case — `"*.html"`) matches against the file name only. */
@@ -86,17 +112,23 @@ export function isAspFile(fullPath: string, relPath: string, extensions: string[
 /** True for an entry the walk never descends into or lists: node_modules, or a dotfile or dotfolder. */
 const skipped = (name: string) => name.startsWith('.') || name === 'node_modules';
 
-export function findAspFilesInFolder(dir: string, root: string, extensions: string[], rules: AssociationRule[]): string[] {
+/** Paths, relative to the workspace folder, that the walk leaves out, as `files.exclude` does. */
+export type Excluded = (relPath: string) => boolean;
+const NOTHING_EXCLUDED: Excluded = () => false;
+
+export function findAspFilesInFolder(
+    dir: string, root: string, extensions: string[], rules: AssociationRule[], excluded = NOTHING_EXCLUDED,
+): string[] {
     const results: string[] = [];
     let entries: fs.Dirent[];
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
     catch { return results; }
 
     for (const entry of entries) {
-        if (skipped(entry.name)) { continue; }
         const fullPath = path.join(dir, entry.name);
+        if (skipped(entry.name) || excluded(path.relative(root, fullPath))) { continue; }
         if (entry.isDirectory()) {
-            results.push(...findAspFilesInFolder(fullPath, root, extensions, rules));
+            results.push(...findAspFilesInFolder(fullPath, root, extensions, rules, excluded));
         } else if (entry.isFile() && isAspFile(fullPath, path.relative(root, fullPath), extensions, rules)) {
             results.push(fullPath);
         }
@@ -105,17 +137,19 @@ export function findAspFilesInFolder(dir: string, root: string, extensions: stri
 }
 
 /** findAspFilesInFolder without holding up the extension host: a large site on a network share takes seconds to walk. */
-async function findAspFilesInFolderAsync(dir: string, root: string, extensions: string[], rules: AssociationRule[]): Promise<string[]> {
+async function findAspFilesInFolderAsync(
+    dir: string, root: string, extensions: string[], rules: AssociationRule[], excluded: Excluded,
+): Promise<string[]> {
     let entries: fs.Dirent[];
     try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); }
     catch { return []; }
 
     const results: string[] = [];
     for (const entry of entries) {
-        if (skipped(entry.name)) { continue; }
         const fullPath = path.join(dir, entry.name);
+        if (skipped(entry.name) || excluded(path.relative(root, fullPath))) { continue; }
         if (entry.isDirectory()) {
-            results.push(...await findAspFilesInFolderAsync(fullPath, root, extensions, rules));
+            results.push(...await findAspFilesInFolderAsync(fullPath, root, extensions, rules, excluded));
         } else if (entry.isFile() && isAspFile(fullPath, path.relative(root, fullPath), extensions, rules)) {
             results.push(fullPath);
         }
@@ -123,9 +157,10 @@ async function findAspFilesInFolderAsync(dir: string, root: string, extensions: 
     return results;
 }
 
-/** True for a path the walk would never reach: inside node_modules or a dotfolder. */
-function isSkippedPath(relPath: string): boolean {
-    return relPath.split(/[\\/]/).some(skipped);
+/** True for a path the walk would never reach: inside node_modules, a dotfolder or an excluded folder. */
+function isSkippedPath(relPath: string, excluded: Excluded): boolean {
+    const parts = relPath.split(/[\\/]/);
+    return parts.some((name, i) => skipped(name) || excluded(parts.slice(0, i + 1).join('/')));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -143,6 +178,8 @@ interface FileIndex {
     files:      Set<string>;
     extensions: string[];
     rules:      AssociationRule[];
+    /** What each workspace folder's settings exclude, by its path, read once. */
+    excludes:   Map<string, Excluded>;
 }
 
 let _index: FileIndex | undefined;
@@ -171,9 +208,16 @@ function dropIndex(): void {
     for (const listener of _listeners) { listener({ created: [], changed: [], deleted: [] }); }
 }
 
-function newIndex(files: Set<string>, extensions: string[], rules: AssociationRule[]): FileIndex {
+function newIndex(files: Set<string>, extensions: string[], rules: AssociationRule[], excludes: Map<string, Excluded>): FileIndex {
     watchWorkspace();
-    return { files, extensions, rules };
+    return { files, extensions, rules, excludes };
+}
+
+/** The exclusions of the workspace folder at `root`, read now if they were not yet. */
+function excludedIn(excludes: Map<string, Excluded>, root: string): Excluded {
+    let excluded = excludes.get(root);
+    if (!excluded) { excluded = exclusionsOf(vscode.Uri.file(root)); excludes.set(root, excluded); }
+    return excluded;
 }
 
 /**
@@ -186,11 +230,12 @@ export function getWorkspaceAspFiles(): string[] {
         const extensions = getAspFileExtensions();
         const rules      = getAspAssociationRules();
         const files      = new Set<string>();
+        const excludes   = new Map<string, Excluded>();
         for (const folder of vscode.workspace.workspaceFolders ?? []) {
             const root = folder.uri.fsPath;
-            for (const file of findAspFilesInFolder(root, root, extensions, rules)) { files.add(file); }
+            for (const file of findAspFilesInFolder(root, root, extensions, rules, excludedIn(excludes, root))) { files.add(file); }
         }
-        _index = newIndex(files, extensions, rules);
+        _index = newIndex(files, extensions, rules, excludes);
     }
     return [..._index.files];
 }
@@ -216,13 +261,14 @@ function walkedIndex(): Promise<FileIndex> {
             const extensions = getAspFileExtensions();
             const rules      = getAspAssociationRules();
             const files      = new Set<string>();
+            const excludes   = new Map<string, Excluded>();
             for (const folder of vscode.workspace.workspaceFolders ?? []) {
                 const root = folder.uri.fsPath;
-                for (const file of await findAspFilesInFolderAsync(root, root, extensions, rules)) { files.add(file); }
+                for (const file of await findAspFilesInFolderAsync(root, root, extensions, rules, excludedIn(excludes, root))) { files.add(file); }
             }
             // A sync walk may have finished first, and the watcher has kept it since.
-            if (generation === _generation) { _index ??= newIndex(files, extensions, rules); }
-            return _index ?? newIndex(files, extensions, rules);
+            if (generation === _generation) { _index ??= newIndex(files, extensions, rules, excludes); }
+            return _index ?? newIndex(files, extensions, rules, excludes);
         })();
     }
     return _walking;
@@ -244,7 +290,7 @@ function watchWorkspace(): void {
         watcher.onDidDelete(uri => fileDeleted(uri.fsPath)),
         watcher.onDidChange(uri => fileChanged(uri.fsPath)),
         vscode.workspace.onDidChangeWorkspaceFolders(dropIndex),
-        onSettingsChange(['files.associations'], dropIndex),
+        onSettingsChange(['files.associations', 'files.exclude', 'search.exclude'], dropIndex),
     );
 }
 
@@ -255,7 +301,7 @@ function fileChanged(fsPath: string): void {
 async function fileCreated(fsPath: string): Promise<void> {
     const index = _index;
     const root  = folderOf(fsPath);
-    if (!index || !root || isSkippedPath(path.relative(root, fsPath))) { return; }
+    if (!index || !root || isSkippedPath(path.relative(root, fsPath), excludedIn(index.excludes, root))) { return; }
 
     // An ASP file by its name needs no look at the disk, and most files a
     // build or a checkout writes are neither ASP files nor folders.
@@ -270,7 +316,7 @@ async function fileCreated(fsPath: string): Promise<void> {
     try { isDirectory = (await fs.promises.stat(fsPath)).isDirectory(); } catch { return; }
     if (!isDirectory || _index !== index) { return; }
 
-    const created = (await findAspFilesInFolderAsync(fsPath, root, index.extensions, index.rules))
+    const created = (await findAspFilesInFolderAsync(fsPath, root, index.extensions, index.rules, excludedIn(index.excludes, root)))
         .filter(file => !index.files.has(file));
     if (_index !== index) { return; }
     for (const file of created) { index.files.add(file); }
