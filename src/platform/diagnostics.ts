@@ -39,14 +39,6 @@ export const DiagnosticCode = {
 
 export type Code = typeof DiagnosticCode[keyof typeof DiagnosticCode] | CheckCode | `css-${string}` | number;
 
-/**
- * The problems that stop Format Document: formatting a page whose tags or
- * blocks do not pair up would put them back in the wrong places.
- */
-export const BLOCKS_FORMATTING: ReadonlySet<Code> = new Set<Code>([
-    DiagnosticCode.vbscriptBlock, DiagnosticCode.aspTag, DiagnosticCode.htmlTag, DiagnosticCode.htmlVoidClosingTag,
-]);
-
 /** A CSS service code (`unknownProperties`) as one of ours (`css-unknown-properties`). */
 export function cssCode(serviceCode: string | number): `css-${string}` {
     return `css-${String(serviceCode).replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`;
