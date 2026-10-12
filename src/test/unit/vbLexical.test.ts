@@ -1,8 +1,9 @@
 import * as assert from 'assert';
 import {
-    codeWithoutStrings, endsWithContinuation, isInVbString, isInVbStringOrComment, splitCodeAndComment,
+    codeWithoutStrings, endsWithContinuation, isInVbString, isInVbStringOrComment, scanVbLine, splitCodeAndComment,
     vbStatements, vbStringSegments,
 } from '../../core/vbLexical';
+import { tokenize, TokenKind } from '../../vbscript/lexer';
 
 // The rules below are the parser's lexer's, which were checked against cscript.exe.
 
@@ -143,5 +144,25 @@ describe('vbStringSegments', () => {
 describe('vbStatements', () => {
     it('splits at colons outside strings and leaves the comment off', () => {
         assert.deepStrictEqual(vbStatements('For i = 1 To 3 : x = "a:b" : Next \' done: yes'), ['For i = 1 To 3 ', ' x = "a:b" ', ' Next ']);
+    });
+
+    it('does not split at a colon inside a bracketed name', () => {
+        assert.deepStrictEqual(vbStatements('[a:b] = 1 : x = 2'), ['[a:b] = 1 ', ' x = 2']);
+    });
+});
+
+// The line rules are the parser's lexer, so a line reads the same to both.
+describe('scanVbLine agrees with the parser', () => {
+    it('reads Rem after a dot and a space as a member, as cscript does', () => {
+        assert.deepStrictEqual(splitCodeAndComment('x = a. Rem'), { code: 'x = a. Rem', comment: '' });
+    });
+
+    it('marks the same comment and strings as tokenize', () => {
+        for (const line of ['x = "a\'b" \' c', 'If a Then Rem x', 'y = [it\'s] & "q""r"', 'z = #1/2/2000# & "s"_']) {
+            const { tokens, comments } = tokenize(line, [{ kind: 'code', start: 0, end: line.length }]);
+            const scan = scanVbLine(line);
+            assert.strictEqual(scan.codeEnd, comments[0]?.start ?? line.length, line);
+            assert.deepStrictEqual(scan.strings.map(s => s.start), tokens.filter(t => t.kind === TokenKind.String).map(t => t.start), line);
+        }
     });
 });
