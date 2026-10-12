@@ -65,3 +65,43 @@ describe('emitSqlTokensForGroup — literals and comments', () => {
         assert.ok(!words.includes('where') && !words.includes('comment'), JSON.stringify(words));
     });
 });
+
+// Many SQL words are also everyday column names. Each is coloured as SQL only
+// where it stands as SQL; anywhere else it is a name the theme leaves alone.
+describe('emitSqlTokensForGroup — a word is SQL by where it stands', () => {
+    const SQL_DML = 23;
+    const SQL_KEYWORD = 26;
+    const SQL_FUNC = 27;
+    const SQL_TYPE = 28;
+    /** The token type each coloured stretch of `sql` was given, by its text. */
+    const roles = (sql: string): Record<string, number> => {
+        const found: Record<string, number> = {};
+        const group = { stitched: sql, omLine: new Int32Array(sql.length), omCol: Int32Array.from({ length: sql.length }, (_, i) => i) };
+        emitSqlTokensForGroup({ push: (_line, col, length, type) => { found[sql.slice(col, col + length)] = type; } }, group);
+        return found;
+    };
+
+    it('leaves columns called Date, Text, Time, Open, Key, Index and View alone', () => {
+        const found = roles('SELECT Date, Text, Time, Open, Key, Index, View, COUNT(DISTINCT Date) FROM t ORDER BY Date');
+        for (const word of ['Date', 'Text', 'Time', 'Open', 'Key', 'Index', 'View']) {
+            assert.ok(!(word in found), `${word} coloured as ${found[word]}`);
+        }
+        assert.strictEqual(found.SELECT, SQL_DML);
+    });
+
+    it('colours a type where a type goes', () => {
+        const found = roles('CREATE TABLE t (id INT PRIMARY KEY, note TEXT); DECLARE @d DATE; SELECT CAST(x AS VARCHAR(10)), CONVERT(DATETIME, y) FROM u');
+        for (const word of ['INT', 'TEXT', 'DATE', 'VARCHAR', 'DATETIME']) {
+            assert.strictEqual(found[word], SQL_TYPE, word);
+        }
+        assert.strictEqual(found.KEY, SQL_KEYWORD);
+    });
+
+    it('reads a date part, LEFT and a function by their place', () => {
+        const found = roles('SELECT DATEADD(hour, 1, x) FROM t LEFT OUTER JOIN u ON t.id = u.id');
+        assert.strictEqual(found.hour, SQL_KEYWORD);
+        assert.strictEqual(found.DATEADD, SQL_FUNC);
+        assert.strictEqual(found.LEFT, SQL_DML);
+        assert.strictEqual(roles('SELECT LEFT(a, 2) FROM t').LEFT, SQL_FUNC);
+    });
+});

@@ -228,10 +228,6 @@ for (const w of SQL_KEYWORD_WORDS)  { SQL_WORD_TOKEN_MAP.set(w, T_SQL_KEYWORD); 
 for (const w of SQL_FUNCTION_WORDS) { SQL_WORD_TOKEN_MAP.set(w, T_SQL_FUNC); }
 for (const w of SQL_TYPE_WORDS)     { SQL_WORD_TOKEN_MAP.set(w, T_SQL_TYPE); }
 
-function sqlWordTokenType(word: string): number | undefined {
-    return SQL_WORD_TOKEN_MAP.get(word.toLowerCase());
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // SQL tokeniser — converts a raw SQL string into a flat token list.
 // Each token has: type, value, and offset (position in the original string).
@@ -334,13 +330,83 @@ function matchTwoWordTableIntro(sig: SqlTok[], i: number): number {
     return -1;
 }
 
-// A word is SQL, not a name, unless it is only a function name and no ( follows:
-// LOG, COUNT and SUM are also ordinary table and column names.
+const DUAL_ROLE_JOIN    = new Set(['left', 'right']);
+const DATEPART_WORDS    = new Set([
+    'year', 'month', 'day', 'hour', 'minute', 'second', 'millisecond', 'microsecond', 'nanosecond',
+    'dayofweek', 'dayofyear', 'week', 'weekday', 'quarter',
+]);
+const DATEPART_FUNCTIONS = new Set(['dateadd', 'datediff', 'datediff_big', 'datepart', 'datename']);
+const OBJECT_VERBS      = new Set(['create', 'alter', 'drop', 'unique', 'clustered', 'nonclustered']);
+const STATEMENT_WORDS   = new Set(['begin', 'then', 'else', 'end', 'go']);
+
+const lower = (t: SqlTok | undefined) => t?.val.toLowerCase();
+const isOpenParen = (t: SqlTok | undefined) => t?.type === 'paren' && t.val === '(';
+
+/** The `(` of the innermost call `sig[i]` is an argument of, and the word before it, if any. */
+function enclosingCall(sig: SqlTok[], i: number): string | undefined {
+    let depth = 0;
+    for (let j = i - 1; j >= 0; j--) {
+        if (sig[j].type !== 'paren') { continue; }
+        if (sig[j].val === ')') { depth++; } else if (depth > 0) { depth--; } else { return lower(sig[j - 1]); }
+    }
+    return undefined;
+}
+
+/**
+ * True where a data type goes: `CAST(x AS INT)`, `CONVERT(INT, x)`,
+ * `DECLARE @n INT`, and after a column's name in `CREATE TABLE t (id INT)` or
+ * `ADD`/`ALTER COLUMN c DATE`.
+ */
+function isTypePlace(sig: SqlTok[], i: number): boolean {
+    const p1 = sig[i - 1];
+    const p2 = sig[i - 2];
+    if (lower(p1) === 'as') { return /^(?:try_)?cast$/.test(enclosingCall(sig, i) ?? ''); }
+    if (isOpenParen(p1)) { return /^(?:try_)?convert$/.test(lower(p2) ?? ''); }
+    const named = !!p1 && isIdentifier(p1) && !SQL_WORD_TOKEN_MAP.has(lower(p1)!);
+    return named && !!p2 && (p2.val === '@' || p2.val === ',' || isOpenParen(p2) || lower(p2) === 'add' || lower(p2) === 'column');
+}
+
+/**
+ * The colour the word `sig[i]` takes as SQL where it stands, or undefined when
+ * it is a name there. Many SQL words are also everyday table and column names
+ * — Log, Count, Left, Hour, Date, Text, Key, Index, View, Open — so each of
+ * those is SQL only in its own place:
+ *   a function only before `(`, and LEFT/RIGHT also before JOIN;
+ *   a date part also as the first argument of DATEADD and its kin;
+ *   a type only where a type goes (isTypePlace);
+ *   KEY after PRIMARY or FOREIGN, INDEX and VIEW after CREATE, ALTER or DROP;
+ *   OPEN and CLOSE at the start of a statement.
+ */
+function sqlRoleAt(sig: SqlTok[], i: number): number | undefined {
+    const tok = sig[i];
+    const w = tok.type === 'word' ? tok.val.toLowerCase() : '';
+    const role = SQL_WORD_TOKEN_MAP.get(w);
+    if (role === undefined) { return undefined; }
+    const call = isOpenParen(sig[i + 1]);
+    const before = lower(sig[i - 1]);
+
+    if (DUAL_ROLE_JOIN.has(w)) {
+        return call ? T_SQL_FUNC : lower(sig[i + 1]) === 'join' || lower(sig[i + 1]) === 'outer' ? T_SQL_DML : undefined;
+    }
+    if (DATEPART_WORDS.has(w)) {
+        if (call) { return T_SQL_FUNC; }
+        return isOpenParen(sig[i - 1]) && DATEPART_FUNCTIONS.has(lower(sig[i - 2]) ?? '') ? T_SQL_KEYWORD : undefined;
+    }
+    // CONCAT is also written between two values, as DB2 does: a CONCAT b.
+    if (role === T_SQL_FUNC && w !== 'concat') { return call ? T_SQL_FUNC : undefined; }
+    if (role === T_SQL_TYPE) {
+        if (isTypePlace(sig, i)) { return T_SQL_TYPE; }
+        return call && SQL_FUNCTION_WORDS.has(w) ? T_SQL_FUNC : undefined;
+    }
+    if (w === 'key') { return before === 'primary' || before === 'foreign' ? role : undefined; }
+    if (w === 'index' || w === 'view') { return OBJECT_VERBS.has(before ?? '') ? role : undefined; }
+    if (w === 'open' || w === 'close') { return before === undefined || before === ';' || STATEMENT_WORDS.has(before) ? role : undefined; }
+    return role;
+}
+
+/** A word is SQL, not a name, where it has a SQL role. */
 function isSqlWordAt(sig: SqlTok[], i: number): boolean {
-    const w = sig[i].val.toLowerCase();
-    if (!ALL_SQL_KEYWORDS.has(w)) { return false; }
-    if (!FUNCTION_ONLY_WORDS.has(w)) { return true; }
-    return i + 1 < sig.length && sig[i + 1].type === 'paren' && sig[i + 1].val === '(';
+    return sqlRoleAt(sig, i) !== undefined;
 }
 
 function isIdentifier(tok: SqlTok): boolean {
@@ -388,9 +454,7 @@ function collectTableChain(sig: SqlTok[], start: number): Array<{off: number; le
 }
 
 // Main entry: returns a Set of "off:len" strings for fast membership testing.
-function findTableRanges(sql: string): Set<string> {
-    const all    = tokeniseSql(sql);
-    const sig    = all.filter(t => t.type !== 'ws');
+function findTableRanges(sig: SqlTok[]): Set<string> {
     const result = new Set<string>();
 
     function addRanges(ranges: Array<{off: number; len: number}>): void {
@@ -492,55 +556,6 @@ export interface SqlStringGroup {
 //   1. Table names/aliases  2. alias.column refs  3. @variables
 //   4. Numeric literals     5. SQL keywords/functions/types
 // ─────────────────────────────────────────────────────────────────────────────
-// Context-sensitive token type overrides for emitSqlTokensForGroup.
-const DUAL_ROLE_JOIN  = new Set(['left','right']);
-
-// Words that look like SQL keywords but are also very common column names.
-// They should only be coloured as keywords when they appear as the first
-// argument inside a datepart-aware function call:
-//   DATEADD(hour, 1, col)  DATEDIFF(minute, start, end)  DATEPART(week, col) …
-// Everywhere else — SELECT Hour FROM t, t.Day = 5 — they are column names
-// and must not be coloured so the theme leaves them as plain identifiers.
-const DATEPART_WORDS = new Set([
-    'year','month','day',
-    'hour','minute','second','millisecond','microsecond','nanosecond',
-    'dayofweek','dayofyear','week','weekday','quarter',
-]);
-// Words whose only SQL role is a function name. Without a ( after them they
-// are names: DELETE FROM Log, SELECT Count FROM t. CONCAT is left out: DB2
-// also writes it between two values, a CONCAT b.
-const FUNCTION_ONLY_WORDS = new Set([...SQL_FUNCTION_WORDS].filter(w =>
-    SQL_WORD_TOKEN_MAP.get(w) === T_SQL_FUNC && !DUAL_ROLE_JOIN.has(w) && !DATEPART_WORDS.has(w) &&
-    w !== 'concat'));
-
-const DATEPART_FUNCTIONS = new Set([
-    'dateadd','datediff','datediff_big','datepart','datename',
-]);
-
-// Returns true when the word at `wordStart` in `sql` is the first argument
-// inside a DATEADD/DATEDIFF/DATEPART/DATENAME call, i.e.:
-//   DATEADD  (  <word>  ,  …
-// The check looks backward from wordStart to confirm the immediately preceding
-// non-whitespace character is '(' and the token before that '(' is a datepart
-// function name.
-function isDatepartArgument(sql: string, wordStart: number): boolean {
-    // Step back past leading whitespace to find the preceding character
-    let i = wordStart - 1;
-    while (i >= 0 && (sql[i] === ' ' || sql[i] === '\t' || sql[i] === '\n' || sql[i] === '\r')) {
-        i--;
-    }
-    if (i < 0 || sql[i] !== '(') { return false; }
-    // Step back past the '(' to find the function name
-    i--;
-    while (i >= 0 && (sql[i] === ' ' || sql[i] === '\t')) { i--; }
-    if (i < 0) { return false; }
-    // Read the word backwards
-    let end = i + 1;
-    while (i >= 0 && /[a-zA-Z0-9_]/.test(sql[i])) { i--; }
-    const fnName = sql.slice(i + 1, end).toLowerCase();
-    return DATEPART_FUNCTIONS.has(fnName);
-}
-
 export function emitSqlTokensForGroup(
     builder: TokenSink,
     group: SqlStringGroup
@@ -568,7 +583,8 @@ export function emitSqlTokensForGroup(
     }
 
     // Pass 1: table names
-    const tableRangeSet = findTableRanges(stitched);
+    const sig = tokeniseSql(stitched).filter(t => t.type !== 'ws');
+    const tableRangeSet = findTableRanges(sig);
     for (const key of tableRangeSet) {
         const colon = key.indexOf(':');
         const off   = parseInt(key.slice(0, colon), 10);
@@ -639,46 +655,13 @@ export function emitSqlTokensForGroup(
         claim(m.index, m[0].length);
     }
 
-    // Pass 5: SQL keywords / functions / types.
-    const wordPattern = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
-    while ((m = wordPattern.exec(stitched)) !== null) {
-        if (isClaimed(m.index, m[1].length)) { continue; }
-        let tokenType = sqlWordTokenType(m[1]);
-        if (tokenType !== undefined) {
-            const wLower = m[1].toLowerCase();
-            const after  = stitched.slice(m.index + m[1].length);
-
-            if (DUAL_ROLE_JOIN.has(wLower)) {
-                // LEFT/RIGHT have two SQL roles:
-                //   LEFT(str, n)     → SQL string function → T_SQL_FUNC
-                //   LEFT JOIN table  → JOIN keyword        → T_SQL_DML
-                // If followed by ( it's a function call; if followed by JOIN it's a keyword.
-                // Anything else (e.g. bare LEFT in a column alias) stays uncoloured.
-                if (/^\s*\(/.test(after)) {
-                    tokenType = T_SQL_FUNC;
-                } else if (/^\s+join\b/i.test(after)) {
-                    tokenType = T_SQL_DML;
-                } else {
-                    continue; // uncoloured — ambiguous
-                }
-            } else if (FUNCTION_ONLY_WORDS.has(wLower)) {
-                if (!/^\s*\(/.test(after)) { continue; } // a name, not a call
-            } else if (DATEPART_WORDS.has(wLower)) {
-                // Date-part words have three possible roles:
-                //   HOUR(start_time)        → ( follows → function colour
-                //   DATEADD(hour, 1, col)   → first arg inside datepart fn → keyword colour
-                //   SELECT Hour FROM t      → bare column name → no colour
-                if (/^\s*\(/.test(after)) {
-                    tokenType = T_SQL_FUNC;
-                } else if (!isDatepartArgument(stitched, m.index)) {
-                    continue; // bare column name — leave uncoloured
-                } else {
-                    tokenType = T_SQL_KEYWORD;
-                }
-            }
-
-            emit(m.index, m[1].length, tokenType);
-            claim(m.index, m[1].length);
-        }
+    // Pass 5: SQL keywords, functions and types, each where it stands (sqlRoleAt).
+    for (let i = 0; i < sig.length; i++) {
+        const tok = sig[i];
+        if (tok.type !== 'word' || isClaimed(tok.off, tok.val.length)) { continue; }
+        const role = sqlRoleAt(sig, i);
+        if (role === undefined) { continue; }
+        emit(tok.off, tok.val.length, role);
+        claim(tok.off, tok.val.length);
     }
 }
