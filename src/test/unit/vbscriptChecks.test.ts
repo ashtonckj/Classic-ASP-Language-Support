@@ -56,8 +56,8 @@ describe('checks — a name nothing declares, under Option Explicit', () => {
     });
 
     it('counts what an include declares, and says nothing when an include is missing', () => {
-        const code = '%><!-- #include file="lib.inc" --><%\nOption Explicit\nshared = 1';
-        assert.deepStrictEqual(checksOf(code, 'undeclared', { 'lib.inc': '<% Dim shared %>' }), []);
+        const code = '%><!-- #include file="lib.inc" --><%\nOption Explicit\ntally = 1';
+        assert.deepStrictEqual(checksOf(code, 'undeclared', { 'lib.inc': '<% Dim tally %>' }), []);
         assert.deepStrictEqual(checksOf(code.replace('lib.inc', 'gone.inc'), 'undeclared'), []);
     });
 });

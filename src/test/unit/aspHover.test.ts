@@ -70,8 +70,8 @@ describe('hover on a name the page declares', () => {
     });
 
     it('names the include a declaration comes from', () => {
-        const files = { 'lib.inc': '<% Dim shared %>', 'page.asp': '<!-- #include file="lib.inc" -->\n<% shared = 1 %>' };
-        assert.strictEqual(hoverOf(files, 'shared'), '**shared** — variable\n\n*Declared in `lib.inc`*');
+        const files = { 'lib.inc': '<% Dim tally %>', 'page.asp': '<!-- #include file="lib.inc" -->\n<% tally = 1 %>' };
+        assert.strictEqual(hoverOf(files, 'tally'), '**tally** — variable\n\n*Declared in `lib.inc`*');
     });
 
     it('gives an object variable its type', () => {

@@ -83,7 +83,7 @@ describe('the files a page includes', function () {
         write('lib/a.inc', '<!--#include file="b.inc"--><!--#include virtual="/nested/n.inc"--><% Sub A : End Sub %>');
         write('lib/b.inc', '<!--#include file="a.inc"--><!--#include file="shared.inc"--><% Sub B : End Sub %>');
         write('lib/nested/n.inc', '<% Sub N : End Sub %>');
-        write('lib/shared.inc', '<% Sub Shared : End Sub %>');
+        write('lib/shared.inc', '<% Sub Common : End Sub %>');
         write('defaults/d.inc', '<% Sub D : End Sub %>');
         stub.testSettings.set('classicAsp.defaultIncludes', ['defaults/d.inc']);
         const pagePath = path.join(dir, 'page.asp');
@@ -95,7 +95,7 @@ describe('the files a page includes', function () {
         const scope = buildScriptScope(pagePath, page.getText(), editorWorkspace(page as never));
         const bound = scope.files.filter(file => file !== scope.root).flatMap(file => symbolsOfPage(file.page, file.path).functions.map(f => f.name)).sort();
 
-        assert.deepStrictEqual(completion, ['A', 'B', 'D', 'N', 'Shared']);
+        assert.deepStrictEqual(completion, ['A', 'B', 'Common', 'D', 'N']);
         assert.deepStrictEqual(completion, bound);
     });
 });

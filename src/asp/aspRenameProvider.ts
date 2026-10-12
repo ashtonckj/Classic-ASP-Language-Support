@@ -3,7 +3,8 @@ import * as path from 'path';
 import { getVirtualRoot, readIncludeText } from './includeProvider';
 import { movedPathLookup, rewriteIncludesAfterMove } from '../core/includeDirectives';
 import { getWorkspaceAspFiles } from '../platform/workspaceIndex';
-import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
+import { ASP_OBJECT_NAMES } from '../constants/aspKeywords';
+import { isReservedWord } from '../vbscript/parser';
 import { contextAt } from '../platform/documentState';
 import { findSites, resolveAt } from '../vbscript/references';
 import { editorWorkspace, siteToLocation } from './vbscriptWorkspace';
@@ -48,11 +49,14 @@ function wordAt(
     if (caret.inVbStringOrComment) {
         return { reason: `"${word}" is inside a string or a comment, not code.` };
     }
-    if (VBSCRIPT_KEYWORDS_SET.has(word.toLowerCase())) {
+    if (isKeyword(word)) {
         return { reason: `"${word}" is a VBScript keyword and cannot be renamed.` };
     }
     return { word, range };
 }
+
+/** A word no page can declare, or the name of an ASP object, which a page should not shadow. */
+const isKeyword = (word: string) => isReservedWord(word.toLowerCase()) || ASP_OBJECT_NAMES.has(word.toLowerCase());
 
 const notASymbol = (word: string) => `"${word}" is not a recognised VBScript symbol.`;
 
@@ -131,7 +135,7 @@ export class AspRenameProvider implements vscode.RenameProvider {
             return null;
         }
 
-        if (VBSCRIPT_KEYWORDS_SET.has(newName.toLowerCase())) {
+        if (isKeyword(newName)) {
             vscode.window.showErrorMessage(`"${newName}" is a VBScript keyword and cannot be used as an identifier.`);
             return null;
         }

@@ -3,10 +3,11 @@ import { withIncludeSymbols } from './includeProvider';
 import { isCursorInHtmlFileLinkAttribute } from '../html/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
 import {
-    ASP_MEMBER_DOCS, ASP_OBJECTS, ASP_OBJECT_NAMES, AspObjectDef, BUILTIN_FUNCTION_DOCS, VBSCRIPT_CONSTANTS, VBSCRIPT_KEYWORDS_SET, isBuiltinName,
+    ASP_MEMBER_DOCS, ASP_OBJECTS, ASP_OBJECT_NAMES, AspObjectDef, BUILTIN_FUNCTION_DOCS, VBSCRIPT_CONSTANTS, isBuiltinName,
 } from '../constants/aspKeywords';
 import * as path from 'path';
 import { declarationsOf, resolveAt, type BoundPage, type Target } from '../vbscript/references';
+import { isReservedWord } from '../vbscript/parser';
 import type { Declaration } from '../vbscript/binder';
 import { PROCEDURE_WORD, sourceOf, walkStatements, type ParsedPage } from '../vbscript/symbols';
 import { analysedPage, editorWorkspace } from './vbscriptWorkspace';
@@ -303,7 +304,7 @@ export class AspHoverProvider implements vscode.HoverProvider {
         // ── 2. A name the page declares ───────────────────────────────────────
         // The parser says which declaration the name means: a local, a
         // parameter, a page variable, a procedure or a class member.
-        if (!VBSCRIPT_KEYWORDS_SET.has(wordKey)) {
+        if (!isReservedWord(wordKey)) {
             const resolved = resolveAt(
                 editorWorkspace(document), document.uri.fsPath, document.offsetAt(wordRange.start), !isBuiltinName(wordKey),
             );

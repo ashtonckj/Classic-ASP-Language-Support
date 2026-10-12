@@ -1,8 +1,9 @@
 import * as assert from 'assert';
 import {
     ASP_OBJECTS, ASP_OBJECT_NAMES, ASP_MEMBER_DOCS,
-    VBSCRIPT_KEYWORDS, VBSCRIPT_KEYWORDS_SET, VBSCRIPT_FUNCTIONS, VBSCRIPT_CONSTANTS,
+    VBSCRIPT_KEYWORDS, VBSCRIPT_FUNCTIONS, VBSCRIPT_CONSTANTS,
 } from '../../constants/aspKeywords';
+import { isReservedWord } from '../../vbscript/parser';
 
 // The intrinsic objects used to be listed with four or five members each, so
 // ordinary code — Response.CharSet, Response.ContentType, Server.Transfer,
@@ -138,40 +139,25 @@ describe('ASP intrinsic objects — the data holds together', () => {
     });
 });
 
-// VBSCRIPT_KEYWORDS_SET is asked about ONE identifier at a time — by the
-// semantic colourer, to avoid painting a keyword as a user symbol, and by the
-// rename provider, to refuse a keyword as an old or a new name. Its entries
-// therefore have to be single words. They were not: every multi-word keyword
-// was lowercased whole, so `'end if'` sat in the set as a member nothing could
-// match, and `select`, `option` and `explicit` were absent altogether.
-describe('VBScript keyword set — usable one identifier at a time', () => {
+// One list says which words can never be a name, checked against cscript:
+// `Dim <word>` fails for each word it holds and compiles for each it does not.
+describe('VBScript reserved words', () => {
 
-    it('holds no entry with a space in it', () => {
-        const multiWord = [...VBSCRIPT_KEYWORDS_SET].filter(k => /\s/.test(k));
-        assert.deepStrictEqual(multiWord, [], 'a set consulted per word cannot match these');
-    });
-
-    it('contributes every word of a multi-word keyword', () => {
-        for (const word of ['end', 'if', 'select', 'case', 'option', 'explicit',
-                            'on', 'error', 'resume', 'next', 'for', 'each', 'exit']) {
-            assert.ok(VBSCRIPT_KEYWORDS_SET.has(word), `${word} should be in the set`);
+    it('holds every word cscript refuses to Dim, Integer and Enum included', () => {
+        for (const word of ['end', 'if', 'select', 'case', 'option', 'on', 'resume', 'next', 'each', 'get',
+                            'preserve', 'byref', 'me', 'rem', 'stop', 'integer', 'enum', 'variant', 'static']) {
+            assert.ok(isReservedWord(word), `${word} should be reserved`);
         }
     });
 
-    it('knows the keywords that had no entry at all', () => {
-        for (const word of ['preserve', 'erase', 'byref', 'byval', 'me',
-                            'default', 'rem', 'stop', 'is', 'mod', 'eqv', 'imp']) {
-            assert.ok(VBSCRIPT_KEYWORDS_SET.has(word), `${word} should be in the set`);
+    it('leaves out the words cscript lets a page declare', () => {
+        for (const word of ['step', 'error', 'property', 'explicit', 'default', 'erase', 'randomize', 'alias', 'object']) {
+            assert.ok(!isReservedWord(word), `${word} is a legal name`);
         }
     });
+});
 
-    it('derives the intrinsic object names rather than listing them', () => {
-        // The old list was five names written out by hand, so ASPError,
-        // ObjectContext and Err were treated as ordinary user symbols.
-        for (const name of ASP_OBJECT_NAMES) {
-            assert.ok(VBSCRIPT_KEYWORDS_SET.has(name), `${name} should be in the set`);
-        }
-    });
+describe('VBScript keyword list', () => {
 
     it('lists no keyword twice', () => {
         const seen = new Set<string>();

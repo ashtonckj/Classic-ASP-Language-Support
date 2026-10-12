@@ -43,9 +43,13 @@ describe('the name lists agree with src/constants', () => {
     });
 
     it('every reserved word of the parser is a keyword word', () => {
-        // `As` is reserved but starts no statement, so the keyword list has no entry for it.
+        // `As` is reserved but starts no statement, and the rest VBScript reserves
+        // without using, so the keyword list has no entry for them.
+        const unused = new Set(['as', 'boolean', 'byte', 'currency', 'double', 'endif', 'enum', 'event', 'implements',
+            'integer', 'like', 'long', 'lset', 'optional', 'paramarray', 'raiseevent', 'rset', 'shared', 'single',
+            'static', 'type', 'typeof', 'variant']);
         for (const word of RESERVED) {
-            assert.ok(keywordWords.has(word) || word === 'as', `${word} is not in VBSCRIPT_KEYWORDS`);
+            assert.ok(keywordWords.has(word) || unused.has(word), `${word} is not in VBSCRIPT_KEYWORDS`);
         }
     });
 
