@@ -875,7 +875,8 @@ interface FormattedBlocks {
 
 type FormatRefusal = Exclude<FormatResult, { ok: true }>;
 
-const commentFor = (block: AspBlock) => `<!--${block.id}-->`;
+/** The comment a statement block or a hidden tag is masked behind. */
+const commentFor = ({ id }: { id: string }) => `<!--${id}-->`;
 
 /** What a block is found by in Prettier's output: for a statement block, the id inside its comment. */
 const placeholderOf = (block: AspBlock) =>
@@ -987,7 +988,7 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
             const id = run.names.id('ASPTAG', hiddenTags.length);
             hiddenTags.push({ id, text: jsPreMasked.slice(pos, end), dedent });
             const from = masked.length;
-            emit(`<!--${id}-->`);
+            emit(commentFor({ id }));
             blocksMap.replaced(pos, end, from, masked.length);
             pos = end;
             continue;
@@ -1069,7 +1070,7 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
             case 'inline':  emit(token!);           break;
             case 'midtag':  emit(`${token}="1"`);   break;
             case 'rawtext': emit(rawTokenFor(id));  break;
-            default:        emit(`<!--${id}-->`);   break;
+            default:        emit(commentFor({ id })); break;
         }
         blocksMap.replaced(replacedFrom, end, placedAt, masked.length);
         const placed = aspBlocks[aspBlocks.length - 1];
@@ -1115,11 +1116,11 @@ async function layOutAsWritten(run: FormatRun, page: MaskedPage, firstPass: stri
         // gets a line of its own too, rather than being left after a `%>`.
         const placeholders = [
             ...normalBlocks.map(commentFor),
-            ...hiddenTags.map(tag => `<!--${tag.id}-->`),
+            ...hiddenTags.map(commentFor),
         ];
         const at = [
             ...findInOrder(prettifiedCode, normalBlocks.map(commentFor)),
-            ...findInOrder(prettifiedCode, hiddenTags.map(tag => `<!--${tag.id}-->`)),
+            ...findInOrder(prettifiedCode, hiddenTags.map(commentFor)),
         ];
         const toSplit = placeholders
             .map((placeholder, i) => ({ placeholder, at: at[i] }))
@@ -1189,7 +1190,7 @@ function locatePlaceholders(page: MaskedPage, prettifiedCode: string): Placehold
     const lost = aspBlocks.find((_, i) => found[i] === -1);
     if (lost) { return blockRemoved(lost); }
 
-    const hiddenAt = findInOrder(prettifiedCode, hiddenTags.map(tag => `<!--${tag.id}-->`));
+    const hiddenAt = findInOrder(prettifiedCode, hiddenTags.map(commentFor));
     if (hiddenAt.includes(-1)) {
         return {
             ok: false, reason: 'tag-removed', severity: 'warning',
@@ -1325,7 +1326,7 @@ function restoreAspBlocks(
     for (const item of order) {
         if ('tag' in item) {
             restored.push(prettifiedCode.slice(scan, item.at));
-            scan = item.at + `<!--${item.tag.id}-->`.length;
+            scan = item.at + commentFor(item.tag).length;
 
             // On a line of its own, the tag goes at the indent it belongs at —
             // not the one Prettier gave its placeholder, inside the element the
