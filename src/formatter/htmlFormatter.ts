@@ -172,18 +172,6 @@ function restoreJsEventAttrs(code: string, masks: JsAttrMask[]): string {
     });
 }
 
-// ─── Safety check ─────────────────────────────────────────────────────────
-
-/**
- * True when the page has a `<%` that is never closed or a `%>` outside every
- * block, by the same lexical rule IIS uses: the first `%>` ends a block, even
- * one at the end of a comment, so `<% 'Response.Write x %>` is a whole block.
- * An unclosed `<%` would run the masking to the end of the page.
- */
-function hasUnclosedAspTags(code: string): boolean {
-    return aspTagProblems(code).length > 0;
-}
-
 // ─── ASP block classifier ─────────────────────────────────────────────────
 
 /**
@@ -731,7 +719,11 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
 }
 
 export async function formatPage(code: string): Promise<FormatResult> {
-    if (hasUnclosedAspTags(code)) {
+    // A `<%` never closed, or a `%>` outside every block, by the lexical rule IIS
+    // uses: the first `%>` ends a block, even one at the end of a comment, so
+    // `<% 'Response.Write x %>` is a whole block. An unclosed `<%` would run the
+    // masking to the end of the page.
+    if (aspTagProblems(code).length > 0) {
         return {
             ok: false, reason: 'asp-tags', severity: 'warning',
             message: 'Formatting skipped — unclosed <% or stray %> detected. Fix the ASP tag mismatch first.',
@@ -1010,7 +1002,7 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
         const leadingWS = lineLeading;
 
         // The block ends at the first %>, as IIS ends it, even one at the end of
-        // a ' comment. hasUnclosedAspTags has already made sure there is one.
+        // a ' comment. formatPage has already made sure there is one.
         const close = jsPreMasked.indexOf('%>', pos + 2);
         const end   = close === -1 ? jsPreMasked.length : close + 2;
 
