@@ -488,22 +488,13 @@ export function insertImpliedTableEndTags(html: string, map?: OffsetMap): string
 // ─── Main entry point ──────────────────────────────────────────────────────
 
 /**
- * True when `before` — the text from the start of its line up to a placeholder —
- * holds real content, so the block will have to be moved onto lines of its own.
- *
- * A placeholder sitting inside an unclosed quote is an attribute value, not tag
- * content — breaking the line there would split the tag open — so it does not
- * count however much text precedes it.
+ * True when `before` — the text from the start of its line up to a statement
+ * block's or a hidden tag's comment — holds real content, so the block will
+ * have to be moved onto lines of its own. Such a comment is never inside an
+ * attribute value: a block there is masked as `inline`.
  */
 function isInlinePlaced(before: string): boolean {
-    if (before.trim().length === 0) { return false; }
-
-    let quote: string | null = null;
-    for (const ch of before) {
-        if (!quote && (ch === '"' || ch === "'")) { quote = ch; }
-        else if (quote && ch === quote)           { quote = null; }
-    }
-    return quote === null;
+    return before.trim().length > 0;
 }
 
 /**
@@ -1410,9 +1401,7 @@ function restoreAspBlocks(
                 scan = afterIdx;
 
                 // A block is "inline placed" when Prettier left non-whitespace
-                // content before the placeholder on the same line — unless that
-                // content leaves a quote open: the placeholder is then inside an
-                // attribute value, and breaking it open corrupts the HTML.
+                // content before the placeholder on the same line.
                 const afterContent = isInlinePlaced(textBeforeOnLine);
 
                 // Every restore below replaces the spaces and tabs in front of
