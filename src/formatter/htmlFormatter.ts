@@ -1420,38 +1420,34 @@ function restoreAspBlocks(
                 // content before the placeholder on the same line — unless that
                 // content leaves a quote open: the placeholder is then inside an
                 // attribute value, and breaking it open corrupts the HTML.
-                const afterContent       = isInlinePlaced(textBeforeOnLine);
-                const isExpression       = isAspExpression(block.code);
-                const isInlinePlacedHere = afterContent && !isExpression;
+                const afterContent = isInlinePlaced(textBeforeOnLine);
 
                 // Every restore below replaces the spaces and tabs in front of
                 // the placeholder along with it.
                 const blanksBefore = textBeforeOnLine.slice(textBeforeOnLine.length - trailingBlankCount(textBeforeOnLine));
                 restored.dropEndWhile(isBlank);
 
-                if (isInlinePlacedHere && !aspSettings.aspTagsOnSameLine) {
+                // With the delimiters at column 0, aspFormatter already adds the
+                // HTML depth to the content indent, so the content is complete
+                // and the tags go to column 0: the block's tag column is ''. With
+                // the delimiters at the HTML indent, it is the group's shared
+                // column (the HTML indent of the first, shallowest block of the
+                // group), which goes in front of both, so every <% / %> of the
+                // group aligns at the same column.
+                const tagIndent = blockTagIndents[i];
+                const indentedBlock = formatted
+                    .split('\n')
+                    .map(line => {
+                        const t = line.trim();
+                        if (!t) return line;
+                        return tagIndent + (t === '<%' || t === '%>' ? t : line);
+                    })
+                    .join('\n');
+
+                if (afterContent && !aspSettings.aspTagsOnSameLine) {
                     // Block sits inline in tag text content (e.g. <td><!--ID--></td>).
                     // Expand it onto its own indented lines.
                     const baseIndent = leadingBlanks(textBeforeOnLine);
-
-                    // With the delimiters at the HTML indent, use the group's
-                    // shared tag column so this block's tags align with all
-                    // sibling blocks in the same VBScript group.
-                    const inlineTagIndent = delimitersAtColumnZero(aspSettings)
-                        ? ''
-                        : blockTagIndents[i];
-
-                    const indentedBlock = formatted
-                        .split('\n')
-                        .map(line => {
-                            if (!line.trim()) return line;
-                            const t = line.trim();
-                            if (t === '<%' || t === '%>') return inlineTagIndent + t;
-                            return delimitersAtColumnZero(aspSettings)
-                                ? line
-                                : blockTagIndents[i] + line;
-                        })
-                        .join('\n');
 
                     // Start a new line AFTER the block only when something
                     // else is still on this one. When the placeholder ended
@@ -1476,38 +1472,6 @@ function restoreAspBlocks(
                     }
                     break;
                 }
-
-                // Expression sitting inline in tag text content (e.g. <td><%= val %></td>)
-                // — restore it exactly as-is with no indentation applied.
-                if (isExpression && afterContent) {
-                    restored.push(formatted.trim());
-                    break;
-                }
-
-                // Block is either standalone on its own line, or inside a
-                // quoted attribute value — restore with correct tag indentation.
-                //
-                // With the delimiters at column 0, aspFormatter already adds the
-                // HTML depth to the content indent, so the content is complete
-                // and the tags go to column 0. With the delimiters at the HTML
-                // indent, the group's shared tag column (the HTML indent of the
-                // first, shallowest block of the group) goes in front of both,
-                // so every <% / %> of the group aligns at the same column.
-                const tagIndent = delimitersAtColumnZero(aspSettings)
-                    ? ''                   // tags at col 0; content has full indent
-                    : blockTagIndents[i];  // shared group column
-
-                const indentedBlock = formatted
-                    .split('\n')
-                    .map(line => {
-                        if (!line.trim()) return line;
-                        const t = line.trim();
-                        if (t === '<%' || t === '%>') return tagIndent + t;
-                        return delimitersAtColumnZero(aspSettings)
-                            ? line
-                            : blockTagIndents[i] + line;
-                    })
-                    .join('\n');
 
                 // After other content — where aspTagsOnSameLine leaves it — the
                 // block stays where Prettier put it, with the space it had in
