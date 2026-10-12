@@ -9,19 +9,42 @@
  */
 
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import { fileURLToPath } from 'url';
 import { otherSetting } from '../platform/settings';
 import type * as HtmlLs from 'vscode-html-languageservice';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-import { getAspBlockRanges, htmlService, inRanges } from '../core/zoneUtils';
+import { getAspBlockRanges, inRanges } from '../core/zoneUtils';
+import { loadHtmlService } from '../core/lazyModule';
 import { textOf, zonesFor } from '../platform/documentState';
 import type { BlockEvent } from '../vbscript/pageAnalysis';
 import { analysedPage } from '../asp/vbscriptWorkspace';
 import { fromLspCompletion, fromLspMarkdown, fromLspRange } from '../platform/lspConvert';
 
+let _service: HtmlLs.LanguageService | undefined;
+
+/**
+ * The library, loaded on first use: a page nobody hovers never needs it. It
+ * reads folders for path suggestions as VS Code's HTML support does, by
+ * `file:` URL; the folder is read without blocking the extension host.
+ */
+function htmlService(): HtmlLs.LanguageService {
+    const { FileType, getLanguageService } = loadHtmlService();
+    return (_service ??= getLanguageService({
+        fileSystemProvider: {
+            stat: async () => { throw new Error('not needed'); },
+            readDirectory: async uri => (await fs.promises.readdir(fileURLToPath(uri), { withFileTypes: true }))
+                .map(entry => [entry.name, entry.isDirectory() ? FileType.Directory : entry.isFile() ? FileType.File : FileType.Unknown]),
+        },
+    }));
+}
+
 interface ParsedPage {
     version:  number;
     document: LsTextDocument;
     html:     HtmlLs.HTMLDocument;
+    /** Where the values of the page's link attributes (href, src, form action…) are, read when first asked. */
+    links?:   Array<{ start: number; end: number }>;
 }
 
 const _parsed = new WeakMap<vscode.TextDocument, ParsedPage>();
@@ -77,6 +100,36 @@ export function htmlCompletions(document: vscode.TextDocument, position: vscode.
         list.items.map(item => fromLspCompletion(item, { kind: vscode.CompletionItemKind.Property, useRange: true })),
         list.isIncomplete,
     );
+}
+
+/**
+ * The files and folders a .html file offers inside a link attribute's value at
+ * `position` — none anywhere else — with each path resolved by
+ * `resolveReference` to a `file:` URL, or to nothing when it cannot be.
+ */
+export async function htmlPathCompletions(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    resolveReference: (ref: string) => string | undefined,
+): Promise<vscode.CompletionItem[]> {
+    if (!inMarkup(document, position)) { return []; }
+    const page = parse(document);
+    const { CompletionItemKind } = loadHtmlService();
+    const list = await htmlService().doComplete2(page.document, position, page.html, { resolveReference });
+    return list.items
+        .filter(item => item.kind === CompletionItemKind.File || item.kind === CompletionItemKind.Folder)
+        .map(item => fromLspCompletion(item, { kind: vscode.CompletionItemKind.File, useRange: true }));
+}
+
+/**
+ * Where the values of the page's link attributes are — the attributes a .html
+ * file links (href, src, form action…), as the HTML service finds them — as
+ * offsets, without quotes. Values are as written; the caller resolves them.
+ */
+export function linkValues(document: vscode.TextDocument): Array<{ start: number; end: number }> {
+    const page = parse(document);
+    return (page.links ??= htmlService().findDocumentLinks(page.document, { resolveReference: ref => ref })
+        .map(link => ({ start: page.document.offsetAt(link.range.start), end: page.document.offsetAt(link.range.end) })));
 }
 
 /** True when `offset` is inside an HTML comment, where a .html file offers no markup. */

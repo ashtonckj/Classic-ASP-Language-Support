@@ -11,7 +11,8 @@ import { guarded } from '../platform/guardedProvider';
 import { HtmlCompletionProvider } from './htmlCompletionProvider';
 import { EmmetCompletionProvider } from './emmetCompletionProvider';
 import { HtmlHoverProvider, HtmlLinkedEditingProvider } from './htmlLanguageFeatures';
-import { HtmlAttributeLinkProvider, HtmlAttributePathCompletionProvider } from './linkProvider';
+import { HtmlAttributeLinkProvider, HtmlAttributePathCompletionProvider, inLinkValue } from './linkProvider';
+import { zonesFor } from '../platform/documentState';
 import { VoidElementQuickFixProvider } from './htmlStructureDiagnosticsProvider';
 import { PATH_TRIGGER_CHARACTERS } from '../platform/pathCompletion';
 
@@ -20,8 +21,8 @@ import { PATH_TRIGGER_CHARACTERS } from '../platform/pathCompletion';
 let attrPathTimeout: ReturnType<typeof setTimeout> | undefined;
 
 /**
- * Opens the path suggestions while a path is typed inside href, src, action or
- * data-src: the trigger characters alone miss a value typed after a paste or a
+ * Opens the path suggestions while a path is typed inside a link attribute's
+ * value: the trigger characters alone miss a value typed after a paste or a
  * deletion.
  */
 function suggestPathsWhileTyping(event: vscode.TextDocumentChangeEvent): void {
@@ -30,15 +31,10 @@ function suggestPathsWhileTyping(event: vscode.TextDocumentChangeEvent): void {
     if (event.document.languageId !== 'asp') return;
     if (event.contentChanges.length === 0) return;
 
-    const change   = event.contentChanges[0];
-    const position = change.range.start;
-    const lineText = event.document.lineAt(position.line).text;
-
+    const change = event.contentChanges[0];
     if (change.text.length !== 1) return;
-
-    const textBefore = lineText.substring(0, position.character + 1);
-    const attrPattern = /\b(href|src|action|data-src)\s*=\s*["'][^"']*$/i;
-    if (!attrPattern.test(textBefore)) return;
+    const offset = event.document.offsetAt(change.range.start) + 1;
+    if (zonesFor(event.document).zoneAt(offset) !== 'html' || !inLinkValue(event.document, offset)) return;
 
     clearTimeout(attrPathTimeout);
     attrPathTimeout = setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);

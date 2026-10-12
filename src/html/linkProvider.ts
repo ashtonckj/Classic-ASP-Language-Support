@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { isExternalPath, FILE_LINK_ATTRIBUTES } from './htmlLinkUtils';
+import { pathToFileURL } from 'url';
 import { getVirtualRoot } from '../asp/includeProvider';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../core/includeDirectives';
-import { textOf, zonesFor } from '../platform/documentState';
-import { pathCompletions } from '../platform/pathCompletion';
+import { textOf } from '../platform/documentState';
+import { htmlPathCompletions, linkValues } from './htmlLanguageFeatures';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IncludeDocumentLinkProvider
@@ -52,17 +52,25 @@ export class IncludeDocumentLinkProvider implements vscode.DocumentLinkProvider 
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HtmlAttributeLinkProvider
-// Underlines the paths in href, src, action, and data-src attributes, resolved
-// the way VS Code's own HTML support resolves them in a .html file.
+// Underlines the paths in the attributes a .html file links — href, src, a
+// form's action… — resolved the way VS Code's own HTML support resolves them.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Where an attribute value points: a file, or a place in this same page. */
 export type HtmlLinkTarget = { file: string } | { fragment: string };
 
 /**
+ * True for a value that is not a local path: one with a scheme (http:, mailto:,
+ * javascript:, data:, …) or a protocol-relative `//host`.
+ */
+export function isExternalLink(value: string): boolean {
+    return /^\w[\w\d+.-]*:/.test(value) || value.startsWith('//');
+}
+
+/**
  * Where an href/src value points, by the rules a .html file follows:
- *   • a value with a scheme (http:, mailto:, javascript:, data:, …) or `//host`
- *     is not a local path, and VS Code's own URL detection handles the URLs;
+ *   • an external value (isExternalLink) is not a local path, and VS Code's own
+ *     URL detection handles the URLs;
  *   • `#top` is a place in this page;
  *   • `/images/x.gif` starts at the site root — the virtual root, which
  *     #include virtual="…" resolves from too — and anything else at the page's
@@ -74,7 +82,7 @@ export type HtmlLinkTarget = { file: string } | { fragment: string };
 export function resolveHtmlLink(value: string, documentPath: string, virtualRoot: string): HtmlLinkTarget | undefined {
     const ref = value.trim();
     if (!ref || /[\r\n]/.test(ref)) { return undefined; }
-    if (/^\w[\w\d+.-]*:/.test(ref) || ref.startsWith('//')) { return undefined; }
+    if (isExternalLink(ref)) { return undefined; }
     if (ref.startsWith('#')) { return { fragment: ref.slice(1) }; }
 
     const pathPart = ref.replace(/[?#].*$/, '');
@@ -90,12 +98,6 @@ export function resolveHtmlLink(value: string, documentPath: string, virtualRoot
     };
 }
 
-// The value quoted either way, or bare (`href=page.asp`), as HTML allows.
-const FILE_LINK_PATTERN = new RegExp(
-    `\\b(?:${FILE_LINK_ATTRIBUTES.join('|')})\\s*=\\s*(?:"([^"\\n]*)"|'([^'\\n]*)'|([^\\s"'<>\`]+))`,
-    'gi',
-);
-
 export class HtmlAttributeLinkProvider implements vscode.DocumentLinkProvider {
 
     provideDocumentLinks(
@@ -104,31 +106,22 @@ export class HtmlAttributeLinkProvider implements vscode.DocumentLinkProvider {
 
         const links:       vscode.DocumentLink[] = [];
         const text        = textOf(document);
-        const zones       = zonesFor(document);
         const virtualRoot = getVirtualRoot(document.uri.fsPath);
         const onDisk      = document.uri.scheme === 'file';
 
         // Existence is deliberately not checked: a .html file links a missing
         // page too, and following it offers to create the file. Asking the disk
         // once per link was also slow on the network shares IIS sites live on.
-        FILE_LINK_PATTERN.lastIndex = 0;
-        let match: RegExpExecArray | null;
-        while ((match = FILE_LINK_PATTERN.exec(text)) !== null) {
-            // Only real markup: an href inside a Response.Write string or a
-            // JavaScript string is text there, as it is in a .html file.
-            if (zones.zoneAt(match.index) !== 'html') { continue; }
-
-            const quoted = match[1] ?? match[2];
-            const value  = quoted ?? match[3];
+        for (const { start, end } of linkValues(document)) {
+            // The value as written, ASP and all: the HTML service read it blanked.
+            const value  = text.slice(start, end);
             const target = resolveHtmlLink(value, document.uri.fsPath, virtualRoot);
             if (!target) { continue; }
             // A page that is not on disk has no folder for a relative path to start from.
             if ('file' in target && !onDisk && !value.trim().startsWith('/')) { continue; }
 
-            const valueEnd   = match.index + match[0].length - (quoted !== undefined ? 1 : 0);
-            const valueStart = valueEnd - value.length;
             const link = new vscode.DocumentLink(
-                new vscode.Range(document.positionAt(valueStart), document.positionAt(valueEnd)),
+                new vscode.Range(document.positionAt(start), document.positionAt(end)),
                 'file' in target
                     ? vscode.Uri.file(target.file)
                     : document.uri.with({ fragment: target.fragment }),
@@ -143,48 +136,38 @@ export class HtmlAttributeLinkProvider implements vscode.DocumentLinkProvider {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HtmlAttributePathCompletionProvider
-// Suggests files and folders inside href, src, action, and data-src attribute
-// values, the way IncludePathCompletionProvider does (platform/pathCompletion).
-// Skips values that are already external URLs.
+// Suggests files and folders inside the same attributes' values, as a .html
+// file does: the HTML service decides where, and this resolves the paths the
+// way the links above resolve them.
 // ─────────────────────────────────────────────────────────────────────────────
-
-// Pattern matching the opening of any file-link attribute up to the cursor,
-// capturing the typed path so far. Used to decide when to activate.
-const ATTR_TRIGGER_PATTERN = new RegExp(
-    `\\b(${FILE_LINK_ATTRIBUTES.join('|')})\\s*=\\s*["']([^"']*)$`,
-    'i'
-);
 
 export class HtmlAttributePathCompletionProvider implements vscode.CompletionItemProvider {
 
-    provideCompletionItems(
+    async provideCompletionItems(
         document: vscode.TextDocument,
         position: vscode.Position,
-        token?: vscode.CancellationToken,
-    ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
+    ): Promise<vscode.CompletionList> {
+        // Not for a value that is already a URL or a fragment, but incomplete, so
+        // the session stays alive — VS Code's built-in HTML provider would
+        // otherwise close it, and this provider would not fire again as the
+        // user goes on typing.
+        const typed = document.lineAt(position.line).text.slice(0, position.character).match(/["']([^"']*)$/)?.[1];
+        if (typed !== undefined && (isExternalLink(typed) || typed.startsWith('#'))) { return new vscode.CompletionList([], true); }
 
-        const lineText   = document.lineAt(position.line).text;
-        const textBefore = lineText.substring(0, position.character);
-
-        const attrMatch = textBefore.match(ATTR_TRIGGER_PATTERN);
-
-        // If no attribute match, return false so we don't interfere with other providers.
-        if (!attrMatch) return new vscode.CompletionList([], false);
-
-        const typedSoFar = attrMatch[2];
-
-        // Don't suggest for external URLs, but return isIncomplete:true so the
-        // session stays alive — VS Code's built-in HTML provider would otherwise
-        // close the suggestion session with isIncomplete:false, preventing our
-        // provider from firing again when the user continues typing.
-        if (isExternalPath(typedSoFar)) return new vscode.CompletionList([], true);
-
-        // A root-relative path browses from the site root, as it does in a .html
-        // file; it used to be resolved against the drive root.
-        const baseDir = typedSoFar.startsWith('/')
-            ? getVirtualRoot(document.uri.fsPath)
-            : path.dirname(document.uri.fsPath);
-
-        return pathCompletions(position, typedSoFar, baseDir, 'File', token);
+        const virtualRoot = getVirtualRoot(document.uri.fsPath);
+        const onDisk      = document.uri.scheme === 'file';
+        const items = await htmlPathCompletions(document, position, ref => {
+            // A value starting with ASP reads as blank to the service: its folder is unknown.
+            if (/^\s/.test(ref)) { return undefined; }
+            const target = resolveHtmlLink(ref, document.uri.fsPath, virtualRoot);
+            if (!target || !('file' in target) || (!onDisk && !ref.startsWith('/'))) { return undefined; }
+            return pathToFileURL(target.file).href;
+        });
+        return new vscode.CompletionList(items, true);
     }
+}
+
+/** True when `offset` is inside the value of one of the page's link attributes. */
+export function inLinkValue(document: vscode.TextDocument, offset: number): boolean {
+    return linkValues(document).some(value => value.start <= offset && offset <= value.end);
 }

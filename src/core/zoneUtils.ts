@@ -365,7 +365,7 @@ export function findClosingTag(
 let _htmlService: HtmlLs.LanguageService | undefined;
 
 /** The one HTML language service every markup feature shares, loaded on first use. */
-export function htmlService(): HtmlLs.LanguageService {
+function htmlService(): HtmlLs.LanguageService {
     return (_htmlService ??= loadHtmlService().getLanguageService());
 }
 

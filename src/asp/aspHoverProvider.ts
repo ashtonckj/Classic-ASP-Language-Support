@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { withIncludeSymbols } from './includeProvider';
-import { isCursorInHtmlFileLinkAttribute } from '../html/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
 import {
     ASP_MEMBER_DOCS, ASP_OBJECTS, AspObjectDef, BUILTIN_FUNCTION_DOCS, VBSCRIPT_CONSTANTS, isBuiltinName,
@@ -256,9 +255,6 @@ export class AspHoverProvider implements vscode.HoverProvider {
     ): Promise<vscode.Hover | null | undefined> {
 
         const lineText = document.lineAt(position.line).text;
-
-        // Suppress hover inside HTML file-link attributes (href, src, etc.)
-        if (isCursorInHtmlFileLinkAttribute(lineText, position.character)) return null;
 
         // A word inside a VBScript string or comment is text, not a name, so
         // `Case "Active"` and `' uses Split here` get no hover. The line is read
