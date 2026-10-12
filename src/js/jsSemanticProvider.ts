@@ -6,9 +6,8 @@
  * COMBINED_SEMANTIC_LEGEND must be shared with aspSemanticProvider.ts.
  * VS Code maps token type indices through whichever legend it sees first for a
  * given language ID, so if two providers register with different legends the
- * colours for one of them will be wrong. Import COMBINED_SEMANTIC_LEGEND from
- * this file in aspSemanticProvider.ts and pass it to both registrations in
- * extension.ts.
+ * colours for one of them will be wrong. aspSemanticProvider.ts imports it
+ * from here, and semanticTokens.ts registers the one provider both share.
  *
  * TwentyTwenty encoding (from src/services/classifier2020.ts in the TS source):
  *   encoded = (tokenType << 8) | modifierBitmask
@@ -39,7 +38,7 @@ export const TOKEN_TYPES = [
     'event', 'function', 'method', 'macro', 'keyword', 'modifier',
     'comment', 'string', 'number', 'regexp', 'operator', 'decorator',
     // ASP/SQL-specific token types — indices 23–34
-    // Must match the order declared in sqlSemanticProvider.ts exactly
+    // Must match the numbering listed in vbscript/sqlTokens.ts exactly
     'sqlDml', 'sqlDdl', 'sqlLogical', 'sqlKeyword', 'sqlFunction', 'sqlType',
     'sqlVariable', 'sqlNumber', 'sqlBracketPunct', 'sqlBracketContent',
     'sqlTable', 'sqlColumn',
