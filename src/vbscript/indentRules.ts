@@ -11,21 +11,15 @@
  * formatter its strings) first.
  */
 
-import { vbStatements } from '../core/vbLexical';
+import { endsWithContinuation } from '../core/vbLexical';
+import { parseProgram } from './parser';
+import { walkStatements } from './symbols';
 
 // ── VBScript block keyword constants ───────────────────────────────────────
 
 // Optional VBScript access modifiers that may precede Sub / Function / Property /
 // Class (e.g. `Public Sub`, `Private Function`, `Public Default Property Get`).
-// Without this the indenter ignored every access-modified declaration.
-export const MOD = '(?:(?:Public|Private|Default)\\s+)*';
-
-// Pure openers: start a block, next line should be +1 indent. Property Get/Let/Set
-// is a block just like Sub/Function.
-export const VBSCRIPT_BLOCK_OPENERS = new RegExp(
-    '^' + MOD + '(If\\b.*Then|For\\b|For\\s+Each\\b|Do\\b|Do\\s+While\\b|Do\\s+Until\\b|While\\b|Sub\\b|Function\\b|Property\\b|With\\b|Select\\s+Case\\b|Class\\b)',
-    'i',
-);
+const MOD = '(?:(?:Public|Private|Default)\\s+)*';
 
 // Pure closers: end a block, snap back to opener indent level
 export const VBSCRIPT_BLOCK_CLOSERS = /^(End\s+If\b|End\s+Sub\b|End\s+Function\b|End\s+Property\b|End\s+With\b|End\s+Select\b|End\s+Class\b|Next\b|Loop\b|Wend\b)/i;
@@ -53,8 +47,8 @@ export const CLOSER_TO_OPENER: { closer: RegExp; opener: RegExp; isMidBlock?: bo
     { closer: /^End\s+With\b/i,     opener: /^With\b/i },
     { closer: /^End\s+Select\b/i,   opener: /^Select\s+Case\b/i,                         family: 'select' },
     { closer: /^End\s+Class\b/i,    opener: new RegExp('^' + MOD + 'Class\\b', 'i') },
-    { closer: /^Next\b/i,           opener: /^For\b|^For\s+Each\b/i },
-    { closer: /^Loop\b/i,           opener: /^Do\b|^Do\s+While\b|^Do\s+Until\b/i },
+    { closer: /^Next\b/i,           opener: /^For\b/i },
+    { closer: /^Loop\b/i,           opener: /^Do\b/i },
     { closer: /^Wend\b/i,           opener: /^While\b/i },
     // Mid-block If family — peers of If, snap to its indent (snapOffset 0)
     { closer: /^ElseIf\b/i,         opener: /^If\b.*Then$|^ElseIf\b.*Then$/i,           isMidBlock: true, snapOffset: 0, family: 'if' },
@@ -64,29 +58,19 @@ export const CLOSER_TO_OPENER: { closer: RegExp; opener: RegExp; isMidBlock?: bo
 ];
 
 /**
- * True when a trimmed VBScript line opens a block (so the next line indents +1).
- * A single-line `If … Then <statement>` opens nothing — only a multi-line `If …
- * Then` (optionally followed by just a ' comment) does. Shared by the Enter and
- * Tab handlers so they can never disagree.
+ * True when a line of VBScript leaves a block open, so the next line indents
+ * +1, as the parser reads the line: `If x Then` and `Public Sub Foo` open one;
+ * `If x Then y = 1` and `If x Then : y = 1` are one-line Ifs, and
+ * `For i = 1 To 3 : Next` opens and closes.
  */
 export function isBlockOpener(line: string): boolean {
-    // Several statements joined by `:` open a block only if more open than
-    // close: `For i = 1 To 3 : Next` opens nothing, as the formatter reads it.
-    const statements = vbStatements(line).map(s => s.trim()).filter(Boolean);
-    if (statements.length > 1) {
-        let depth = 0;
-        for (const s of statements) {
-            if (VBSCRIPT_BLOCK_CLOSERS.test(s)) { depth--; } else if (opensBlock(s)) { depth++; }
-        }
-        return depth > 0;
-    }
-    return opensBlock(line);
-}
-
-function opensBlock(line: string): boolean {
-    if (!VBSCRIPT_BLOCK_OPENERS.test(line)) { return false; }
-    const isSingleLineIf = /^If\b.+\bThen\s+\S/i.test(line) && !/^If\b.+\bThen\s*'/i.test(line);
-    return !isSingleLineIf;
+    // A statement continued with `_` is not finished, so it opens nothing yet.
+    if (endsWithContinuation(line)) { return false; }
+    let open = false;
+    walkStatements(parseProgram(line, [{ kind: 'code', start: 0, end: line.length }]).body, s => {
+        if ('closer' in s && s.closer === null && !(s.kind === 'If' && s.singleLine)) { open = true; }
+    });
+    return open;
 }
 
 /**

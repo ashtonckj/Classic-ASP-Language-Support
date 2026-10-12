@@ -3,6 +3,7 @@ import { isBlockOpener } from '../../asp/typing/vbIndent';
 import { tagToAutoClose } from '../../asp/typing/autoClose';
 import { continuesOpenJsDocComment } from '../../asp/typing/enterKey';
 import { Zone } from '../../core/zoneUtils';
+import { applyIndentForLine } from '../../formatter/aspFormatter';
 
 // The shared opener test used by both Enter and Tab. A single-line `If … Then <stmt>` opens nothing; Property and access-modified declarations DO open a block.
 describe('isBlockOpener', () => {
@@ -14,7 +15,15 @@ describe('isBlockOpener', () => {
         for (const line of ['For i = 1 To 3 : Next', 'Do While x : Loop', 'With o : .a = 1 : End With', 'Sub S() : End Sub']) {
             assert.strictEqual(isBlockOpener(line), false, line);
         }
-        assert.strictEqual(isBlockOpener('If x Then : y = 1'), true);
+    });
+
+    // cscript: `If x Then : y = 1` followed by `End If` is "Expected 'Sub'" — the
+    // If ended on its own line — while `x = 1 : If x Then` opens a block.
+    it('reads If x Then : y as a one-line If, as cscript does', () => {
+        assert.strictEqual(isBlockOpener('If x Then : y = 1'), false);
+        assert.strictEqual(applyIndentForLine('If x Then : y = 1', 0, []).endLevel, 0);
+        assert.strictEqual(isBlockOpener('x = 1 : If x Then'), true);
+        assert.strictEqual(applyIndentForLine('x = 1 : If x Then', 0, []).endLevel, 1);
     });
 
     it('is true for a multi-line If … Then (bare, or with only a comment)', () => {

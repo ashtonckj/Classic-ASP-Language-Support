@@ -133,6 +133,12 @@ describe('vbStatements', () => {
         assert.deepStrictEqual(vbStatements('For i = 1 To 3 : x = "a:b" : Next \' done: yes'), ['For i = 1 To 3 ', ' x = "a:b" ', ' Next ']);
     });
 
+    it('keeps the rest of a one-line If with the If', () => {
+        assert.deepStrictEqual(vbStatements('x = 1 : If a Then b : c Else d'), ['x = 1 ', ' If a Then b : c Else d']);
+        assert.deepStrictEqual(vbStatements('If a Then : b'), ['If a Then : b']);
+        assert.deepStrictEqual(vbStatements('If a Then'), ['If a Then']);
+    });
+
     it('does not split at a colon inside a bracketed name', () => {
         assert.deepStrictEqual(vbStatements('[a:b] = 1 : x = 2'), ['[a:b] = 1 ', ' x = 2']);
     });

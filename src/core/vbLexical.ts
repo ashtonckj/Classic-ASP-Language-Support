@@ -20,7 +20,7 @@
  * apostrophes are not comments.
  */
 
-import { tokenize, TokenKind } from '../vbscript/lexer';
+import { tokenize, TokenKind, type Token } from '../vbscript/lexer';
 
 export interface VbStringRange {
     /** The opening quote. */
@@ -40,6 +40,7 @@ export interface VbLine {
 }
 
 const lex = (line: string, from: number) => tokenize(line, [{ kind: 'code', start: from, end: line.length }]);
+const isWord = (t: Token, word: string) => t.kind === TokenKind.Identifier && !t.bracketed && t.value === word;
 
 /** Scans one line of VBScript from `from`. */
 export function scanVbLine(line: string, from = 0): VbLine {
@@ -95,14 +96,23 @@ export function vbStringSegments(code: string): { text: string; isString: boolea
     return parts;
 }
 
-/** The line's code (its comment left off) split at each `:` outside a string: one entry per statement. */
+/**
+ * The line's code (its comment left off) split at each `:` outside a string:
+ * one entry per statement. The rest of a one-line If is the If's own, so
+ * `If x Then a : b` is one statement.
+ */
 export function vbStatements(line: string): string[] {
     const { tokens, comments } = lex(line, 0);
     const codeEnd = comments.length > 0 ? comments[0].start : line.length;
     const parts: string[] = [];
     let start = 0;
-    for (const t of tokens) {
-        if (t.kind === TokenKind.Colon) { parts.push(line.slice(start, t.start)); start = t.end; }
+    let first: Token | undefined;
+    for (let i = 0; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (t.kind === TokenKind.Colon) { parts.push(line.slice(start, t.start)); start = t.end; first = undefined; continue; }
+        first ??= t;
+        const next = tokens[i + 1]?.kind;
+        if (isWord(first, 'if') && isWord(t, 'then') && next !== TokenKind.Newline && next !== TokenKind.EOF) { break; }
     }
     parts.push(line.slice(start, codeEnd));
     return parts;
