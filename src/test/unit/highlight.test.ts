@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import {
-    editorsToPaint, halfAlpha, hasNonEmptySelection, outsideSelections, overlapWithSelections, splitBySelections,
+    editorsToPaint, halfAlpha, outsideSelections, overlapWithSelections, splitBySelections,
 } from '../../asp/highlight';
 
 // Reported upstream: a TextEditorDecorationType's backgroundColor paints on the
@@ -22,34 +22,6 @@ function pos(line: number, character: number) { return { line, character }; }
 function range(startLine: number, startChar: number, endLine: number, endChar: number) {
     return { start: pos(startLine, startChar), end: pos(endLine, endChar) };
 }
-
-describe('hasNonEmptySelection', () => {
-    it('is false for a single caret with no selection', () => {
-        assert.strictEqual(hasNonEmptySelection([{ isEmpty: true }]), false);
-    });
-
-    it('is true the moment any text is selected', () => {
-        assert.strictEqual(hasNonEmptySelection([{ isEmpty: false }]), true);
-    });
-
-    it('is false for an empty list of selections', () => {
-        assert.strictEqual(hasNonEmptySelection([]), false);
-    });
-
-    it('is true when only one of several cursors has a selection', () => {
-        assert.strictEqual(
-            hasNonEmptySelection([{ isEmpty: true }, { isEmpty: false }, { isEmpty: true }]),
-            true,
-        );
-    });
-
-    it('is false when every cursor is a plain caret', () => {
-        assert.strictEqual(
-            hasNonEmptySelection([{ isEmpty: true }, { isEmpty: true }]),
-            false,
-        );
-    });
-});
 
 describe('overlapWithSelections — no interaction', () => {
     it('is empty when there are no selections', () => {

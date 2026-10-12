@@ -59,11 +59,6 @@ export function splitCodeAndComment(line: string, from = 0): { code: string; com
     return { code: line.slice(0, codeEnd), comment: line.slice(codeEnd) };
 }
 
-/** True when `col` is inside a string literal: after its opening quote and before its closing one. */
-export function isInVbString(line: string, col: number, from = 0): boolean {
-    return scanVbLine(line, from).strings.some(s => s.start < col && (col < s.end || !s.closed));
-}
-
 /** True when `col` is inside a string literal or a comment, where a word is data, not code. */
 export function isInVbStringOrComment(line: string, col: number, from = 0): boolean {
     const scan = scanVbLine(line, from);

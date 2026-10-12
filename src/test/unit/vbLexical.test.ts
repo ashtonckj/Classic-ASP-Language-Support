@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import {
-    codeWithoutStrings, endsWithContinuation, isInVbString, isInVbStringOrComment, scanVbLine, splitCodeAndComment,
+    codeWithoutStrings, endsWithContinuation, isInVbStringOrComment, scanVbLine, splitCodeAndComment,
     vbStatements, vbStringSegments,
 } from '../../core/vbLexical';
 import { tokenize, TokenKind } from '../../vbscript/lexer';
@@ -57,19 +57,6 @@ describe('isInVbStringOrComment', () => {
         const line = "<td>it's</td><% total = 1";
         assert.strictEqual(isInVbStringOrComment(line, line.length), true);
         assert.strictEqual(isInVbStringOrComment(line, line.length, line.indexOf('<%') + 2), false);
-    });
-});
-
-describe('isInVbString', () => {
-    it('reports a string but not a comment', () => {
-        assert.strictEqual(isInVbString("x = ' note", 10), false);
-        assert.strictEqual(isInVbString('x = "abc', 8), true);
-    });
-
-    it('honours the start offset', () => {
-        const line = '<p>"</p><% x = 1';
-        // Scanning from 0 would see the stray quote in the HTML and report a string.
-        assert.strictEqual(isInVbString(line, line.length, line.indexOf('<%') + 2), false);
     });
 });
 
