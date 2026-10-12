@@ -4,7 +4,7 @@ import { AspSemanticTokensProvider } from '../../asp/aspSemanticProvider';
 import { colourAspPage } from '../../vbscript/aspColouring';
 import { colourAspPage as colourOnWorker, disposeAnalysisWorkers } from '../../workers/analysisClient';
 import { COMBINED_SEMANTIC_LEGEND } from '../../js/jsSemanticProvider';
-import type { FileSymbols } from '../../vbscript/symbolParser';
+import type { FileSymbols } from '../../vbscript/symbols';
 import { fakeDocument } from './_helpers';
 
 // SQL colouring follows a variable: once `sql` is seen holding a SELECT, later

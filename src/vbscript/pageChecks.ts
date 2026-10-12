@@ -20,7 +20,7 @@ import { findMissingSet, type MissingSet } from './pageAnalysis';
 import { bindAt } from './references';
 import { buildScriptScope, type ScopeHost } from './scriptScope';
 import { symbolsOfPage, type ParsedPage } from './symbols';
-import type { FileSymbols } from './symbolParser';
+import type { FileSymbols } from './symbols';
 import { includeRoot, resolveIncludeDirective } from '../core/includeDirectives';
 import { pathKey, samePath, withoutBom } from '../core/paths';
 import { ASP_OBJECT_NAMES, VBSCRIPT_CONSTANTS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';

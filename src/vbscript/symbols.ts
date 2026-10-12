@@ -2,7 +2,7 @@
  * symbols.ts
  *
  * Reads the declared symbols of a page from its syntax trees, in the
- * FileSymbols shape (symbolParser.ts) that completion, the Outline, Ctrl+T and
+ * FileSymbols shape that completion, the Outline, Ctrl+T and
  * the colouring read. It took over from a line scanner, and keeps that
  * scanner's deliberate choices:
  *   - A plain `x = …` records an implicit variable only when the page has no
@@ -18,8 +18,30 @@
 import type * as A from './ast';
 import { parseProgram } from './parser';
 import { pagePrograms } from './pageSegments';
-import type { FileSymbols } from './symbolParser';
 import { COM_METHOD_RETURN_TYPES, normalizeProgId } from '../constants/comObjects';
+
+/** A page's declared symbols, which every feature reads. */
+export interface FileSymbols {
+    // `implicit` marks a name that was never explicitly declared - a bare
+    // assignment (no Option Explicit) or a For Each loop variable. VBScript
+    // does NOT create a new local for those: inside a procedure they resolve to
+    // the module-level variable of that name when one exists. Only an explicit
+    // Dim/Const shadows it, so anything reasoning about scope must tell them
+    // apart.
+    variables:    { name: string; line: number; filePath: string; implicit?: boolean }[];
+    constants:    { name: string; value: string; line: number; filePath: string }[];
+    functions:    {
+        name: string;
+        kind: 'Function' | 'Sub' | 'Property';
+        params: string;
+        paramNames: string[];
+        line: number;
+        endLine: number;
+        filePath: string;
+    }[];
+    comVariables: { name: string; progId: string; line: number; filePath: string }[];
+    classes:      { name: string; line: number; endLine: number; filePath: string }[];
+}
 
 export interface ParsedPage {
     text: string;

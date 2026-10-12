@@ -56,7 +56,7 @@ import type { WorkerAnswer } from './serveWorker';
 import type { JsAnalysisResult, JsQueryAnswer, JsQueryMethod, JsWorkerRequest } from './jsAnalysisWorker';
 import type { JsLanguageService } from '../js/jsUtils';
 import type { AspColouringRequest, AspColouringResult } from '../vbscript/aspColouring';
-import type { FileSymbols } from '../vbscript/symbolParser';
+import type { FileSymbols } from '../vbscript/symbols';
 import type { ChecksResult, IncludesResult, PageResult } from './vbscriptWorker';
 import type { PageAnalysis } from '../vbscript/pageAnalysis';
 import type { IncludeFile, PageChecks, ScopeRequest } from '../vbscript/pageChecks';

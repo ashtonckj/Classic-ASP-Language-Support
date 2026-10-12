@@ -11,10 +11,9 @@
  */
 
 import type * as A from './ast';
-import { createdProgId, symbolsOfPage, walkStatements, type ParsedPage } from './symbols';
+import { createdProgId, symbolsOfPage, walkStatements, type FileSymbols, type ParsedPage } from './symbols';
 import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
 import { ASP_OBJECT_NAMES } from '../constants/aspKeywords';
-import type { FileSymbols } from './symbolParser';
 
 /**
  * What completion, the outline, the matching-keyword highlight and the

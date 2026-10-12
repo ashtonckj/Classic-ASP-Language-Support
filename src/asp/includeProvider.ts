@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { FileSymbols } from '../vbscript/symbolParser';
+import type { FileSymbols } from '../vbscript/symbols';
 import type { ScopeRequest } from '../vbscript/pageChecks';
 import { includeRoot, resolveIncludePathsIn } from '../core/includeDirectives';
 import { defaultIncludesSetting, onSettingsChange, virtualRootSetting } from '../platform/settings';

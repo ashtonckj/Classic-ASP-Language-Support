@@ -16,7 +16,6 @@
  * The worker's entry point is workers/aspColouringWorker.ts.
  */
 
-import type { FileSymbols } from './symbolParser';
 import {
     T_FUNCTION, T_NAMESPACE, T_VARIABLE, T_PARAMETER, T_CONSTANT,
     M_DECLARATION, M_READONLY,
@@ -24,7 +23,7 @@ import {
     SqlStringGroup, emitSqlTokensForGroup, TokenSink,
 } from './sqlTokens';
 import type * as A from './ast';
-import { lineAt, parsePage, serverObjects, symbolsOfPage, walkStatements } from './symbols';
+import { lineAt, parsePage, serverObjects, symbolsOfPage, walkStatements, type FileSymbols } from './symbols';
 import { bindPage, type Scope } from './binder';
 import {
     concatOperands, isConcat, isStringLiteral, statementExpressions, stringValue, walkExpression,

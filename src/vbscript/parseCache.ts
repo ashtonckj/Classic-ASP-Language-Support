@@ -5,8 +5,8 @@
  * parses nothing: hover then Go to Definition on one page, or the checks
  * reading the includes they read a moment ago.
  *
- * One per thread — the extension host, the VBScript worker, the include worker
- * — each with its own bounds. A file's entry is used only while its text is
+ * One per thread — the extension host and the VBScript worker — each with
+ * its own bounds. A file's entry is used only while its text is
  * the same; the least recently used go first once the cache holds more files,
  * or more text, than its bounds. Text is the measure because a parse is a few
  * times the size of its text, and one 14,000-line page outweighs a hundred

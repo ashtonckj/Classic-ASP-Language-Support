@@ -75,9 +75,43 @@ import * as path from 'path';
 import type * as ts from 'typescript';
 import { getAspBlockRanges, getJsBlockRanges } from '../core/zoneUtils';
 import { endsWithContinuation, vbStatements } from '../core/vbLexical';
-import { parseConstDeclarators } from '../vbscript/symbolParser';
 import { ASP_DOM_TYPES } from './aspDomTypes.generated';
 import { loadTypeScript } from '../core/lazyModule';
+
+/**
+ * What a Const statement declares, from the text after `Const`:
+ * `A = 1, B = "x, y"` is two constants. A comma inside a string or brackets
+ * belongs to the value.
+ *
+ * Reading only up to the first `=` made `Const A = 1, B = 2` one constant, A,
+ * whose value was `1, B = 2` — and left B out of completion, hover and rename.
+ */
+function parseConstDeclarators(text: string): { name: string; value: string }[] {
+    const parts: string[] = [];
+    let start = 0;
+    let depth = 0;
+    let inStr = false;
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (ch === '"') {
+            if (inStr && text[i + 1] === '"') { i++; continue; } // "" escaped quote
+            inStr = !inStr;
+        } else if (!inStr) {
+            if (ch === '(') { depth++; }
+            else if (ch === ')') { depth--; }
+            else if (ch === ',' && depth === 0) { parts.push(text.slice(start, i)); start = i + 1; }
+        }
+    }
+    parts.push(text.slice(start));
+
+    const declarators: { name: string; value: string }[] = [];
+    for (const part of parts) {
+        const match = /^\s*([A-Za-z_]\w*)\s*=\s*(.+?)\s*$/.exec(part);
+        if (match) { declarators.push({ name: match[1], value: match[2] }); }
+    }
+    return declarators;
+}
 
 export const VIRTUAL_FILENAME    = 'asp-embedded.js';
 export const PREAMBLE_FILENAME   = 'asp-preamble.d.ts';
