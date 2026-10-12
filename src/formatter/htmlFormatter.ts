@@ -763,9 +763,8 @@ export async function formatPage(code: string, parsed?: ParsedPage): Promise<For
     const aspBodies = takeAspScriptBodies(vbscriptBodies.masked, aspBodiesMap);
     const { masked: jsPreMasked, masks: jsAttrMasks } = maskJsEventAttrs(aspBodies.masked, run.names, jsAttrMap);
 
-    // <script>/<style> body ranges — ASP blocks inside them need a JS/CSS-safe
-    // identifier placeholder, not an HTML comment (which Prettier would parse as
-    // a JS/CSS comment and reorder around, corrupting the code).
+    // <script>/<style> body ranges — a value written into one is masked as a
+    // JS/CSS identifier: see AspBlockKind.
     const rawRanges = computeRawTextRanges(jsPreMasked);
 
     // ── Step 2: Mask all ASP blocks ──────────────────────────────────────────
