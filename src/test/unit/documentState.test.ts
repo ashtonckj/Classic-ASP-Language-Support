@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { getZone } from '../../core/zoneUtils';
+import { createZoneResolver } from '../../core/zoneUtils';
 import { contextAt, textOf, zonesFor } from '../../platform/documentState';
 import { fakeDocument } from './_helpers';
 
@@ -25,11 +25,12 @@ describe('documentState', () => {
         assert.strictEqual(document.getTextCalls, 2);
     });
 
-    it('answers every offset with the zone getZone gives', () => {
+    it('answers every offset with the zone a fresh scan of the text gives', () => {
         const document = fakeDocument(PAGE);
         const zones = zonesFor(document);
+        const fresh = createZoneResolver(PAGE);
         for (let offset = 0; offset <= PAGE.length; offset++) {
-            assert.strictEqual(zones.zoneAt(offset), getZone(PAGE, offset), `offset ${offset}`);
+            assert.strictEqual(zones.zoneAt(offset), fresh.zoneAt(offset), `offset ${offset}`);
         }
     });
 
