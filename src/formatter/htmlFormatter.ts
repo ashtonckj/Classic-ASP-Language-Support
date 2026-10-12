@@ -15,10 +15,10 @@ import { lineOf, OffsetMap, offsetOf, replaceRecorded, toOriginal } from './offs
 //   text    – a <%= … %> expression in page content → word placeholder
 //   inline  – inside a quoted attribute value      → bare token placeholder
 //   midtag  – between attributes, not quoted       → data- attribute placeholder
-//   rawtext – inside a <script>/<style> body       → bare identifier placeholder
-//             (an HTML-comment placeholder is legal JS/CSS and gets parsed by
-//              Prettier — it would REORDER/corrupt the code — so raw-text blocks
-//              use an identifier token Prettier leaves in place instead)
+//   rawtext – a <%= … %> value in a <script>/<style> body → bare identifier placeholder
+//             (Prettier formats the body as JS or CSS, so the stand-in for a
+//              value has to read as one there; a body with a statement block
+//              is never formatted — see takeAspScriptBodies)
 type AspBlockKind = 'normal' | 'text' | 'inline' | 'midtag' | 'rawtext';
 
 interface AspBlock {
