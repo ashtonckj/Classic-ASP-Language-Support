@@ -602,6 +602,48 @@ function findInOrder(text: string, needles: readonly string[]): number[] {
     });
 }
 
+// ─── <script>/<style> bodies kept from Prettier ────────────────────────────
+// Taken out before Prettier runs, and put back afterwards.
+
+/** `code` with the text of each range taken out; the ranges may come in any order. */
+function takeOut(code: string, ranges: Array<[number, number]>, map: OffsetMap): string {
+    let masked = '';
+    let last = 0;
+    for (const [start, end] of [...ranges].sort((a, b) => a[0] - b[0])) {
+        masked += code.slice(last, start);
+        map.replaced(start, end, masked.length, masked.length);
+        last = end;
+    }
+    return masked + code.slice(last);
+}
+
+/**
+ * Puts each body back in place of its range, laid out by `layOut` from the
+ * indent of the tag it belongs to; a null body's range is left alone. Null
+ * when the ranges no longer line up with the bodies.
+ */
+function putBack(
+    code: string, ranges: Array<[number, number]>, bodies: Array<string | null>,
+    layOut: (body: string, tagIndent: string) => string,
+): string | null {
+    if (bodies.every(body => body === null)) { return code; }
+    if (ranges.length !== bodies.length) { return null; }
+
+    const lower = code.toLowerCase();
+    let out = code;
+    // From the end, so each range is still where it was found.
+    for (const k of ranges.map((_, k) => k).filter(k => bodies[k] !== null).sort((a, b) => ranges[b][0] - ranges[a][0])) {
+        const [start, end] = ranges[k];
+        const tagAt = Math.max(lower.lastIndexOf('<script', start), lower.lastIndexOf('<style', start));
+        const tagIndent = /^[ \t]*/.exec(code.slice(code.lastIndexOf('\n', tagAt) + 1, tagAt))![0];
+        out = out.slice(0, start) + layOut(bodies[k]!, tagIndent) + out.slice(end);
+    }
+    return out;
+}
+
+/** A body as it was written, with the closing tag lined up under its opening tag. */
+const asWritten = (body: string, tagIndent: string): string => body.replace(/\n[ \t]*$/, '\n' + tagIndent);
+
 // ─── VBScript <script> blocks ──────────────────────────────────────────────
 // Prettier picks a script's language from its `type` alone, so it reads
 // `<script language="vbscript">` as JavaScript: it moves the code about and,
@@ -611,17 +653,10 @@ function findInOrder(text: string, needles: readonly string[]): number[] {
 
 /** Takes out the body of every closed VBScript `<script>` block, in page order. */
 function takeVbScriptBodies(code: string, map: OffsetMap): { masked: string; bodies: string[] } {
-    const bodies: string[] = [];
-    let masked = '';
-    let last = 0;
-    for (const { start, end } of getVbScriptBlockRanges(code)) {
-        if (!/^<\/script/i.test(code.slice(end, end + 8))) { continue; }
-        bodies.push(code.slice(start, end));
-        masked += code.slice(last, start);
-        map.replaced(start, end, masked.length, masked.length);
-        last = end;
-    }
-    return { masked: masked + code.slice(last), bodies };
+    const ranges = getVbScriptBlockRanges(code)
+        .filter(({ end }) => /^<\/script/i.test(code.slice(end, end + 8)))
+        .map(({ start, end }): [number, number] => [start, end]);
+    return { masked: takeOut(code, ranges, map), bodies: ranges.map(([start, end]) => code.slice(start, end)) };
 }
 
 /**
@@ -630,32 +665,17 @@ function takeVbScriptBodies(code: string, map: OffsetMap): { masked: string; bod
  * `<% %>` in it is not one piece of VBScript, so it goes back as it was.
  */
 function putBackVbScriptBodies(code: string, bodies: string[], settings: AspFormatterSettings): string | null {
-    const empty = getVbScriptBlockRanges(code).filter(r => r.start === r.end);
-    if (empty.length !== bodies.length) { return null; }
-
+    const empty = getVbScriptBlockRanges(code).filter(r => r.start === r.end).map(({ start, end }): [number, number] => [start, end]);
     const unit = settings.useTabs ? '\t' : ' '.repeat(settings.indentSize);
-    const lower = code.toLowerCase();
-    let out = '';
-    let last = 0;
-    empty.forEach(({ start }, i) => {
-        const body = bodies[i];
-        out += code.slice(last, start);
-        last = start;
-        const tagAt = lower.lastIndexOf('<script', start);
-        const tagIndent = /^[ \t]*/.exec(code.slice(code.lastIndexOf('\n', tagAt) + 1, tagAt))![0];
-        if (!body.trim() || body.includes('<%')) {
-            // As it was, but with `</script>` lined up under its tag.
-            out += body.replace(/\n[ \t]*$/, '\n' + tagIndent);
-            return;
-        }
+    return putBack(code, empty, bodies, (body, tagIndent) => {
+        if (!body.trim() || body.includes('<%')) { return asWritten(body, tagIndent); }
 
         // The line breaks after the tag and before `</script>` are the tag's, not the code's.
         const vbscript = body.replace(/^[ \t]*\r?\n/, '').replace(/\r?\n[ \t]*$/, '');
         const formatted = formatSingleAspBlock(`<%\n${vbscript}\n%>`, { ...settings, aspTagsOnSameLine: false }).formatted;
         const lines = formatted.split('\n').slice(1, -1).map(line => line.trim() ? tagIndent + unit + line : '');
-        out += '\n' + lines.join('\n') + '\n' + tagIndent;
+        return '\n' + lines.join('\n') + '\n' + tagIndent;
     });
-    return out + code.slice(last);
 }
 
 // ─── <script>/<style> bodies with <% %> statements ─────────────────────────
@@ -680,33 +700,7 @@ function takeAspScriptBodies(code: string, map: OffsetMap): { masked: string; bo
         };
         return [...body.matchAll(/<%[\s\S]*?%>/g)].some(isCode) ? body : null;
     });
-    let masked = '';
-    let last = 0;
-    for (const k of ranges.map((_, k) => k).filter(k => bodies[k] !== null).sort((a, b) => ranges[a][0] - ranges[b][0])) {
-        const [start, end] = ranges[k];
-        masked += code.slice(last, start);
-        map.replaced(start, end, masked.length, masked.length);
-        last = end;
-    }
-    return { masked: masked + code.slice(last), bodies };
-}
-
-/** Puts the bodies back as they were, with the closing tag under its opening tag. Null when the elements no longer line up. */
-function putBackAspScriptBodies(code: string, bodies: Array<string | null>): string | null {
-    if (bodies.every(body => body === null)) { return code; }
-    const ranges = computeRawTextRanges(code);
-    if (ranges.length !== bodies.length) { return null; }
-
-    const lower = code.toLowerCase();
-    let out = code;
-    // From the end, so each range is still where it was found.
-    for (const k of ranges.map((_, k) => k).filter(k => bodies[k] !== null).sort((a, b) => ranges[b][0] - ranges[a][0])) {
-        const [start, end] = ranges[k];
-        const tagAt = Math.max(lower.lastIndexOf('<script', start), lower.lastIndexOf('<style', start));
-        const tagIndent = /^[ \t]*/.exec(code.slice(code.lastIndexOf('\n', tagAt) + 1, tagAt))![0];
-        out = out.slice(0, start) + bodies[k]!.replace(/\n[ \t]*$/, '\n' + tagIndent) + out.slice(end);
-    }
-    return out;
+    return { masked: takeOut(code, ranges.filter((_, k) => bodies[k] !== null), map), bodies };
 }
 
 /**
@@ -840,7 +834,7 @@ export async function formatPage(code: string): Promise<FormatResult> {
     // ── Step 7: Put back the <script>/<style> bodies, and the VBScript ones formatted ──
     // Should Prettier have dropped or added a block, nothing is changed rather
     // than a body landing in the wrong one.
-    const withAspBodies = putBackAspScriptBodies(restoredCode, aspBodies.bodies);
+    const withAspBodies = putBack(restoredCode, computeRawTextRanges(restoredCode), aspBodies.bodies, asWritten);
     if (withAspBodies === null) { return { ok: true, text: code }; }
     return { ok: true, text: putBackVbScriptBodies(withAspBodies, vbscriptBodies.bodies, run.asp) ?? code };
 }
