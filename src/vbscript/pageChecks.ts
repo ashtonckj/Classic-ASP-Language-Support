@@ -97,11 +97,19 @@ export function includeFiles(request: ScopeRequest, parse: (fsPath: string, text
     return [...found.values()];
 }
 
-export function checkPageFiles(request: ScopeRequest, parse: (fsPath: string, text: string) => ParsedPage): PageChecks {
+/**
+ * `checkpoint` is called before each file is parsed and between the steps, so
+ * the VBScript worker can stop the checks there (it throws) for work someone
+ * is waiting on.
+ */
+export function checkPageFiles(
+    request: ScopeRequest, parse: (fsPath: string, text: string) => ParsedPage, checkpoint: () => void = () => {},
+): PageChecks {
     const { text, docPath } = request;
-    const host = scopeHost(request, parse);
+    const host = scopeHost(request, (fsPath, fileText) => { checkpoint(); return parse(fsPath, fileText); });
     const page = parse(docPath, text);
     const bound = bindAt(host, docPath);
+    checkpoint();
 
     // ── Missing Set, with the object types known from the page and its includes ──
     const comTypes = new Map<string, string>();
@@ -112,6 +120,7 @@ export function checkPageFiles(request: ScopeRequest, parse: (fsPath: string, te
         }
     }
     const missingSet = findMissingSet(page, comTypes);
+    checkpoint();
 
     // ── The parser's checks, on the page bound with its includes ──
     // global.asa has rules of its own.
