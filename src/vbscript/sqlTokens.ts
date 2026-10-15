@@ -14,8 +14,7 @@ export interface TokenSink {
 // The live legend object is COMBINED_SEMANTIC_LEGEND (jsSemanticProvider.ts),
 // created once and shared by every semantic provider. This block only documents
 // the index → token-type mapping the T_* constants below rely on; keep it in sync
-// with COMBINED_SEMANTIC_LEGEND. (There used to be a second SemanticTokensLegend
-// declared here — it was an unused duplicate and has been removed to avoid drift.)
+// with COMBINED_SEMANTIC_LEGEND.
 //
 // Layout (index order matters — must match COMBINED_SEMANTIC_LEGEND exactly):
 //
@@ -70,8 +69,6 @@ export interface TokenSink {
 //   8  documentation
 //   9  defaultLibrary
 // ─────────────────────────────────────────────────────────────────────────────
-// (The live SemanticTokensLegend is COMBINED_SEMANTIC_LEGEND in
-// jsSemanticProvider.ts — the previously-duplicated copy here was unused.)
 
 // ── VBScript token type indices (positions within COMBINED_SEMANTIC_LEGEND) ──
 // These map to the standard VS Code token types by name, so the editor theme
@@ -104,54 +101,42 @@ export const M_DECLARATION = 1 << 0; // 1
 export const M_READONLY    = 1 << 2; // 4
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SQL detection — requires BOTH a DML/DDL verb AND a clause keyword.
-// Guard: FROM followed by an English article (the/a/an/this/that/my/your etc.)
-// is plain English, not SQL — e.g. "Select an option from the list".
+// SQL detection, by the shape of a statement: it starts with its verb (or with
+// what may come before one: WITH, DECLARE, SET, IF, BEGIN), and the verb has
+// the parts it needs — a clause, or for EXEC the procedure it runs. Prose that
+// happens to hold SQL words starts some other way, or puts an article where a
+// table or column name goes: "Select an option from the list".
 // ─────────────────────────────────────────────────────────────────────────────
 const SQL_VERBS   = /\b(SELECT|INSERT|UPDATE|DELETE|EXEC|EXECUTE|CREATE|DROP|ALTER|TRUNCATE|MERGE)\b/i;
 const SQL_CLAUSES = /\b(FROM|INTO|TABLE|SET|VALUES|WHERE|JOIN|UNION|HAVING|GROUP\s+BY|ORDER\s+BY|RETURNING|DECLARE|BEGIN\s+TRAN|COMMIT|ROLLBACK|USING|WHEN\s+MATCHED|WHEN\s+NOT\s+MATCHED)\b/i;
-const ENGLISH_ARTICLES = /^(the|a|an|this|that|these|those|my|your|our|their|its|her|his)$/i;
+const STATEMENT_START = /^[\s(;]*(?:SELECT|INSERT|UPDATE|DELETE|EXEC|EXECUTE|CREATE|DROP|ALTER|TRUNCATE|MERGE|WITH|DECLARE|SET|IF|BEGIN)\b/i;
+const ARTICLE = '(?:the|a|an|this|that|these|those|my|your|our|their|its|his|her)';
 
 export function isSql(text: string): boolean {
-    if (!SQL_VERBS.test(text) || !SQL_CLAUSES.test(text)) { return false; }
+    // Single-quoted literals are data: 'TOOL_ID:' is not a prose colon.
+    const code = text.replace(/'(?:[^']|'')*'/g, m => ' '.repeat(m.length));
+    if (!STATEMENT_START.test(code)) { return false; }
 
-    // Strip SQL single-quoted string literals before applying prose guards.
-    // This prevents content like 'TOOL_ID:' or 'TOOL_INFO' inside SQL string
-    // parameters from triggering the colon/period guards.
-    const textNoStrings = text.replace(/'(?:[^']|'')*'/g, m => ' '.repeat(m.length));
+    // A stored procedure needs no clause: `EXEC sp_x 5`.
+    const exec = /^[\s(;]*EXEC(?:UTE)?\s+([@[\w][\w.[\]]*)/i.exec(code);
+    if (exec && !new RegExp(`^${ARTICLE}$`, 'i').test(exec[1])) { return true; }
+    if (!SQL_VERBS.test(code) || !SQL_CLAUSES.test(code)) { return false; }
 
-    // Guard: a period that is NOT between two word characters (i.e. not a.b dot notation)
-    // AND NOT between ] and [ (i.e. not [db].[schema].[table] bracket notation)
-    // appearing BEFORE the first SQL clause keyword means this is a sentence, not SQL.
-    // e.g. "Daily total hours (12 hrs) exceeds limit. Base: ..." has a prose period.
-    const firstClauseMatch = SQL_CLAUSES.exec(textNoStrings);
-    if (firstClauseMatch) {
-        const beforeClause = textNoStrings.slice(0, firstClauseMatch.index);
-        if (/(?<![\w\]])\.|\.(?![\w\[*])/.test(beforeClause)) { return false; }
-    }
+    // A sentence's full stop before the first clause — not a.b, [db].[t] or .5.
+    const firstClause = SQL_CLAUSES.exec(code);
+    if (firstClause && /(?<![\w\]])\.(?!\d)|\.(?![\w[*])/.test(code.slice(0, firstClause.index))) { return false; }
 
-    // Guard: a colon that follows a word and is NOT immediately followed by a digit
-    // (time like 7:30), ( or / means this is an error/label string, not SQL.
-    // Real SQL strings never contain word: patterns outside of string literals.
-    // e.g. "Delete from Orders failed: " — the trailing colon gives it away.
-    if (/\w\s*:(?!\s*[\d/()])/.test(textNoStrings)) { return false; }
+    // A label's colon, as in "Delete from Orders failed: ", which SQL never has
+    // outside a literal; a time (7:30) or a `::` scope is not one.
+    if (/\w\s*:(?!\s*[\d/()])/.test(code)) { return false; }
 
-    const fromMatch = textNoStrings.match(/\bFROM\s+(\w+)/i);
-    if (fromMatch && ENGLISH_ARTICLES.test(fromMatch[1])) {
-        const withoutFrom = textNoStrings.replace(/\bFROM\s+\w+/gi, '');
-        if (!SQL_CLAUSES.test(withoutFrom)) { return false; }
-    }
+    // An article where a name goes: "update the record". An article followed
+    // by a SQL word is a one-letter name: `SELECT a FROM t`.
+    const article = new RegExp(`\\b(?:SELECT|INSERT|UPDATE|DELETE|EXEC|EXECUTE)\\s+${ARTICLE}\\s+(\\w+)`, 'i').exec(code);
+    if (article && !SQL_VERBS.test(article[1]) && !SQL_CLAUSES.test(article[1])) { return false; }
 
-    // Guard: a SQL verb immediately followed by an English determiner + a plain
-    // word is prose, not SQL — "update the record", "select a report", "delete a
-    // file". Real SQL after the verb is `*` / DISTINCT / a column list / a table
-    // name / INTO — never "the|a|an <noun>". (An article followed by a SQL keyword,
-    // e.g. "SELECT a FROM t" where `a` is a column, is deliberately left alone.)
-    const verbDet = /\b(SELECT|INSERT|UPDATE|DELETE|EXEC|EXECUTE)\s+(the|a|an|this|that|these|those|my|your|our|their|its|his|her)\s+(\w+)/i
-        .exec(textNoStrings);
-    if (verbDet && !SQL_VERBS.test(verbDet[3]) && !SQL_CLAUSES.test(verbDet[3])) {
-        return false;
-    }
+    // "from the list" is SQL only when some other clause says so.
+    if (new RegExp(`\\bFROM\\s+${ARTICLE}\\b`, 'i').test(code) && !SQL_CLAUSES.test(code.replace(/\bFROM\s+\w+/gi, ''))) { return false; }
 
     return true;
 }
@@ -231,7 +216,7 @@ const SQL_TYPE_WORDS = new Set([
 export const ALL_SQL_KEYWORDS = new Set([
     ...SQL_DML_WORDS, ...SQL_DDL_WORDS, ...SQL_LOGICAL_WORDS,
     ...SQL_KEYWORD_WORDS, ...SQL_FUNCTION_WORDS, ...SQL_TYPE_WORDS,
-    'temp','temporary','exists','table',
+    'temp','temporary',
 ]);
 
 // Precomputed word→tokenType map for O(1) lookup instead of 6 sequential Set checks.
@@ -242,10 +227,6 @@ for (const w of SQL_LOGICAL_WORDS)  { SQL_WORD_TOKEN_MAP.set(w, T_SQL_LOGICAL); 
 for (const w of SQL_KEYWORD_WORDS)  { SQL_WORD_TOKEN_MAP.set(w, T_SQL_KEYWORD); }
 for (const w of SQL_FUNCTION_WORDS) { SQL_WORD_TOKEN_MAP.set(w, T_SQL_FUNC); }
 for (const w of SQL_TYPE_WORDS)     { SQL_WORD_TOKEN_MAP.set(w, T_SQL_TYPE); }
-
-function sqlWordTokenType(word: string): number | undefined {
-    return SQL_WORD_TOKEN_MAP.get(word.toLowerCase());
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SQL tokeniser — converts a raw SQL string into a flat token list.
@@ -349,13 +330,83 @@ function matchTwoWordTableIntro(sig: SqlTok[], i: number): number {
     return -1;
 }
 
-// A word is SQL, not a name, unless it is only a function name and no ( follows:
-// LOG, COUNT and SUM are also ordinary table and column names.
+const DUAL_ROLE_JOIN    = new Set(['left', 'right']);
+const DATEPART_WORDS    = new Set([
+    'year', 'month', 'day', 'hour', 'minute', 'second', 'millisecond', 'microsecond', 'nanosecond',
+    'dayofweek', 'dayofyear', 'week', 'weekday', 'quarter',
+]);
+const DATEPART_FUNCTIONS = new Set(['dateadd', 'datediff', 'datediff_big', 'datepart', 'datename']);
+const OBJECT_VERBS      = new Set(['create', 'alter', 'drop', 'unique', 'clustered', 'nonclustered']);
+const STATEMENT_WORDS   = new Set(['begin', 'then', 'else', 'end', 'go']);
+
+const lower = (t: SqlTok | undefined) => t?.val.toLowerCase();
+const isOpenParen = (t: SqlTok | undefined) => t?.type === 'paren' && t.val === '(';
+
+/** The `(` of the innermost call `sig[i]` is an argument of, and the word before it, if any. */
+function enclosingCall(sig: SqlTok[], i: number): string | undefined {
+    let depth = 0;
+    for (let j = i - 1; j >= 0; j--) {
+        if (sig[j].type !== 'paren') { continue; }
+        if (sig[j].val === ')') { depth++; } else if (depth > 0) { depth--; } else { return lower(sig[j - 1]); }
+    }
+    return undefined;
+}
+
+/**
+ * True where a data type goes: `CAST(x AS INT)`, `CONVERT(INT, x)`,
+ * `DECLARE @n INT`, and after a column's name in `CREATE TABLE t (id INT)` or
+ * `ADD`/`ALTER COLUMN c DATE`.
+ */
+function isTypePlace(sig: SqlTok[], i: number): boolean {
+    const p1 = sig[i - 1];
+    const p2 = sig[i - 2];
+    if (lower(p1) === 'as') { return /^(?:try_)?cast$/.test(enclosingCall(sig, i) ?? ''); }
+    if (isOpenParen(p1)) { return /^(?:try_)?convert$/.test(lower(p2) ?? ''); }
+    const named = !!p1 && isIdentifier(p1) && !SQL_WORD_TOKEN_MAP.has(lower(p1)!);
+    return named && !!p2 && (p2.val === '@' || p2.val === ',' || isOpenParen(p2) || lower(p2) === 'add' || lower(p2) === 'column');
+}
+
+/**
+ * The colour the word `sig[i]` takes as SQL where it stands, or undefined when
+ * it is a name there. Many SQL words are also everyday table and column names
+ * — Log, Count, Left, Hour, Date, Text, Key, Index, View, Open — so each of
+ * those is SQL only in its own place:
+ *   a function only before `(`, and LEFT/RIGHT also before JOIN;
+ *   a date part also as the first argument of DATEADD and its kin;
+ *   a type only where a type goes (isTypePlace);
+ *   KEY after PRIMARY or FOREIGN, INDEX and VIEW after CREATE, ALTER or DROP;
+ *   OPEN and CLOSE at the start of a statement.
+ */
+function sqlRoleAt(sig: SqlTok[], i: number): number | undefined {
+    const tok = sig[i];
+    const w = tok.type === 'word' ? tok.val.toLowerCase() : '';
+    const role = SQL_WORD_TOKEN_MAP.get(w);
+    if (role === undefined) { return undefined; }
+    const call = isOpenParen(sig[i + 1]);
+    const before = lower(sig[i - 1]);
+
+    if (DUAL_ROLE_JOIN.has(w)) {
+        return call ? T_SQL_FUNC : lower(sig[i + 1]) === 'join' || lower(sig[i + 1]) === 'outer' ? T_SQL_DML : undefined;
+    }
+    if (DATEPART_WORDS.has(w)) {
+        if (call) { return T_SQL_FUNC; }
+        return isOpenParen(sig[i - 1]) && DATEPART_FUNCTIONS.has(lower(sig[i - 2]) ?? '') ? T_SQL_KEYWORD : undefined;
+    }
+    // CONCAT is also written between two values, as DB2 does: a CONCAT b.
+    if (role === T_SQL_FUNC && w !== 'concat') { return call ? T_SQL_FUNC : undefined; }
+    if (role === T_SQL_TYPE) {
+        if (isTypePlace(sig, i)) { return T_SQL_TYPE; }
+        return call && SQL_FUNCTION_WORDS.has(w) ? T_SQL_FUNC : undefined;
+    }
+    if (w === 'key') { return before === 'primary' || before === 'foreign' ? role : undefined; }
+    if (w === 'index' || w === 'view') { return OBJECT_VERBS.has(before ?? '') ? role : undefined; }
+    if (w === 'open' || w === 'close') { return before === undefined || before === ';' || STATEMENT_WORDS.has(before) ? role : undefined; }
+    return role;
+}
+
+/** A word is SQL, not a name, where it has a SQL role. */
 function isSqlWordAt(sig: SqlTok[], i: number): boolean {
-    const w = sig[i].val.toLowerCase();
-    if (!ALL_SQL_KEYWORDS.has(w)) { return false; }
-    if (!FUNCTION_ONLY_WORDS.has(w)) { return true; }
-    return i + 1 < sig.length && sig[i + 1].type === 'paren' && sig[i + 1].val === '(';
+    return sqlRoleAt(sig, i) !== undefined;
 }
 
 function isIdentifier(tok: SqlTok): boolean {
@@ -403,9 +454,7 @@ function collectTableChain(sig: SqlTok[], start: number): Array<{off: number; le
 }
 
 // Main entry: returns a Set of "off:len" strings for fast membership testing.
-function findTableRanges(sql: string): Set<string> {
-    const all    = tokeniseSql(sql);
-    const sig    = all.filter(t => t.type !== 'ws');
+function findTableRanges(sig: SqlTok[]): Set<string> {
     const result = new Set<string>();
 
     function addRanges(ranges: Array<{off: number; len: number}>): void {
@@ -507,55 +556,6 @@ export interface SqlStringGroup {
 //   1. Table names/aliases  2. alias.column refs  3. @variables
 //   4. Numeric literals     5. SQL keywords/functions/types
 // ─────────────────────────────────────────────────────────────────────────────
-// Context-sensitive token type overrides for emitSqlTokensForGroup.
-const DUAL_ROLE_JOIN  = new Set(['left','right']);
-
-// Words that look like SQL keywords but are also very common column names.
-// They should only be coloured as keywords when they appear as the first
-// argument inside a datepart-aware function call:
-//   DATEADD(hour, 1, col)  DATEDIFF(minute, start, end)  DATEPART(week, col) …
-// Everywhere else — SELECT Hour FROM t, t.Day = 5 — they are column names
-// and must not be coloured so the theme leaves them as plain identifiers.
-const DATEPART_WORDS = new Set([
-    'year','month','day',
-    'hour','minute','second','millisecond','microsecond','nanosecond',
-    'dayofweek','dayofyear','week','weekday','quarter',
-]);
-// Words whose only SQL role is a function name. Without a ( after them they
-// are names: DELETE FROM Log, SELECT Count FROM t. CONCAT is left out: DB2
-// also writes it between two values, a CONCAT b.
-const FUNCTION_ONLY_WORDS = new Set([...SQL_FUNCTION_WORDS].filter(w =>
-    SQL_WORD_TOKEN_MAP.get(w) === T_SQL_FUNC && !DUAL_ROLE_JOIN.has(w) && !DATEPART_WORDS.has(w) &&
-    w !== 'concat'));
-
-const DATEPART_FUNCTIONS = new Set([
-    'dateadd','datediff','datediff_big','datepart','datename',
-]);
-
-// Returns true when the word at `wordStart` in `sql` is the first argument
-// inside a DATEADD/DATEDIFF/DATEPART/DATENAME call, i.e.:
-//   DATEADD  (  <word>  ,  …
-// The check looks backward from wordStart to confirm the immediately preceding
-// non-whitespace character is '(' and the token before that '(' is a datepart
-// function name.
-function isDatepartArgument(sql: string, wordStart: number): boolean {
-    // Step back past leading whitespace to find the preceding character
-    let i = wordStart - 1;
-    while (i >= 0 && (sql[i] === ' ' || sql[i] === '\t' || sql[i] === '\n' || sql[i] === '\r')) {
-        i--;
-    }
-    if (i < 0 || sql[i] !== '(') { return false; }
-    // Step back past the '(' to find the function name
-    i--;
-    while (i >= 0 && (sql[i] === ' ' || sql[i] === '\t')) { i--; }
-    if (i < 0) { return false; }
-    // Read the word backwards
-    let end = i + 1;
-    while (i >= 0 && /[a-zA-Z0-9_]/.test(sql[i])) { i--; }
-    const fnName = sql.slice(i + 1, end).toLowerCase();
-    return DATEPART_FUNCTIONS.has(fnName);
-}
-
 export function emitSqlTokensForGroup(
     builder: TokenSink,
     group: SqlStringGroup
@@ -583,7 +583,8 @@ export function emitSqlTokensForGroup(
     }
 
     // Pass 1: table names
-    const tableRangeSet = findTableRanges(stitched);
+    const sig = tokeniseSql(stitched).filter(t => t.type !== 'ws');
+    const tableRangeSet = findTableRanges(sig);
     for (const key of tableRangeSet) {
         const colon = key.indexOf(':');
         const off   = parseInt(key.slice(0, colon), 10);
@@ -654,46 +655,13 @@ export function emitSqlTokensForGroup(
         claim(m.index, m[0].length);
     }
 
-    // Pass 5: SQL keywords / functions / types.
-    const wordPattern = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
-    while ((m = wordPattern.exec(stitched)) !== null) {
-        if (isClaimed(m.index, m[1].length)) { continue; }
-        let tokenType = sqlWordTokenType(m[1]);
-        if (tokenType !== undefined) {
-            const wLower = m[1].toLowerCase();
-            const after  = stitched.slice(m.index + m[1].length);
-
-            if (DUAL_ROLE_JOIN.has(wLower)) {
-                // LEFT/RIGHT have two SQL roles:
-                //   LEFT(str, n)     → SQL string function → T_SQL_FUNC
-                //   LEFT JOIN table  → JOIN keyword        → T_SQL_DML
-                // If followed by ( it's a function call; if followed by JOIN it's a keyword.
-                // Anything else (e.g. bare LEFT in a column alias) stays uncoloured.
-                if (/^\s*\(/.test(after)) {
-                    tokenType = T_SQL_FUNC;
-                } else if (/^\s+join\b/i.test(after)) {
-                    tokenType = T_SQL_DML;
-                } else {
-                    continue; // uncoloured — ambiguous
-                }
-            } else if (FUNCTION_ONLY_WORDS.has(wLower)) {
-                if (!/^\s*\(/.test(after)) { continue; } // a name, not a call
-            } else if (DATEPART_WORDS.has(wLower)) {
-                // Date-part words have three possible roles:
-                //   HOUR(start_time)        → ( follows → function colour
-                //   DATEADD(hour, 1, col)   → first arg inside datepart fn → keyword colour
-                //   SELECT Hour FROM t      → bare column name → no colour
-                if (/^\s*\(/.test(after)) {
-                    tokenType = T_SQL_FUNC;
-                } else if (!isDatepartArgument(stitched, m.index)) {
-                    continue; // bare column name — leave uncoloured
-                } else {
-                    tokenType = T_SQL_KEYWORD;
-                }
-            }
-
-            emit(m.index, m[1].length, tokenType);
-            claim(m.index, m[1].length);
-        }
+    // Pass 5: SQL keywords, functions and types, each where it stands (sqlRoleAt).
+    for (let i = 0; i < sig.length; i++) {
+        const tok = sig[i];
+        if (tok.type !== 'word' || isClaimed(tok.off, tok.val.length)) { continue; }
+        const role = sqlRoleAt(sig, i);
+        if (role === undefined) { continue; }
+        emit(tok.off, tok.val.length, role);
+        claim(tok.off, tok.val.length);
     }
 }

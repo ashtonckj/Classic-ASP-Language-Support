@@ -2,8 +2,9 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as ts from 'typescript';
+import * as vscode from 'vscode';
 import { analyseEmbeddedJs, disposeAnalysisWorkers } from '../../workers/analysisClient';
-import { buildVirtualJsContent, getJsLanguageService } from '../../js/jsUtils';
+import { getJsLanguageService } from '../../js/jsUtils';
 import { getJsBlockRanges } from '../../core/zoneUtils';
 
 // The two always-on JavaScript features — type-aware colouring and the error
@@ -21,7 +22,6 @@ import { getJsBlockRanges } from '../../core/zoneUtils';
 
 interface Analysis {
     jsRanges: Array<{ start: number; end: number }>;
-    preambleLength: number;
     spans: number[];
     diagnostics: Array<{ start: number; length: number; code: number; category: ts.DiagnosticCategory; message: string }>;
 }
@@ -29,17 +29,21 @@ interface Analysis {
 /** What the extension host itself would produce, with no worker involved. */
 function inProcess(text: string): Analysis {
     const jsRanges = getJsBlockRanges(text);
-    if (jsRanges.length === 0) { return { jsRanges: [], preambleLength: 0, spans: [], diagnostics: [] }; }
+    if (jsRanges.length === 0) { return { jsRanges: [], spans: [], diagnostics: [] }; }
 
-    const { virtualContent, preambleLength } = buildVirtualJsContent(text, 0);
     const svc = getJsLanguageService();
-    svc.updateContent(virtualContent);
+    svc.loadPage(text);
+    const inScript = (offset: number) => jsRanges.some(r => offset >= r.start && offset <= r.end);
 
-    const classified = svc.getEncodedSemanticClassifications(0, virtualContent.length);
+    const classified = svc.getEncodedSemanticClassifications(0, text.length);
+    const spans: number[] = [];
+    for (let i = 0; i + 2 < classified.spans.length; i += 3) {
+        if (inScript(classified.spans[i])) { spans.push(...classified.spans.slice(i, i + 3)); }
+    }
     const diagnostics: Analysis['diagnostics'] = [];
 
     for (const d of [...svc.getSyntacticDiagnostics(), ...svc.getSemanticDiagnostics()]) {
-        if (d.start === undefined || d.length === undefined) { continue; }
+        if (d.start === undefined || d.length === undefined || !inScript(d.start)) { continue; }
         diagnostics.push({
             start:    d.start,
             length:   d.length,
@@ -51,7 +55,7 @@ function inProcess(text: string): Analysis {
         });
     }
 
-    return { jsRanges, preambleLength, spans: Array.from(classified.spans), diagnostics };
+    return { jsRanges, spans, diagnostics };
 }
 
 const CASES: Array<[string, string]> = [
@@ -86,7 +90,6 @@ describe('embedded JS analysis — the worker agrees with the extension host', (
 
             assert.ok(actual, 'the worker returned no analysis');
             assert.deepStrictEqual(actual.jsRanges, expected.jsRanges, 'script ranges');
-            assert.strictEqual(actual.preambleLength, expected.preambleLength, 'preamble length');
             assert.deepStrictEqual(actual.spans, expected.spans, 'classification spans');
             assert.deepStrictEqual(actual.diagnostics, expected.diagnostics, 'diagnostics');
         });
@@ -95,7 +98,7 @@ describe('embedded JS analysis — the worker agrees with the extension host', (
     it('agrees on a large real page, token for token', async function () {
         this.timeout(60000);
 
-        const file = path.join(__dirname, '../../../test-files/perf-repros/02-unusable-8k-js.asp');
+        const file = path.join(__dirname, '../../../test-files/perf-repros/unusable-8k-js.asp');
         if (!fs.existsSync(file)) { this.skip(); }
 
         const text     = fs.readFileSync(file, 'utf8');
@@ -195,6 +198,35 @@ describe('embedded JS analysis — request handling', () => {
     it('never rejects', async function () {
         this.timeout(30000);
         await assert.doesNotReject(() => analyseEmbeddedJs('page.asp', '<script>function ( ( ( </script>'));
+    });
+
+    // A caller that stops waiting (VS Code cancels the colouring request on the
+    // next keystroke) is answered at once, and an analysis nobody waits on any
+    // more is stopped mid-check rather than run to the end.
+    it('stops an analysis whose only caller cancelled', async function () {
+        this.timeout(60000);
+        const file = path.join(__dirname, '../../../test-files/perf-repros/unusable-8k-js.asp');
+        if (!fs.existsSync(file)) { this.skip(); }
+        const big = fs.readFileSync(file, 'utf8');
+        // Parsed once, so each edit below costs a re-check and little else.
+        await analyseEmbeddedJs('big.asp', big);
+        let started = performance.now();
+        await analyseEmbeddedJs('big.asp', big.replace('var node', 'var node1'));
+        const recheck = performance.now() - started;
+
+        const source = new vscode.CancellationTokenSource();
+        const pending = analyseEmbeddedJs('big.asp', big.replace('var node', 'var node2'), source.token);
+        await new Promise(resolve => setTimeout(resolve, recheck / 4));
+        source.cancel();
+        assert.strictEqual(await pending, undefined, 'the cancelled caller is answered with nothing');
+
+        started = performance.now();
+        const next = await analyseEmbeddedJs('small.asp', '<script>var small = 1;</script>');
+        const waited = performance.now() - started;
+        assert.ok(next, 'the next request is answered');
+        // Run to the end, the re-check would hold the worker for three quarters
+        // of `recheck` more.
+        assert.ok(waited < recheck / 2, `waited ${Math.round(waited)} ms behind a cancelled ${Math.round(recheck)} ms re-check`);
     });
 
     it('starts a fresh worker after being disposed', async function () {

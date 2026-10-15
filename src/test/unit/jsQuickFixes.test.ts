@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { JsCodeActionProvider } from '../../js/jsCodeActionProvider';
 import { SUPPRESSED_CODES } from '../../js/jsDiagnosticsProvider';
-import { disposeJsLanguageService } from '../../js/jsUtils';
+import { disposeAnalysisWorkers } from '../../workers/analysisClient';
 import { fakeDocument } from './_helpers';
 
 // Quick Fixes for the JS squiggles a page already shows. The one that earns its
@@ -10,20 +10,20 @@ import { fakeDocument } from './_helpers';
 // 'getElementById'?", and TypeScript can hand over the edit that corrects it.
 //
 // Two things are worth pinning beyond "a fix appears". First, the edit has to
-// land on the misspelt identifier and nothing else — the fix arrives in
-// virtual-file coordinates, so an unshifted offset would rewrite whatever text
-// happens to sit at that position in the page. Second, the provider must only
+// land on the misspelt identifier and nothing else — the fix arrives from
+// the virtual file, and an offset that did not match the page would rewrite
+// whatever text happens to sit there. Second, the provider must only
 // ask about codes this extension actually reported: the suppressed codes have no
 // squiggle by design, so they must not acquire a lightbulb either.
 
-after(() => { disposeJsLanguageService(); });
+after(() => { disposeAnalysisWorkers(); });
 
 const JS_SOURCE = 'Classic ASP';
 
 const fakeDoc = (text: string): vscode.TextDocument => fakeDocument(text, { fsPath: 'C:\\site\\page.asp' });
 
 const provider      = new JsCodeActionProvider();
-const NOT_CANCELLED = { isCancellationRequested: false } as vscode.CancellationToken;
+const NOT_CANCELLED = new vscode.CancellationTokenSource().token as vscode.CancellationToken;
 
 /** A diagnostic shaped like the ones jsDiagnosticsProvider publishes. */
 function jsDiagnostic(doc: vscode.TextDocument, needle: string, code: number, text: string) {
@@ -39,20 +39,20 @@ function jsDiagnostic(doc: vscode.TextDocument, needle: string, code: number, te
 }
 
 /** Runs the provider over `needle`, reporting `code` there. */
-function fixesFor(text: string, needle: string, code: number, source = JS_SOURCE) {
+async function fixesFor(text: string, needle: string, code: number, source = JS_SOURCE) {
     const doc = fakeDoc(text);
     const { diag, range } = jsDiagnostic(doc, needle, code, text);
     diag.source = source;
     const context = { diagnostics: [diag], only: undefined, triggerKind: 1 } as unknown as vscode.CodeActionContext;
-    const actions = provider.provideCodeActions(doc, range, context, NOT_CANCELLED) as vscode.CodeAction[];
+    const actions = await provider.provideCodeActions(doc, range, context, NOT_CANCELLED) as vscode.CodeAction[];
     return { doc, actions: actions ?? [] };
 }
 
 const MISSPELT_METHOD = '<script>\ndocument.getElementByIdd("btn");\n</script>\n';
 
 describe('Quick fixes for a misspelt member in a <script> block', () => {
-    it('offers a fix that names the correct spelling', () => {
-        const { actions } = fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551);
+    it('offers a fix that names the correct spelling', async () => {
+        const { actions } = await fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551);
         assert.ok(actions.length, 'expected at least one quick fix');
         assert.ok(
             actions.some(a => a.title.includes('getElementById')),
@@ -60,8 +60,8 @@ describe('Quick fixes for a misspelt member in a <script> block', () => {
         );
     });
 
-    it('edits exactly the misspelt identifier, not the text around it', () => {
-        const { doc, actions } = fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551);
+    it('edits exactly the misspelt identifier, not the text around it', async () => {
+        const { doc, actions } = await fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551);
         const fix = actions.find(a => a.title.includes('getElementById'));
         assert.ok(fix?.edit, 'the fix must carry an edit');
 
@@ -77,8 +77,8 @@ describe('Quick fixes for a misspelt member in a <script> block', () => {
         assert.strictEqual(edits[0].newText, 'getElementById');
     });
 
-    it('applying the edit produces the corrected line', () => {
-        const { doc, actions } = fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551);
+    it('applying the edit produces the corrected line', async () => {
+        const { doc, actions } = await fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551);
         const fix   = actions.find(a => a.title.includes('getElementById'));
         assert.ok(fix?.edit, 'the fix must carry an edit');
         const edits = fix.edit.get(doc.uri);
@@ -89,21 +89,21 @@ describe('Quick fixes for a misspelt member in a <script> block', () => {
         assert.strictEqual(after, '<script>\ndocument.getElementById("btn");\n</script>\n');
     });
 
-    it('ties the fix to its diagnostic so it appears on the squiggle', () => {
-        const { actions } = fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551);
+    it('ties the fix to its diagnostic so it appears on the squiggle', async () => {
+        const { actions } = await fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551);
         const fix = actions.find(a => a.title.includes('getElementById'));
         assert.ok(fix, 'expected the spelling fix');
         assert.ok(fix.diagnostics?.length, 'the action must carry the diagnostic it fixes');
     });
 
-    it('marks the fix as a quick fix', () => {
-        const { actions } = fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551);
+    it('marks the fix as a quick fix', async () => {
+        const { actions } = await fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551);
         assert.strictEqual(actions[0].kind, vscode.CodeActionKind.QuickFix);
     });
 
-    it('fixes a misspelt string method too', () => {
+    it('fixes a misspelt string method too', async () => {
         const text = '<script>\nvar s = "abc";\ns.toUpperCasee();\n</script>\n';
-        const { actions } = fixesFor(text, 'toUpperCasee', 2551);
+        const { actions } = await fixesFor(text, 'toUpperCasee', 2551);
         assert.ok(
             actions.some(a => a.title.includes('toUpperCase')),
             `expected toUpperCase; got ${JSON.stringify(actions.map(a => a.title))}`,
@@ -112,25 +112,25 @@ describe('Quick fixes for a misspelt member in a <script> block', () => {
 });
 
 describe('Quick fixes are only offered where they belong', () => {
-    it('offers nothing when there are no diagnostics at the range', () => {
+    it('offers nothing when there are no diagnostics at the range', async () => {
         const doc = fakeDoc(MISSPELT_METHOD);
         const start = MISSPELT_METHOD.indexOf('getElementByIdd');
         const range = new vscode.Range(doc.positionAt(start), doc.positionAt(start + 15));
         const context = { diagnostics: [], only: undefined, triggerKind: 1 } as unknown as vscode.CodeActionContext;
 
         assert.strictEqual(
-            provider.provideCodeActions(doc, range, context, NOT_CANCELLED), undefined,
+            await provider.provideCodeActions(doc, range, context, NOT_CANCELLED), undefined,
         );
     });
 
     // A diagnostic from another extension (a linter, say) says nothing about
     // the JS this extension checks, and its code numbers mean something else.
-    it('ignores a diagnostic this extension did not publish', () => {
-        const { actions } = fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551, 'some linter');
+    it('ignores a diagnostic this extension did not publish', async () => {
+        const { actions } = await fixesFor(MISSPELT_METHOD, 'getElementByIdd', 2551, 'some linter');
         assert.deepStrictEqual(actions, []);
     });
 
-    it('declines a range outside a <script> block', () => {
+    it('declines a range outside a <script> block', async () => {
         const text = '<html>\n<body>hello</body>\n</html>\n';
         const doc  = fakeDoc(text);
         const start = text.indexOf('hello');
@@ -141,7 +141,7 @@ describe('Quick fixes are only offered where they belong', () => {
         const context = { diagnostics: [diag], only: undefined, triggerKind: 1 } as unknown as vscode.CodeActionContext;
 
         assert.strictEqual(
-            provider.provideCodeActions(doc, range, context, NOT_CANCELLED), undefined,
+            await provider.provideCodeActions(doc, range, context, NOT_CANCELLED), undefined,
         );
     });
 
@@ -149,7 +149,7 @@ describe('Quick fixes are only offered where they belong', () => {
     // would contradict that decision. They can never reach the provider, because
     // it reads the codes off diagnostics that were never published — this pins
     // the reasoning rather than the mechanism.
-    it('never sees a suppressed code, because none is ever published', () => {
+    it('never sees a suppressed code, because none is ever published', async () => {
         assert.ok(SUPPRESSED_CODES.has(2304), 'cannot-find-name is suppressed');
         assert.ok(!SUPPRESSED_CODES.has(2551), 'the did-you-mean code must stay visible');
         assert.ok(!SUPPRESSED_CODES.has(2339), 'property-does-not-exist must stay visible');

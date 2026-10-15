@@ -50,11 +50,11 @@ export function outlineOnHost(document: vscode.TextDocument): vscode.DocumentSym
     if (jsRanges.length === 0) { return []; }
 
     const ts: typeof TS = loadTypeScript();
-    const { virtualContent, preambleLength } = buildVirtualJsContent(textOf(document), 0, jsRanges);
+    const { virtualContent } = buildVirtualJsContent(textOf(document), zonesFor(document).markup);
     // Only the syntax tree is needed — no types — so the script is parsed on
-    // its own rather than through the language service hover and completion share.
+    // its own, with no language service.
     const sourceFile = ts.createSourceFile(VIRTUAL_FILENAME, virtualContent, ts.ScriptTarget.ES2020, true, ts.ScriptKind.JS);
-    return jsOutline(ts, sourceFile, jsRanges, preambleLength).map(symbol => toDocumentSymbol(document, symbol));
+    return jsOutline(ts, sourceFile, jsRanges).map(symbol => toDocumentSymbol(document, symbol));
 }
 
 export class JsDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
@@ -68,7 +68,7 @@ export class JsDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
         if (!jsWorkerUsable()) { return outlineOnHost(document); }
 
         const version  = document.version;
-        const analysis = await analyseEmbeddedJs(document.uri.toString(), textOf(document));
+        const analysis = await analyseEmbeddedJs(document.uri.toString(), textOf(document), token);
         if (!analysis || token.isCancellationRequested || document.isClosed || document.version !== version) { return []; }
         if (analysis.outlineError) { log.error('JavaScript outline failed', analysis.outlineError); }
         return analysis.outline.map(symbol => toDocumentSymbol(document, symbol));

@@ -2,62 +2,60 @@
  * htmlLanguageFeatures.ts  (html/)
  *
  * What VS Code's own HTML support gives a .html file, for the markup of a page:
- * hovers on tags and attributes, the values an attribute takes (`type="`,
- * `target="`), and linked editing of a tag pair. It is the same library —
+ * tag, attribute and value suggestions, hovers on tags and attributes, and
+ * linked editing of a tag pair. It is the same library —
  * vscode-html-languageservice — run over the page with its ASP blanked out, so
  * a `<%= x %>` between two tags is space to it, not markup it cannot read.
  */
 
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import { fileURLToPath } from 'url';
 import { otherSetting } from '../platform/settings';
 import type * as HtmlLs from 'vscode-html-languageservice';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-import { getAspBlockRanges } from '../core/zoneUtils';
-import { textOf, zonesFor } from '../platform/documentState';
+import { getAspBlockRanges, inRanges } from '../core/zoneUtils';
+import { loadHtmlService } from '../core/lazyModule';
+import { derivedFrom, textOf, zonesFor } from '../platform/documentState';
 import type { BlockEvent } from '../vbscript/pageAnalysis';
 import { analysedPage } from '../asp/vbscriptWorkspace';
 import { fromLspCompletion, fromLspMarkdown, fromLspRange } from '../platform/lspConvert';
-import { loadHtmlService } from '../core/lazyModule';
-import { isSelfClosingTag } from '../constants/htmlTags';
 
 let _service: HtmlLs.LanguageService | undefined;
 
-/** The library, loaded on first use: a page nobody hovers never needs it. */
-function htmlLanguageServiceModule(): typeof HtmlLs {
-    return loadHtmlService();
-}
-
-function htmlService(): HtmlLs.LanguageService {
-    return (_service ??= htmlLanguageServiceModule().getLanguageService());
-}
-
 /**
- * The page with every `<% … %>` block turned to spaces. Line breaks stay, so
- * every offset, line and column still points at the same place.
+ * The library, loaded on first use: a page nobody hovers never needs it. It
+ * reads folders for path suggestions as VS Code's HTML support does, by
+ * `file:` URL; the folder is read without blocking the extension host.
  */
-export function maskAspBlocks(text: string): string {
-    return text.replace(/<%[\s\S]*?(?:%>|$)/g, block => block.replace(/[^\r\n]/g, ' '));
+function htmlService(): HtmlLs.LanguageService {
+    const { FileType, getLanguageService } = loadHtmlService();
+    return (_service ??= getLanguageService({
+        fileSystemProvider: {
+            stat: async () => { throw new Error('not needed'); },
+            readDirectory: async uri => (await fs.promises.readdir(fileURLToPath(uri), { withFileTypes: true }))
+                .map(entry => [entry.name, entry.isDirectory() ? FileType.Directory : entry.isFile() ? FileType.File : FileType.Unknown]),
+        },
+    }));
 }
 
 interface ParsedPage {
-    version:  number;
     document: LsTextDocument;
     html:     HtmlLs.HTMLDocument;
+    /** Where the values of the page's link attributes (href, src, form action…) are, read when first asked. */
+    links?:   Array<{ start: number; end: number }>;
 }
 
-const _parsed = new WeakMap<vscode.TextDocument, ParsedPage>();
+function parsePage(document: vscode.TextDocument): ParsedPage {
+    const lsDocument = LsTextDocument.create(
+        document.uri.toString(), 'html', document.version, zonesFor(document).markup.masked,
+    );
+    return { document: lsDocument, html: htmlService().parseHTMLDocument(lsDocument) };
+}
 
 /** The masked page and its parse, kept until the page changes. */
 function parse(document: vscode.TextDocument): ParsedPage {
-    const cached = _parsed.get(document);
-    if (cached && cached.version === document.version) { return cached; }
-
-    const lsDocument = LsTextDocument.create(
-        document.uri.toString(), 'html', document.version, maskAspBlocks(textOf(document)),
-    );
-    const page = { version: document.version, document: lsDocument, html: htmlService().parseHTMLDocument(lsDocument) };
-    _parsed.set(document, page);
-    return page;
+    return derivedFrom(document, parsePage);
 }
 
 /** True when `position` is in the page's markup, not its VBScript, JavaScript or CSS. */
@@ -82,58 +80,80 @@ export class HtmlHoverProvider implements vscode.HoverProvider {
     }
 }
 
-// ── Attribute values ──────────────────────────────────────────────────────────
+// ── Outline ───────────────────────────────────────────────────────────────────
 
-/** The values the attribute at `position` takes — `text`, `checkbox`… after `type="`. */
-export function htmlAttributeValueCompletions(
-    document: vscode.TextDocument,
-    position: vscode.Position,
-): vscode.CompletionItem[] {
-    const page = parse(document);
-    // The service read the page line for line, so its ranges are the page's.
-    return htmlService().doComplete(page.document, position, page.html).items
-        .map(value => fromLspCompletion(value, { kind: vscode.CompletionItemKind.Value, useRange: true }));
+/** An element of the service's outline, and the ones inside it, as VS Code's. LSP counts symbol kinds from 1. */
+function fromLspSymbol(symbol: HtmlLs.DocumentSymbol): vscode.DocumentSymbol {
+    const converted = new vscode.DocumentSymbol(
+        symbol.name, symbol.detail ?? '', symbol.kind - 1, fromLspRange(symbol.range), fromLspRange(symbol.selectionRange),
+    );
+    converted.children = (symbol.children ?? []).map(fromLspSymbol);
+    return converted;
 }
 
 /**
- * The innermost element still open at `position`, found the way VS Code's own
- * HTML support finds what `</` closes: from the parse, so a tag inside a
- * comment, a script or a style is not one.
+ * The page's element tree — `html`, `body`, `section#orders.card`… — as the
+ * Outline and breadcrumbs of a .html file show it, beside the VBScript and
+ * JavaScript symbols their own providers give.
  */
-export function unclosedElementBefore(
-    document: vscode.TextDocument,
-    position: vscode.Position,
-): { tag: string; start: number } | undefined {
-    const offset = document.offsetAt(position);
-    const page   = parse(document);
-    const text   = page.document.getText();
-    for (let node: HtmlLs.Node | undefined = page.html.findNodeBefore(offset); node; node = node.parent) {
-        if (!node.tag || isSelfClosingTag(node.tag)) { continue; }
-        if (text.slice(node.start, node.startTagEnd).endsWith('/>')) { continue; }
-        if (node.endTagStart === undefined || node.endTagStart > offset) { return { tag: node.tag, start: node.start }; }
+export class HtmlDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
+    provideDocumentSymbols(document: vscode.TextDocument): vscode.DocumentSymbol[] {
+        const page = parse(document);
+        return htmlService().findDocumentSymbols2(page.document, page.html).map(fromLspSymbol);
     }
-    return undefined;
 }
 
-/** The attribute names already written on the tag at `position`, lower-cased. */
-export function attributesOnTag(document: vscode.TextDocument, position: vscode.Position): Set<string> {
-    const node = parse(document).html.findNodeAt(document.offsetAt(position));
-    return new Set(Object.keys(node.attributes ?? {}).map(name => name.toLowerCase()));
+// ── Completion ────────────────────────────────────────────────────────────────
+
+/**
+ * The tags, closing tags, attributes and attribute values a .html file offers
+ * at `position`, with the same `html.completion.attributeDefaultValue` setting.
+ * The service read the page line for line, so its ranges are the page's.
+ */
+export function htmlCompletions(document: vscode.TextDocument, position: vscode.Position): vscode.CompletionList {
+    const page = parse(document);
+    const list = htmlService().doComplete(page.document, position, page.html, {
+        attributeDefaultValue: otherSetting<'doublequotes' | 'singlequotes' | 'empty'>('html', 'completion.attributeDefaultValue', document),
+    });
+    return new vscode.CompletionList(
+        list.items.map(item => fromLspCompletion(item, { kind: vscode.CompletionItemKind.Property, useRange: true })),
+        list.isIncomplete,
+    );
+}
+
+/**
+ * The files and folders a .html file offers inside a link attribute's value at
+ * `position` — none anywhere else — with each path resolved by
+ * `resolveReference` to a `file:` URL, or to nothing when it cannot be.
+ */
+export async function htmlPathCompletions(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    resolveReference: (ref: string) => string | undefined,
+): Promise<vscode.CompletionItem[]> {
+    if (!inMarkup(document, position)) { return []; }
+    const page = parse(document);
+    const { CompletionItemKind } = loadHtmlService();
+    const list = await htmlService().doComplete2(page.document, position, page.html, { resolveReference });
+    return list.items
+        .filter(item => item.kind === CompletionItemKind.File || item.kind === CompletionItemKind.Folder)
+        .map(item => fromLspCompletion(item, { kind: vscode.CompletionItemKind.File, useRange: true }));
+}
+
+/**
+ * Where the values of the page's link attributes are — the attributes a .html
+ * file links (href, src, form action…), as the HTML service finds them — as
+ * offsets, without quotes. Values are as written; the caller resolves them.
+ */
+export function linkValues(document: vscode.TextDocument): Array<{ start: number; end: number }> {
+    const page = parse(document);
+    return (page.links ??= htmlService().findDocumentLinks(page.document, { resolveReference: ref => ref })
+        .map(link => ({ start: page.document.offsetAt(link.range.start), end: page.document.offsetAt(link.range.end) })));
 }
 
 /** True when `offset` is inside an HTML comment, where a .html file offers no markup. */
 export function inHtmlComment(document: vscode.TextDocument, offset: number): boolean {
-    if (offset < 4) { return false; }
-    const text  = parse(document).document.getText();
-    const open  = text.lastIndexOf('<!--', offset - 4);
-    const close = text.lastIndexOf('-->', offset - 3);
-    return open >= 0 && close < open;
-}
-
-/** True when the HTML data lists values for this attribute, so picking it should show them. */
-export function attributeHasValues(tagName: string, attribute: string): boolean {
-    return htmlLanguageServiceModule().getDefaultHTMLDataProvider()
-        .provideValues(tagName.toLowerCase(), attribute.toLowerCase()).length > 0;
+    return inRanges(zonesFor(document).markup.comments, offset, true);
 }
 
 // ── Linked editing ────────────────────────────────────────────────────────────

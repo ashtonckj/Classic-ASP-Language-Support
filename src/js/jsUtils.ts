@@ -3,10 +3,17 @@
  *
  * Embedded JavaScript support for .asp files — TypeScript Language Service wrapper.
  *
- * Maintains a single JsLanguageService singleton that is shared across all JS
- * providers (completion, hover, diagnostics, semantic tokens, document symbols).
- * The virtual file 'asp-embedded.js' is updated with projected content before each
- * query so offset positions stay exact across the whole document.
+ * The one JsLanguageService lives on the JS worker (workers/jsAnalysisWorker.ts),
+ * which answers every JavaScript feature: the colouring, squiggles and Outline
+ * it works out after each edit, and the completion, hover and other queries the
+ * providers send it. The page is served as two files: 'asp-embedded.js', the
+ * page with everything but its script blanked, and 'asp-preamble.d.ts', the
+ * declarations generated from it, so an offset in the one is an offset in the
+ * page.
+ *
+ * The script is every JavaScript <script> body and every on…="" value
+ * (onclick, onchange…), as VS Code's HTML support builds it: a value stays
+ * where it is, and its closing quote becomes the `;` that ends it.
  *
  * ── ASP → JS Projection strategy ────────────────────────────────────────────
  *
@@ -45,12 +52,13 @@
  *       if (<%= MAX_ITEMS %> > 0) { }
  *     </script>
  *
- *   Virtual JS produced:
- *     var _asp: any;                     // ← catch-all for statement blocks
- *     var _asp_MAX_ITEMS: number;        // ← typed from Const literal
- *     var _asp_GREETING: string;         // ← typed from Const literal
- *     var _asp_userId: any;              // ← expression sentinel
+ *   Preamble (asp-preamble.d.ts):
+ *     declare var _asp: any;                     // ← catch-all for statement blocks
+ *     declare var _asp_MAX_ITEMS: number;        // ← typed from Const literal
+ *     declare var _asp_GREETING: string;         // ← typed from Const literal
+ *     declare var _asp_userId: any;              // ← expression sentinel
  *
+ *   Virtual JS (asp-embedded.js):
  *     (blanked HTML)
  *     (blanked script tag)
  *       var x = _asp_userId  ;           // ← inline substitution, same width
@@ -60,42 +68,64 @@
  *     (blanked close tag)
  *
  * OFFSET PRESERVATION
- *   The preamble is prepended — it shifts every body offset by `preambleLength`
- *   characters inside the virtual file.  All providers MUST:
- *     • ADD    preambleLength to cursor/hover offsets before querying the TS service.
- *     • SUBTRACT preambleLength from diagnostic/token/span start positions before
- *       reporting back to VS Code (document.positionAt).
- *
- *   Within the body, every inline replacement is the same byte-length as the
- *   original ASP block (newlines preserved, non-newlines padded with spaces),
- *   so body-relative positions are unmoved.
+ *   The virtual file is the page's length exactly: every inline replacement is
+ *   as long as the ASP block it stands for (newlines kept, the rest padded with
+ *   spaces), and the preamble is a file of its own. An offset TypeScript
+ *   reports in VIRTUAL_FILENAME is the page's offset; a span in any other file
+ *   (the preamble, the DOM types) is not in the page at all.
  */
 
 import * as path from 'path';
 import type * as ts from 'typescript';
-import { getAspBlockRanges, getJsBlockRanges, type ZoneResolver } from '../core/zoneUtils';
+import { getAspBlockRanges, scanMarkup, type PageMarkup } from '../core/zoneUtils';
 import { endsWithContinuation, vbStatements } from '../core/vbLexical';
-import { parseConstDeclarators } from '../vbscript/symbolParser';
 import { ASP_DOM_TYPES } from './aspDomTypes.generated';
 import { loadTypeScript } from '../core/lazyModule';
 
+/**
+ * What a Const statement declares, from the text after `Const`:
+ * `A = 1, B = "x, y"` is two constants. A comma inside a string or brackets
+ * belongs to the value.
+ *
+ * Reading only up to the first `=` made `Const A = 1, B = 2` one constant, A,
+ * whose value was `1, B = 2` — and left B out of completion, hover and rename.
+ */
+function parseConstDeclarators(text: string): { name: string; value: string }[] {
+    const parts: string[] = [];
+    let start = 0;
+    let depth = 0;
+    let inStr = false;
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (ch === '"') {
+            if (inStr && text[i + 1] === '"') { i++; continue; } // "" escaped quote
+            inStr = !inStr;
+        } else if (!inStr) {
+            if (ch === '(') { depth++; }
+            else if (ch === ')') { depth--; }
+            else if (ch === ',' && depth === 0) { parts.push(text.slice(start, i)); start = i + 1; }
+        }
+    }
+    parts.push(text.slice(start));
+
+    const declarators: { name: string; value: string }[] = [];
+    for (const part of parts) {
+        const match = /^\s*([A-Za-z_]\w*)\s*=\s*(.+?)\s*$/.exec(part);
+        if (match) { declarators.push({ name: match[1], value: match[2] }); }
+    }
+    return declarators;
+}
+
 export const VIRTUAL_FILENAME    = 'asp-embedded.js';
+export const PREAMBLE_FILENAME   = 'asp-preamble.d.ts';
 export const ASP_DOM_TYPES_FILENAME = 'asp-dom.d.ts';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// VirtualJsResult
-// ─────────────────────────────────────────────────────────────────────────────
 export interface VirtualJsResult {
+    /** The page's script, at the page's offsets. */
     virtualContent: string;
-    isInScript:     boolean;
-    /**
-     * Number of characters in the generated preamble that was prepended to the
-     * virtual content.  Every provider MUST:
-     *   • ADD    preambleLength to cursor/hover/offset before querying the TS service.
-     *   • SUBTRACT preambleLength from diagnostic/token/span positions before
-     *     reporting back to VS Code (document.positionAt).
-     */
-    preambleLength: number;
+    /** The declarations generated from the page, served as PREAMBLE_FILENAME. */
+    preamble:       string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -138,7 +168,7 @@ function sanitizeToIdentifier(raw: string): string {
 //      blocks that appear inline in JS expressions.
 //
 // Returns:
-//   preamble        — the typed/any declarations to prepend
+//   preamble        — the typed/any declarations, a .d.ts of their own
 //   exprSentinels   — Map<aspBlock start-offset → sentinel name> used by pass 2
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -346,7 +376,7 @@ export function collectCrossFrameNames(
 /**
  * Builds the preamble and the expression-sentinel map for the virtual file.
  * @param content   Raw ASP source text.
- * @param jsRanges  Pre-computed JS script ranges (from getJsBlockRanges).
+ * @param jsRanges  The page's JavaScript: <script> bodies and on…="" values.
  */
 function buildPreamble(
     content: string,
@@ -356,14 +386,13 @@ function buildPreamble(
     const exprSentinels = collectExprSentinels(content, jsRanges);
 
     const lines: string[] = [
-        '// [asp-projection] preamble — auto-generated, do not edit',
         // Universal catch-all: statement blocks <% %> inline in JS substitute to `_asp`
-        'var _asp: any;',
+        'declare var _asp: any;',
     ];
 
     // Typed declarations for VBScript Const values
     for (const [name, tsType] of vbsConsts) {
-        lines.push(`var _asp_${name}: ${tsType};`);
+        lines.push(`declare var _asp_${name}: ${tsType};`);
     }
 
     // Collect unique sentinel names (multiple offsets may share one sentinel)
@@ -376,16 +405,12 @@ function buildPreamble(
             k => k.toLowerCase() === withoutPrefix.toLowerCase()
         );
         if (!alreadyTyped) {
-            lines.push(`var ${sentinel}: any;`);
+            lines.push(`declare var ${sentinel}: any;`);
         }
     }
 
     // Names read off another frame. These go in as an interface augmentation
     // rather than a `var`, because they are read as PROPERTIES of a Window.
-    // TypeScript reports a grammar error for TS syntax in this .js projection
-    // -- the same one `var _asp: any` above already produces -- and the binder
-    // merges the interface anyway. Preamble diagnostics sit before every JS
-    // range, so the diagnostics filter drops them.
     const crossFrameNames = collectCrossFrameNames(content, jsRanges);
     if (crossFrameNames.size > 0) {
         lines.push('interface Window {');
@@ -395,10 +420,7 @@ function buildPreamble(
         lines.push('}');
     }
 
-    lines.push('');
-    const preamble = lines.join('\n') + '\n';
-
-    return { preamble, exprSentinels };
+    return { preamble: lines.join('\n') + '\n', exprSentinels };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -465,16 +487,12 @@ export function substituteAspBlock(asp: string, sentinel: string | undefined): s
 // ─────────────────────────────────────────────────────────────────────────────
 // buildVirtualJsContent — public entry point
 // ─────────────────────────────────────────────────────────────────────────────
-export function buildVirtualJsContent(
-    content: string,
-    offset: number,
-    jsRanges: ReadonlyArray<{ start: number; end: number }> = getJsBlockRanges(content),
-): VirtualJsResult {
-    const isInScript = jsRanges.some(r => offset >= r.start && offset <= r.end);
+export function buildVirtualJsContent(content: string, markup: PageMarkup = scanMarkup(content)): VirtualJsResult {
+    const handlers = new Set(markup.eventHandlers);
+    const jsRanges = [...markup.scripts.filter(s => s.language === 'javascript'), ...handlers].sort((a, b) => a.start - b.start);
 
     // ── Pass 1: build preamble + sentinel map ────────────────────────────────
     const { preamble, exprSentinels } = buildPreamble(content, jsRanges);
-    const preambleLength = preamble.length;
 
     // ── Pass 2: build offset-preserving body ────────────────────────────────
     let body = '';
@@ -503,15 +521,19 @@ export function buildVirtualJsContent(
         jsOut += jsSection.slice(jsPrev);
         body += jsOut;
         prev = range.end;
+
+        // A handler ends where its value does: the closing quote, or the
+        // character after an unquoted value, becomes its `;`.
+        const after = content[range.end];
+        if (handlers.has(range) && after !== undefined && after !== '\n' && after !== '\r') {
+            body += ';';
+            prev++;
+        }
     }
 
     body += blankNonNewlines(content.slice(prev));
 
-    return {
-        virtualContent: preamble + body,
-        isInScript,
-        preambleLength,
-    };
+    return { virtualContent: body, preamble };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -584,30 +606,6 @@ export function isTsTriggerCharacter(
     return ch !== undefined && TS_TRIGGER_CHARACTERS.has(ch);
 }
 
-/** A range of the real document, in offsets. */
-export interface DocumentSpan { start: number; end: number; }
-
-/**
- * Maps a span reported by the language service back into the document.
- *
- * Returns undefined when the span is not part of the document at all, which is
- * the common case and not an error: the virtual file begins with a generated
- * preamble (the ambient `_asp` values, the cross-frame names, the VBScript
- * constants), and the service also answers with positions in lib.dom.d.ts and
- * in the ambient declarations. None of those are places a reader can be sent or
- * an edit can be applied, so every caller has to drop them.
- */
-export function toDocumentSpan(
-    fileName:       string,
-    textSpan:       ts.TextSpan,
-    preambleLength: number,
-): DocumentSpan | undefined {
-    if (fileName !== VIRTUAL_FILENAME) { return undefined; }
-    const start = textSpan.start - preambleLength;
-    if (start < 0) { return undefined; }
-    return { start, end: start + textSpan.length };
-}
-
 /**
  * The virtual file's text as TypeScript reads it, able to say what changed
  * since an earlier one, so TypeScript re-parses the edited stretch instead of
@@ -648,127 +646,140 @@ export class TextSnapshot implements ts.IScriptSnapshot {
 export class JsLanguageService {
     private readonly _service:         ts.LanguageService;
     private readonly _compilerOptions: ts.CompilerOptions;
-    private          _content:         string = '';
     private          _snapshot:        TextSnapshot = new TextSnapshot('');
     private          _version:         number = 0;
-    private readonly _aspDomTypes:     string;
+    private          _preamble:        ts.IScriptSnapshot;
+    private          _preambleVersion: number = 0;
+    private          _page:            string | undefined;
 
-    constructor() {
+    /**
+     * `cancellation` is asked during a long check; once it says yes, the call
+     * under way throws ts.OperationCanceledException instead of answering.
+     */
+    constructor(cancellation?: ts.HostCancellationToken) {
         const ts = typescript();
         this._compilerOptions = makeBrowserCompilerOptions();
         const libDir = path.dirname(ts.getDefaultLibFilePath(this._compilerOptions));
-
-        this._aspDomTypes = this.aspDomTypes();
+        this._preamble = ts.ScriptSnapshot.fromString('');
+        // Baked from src/js/asp-dom.d.ts at build time (scripts/generate-dom-types.js).
+        const aspDomTypes = ts.ScriptSnapshot.fromString(ASP_DOM_TYPES);
 
         const self = this;
+        const ownSnapshot = (f: string): ts.IScriptSnapshot | undefined =>
+            f === VIRTUAL_FILENAME ? self._snapshot
+            : f === PREAMBLE_FILENAME ? self._preamble
+            : f === ASP_DOM_TYPES_FILENAME ? aspDomTypes
+            : undefined;
 
         const host: ts.LanguageServiceHost = {
-            getScriptFileNames:     () => [VIRTUAL_FILENAME, ASP_DOM_TYPES_FILENAME],
+            getScriptFileNames:     () => [VIRTUAL_FILENAME, PREAMBLE_FILENAME, ASP_DOM_TYPES_FILENAME],
             getScriptVersion:       (f) => {
                 if (f === VIRTUAL_FILENAME) return String(self._version);
+                if (f === PREAMBLE_FILENAME) return String(self._preambleVersion);
                 if (f === ASP_DOM_TYPES_FILENAME) return '1';
                 return '0';
             },
             getScriptSnapshot:      (f) => {
-                if (f === VIRTUAL_FILENAME) { return self._snapshot; }
-                if (f === ASP_DOM_TYPES_FILENAME) { return ts.ScriptSnapshot.fromString(self._aspDomTypes); }
+                const own = ownSnapshot(f);
+                if (own) { return own; }
                 const text = ts.sys.readFile(f);
                 return text !== undefined ? ts.ScriptSnapshot.fromString(text) : undefined;
             },
             getCompilationSettings: () => self._compilerOptions,
             getCurrentDirectory:    () => libDir,
             getDefaultLibFileName:  (opts) => ts.getDefaultLibFilePath(opts),
-            fileExists:             (f) => {
-                if (f === VIRTUAL_FILENAME || f === ASP_DOM_TYPES_FILENAME) return true;
-                return ts.sys.fileExists(f);
-            },
+            fileExists:             (f) => ownSnapshot(f) !== undefined || ts.sys.fileExists(f),
             readFile:               (f) => {
-                if (f === VIRTUAL_FILENAME) return self._content;
-                if (f === ASP_DOM_TYPES_FILENAME) return self._aspDomTypes;
-                return ts.sys.readFile(f);
+                const own = ownSnapshot(f);
+                return own ? own.getText(0, own.getLength()) : ts.sys.readFile(f);
             },
             readDirectory: ts.sys.readDirectory.bind(ts.sys),
             directoryExists: ts.sys.directoryExists.bind(ts.sys),
             getDirectories: ts.sys.getDirectories.bind(ts.sys),
+            getCancellationToken: cancellation && (() => cancellation),
         };
 
         this._service = ts.createLanguageService(host, ts.createDocumentRegistry());
     }
 
     /**
-     * Ambient browser declarations served to the language service as a second
-     * virtual file.
-     *
-     * The single source of truth is src/js/asp-dom.d.ts — a real declaration
-     * file, so tsc type-checks it as part of the build and a clash with
-     * lib.dom.d.ts fails the compile instead of silently doing nothing here.
-     * `npm run compile` bakes it into aspDomTypes.generated.ts, so there is no
-     * runtime file read and nothing can go missing from the package.
+     * Loads a page's script and the declarations generated from it
+     * (buildVirtualJsContent). A new version makes TypeScript rebuild and
+     * re-check the program on its next query, so text that has not changed
+     * keeps the one it has: re-checking a large <script> on every hover cost
+     * 635 ms on 8,000 lines, against 39 ms without.
      */
-    private aspDomTypes(): string {
-        return ASP_DOM_TYPES;
+    updateContent(content: string, preamble = ''): void {
+        this._page = undefined;
+        if (content !== this._snapshot.text) {
+            this._snapshot = new TextSnapshot(content);
+            this._version++;
+        }
+        if (preamble !== this._preamble.getText(0, this._preamble.getLength())) {
+            this._preamble = typescript().ScriptSnapshot.fromString(preamble);
+            this._preambleVersion++;
+        }
     }
 
-    updateContent(content: string): void {
-        // A new version makes TypeScript rebuild and re-check the program on its
-        // next query. Every hover, completion and occurrence highlight projects
-        // the page afresh, and between two keystrokes the projection is the same
-        // text — bumping regardless re-checked a large <script> on every mouse
-        // rest and every cursor move (635 ms a hover on 8,000 lines, 39 ms without).
-        if (content === this._content) { return; }
-        this._content = content;
-        this._snapshot = new TextSnapshot(content);
-        this._version++;
+    /**
+     * Loads the page `text`, unless it is the page loaded already: building
+     * the virtual file reads the whole page, and every query asks with it.
+     * `markup` is its scanMarkup, when the caller has it.
+     */
+    loadPage(text: string, markup?: PageMarkup): void {
+        if (text === this._page) { return; }
+        const { virtualContent, preamble } = buildVirtualJsContent(text, markup);
+        this.updateContent(virtualContent, preamble);
+        this._page = text;
     }
 
-    /** The virtual file's text, as last set. */
-    get content(): string { return this._content; }
+    /**
+     * Runs one service call. A failure answers `fallback` — a half-typed page
+     * that trips TypeScript costs that one answer — but a cancellation is passed
+     * on, so the worker can tell "stopped" from "nothing to say".
+     */
+    private ask<T>(call: () => T | undefined, fallback: T): T {
+        try {
+            return call() ?? fallback;
+        } catch (error) {
+            if (error instanceof typescript().OperationCanceledException) { throw error; }
+            return fallback;
+        }
+    }
 
     getProgram(): ts.Program | undefined {
-        try { return this._service.getProgram() ?? undefined; }
-        catch { return undefined; }
+        return this.ask(() => this._service.getProgram(), undefined);
     }
 
     getCompletions(offset: number, trigger?: string): ts.CompletionInfo | undefined {
-        try {
-            return this._service.getCompletionsAtPosition(VIRTUAL_FILENAME, offset, {
-                triggerCharacter:                         isTsTriggerCharacter(trigger) ? trigger : undefined,
-                includeCompletionsWithInsertText:         true,
-                includeCompletionsForModuleExports:       false,
-                includeAutomaticOptionalChainCompletions: true,
-            }) ?? undefined;
-        } catch { return undefined; }
+        return this.ask(() => this._service.getCompletionsAtPosition(VIRTUAL_FILENAME, offset, {
+            triggerCharacter:                         isTsTriggerCharacter(trigger) ? trigger : undefined,
+            includeCompletionsWithInsertText:         true,
+            includeCompletionsForModuleExports:       false,
+            includeAutomaticOptionalChainCompletions: true,
+        }), undefined);
     }
 
     getCompletionDetails(name: string, offset: number, source?: string): ts.CompletionEntryDetails | undefined {
-        try {
-            return this._service.getCompletionEntryDetails(
-                VIRTUAL_FILENAME, offset, name, undefined, source, undefined, undefined
-            ) ?? undefined;
-        } catch { return undefined; }
+        return this.ask(() => this._service.getCompletionEntryDetails(
+            VIRTUAL_FILENAME, offset, name, undefined, source, undefined, undefined,
+        ), undefined);
     }
 
     getQuickInfo(offset: number): ts.QuickInfo | undefined {
-        try { return this._service.getQuickInfoAtPosition(VIRTUAL_FILENAME, offset) ?? undefined; }
-        catch { return undefined; }
+        return this.ask(() => this._service.getQuickInfoAtPosition(VIRTUAL_FILENAME, offset), undefined);
     }
 
     getDefinitions(offset: number): readonly ts.DefinitionInfo[] {
-        try { return this._service.getDefinitionAtPosition(VIRTUAL_FILENAME, offset) ?? []; }
-        catch { return []; }
+        return this.ask(() => this._service.getDefinitionAtPosition(VIRTUAL_FILENAME, offset), []);
     }
 
     getReferences(offset: number): readonly ts.ReferenceEntry[] {
-        try { return this._service.getReferencesAtPosition(VIRTUAL_FILENAME, offset) ?? []; }
-        catch { return []; }
+        return this.ask(() => this._service.getReferencesAtPosition(VIRTUAL_FILENAME, offset), []);
     }
 
     getDocumentHighlights(offset: number): readonly ts.DocumentHighlights[] {
-        try {
-            return this._service.getDocumentHighlights(
-                VIRTUAL_FILENAME, offset, [VIRTUAL_FILENAME],
-            ) ?? [];
-        } catch { return []; }
+        return this.ask(() => this._service.getDocumentHighlights(VIRTUAL_FILENAME, offset, [VIRTUAL_FILENAME]), []);
     }
 
     /**
@@ -779,103 +790,58 @@ export class JsLanguageService {
      * ("did you mean getElementById?"), so there is no inserted block whose
      * indentation would need to match the file.
      */
-    getCodeFixes(
-        start:      number,
-        end:        number,
-        errorCodes: number[],
-    ): readonly ts.CodeFixAction[] {
-        try {
-            return this._service.getCodeFixesAtPosition(
-                VIRTUAL_FILENAME, start, end, errorCodes, {}, {},
-            ) ?? [];
-        } catch { return []; }
+    getCodeFixes(start: number, end: number, errorCodes: number[]): readonly ts.CodeFixAction[] {
+        return this.ask(() => this._service.getCodeFixesAtPosition(VIRTUAL_FILENAME, start, end, errorCodes, {}, {}), []);
     }
 
     getRenameInfo(offset: number): ts.RenameInfo | undefined {
-        try {
-            return this._service.getRenameInfo(VIRTUAL_FILENAME, offset, {
-                providePrefixAndSuffixTextForRename: false,
-            });
-        } catch { return undefined; }
+        return this.ask(() => this._service.getRenameInfo(VIRTUAL_FILENAME, offset, {
+            providePrefixAndSuffixTextForRename: false,
+        }), undefined);
     }
 
     findRenameLocations(offset: number): readonly ts.RenameLocation[] {
-        try {
-            return this._service.findRenameLocations(
-                VIRTUAL_FILENAME, offset, false, false, { providePrefixAndSuffixTextForRename: false },
-            ) ?? [];
-        } catch { return []; }
+        return this.ask(() => this._service.findRenameLocations(
+            VIRTUAL_FILENAME, offset, false, false, { providePrefixAndSuffixTextForRename: false },
+        ), []);
     }
 
     getSignatureHelp(offset: number): ts.SignatureHelpItems | undefined {
-        try { return this._service.getSignatureHelpItems(VIRTUAL_FILENAME, offset, undefined) ?? undefined; }
-        catch { return undefined; }
+        return this.ask(() => this._service.getSignatureHelpItems(VIRTUAL_FILENAME, offset, undefined), undefined);
     }
 
     getSyntacticDiagnostics(): ts.DiagnosticWithLocation[] {
-        try { return this._service.getSyntacticDiagnostics(VIRTUAL_FILENAME) ?? []; }
-        catch { return []; }
+        return this.ask(() => this._service.getSyntacticDiagnostics(VIRTUAL_FILENAME), []);
     }
 
     getSemanticDiagnostics(): ts.Diagnostic[] {
-        try { return this._service.getSemanticDiagnostics(VIRTUAL_FILENAME) ?? []; }
-        catch { return []; }
+        return this.ask(() => this._service.getSemanticDiagnostics(VIRTUAL_FILENAME), []);
     }
 
     getEncodedSemanticClassifications(start: number, length: number): ts.Classifications {
-        try {
-            return this._service.getEncodedSemanticClassifications(
-                VIRTUAL_FILENAME, { start, length },
-                typescript().SemanticClassificationFormat.TwentyTwenty
-            );
-        } catch {
-            return { spans: [], endOfLineState: typescript().EndOfLineState.None };
-        }
+        const ts = typescript();
+        return this.ask(
+            () => this._service.getEncodedSemanticClassifications(
+                VIRTUAL_FILENAME, { start, length }, ts.SemanticClassificationFormat.TwentyTwenty,
+            ),
+            { spans: [], endOfLineState: ts.EndOfLineState.None },
+        );
     }
 
     dispose(): void { this._service.dispose(); }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Singleton
-// ─────────────────────────────────────────────────────────────────────────────
 let _service: JsLanguageService | undefined;
 
 /**
- * The one service of this thread. This file also runs on the JS worker, where
- * there is no vscode module and so no log: a failure to start is thrown, and
- * the provider that asked logs it.
+ * The one service of this thread: the JS worker's, made with the token its
+ * analysis is stopped through; the unit tests make one without. This file
+ * runs on the worker, where there is no vscode module and so no log: a
+ * failure to start is thrown, and the worker sends it to the host to log.
  */
-export function getJsLanguageService(): JsLanguageService {
-    _service ??= new JsLanguageService();
+export function getJsLanguageService(cancellation?: ts.HostCancellationToken): JsLanguageService {
+    _service ??= new JsLanguageService(cancellation);
     return _service;
-}
-
-/** The JS service with the virtual file for a caret in a <script> block loaded. */
-export interface JsQuery {
-    svc:            JsLanguageService;
-    /** The virtual file, for reading the characters around the caret. */
-    virtualContent: string;
-    /** The caret as an offset in the virtual file. */
-    virtualOffset:  number;
-    preambleLength: number;
-}
-
-/**
- * What every JavaScript feature does first: check the offset is in a
- * <script> block, build the virtual file around it, and load that into the
- * language service. Undefined when the offset is not JavaScript. `zones` is
- * the page's zone map (documentState's zonesFor).
- */
-export function prepareJsQuery(fullText: string, offset: number, zones: ZoneResolver): JsQuery | undefined {
-    if (zones.zoneAt(offset) !== 'js') { return undefined; }
-
-    const { virtualContent, isInScript, preambleLength } = buildVirtualJsContent(fullText, offset, zones.jsBlocks);
-    if (!isInScript) { return undefined; }
-
-    const svc = getJsLanguageService();
-    svc.updateContent(virtualContent);
-    return { svc, virtualContent, virtualOffset: offset + preambleLength, preambleLength };
 }
 
 export function disposeJsLanguageService(): void {

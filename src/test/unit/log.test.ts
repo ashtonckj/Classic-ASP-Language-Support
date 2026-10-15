@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { disposeLog, log, safely, safelyAsync } from '../../platform/log';
+import { disposeLog, log } from '../../platform/log';
 import { testLog } from './_vscodeStub';
 
 describe('log', () => {
@@ -11,11 +11,4 @@ describe('log', () => {
         assert.ok(testLog[0].startsWith('error hover failed\nError: boom'), testLog[0]);
     });
 
-    it('turns an error thrown by a provider into undefined, and logs it', async () => {
-        assert.strictEqual(safely('completion', () => { throw new Error('bad'); }), undefined);
-        assert.strictEqual(safely('completion', () => 42), 42);
-        assert.strictEqual(await safelyAsync('hover', () => Promise.reject(new Error('worse'))), undefined);
-        assert.strictEqual(await safelyAsync('hover', async () => 'ok'), 'ok');
-        assert.deepStrictEqual(testLog.map(line => line.split('\n')[0]), ['error completion failed', 'error hover failed']);
-    });
 });

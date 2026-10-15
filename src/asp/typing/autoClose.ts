@@ -11,6 +11,7 @@ import type { Zone } from '../../core/zoneUtils';
 import { zonesFor } from '../../platform/documentState';
 import { findAspOpenerIndent, findMatchingOpenerIndent, VBSCRIPT_EXACT_CLOSER } from './vbIndent';
 import { getIndentUnit } from './editing';
+import { parsedDocument } from '../vbscriptWorkspace';
 
 // ── Auto-closing tag + auto-snap VBScript closers ──────────────────────────
 
@@ -255,12 +256,14 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
             }
 
             if (!VBSCRIPT_EXACT_CLOSER.test(currentTrimmed)) { continue; }
+            // Typing after the keyword (`Case 1, 2`) leaves the line where the keyword snapped it, so it asks the parser nothing.
+            if (change.range.start.character > currentIndent.length + /^(End\s+\w+|\w+)/.exec(currentTrimmed)![0].length) { continue; }
 
             // The zone probe only runs for a line that already matches
             // VBSCRIPT_EXACT_CLOSER, so ordinary keystrokes never reach it.
             if (zoneAtPosition(changeLine, currentLine.text.length) !== 'asp') { continue; }
 
-            const openerIndent = findMatchingOpenerIndent(event.document, changeLine, currentTrimmed, snapIndentUnit);
+            const openerIndent = findMatchingOpenerIndent(parsedDocument(event.document), changeLine, snapIndentUnit);
             if (openerIndent === null || openerIndent === currentIndent) { continue; }
 
             snaps.push({ line: changeLine, fromLength: currentIndent.length, indent: openerIndent });

@@ -31,6 +31,7 @@ export interface LspCompletionItem {
     textEdit?: { newText: string; range: LspRange } | { newText: string; insert: LspRange; replace: LspRange };
     filterText?: string;
     sortText?: string;
+    command?: { title: string; command: string };
 }
 
 /** LSP's InsertTextFormat.Snippet. */
@@ -91,5 +92,7 @@ export function fromLspCompletion(item: LspCompletionItem, options: CompletionOp
     }
     if (item.filterText)    { converted.filterText = item.filterText; }
     if (item.sortText)      { converted.sortText = item.sortText; }
+    // The HTML service re-opens the list after an attribute with known values.
+    if (item.command)       { converted.command = { title: item.command.title, command: item.command.command }; }
     return converted;
 }

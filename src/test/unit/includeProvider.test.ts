@@ -4,7 +4,13 @@ import * as os from 'os';
 import * as path from 'path';
 import * as stub from './_vscodeStub';
 import { fakeDocument } from './_helpers';
-import { areIncludeSymbolsReady, collectIncludeSymbols, getVirtualRoot, preloadIncludeSymbols, readIncludeText } from '../../asp/includeProvider';
+import {
+    areIncludeSymbolsReady, collectIncludeSymbols, disposeIncludeWatchers, getVirtualRoot, preloadIncludeSymbols, readIncludeText, watchIncludeChanges,
+} from '../../asp/includeProvider';
+import { aspIndexSettled, disposeWorkspaceIndex } from '../../platform/workspaceIndex';
+import { editorWorkspace } from '../../asp/vbscriptWorkspace';
+import { buildScriptScope } from '../../vbscript/scriptScope';
+import { symbolsOfPage } from '../../vbscript/symbols';
 
 describe('readIncludeText', () => {
     let dir: string;
@@ -53,6 +59,86 @@ describe('include symbols read from an unsaved buffer', function () {
             assert.strictEqual(areIncludeSymbolsReady(page as never), false);
             await preloadIncludeSymbols(page as never);
             assert.deepStrictEqual(functionNames(page), ['Saved']);
+        });
+    }
+});
+
+// Completion's include symbols and the binder behind F12, rename and the checks
+// must agree on which files a page includes.
+describe('the files a page includes', function () {
+    this.timeout(20000);
+    let dir: string;
+    beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'asp-include-parity-')); });
+    afterEach(() => {
+        stub.testSettings.delete('classicAsp.defaultIncludes');
+        fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('are the same for completion as for the script scope', async () => {
+        const write = (name: string, text: string) => {
+            fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+            fs.writeFileSync(path.join(dir, name), text);
+        };
+        // No folder is open and no virtualRoot is set, so virtual= starts at each file's own folder.
+        write('lib/a.inc', '<!--#include file="b.inc"--><!--#include virtual="/nested/n.inc"--><% Sub A : End Sub %>');
+        write('lib/b.inc', '<!--#include file="a.inc"--><!--#include file="shared.inc"--><% Sub B : End Sub %>');
+        write('lib/nested/n.inc', '<% Sub N : End Sub %>');
+        write('lib/shared.inc', '<% Sub Common : End Sub %>');
+        write('defaults/d.inc', '<% Sub D : End Sub %>');
+        stub.testSettings.set('classicAsp.defaultIncludes', ['defaults/d.inc']);
+        const pagePath = path.join(dir, 'page.asp');
+        const page = fakeDocument('<!--#include virtual="/lib/a.inc"--><!--#include file="lib/shared.inc"--><% Sub Page : End Sub %>', { fsPath: pagePath });
+
+        await preloadIncludeSymbols(page as never);
+        const completion = collectIncludeSymbols(page as never).functions.map(f => f.name).sort();
+
+        const scope = buildScriptScope(pagePath, page.getText(), editorWorkspace(page as never));
+        const bound = scope.files.filter(file => file !== scope.root).flatMap(file => symbolsOfPage(file.page, file.path).functions.map(f => f.name)).sort();
+
+        assert.deepStrictEqual(completion, ['A', 'B', 'Common', 'D', 'N']);
+        assert.deepStrictEqual(completion, bound);
+    });
+});
+
+// A change made outside the editor reaches the include symbols: through the
+// workspace watcher for an include in the workspace, through a watcher on its
+// folder for one outside it.
+describe('include symbols after the include changes on disk', function () {
+    this.timeout(20000);
+    let site: string;
+    let outside: string;
+    let watching: { dispose(): void }[];
+    beforeEach(() => {
+        site = fs.mkdtempSync(path.join(os.tmpdir(), 'asp-include-site-'));
+        outside = fs.mkdtempSync(path.join(os.tmpdir(), 'asp-include-outside-'));
+        stub.workspace.workspaceFolders = [{ uri: { fsPath: site } }];
+        disposeWorkspaceIndex();
+        watching = watchIncludeChanges();
+    });
+    afterEach(() => {
+        for (const disposable of watching) { disposable.dispose(); }
+        disposeIncludeWatchers();
+        disposeWorkspaceIndex();
+        stub.workspace.workspaceFolders = undefined;
+        fs.rmSync(site, { recursive: true, force: true });
+        fs.rmSync(outside, { recursive: true, force: true });
+    });
+
+    for (const [where, folder] of [['in the workspace', () => site], ['outside the workspace', () => outside]] as const) {
+        it(`are read again when an include ${where} changes`, async () => {
+            const libPath = path.join(folder(), 'lib.inc');
+            fs.writeFileSync(libPath, '<% Sub Before : End Sub %>');
+            const page = fakeDocument(`<!--#include file="${libPath}"-->`, { fsPath: path.join(site, 'page.asp') });
+
+            await preloadIncludeSymbols(page as never);
+            await aspIndexSettled();
+            assert.strictEqual(areIncludeSymbolsReady(page as never), true);
+
+            fs.writeFileSync(libPath, '<% Sub After : End Sub %>');
+            stub.fireFileEvent('change', libPath);
+            assert.strictEqual(areIncludeSymbolsReady(page as never), false);
+            await preloadIncludeSymbols(page as never);
+            assert.deepStrictEqual(collectIncludeSymbols(page as never).functions.map(f => f.name), ['After']);
         });
     }
 });

@@ -1,7 +1,9 @@
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { HtmlAttributeLinkProvider, resolveHtmlLink } from '../../html/linkProvider';
+import { HtmlAttributeLinkProvider, HtmlAttributePathCompletionProvider, resolveHtmlLink } from '../../html/linkProvider';
 import { fakeDocument } from './_helpers';
 
 // href / src links follow the rules VS Code's HTML support uses in a .html file.
@@ -108,5 +110,44 @@ describe('HtmlAttributeLinkProvider', () => {
 
     it('still links an attribute whose value holds an ASP expression in its query', () => {
         assert.deepStrictEqual(linksIn('<a href="edit.asp?id=<%= id %>">x</a>').map(l => l.target), [path.join(ROOT, 'admin', 'edit.asp')]);
+    });
+});
+
+// Files are offered where a .html file offers them: in a link attribute of the
+// page's own markup, the folders resolved as the links resolve them.
+describe('HtmlAttributePathCompletionProvider', () => {
+    let site: string;
+
+    before(() => {
+        site = fs.mkdtempSync(path.join(os.tmpdir(), 'asp-links-'));
+        fs.mkdirSync(path.join(site, 'admin'));
+        fs.mkdirSync(path.join(site, 'images'));
+        fs.writeFileSync(path.join(site, 'admin', 'edit.asp'), '');
+        fs.writeFileSync(path.join(site, 'images', 'logo.gif'), '');
+        (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = [{ uri: { fsPath: site } }];
+    });
+    after(() => {
+        (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = undefined;
+        fs.rmSync(site, { recursive: true, force: true });
+    });
+
+    const offered = async (text: string) => {
+        const at = text.indexOf('|');
+        const document = fakeDocument(text.replace('|', ''), { uri: vscode.Uri.file(path.join(site, 'admin', 'users.asp')) });
+        const list = await new HtmlAttributePathCompletionProvider().provideCompletionItems(document, document.positionAt(at));
+        return list.items.map(item => String(item.label)).sort();
+    };
+
+    it("offers the page's folder, and the site root after a /", async () => {
+        assert.deepStrictEqual(await offered('<a href="|">x</a>'), ['edit.asp']);
+        assert.deepStrictEqual(await offered('<img src="/images/|">'), ['logo.gif']);
+        assert.deepStrictEqual(await offered("<form action='|'>"), ['edit.asp']);
+    });
+
+    it('offers nothing in an href VBScript or JavaScript writes, or in a URL', async () => {
+        assert.deepStrictEqual(await offered('<% Response.Write "<a href=""|" %>'), []);
+        assert.deepStrictEqual(await offered('<script>var s = \'<a href="|\';</script>'), []);
+        assert.deepStrictEqual(await offered('<a href="http://example.com/|">x</a>'), []);
+        assert.deepStrictEqual(await offered('<a class="|">x</a>'), []);
     });
 });

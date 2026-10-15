@@ -7,9 +7,9 @@ import { fakeDocument } from './_helpers';
 //
 // The interesting part is not finding the colours — vscode-css-languageservice
 // does that — but getting their positions right. A <style> block's virtual
-// document is position-aligned, so its offsets are page offsets already; an
-// inline style="" value is wrapped in a fake `* { … }` ruleset, so every offset
-// in it is shifted by the wrapper. A mistake either way puts the swatch on the
+// document holds only its body, so every offset in it is shifted by where the
+// body starts; an inline style="" value is wrapped in a fake `* { … }` ruleset,
+// so every offset in it is shifted by the wrapper. A mistake either way puts the swatch on the
 // wrong characters, and the picker then overwrites the wrong text.
 
 const fakeDoc = (text: string): vscode.TextDocument => fakeDocument(text, { fsPath: 'C:\\site\\page.asp' });
@@ -114,6 +114,17 @@ describe('Colour swatches inside a style="" attribute', () => {
     it('handles several styled elements on one line', () => {
         const found = coloursIn('<i style="color:#aaaaaa"></i><b style="color:#bbbbbb"></b>\n');
         assert.deepStrictEqual(found.map(f => f.text), ['#aaaaaa', '#bbbbbb']);
+    });
+
+    // The same style attributes CSS validation, completion and hover read.
+    it('shows none in a JavaScript or VBScript string, or in a comment', () => {
+        const found = coloursIn([
+            '<script>var t = \'<p style="color: #111111">\';</script>',
+            '<% Response.Write "<p style=""color: #222222"">" %>',
+            '<!-- <p style="color: #333333"> -->',
+            '<p style="color: #444444">x</p>',
+        ].join('\n'));
+        assert.deepStrictEqual(found.map(f => f.text), ['#444444']);
     });
 
     it('positions the swatch correctly when the attribute is not on line 0', () => {

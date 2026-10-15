@@ -213,6 +213,10 @@ export class SnippetString {
     constructor(public readonly value: string) {}
 }
 
+export class Hover {
+    constructor(public readonly contents: unknown, public readonly range?: Range) {}
+}
+
 /** Keeps what was appended as one Markdown string, as the real class does. */
 export class MarkdownString {
     constructor(public value = '') {}
@@ -220,6 +224,9 @@ export class MarkdownString {
     appendText(text: string): this { this.value += text.replace(/[\\`*_{}[\]()#+\-.!<>]/g, '\\$&'); return this; }
     appendCodeblock(code: string, language = ''): this { this.value += `\n\`\`\`${language}\n${code}\n\`\`\`\n`; return this; }
 }
+
+// The Emmet helper reads its messages through this when it finds the vscode module.
+export const l10n = { t: (message: string) => message };
 
 // ── Colours ──────────────────────────────────────────────────────────────────
 // Channels are 0..1 floats, as the real API defines them.
@@ -259,6 +266,25 @@ export class SymbolInformation {
         public readonly containerName: string,
         public readonly location: Location,
     ) {}
+}
+
+export class CancellationTokenSource {
+    private listeners: Array<() => void> = [];
+    readonly token = {
+        isCancellationRequested: false,
+        onCancellationRequested: (listener: () => void) => {
+            this.listeners.push(listener);
+            return { dispose: () => { this.listeners = this.listeners.filter(l => l !== listener); } };
+        },
+    };
+
+    cancel(): void {
+        if (this.token.isCancellationRequested) { return; }
+        this.token.isCancellationRequested = true;
+        for (const listener of [...this.listeners]) { listener(); }
+    }
+
+    dispose(): void { this.listeners = []; }
 }
 
 export const DocumentHighlightKind = { Text: 0, Read: 1, Write: 2 };

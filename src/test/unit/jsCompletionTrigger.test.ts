@@ -1,7 +1,6 @@
 import * as assert from 'assert';
 import * as ts from 'typescript';
 import {
-    buildVirtualJsContent,
     disposeJsLanguageService,
     getJsLanguageService,
     isTsTriggerCharacter,
@@ -42,10 +41,9 @@ function recordAssertNever(trips: Trip[], char: string): () => void {
 function completionsAfter(script: string, marker: string, trigger: string | undefined) {
     const doc = `<script>\n${script}\n</script>\n`;
     const caret = doc.indexOf(marker) + marker.length;
-    const { virtualContent, preambleLength } = buildVirtualJsContent(doc, caret);
     const svc = getJsLanguageService();
-    svc.updateContent(virtualContent);
-    return svc.getCompletions(caret + preambleLength, trigger);
+    svc.loadPage(doc);
+    return svc.getCompletions(caret, trigger);
 }
 
 after(() => { disposeJsLanguageService(); });
@@ -130,10 +128,9 @@ describe('An unnamed function does not reach the suggest widget', () => {
     function hasNamelessEntry(script: string, caretMarker: string): boolean {
         const doc   = `<script>\n${script}\n</script>\n`;
         const caret = doc.indexOf(caretMarker) + caretMarker.length;
-        const { virtualContent, preambleLength } = buildVirtualJsContent(doc, caret);
         const svc = getJsLanguageService();
-        svc.updateContent(virtualContent);
-        const info = svc.getCompletions(caret + preambleLength, undefined);
+        svc.loadPage(doc);
+        const info = svc.getCompletions(caret, undefined);
         return (info?.entries ?? []).some(entry => entry.name === '');
     }
 

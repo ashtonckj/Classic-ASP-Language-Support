@@ -5,30 +5,29 @@
  * inside a function call in a <script> block.
  *
  * The docs are MarkdownStrings, so JSDoc formatting (backticks, links, bold)
- * renders. TypeScript answers in the virtual file, which starts with a
- * preamble, so the caret offset goes in shifted by preambleLength.
+ * renders.
  *
- * Registered in extension.ts alongside AspSignatureHelpProvider so the two
- * never conflict — AspSignatureHelpProvider only fires inside ASP zones and
+ * Registered in jsFeatures.ts, beside AspSignatureHelpProvider (aspFeatures.ts),
+ * and the two never conflict — AspSignatureHelpProvider only fires inside ASP zones and
  * this one only fires inside JS zones.
  */
 
 import * as vscode from 'vscode';
-import { jsQueryAt } from './jsDocument';
+import { askJs, jsOffsetAt } from './jsDocument';
 
 export class JsSignatureHelpProvider implements vscode.SignatureHelpProvider {
 
-    provideSignatureHelp(
+    async provideSignatureHelp(
         document: vscode.TextDocument,
         position: vscode.Position,
         token:    vscode.CancellationToken
-    ): vscode.ProviderResult<vscode.SignatureHelp> {
+    ): Promise<vscode.SignatureHelp | undefined> {
 
-        const query = jsQueryAt(document, position);
-        if (!query || token.isCancellationRequested) { return undefined; }
+        const offset = jsOffsetAt(document, position);
+        if (offset === undefined) { return undefined; }
 
-        const items = query.svc.getSignatureHelp(query.virtualOffset);
-        if (!items || token.isCancellationRequested) { return undefined; }
+        const items = await askJs(document, 'getSignatureHelp', [offset], token);
+        if (!items) { return undefined; }
 
         const help            = new vscode.SignatureHelp();
         help.activeSignature  = items.selectedItemIndex;

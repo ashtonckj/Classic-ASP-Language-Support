@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { isCursorInHtmlFileLinkAttribute } from '../html/htmlLinkUtils';
 import { contextAt } from '../platform/documentState';
 import { definitionSites, resolveAt } from '../vbscript/references';
 import { editorWorkspace, siteToLocation } from './vbscriptWorkspace';
@@ -12,8 +11,8 @@ import { isBuiltinName } from '../constants/aspKeywords';
 // The parser works out which declaration a name means, so a local `i` goes to
 // its own procedure's Dim, not to the first `i` on the page.
 //
-// HTML attribute links (href, src, etc.) are handled separately in linkProvider.ts.
-// The guard below ensures those attribute values never fall through to symbol lookup.
+// HTML attribute links (href, src, etc.) are handled separately in linkProvider.ts;
+// they are markup, which the zone check below keeps out of symbol lookup.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class AspDefinitionProvider implements vscode.DefinitionProvider {
@@ -25,15 +24,9 @@ export class AspDefinitionProvider implements vscode.DefinitionProvider {
 
         const lineText = document.lineAt(position.line).text;
 
-        // Guard: if the cursor is inside an HTML file-link attribute value, always
-        // return null. Navigation is handled by HtmlAttributeLinkProvider in
-        // linkProvider.ts via the DocumentLink API, which also owns the tooltip.
-        // Returning anything here would cause VS Code to show both the symbol hover
-        // ("function test — defined in this file") and the link tooltip simultaneously.
-        if (isCursorInHtmlFileLinkAttribute(lineText, position.character)) return null;
-
         // Only resolve VBScript symbols when the cursor is actually in VBScript.
-        // Without this, Ctrl+Click on a matching word in plain HTML text, in a
+        // Without this, Ctrl+Click on a matching word in plain HTML text — an
+        // href value, whose link HtmlAttributeLinkProvider owns, among it — in a
         // client-side <script> (a JS variable), or inside a VBScript string/comment
         // wrongly jumped to the VBScript definition.
         const caret = contextAt(document, position);

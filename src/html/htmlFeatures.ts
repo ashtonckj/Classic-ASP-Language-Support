@@ -2,16 +2,18 @@
  * htmlFeatures.ts  (html/)
  *
  * Registers the markup features of an ASP page: tag and attribute completion,
- * Emmet, hover, linked editing of a tag pair, the href/src links and their path
- * completion, and the quick fix for a void element's closing tag.
+ * Emmet, hover, the element outline, linked editing of a tag pair, the
+ * href/src links and their path completion, and the quick fix for a void
+ * element's closing tag.
  */
 
 import * as vscode from 'vscode';
 import { guarded } from '../platform/guardedProvider';
 import { HtmlCompletionProvider } from './htmlCompletionProvider';
 import { EmmetCompletionProvider } from './emmetCompletionProvider';
-import { HtmlHoverProvider, HtmlLinkedEditingProvider } from './htmlLanguageFeatures';
-import { HtmlAttributeLinkProvider, HtmlAttributePathCompletionProvider } from './linkProvider';
+import { HtmlDocumentSymbolProvider, HtmlHoverProvider, HtmlLinkedEditingProvider } from './htmlLanguageFeatures';
+import { HtmlAttributeLinkProvider, HtmlAttributePathCompletionProvider, inLinkValue } from './linkProvider';
+import { zonesFor } from '../platform/documentState';
 import { VoidElementQuickFixProvider } from './htmlStructureDiagnosticsProvider';
 import { PATH_TRIGGER_CHARACTERS } from '../platform/pathCompletion';
 
@@ -20,8 +22,8 @@ import { PATH_TRIGGER_CHARACTERS } from '../platform/pathCompletion';
 let attrPathTimeout: ReturnType<typeof setTimeout> | undefined;
 
 /**
- * Opens the path suggestions while a path is typed inside href, src, action or
- * data-src: the trigger characters alone miss a value typed after a paste or a
+ * Opens the path suggestions while a path is typed inside a link attribute's
+ * value: the trigger characters alone miss a value typed after a paste or a
  * deletion.
  */
 function suggestPathsWhileTyping(event: vscode.TextDocumentChangeEvent): void {
@@ -30,15 +32,10 @@ function suggestPathsWhileTyping(event: vscode.TextDocumentChangeEvent): void {
     if (event.document.languageId !== 'asp') return;
     if (event.contentChanges.length === 0) return;
 
-    const change   = event.contentChanges[0];
-    const position = change.range.start;
-    const lineText = event.document.lineAt(position.line).text;
-
+    const change = event.contentChanges[0];
     if (change.text.length !== 1) return;
-
-    const textBefore = lineText.substring(0, position.character + 1);
-    const attrPattern = /\b(href|src|action|data-src)\s*=\s*["'][^"']*$/i;
-    if (!attrPattern.test(textBefore)) return;
+    const offset = event.document.offsetAt(change.range.start) + 1;
+    if (zonesFor(event.document).zoneAt(offset) !== 'html' || !inLinkValue(event.document, offset)) return;
 
     clearTimeout(attrPathTimeout);
     attrPathTimeout = setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);
@@ -71,6 +68,12 @@ export function registerHtmlFeatures(context: vscode.ExtensionContext): void {
 
         vscode.languages.registerHoverProvider(
             'asp', guarded('HtmlHoverProvider', new HtmlHoverProvider()),
+        ),
+
+        // VS Code shows each symbol provider's results as a group of the Outline,
+        // named by this label, beside the VBScript and JavaScript ones.
+        vscode.languages.registerDocumentSymbolProvider(
+            'asp', guarded('HtmlDocumentSymbolProvider', new HtmlDocumentSymbolProvider()), { label: 'HTML' },
         ),
 
         // VS Code's own feature, as in a .html file: it runs only when the user

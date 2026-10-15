@@ -115,23 +115,13 @@ export class AspSignatureHelpProvider implements vscode.SignatureHelpProvider {
             const builtin = doc ? builtinSignature(doc) : undefined;
             return builtin ? builtinHelp(builtin, activeParam) : null;
         }
-        const file = decls.find(d => d.node === procedure)!.file;
-        const fn   = {
-            kind:       PROCEDURE_WORD[procedure.procKind],
-            name:       procedure.name.text,
-            paramNames: procedure.params.map(p => p.name.text),
-            filePath:   file,
-        };
+        const file       = decls.find(d => d.node === procedure)!.file;
+        const kind       = PROCEDURE_WORD[procedure.procKind];
+        const paramNames = procedure.params.map(p => p.name.text);
 
-        // Build the signature label  e.g.  "MyFunc(name, value, flag)"
-        const paramNames  = fn.paramNames.length > 0 ? fn.paramNames : [];
-        const paramsLabel = paramNames.join(', ');
-        const sigLabel    = `${fn.kind} ${fn.name}(${paramsLabel})`;
-
-        const sig         = new vscode.SignatureInformation(sigLabel);
-        sig.documentation = new vscode.MarkdownString(
-            `*${fn.kind}* defined in \`${path.basename(fn.filePath)}\``
-        );
+        // The signature label, e.g. "Function MyFunc(name, value, flag)"
+        const sig         = new vscode.SignatureInformation(`${kind} ${procedure.name.text}(${paramNames.join(', ')})`);
+        sig.documentation = new vscode.MarkdownString(`*${kind}* defined in \`${path.basename(file)}\``);
 
         // Add each parameter as a ParameterInformation so VS Code can highlight it
         for (const param of paramNames) {

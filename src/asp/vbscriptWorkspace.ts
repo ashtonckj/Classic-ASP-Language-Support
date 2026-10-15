@@ -1,15 +1,15 @@
 import * as vscode from 'vscode';
-import { collectIncludeSymbols, configuredVirtualRoot, defaultIncludeCandidates, getVirtualRoot, readIncludeText } from './includeProvider';
+import { configuredVirtualRoot, defaultIncludeCandidates, getVirtualRoot, readIncludeText, scopeRequest } from './includeProvider';
 import { includedByMap } from './includeGraph';
 import { resolveIncludeDirective } from '../core/includeDirectives';
 import type { ParsedPage } from '../vbscript/symbols';
 import { ParseCache } from '../vbscript/parseCache';
 import { BindCache, type Site, type WorkspaceHost } from '../vbscript/references';
 import { defaultIncludesSetting } from '../platform/settings';
+import { textOf } from '../platform/documentState';
 import { pathKey, samePath } from '../core/paths';
-import { openBuffers } from '../platform/documentState';
 import { analysePage, type PageAnalysis } from '../vbscript/pageAnalysis';
-import { checkPageFiles, type ChecksRequest, type PageChecks } from '../vbscript/pageChecks';
+import { checkPageFiles, type PageChecks } from '../vbscript/pageChecks';
 import { analyseVbscriptPage, checkVbscriptPage, vbscriptWorkerUsable } from '../workers/analysisClient';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,6 +24,9 @@ import { analyseVbscriptPage, checkVbscriptPage, vbscriptWorkerUsable } from '..
 /** Recently parsed files, so asking twice about one page does not parse its includes twice. */
 const parsed = new ParseCache(300, 8_000_000);
 const parseCached = (fsPath: string, text: string): ParsedPage => parsed.parse(fsPath, text);
+
+/** The parse of the document's text as it is now, parsed once per version and shared with hover and the rest. */
+export const parsedDocument = (document: vscode.TextDocument): ParsedPage => parseCached(document.uri.fsPath, textOf(document));
 
 /** Recently bound pages, each reused only while every file it read still reads the same. */
 const bound = new BindCache(20);
@@ -103,18 +106,7 @@ export interface CheckedPage extends PageChecks { version: number; }
  */
 export async function checkedPage(document: vscode.TextDocument): Promise<CheckedPage | undefined> {
     const version = document.version;
-    const docPath = document.uri.fsPath;
-
-    const request: ChecksRequest = {
-        text: document.getText(),
-        docPath,
-        configuredRoot: configuredVirtualRoot(docPath),
-        defaultIncludes: defaultIncludeCandidates(getVirtualRoot(docPath)),
-        // The worker reads files from disk; an include open with unsaved
-        // changes counts as the editor shows it.
-        openFiles: openBuffers(document).texts,
-        includeComVariables: collectIncludeSymbols(document).comVariables.map(({ name, progId }) => ({ name, progId })),
-    };
+    const request = scopeRequest(document);
 
     // A worker that cannot start is no reason to lose the checks.
     const result = vbscriptWorkerUsable()

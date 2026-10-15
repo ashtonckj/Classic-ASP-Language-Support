@@ -1,7 +1,13 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
-import { VBSCRIPT_KEYWORDS_SET } from '../../constants/aspKeywords';
+import { ASP_OBJECT_NAMES, VBSCRIPT_KEYWORDS } from '../../constants/aspKeywords';
+import { RESERVED } from '../../vbscript/parser';
+
+/** Every word VBScript or ASP gives a meaning: each word of each keyword, the intrinsic objects, the reserved words. */
+const KEYWORD_WORDS = new Set([
+    ...VBSCRIPT_KEYWORDS.flatMap(kw => kw.keyword.toLowerCase().split(/\s+/)), ...ASP_OBJECT_NAMES, ...RESERVED,
+]);
 
 // The name lists in the grammar — the intrinsic objects and their members,
 // VBScript's functions and constants, the COM members — are generated from
@@ -63,7 +69,7 @@ describe('Grammar keyword rules — every word is a VBScript keyword', () => {
     for (const [index, rule] of keywordRules.entries()) {
         it(`${rule.name} (rule ${index}) lists nothing VBScript does not have`, () => {
             const unknown = wordsOf(rule.match)
-                .filter(word => !VBSCRIPT_KEYWORDS_SET.has(word.toLowerCase()));
+                .filter(word => !KEYWORD_WORDS.has(word.toLowerCase()));
             assert.deepStrictEqual(
                 unknown, [],
                 `not VBScript keywords: ${unknown.join(', ')}`,

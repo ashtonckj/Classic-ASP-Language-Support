@@ -12,7 +12,8 @@ import { isInlineTag, isSelfClosingTag } from '../../constants/htmlTags';
 import { ASP_OBJECT_NAMES } from '../../constants/aspKeywords';
 import type { Zone } from '../../core/zoneUtils';
 import { zonesFor } from '../../platform/documentState';
-import { findEnclosingHtmlChildIndent, isBlockOpener } from './vbIndent';
+import { styleAttributeAt } from '../../css/cssUtils';
+import { findEnclosingHtmlChildIndent, vbNextLineIndent } from './vbIndent';
 import { getIndentUnit } from './editing';
 
 // ── Tab key handler ────────────────────────────────────────────────────────
@@ -96,13 +97,19 @@ async function expandAbbreviationOrTab(
     const triggerOnTab = otherSetting<boolean>('emmet', 'triggerExpansionOnTab', editor.document.uri) ?? false;
 
     const lineText = editor.document.lineAt(position.line).text;
+    const zones = zonesFor(editor.document);
+    const offset = editor.document.offsetAt(position);
+    const style = styleAttributeAt(zones, offset);
+    // Inside style="…" every declaration not yet given a value is CSS Emmet's,
+    // `m10` as much as `bd+`; the token on the line would start at `style="`.
+    const declaration = style && editor.document.getText(new vscode.Range(editor.document.positionAt(style.start), position)).split(';').pop()!.trimStart();
     const worthTrying = triggerOnTab
-        || looksLikeAbbreviation(tokenBefore(lineText, position.character));
+        || (style ? /^[\w!+-]+$/.test(declaration ?? '') : looksLikeAbbreviation(tokenBefore(lineText, position.character)));
 
     if (worthTrying) {
-        const zone = zonesFor(editor.document).zoneAt(editor.document.offsetAt(position));
+        const zone = zones.zoneAt(offset);
         if (zone === 'html' || zone === 'css') {
-            const outcome = await tryEmmetExpansion(editor, zone);
+            const outcome = await tryEmmetExpansion(editor, style ? 'css' : zone);
             if (outcome === 'expanded') { return; }
 
             // Emmet's own failure path ends in `executeCommand('tab')`, but only
@@ -283,11 +290,13 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
         // Find nearest non-empty line above
         let baseIndent   = '';
         let prevLineText = '';
+        let prevLine     = -1;
         for (let i = position.line - 1; i >= 0; i--) {
             const text = editor.document.lineAt(i).text;
             if (text.trim().length > 0) {
                 baseIndent   = text.match(/^(\s*)/)?.[1] ?? '';
                 prevLineText = text.trim();
+                prevLine     = i;
                 break;
             }
         }
@@ -303,13 +312,9 @@ export function registerTabKeyHandler(context: vscode.ExtensionContext) {
             // Use the enclosing HTML opener's child indent — same logic as Enter after %>.
             targetIndent = findEnclosingHtmlChildIndent(editor.document, position.line, indentUnit)
                            ?? baseIndent;
-        } else if (prevLineText.startsWith('<%')) {
-            // After <% — VBScript code is at the same level as <%, no extra indent
-            targetIndent = baseIndent;
-        } else if (inAsp && isBlockOpener(prevLineText)) {
-            targetIndent = baseIndent + indentUnit;
         } else if (inAsp) {
-            targetIndent = baseIndent;
+            // Where Enter at the end of that line would have put the caret.
+            targetIndent = prevLine === -1 ? '' : vbNextLineIndent(editor.document, prevLine, editor.document.lineAt(prevLine).text, indentUnit);
         } else {
             // Plain HTML / <script> / <style>:
             // Add one extra level when the previous line opens a block.

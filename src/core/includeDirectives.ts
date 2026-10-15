@@ -6,7 +6,7 @@ import { pathKey } from './paths';
  *
  * Parsing and resolving `<!--#include file="…"-->` / `virtual="…"` directives.
  *
- * Imports no vscode APIs, so the include worker can use it too. That is the
+ * Imports no vscode APIs, so the VBScript worker can use it too. That is the
  * point of it existing: the same directive pattern and the same file/virtual
  * resolution rules were written out three times — once for the synchronous
  * path, once for the worker's request builder, once inside the worker — and
@@ -40,6 +40,14 @@ export function parseIncludeDirectives(text: string): IncludeDirective[] {
         found.push({ type: match[1].toLowerCase() as 'file' | 'virtual', raw: match[2], index: match.index });
     }
     return found;
+}
+
+/**
+ * The folder `virtual="…"` paths in `fromPath` start at: the site root when the
+ * settings or an open folder give one, otherwise the file's own folder.
+ */
+export function includeRoot(configuredRoot: string | undefined, fromPath: string): string {
+    return configuredRoot ?? path.dirname(fromPath);
 }
 
 /**

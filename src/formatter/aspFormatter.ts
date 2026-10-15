@@ -2,7 +2,7 @@ import { codeWithoutStrings, endsWithContinuation, splitCodeAndComment, vbStatem
 import type { FormatterSettings, PrettierSettings } from '../platform/settings';
 import { ASP_MEMBER_DOCS, VBSCRIPT_BARE_FUNCTIONS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
 import { getStringAlignColumn, isBlockOpener, VBSCRIPT_BLOCK_CLOSERS } from '../vbscript/indentRules';
-import { parsePage } from '../vbscript/symbols';
+import type { ParsedPage } from '../vbscript/symbols';
 import { bindPage } from '../vbscript/binder';
 
 // ─── Settings ──────────────────────────────────────────────────────────────
@@ -26,8 +26,8 @@ export interface AspFormatterSettings {
  * variable (Type mismatch), and after `Function Len(s)`, `Len("abc")` calls
  * the page's function. The formatter leaves those names as the author wrote them.
  */
-export function pageNames(code: string): Set<string> {
-    const binding = bindPage('', parsePage(code));
+export function pageNames(parsed: ParsedPage): Set<string> {
+    const binding = bindPage('', parsed);
     const page = binding.scopes[0];
     return new Set(binding.declarations.filter(d => d.scope === page && !d.implicit).map(d => d.name));
 }

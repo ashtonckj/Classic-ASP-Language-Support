@@ -11,6 +11,8 @@ import * as vscode from 'vscode';
 import { formatPage, type FormatResult } from './htmlFormatter';
 import { scanHtmlStructure } from '../html/htmlStructureDiagnosticsProvider';
 import { scanAspStructure, scanAspTags } from '../asp/aspStructureDiagnosticsProvider';
+import { parsePage, type ParsedPage } from '../vbscript/symbols';
+import { pageBlocks } from '../vbscript/pageAnalysis';
 import { computeLineEdits, computeRangeEdits, resolveEol, toLf } from '../platform/editUtils';
 import { prettierSettings } from '../platform/settings';
 import { log, showLog } from '../platform/log';
@@ -35,9 +37,10 @@ export interface FormattingDeps {
 // They block formatting even where an asp-ignore comment hides them from the
 // Problems panel: a page whose tags or blocks do not pair up is put back in the
 // wrong places, whatever the panel shows.
-function structureIssues(document: vscode.TextDocument, deps: FormattingDeps): vscode.Diagnostic[] {
-    const htmlIssues = scanHtmlStructure(document);
-    const aspIssues  = [...scanAspTags(document), ...scanAspStructure(document)];
+function structureIssues(document: vscode.TextDocument, deps: FormattingDeps, page: ParsedPage): vscode.Diagnostic[] {
+    const { events, warnings } = pageBlocks(page);
+    const htmlIssues = scanHtmlStructure(document, events);
+    const aspIssues  = [...scanAspTags(document), ...scanAspStructure(document, warnings)];
 
     deps.htmlStructure.set(document.uri, htmlIssues);
     deps.aspStructure.set(document.uri,  aspIssues);
@@ -132,7 +135,9 @@ async function formatForDocument(
     document: vscode.TextDocument,
     deps: FormattingDeps,
 ): Promise<{ fullText: string; formatted: string } | undefined> {
-    const issues = structureIssues(document, deps);
+    // One parse for the checks and the format; a CRLF page is parsed again as LF.
+    const page   = parsePage(document.getText());
+    const issues = structureIssues(document, deps, page);
     if (issues.length > 0) {
         reportStructure(document, issues);
         return undefined;
@@ -143,7 +148,7 @@ async function formatForDocument(
     const result = await vscode.window.withProgress(
         // In the status bar: a notification for every format, on save too, was noise.
         { location: vscode.ProgressLocation.Window, title: 'Formatting…' },
-        () => formatPage(fullText),
+        () => formatPage(fullText, page),
     );
     // Typed into while Prettier ran: edits worked out from the old text would
     // undo what was typed, so this format is dropped and the next one will do.

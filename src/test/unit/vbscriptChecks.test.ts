@@ -7,7 +7,7 @@ import { checkPage, globalAsaChecks, objectTagIds, type CheckCode } from '../../
 import { bindAt, type WorkspaceHost } from '../../vbscript/references';
 import { lineAt, parsePage } from '../../vbscript/symbols';
 import { resolveIncludeDirective } from '../../core/includeDirectives';
-import { checkPageFiles, type ChecksRequest, type PageChecks } from '../../vbscript/pageChecks';
+import { checkPageFiles, type ScopeRequest, type PageChecks } from '../../vbscript/pageChecks';
 import { VBSCRIPT_CONSTANTS } from '../../constants/aspKeywords';
 
 // The engine's behaviour behind each check was confirmed with cscript.exe:
@@ -56,8 +56,8 @@ describe('checks — a name nothing declares, under Option Explicit', () => {
     });
 
     it('counts what an include declares, and says nothing when an include is missing', () => {
-        const code = '%><!-- #include file="lib.inc" --><%\nOption Explicit\nshared = 1';
-        assert.deepStrictEqual(checksOf(code, 'undeclared', { 'lib.inc': '<% Dim shared %>' }), []);
+        const code = '%><!-- #include file="lib.inc" --><%\nOption Explicit\ntally = 1';
+        assert.deepStrictEqual(checksOf(code, 'undeclared', { 'lib.inc': '<% Dim tally %>' }), []);
         assert.deepStrictEqual(checksOf(code.replace('lib.inc', 'gone.inc'), 'undeclared'), []);
     });
 });
@@ -131,8 +131,8 @@ describe('objectTagIds', () => {
 describe('checkPageFiles — the checks with the includes read from disk', () => {
     let dir: string;
     const file = (name: string) => path.join(dir, name);
-    const request = (text: string, extra: Partial<ChecksRequest> = {}): ChecksRequest => ({
-        text, docPath: file('page.asp'), configuredRoot: dir, defaultIncludes: [], openFiles: {}, includeComVariables: [], ...extra,
+    const request = (text: string, extra: Partial<ScopeRequest> = {}): ScopeRequest => ({
+        text, docPath: file('page.asp'), configuredRoot: dir, defaultIncludes: [], openFiles: {}, ...extra,
     });
     const codes = (result: PageChecks) => result.checks.map(c => c.code);
 
@@ -186,9 +186,9 @@ describe('checkPageFiles — the checks with the includes read from disk', () =>
     });
 
     it('finds a Missing Set on an object whose type an include declares', () => {
-        const text = '<%\nrs = conn.Execute("SELECT 1")\n%>';
-        const includeComVariables = [{ name: 'conn', progId: 'adodb.connection' }];
-        const result = checkPageFiles(request(text, { includeComVariables }), (_p, t) => parsePage(t));
+        fs.writeFileSync(file('db.inc'), '<%\nSet conn = Server.CreateObject("ADODB.Connection")\n%>');
+        const text = '<!--#include file="db.inc"-->\n<%\nrs = conn.Execute("SELECT 1")\n%>';
+        const result = checkPageFiles(request(text), (_p, t) => parsePage(t));
         assert.deepStrictEqual(result.missingSet.map(m => m.target), ['rs']);
     });
 });
@@ -215,7 +215,7 @@ describe('global.asa rules', () => {
 
     it('is only for global.asa, not for a page', () => {
         const request = (docPath: string) => ({
-            text: '<% x = 1 %>', docPath, configuredRoot: undefined, defaultIncludes: [], openFiles: {}, includeComVariables: [],
+            text: '<% x = 1 %>', docPath, configuredRoot: undefined, defaultIncludes: [], openFiles: {},
         });
         const codes = (docPath: string) => checkPageFiles(request(docPath), (_p, t) => parsePage(t)).checks.map(c => c.code);
         assert.deepStrictEqual(codes(path.join(os.tmpdir(), 'global.asa')), ['global-asa']);

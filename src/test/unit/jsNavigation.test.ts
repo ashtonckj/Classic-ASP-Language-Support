@@ -3,25 +3,24 @@ import * as vscode from 'vscode';
 import { JsDefinitionProvider } from '../../js/jsDefinitionProvider';
 import { JsReferenceProvider, JsDocumentHighlightProvider } from '../../js/jsReferenceProvider';
 import { JsRenameProvider } from '../../js/jsRenameProvider';
-import { disposeJsLanguageService } from '../../js/jsUtils';
+import { disposeAnalysisWorkers } from '../../workers/analysisClient';
 import { fakeDocument } from './_helpers';
 
 // F12, Shift+F12 and F2 inside a <script> block. A plain .html file gets these
 // from the TypeScript server; a Classic ASP page has to ask, because its JS is
-// spread over several <script> blocks and assembled into a virtual file with a
-// generated preamble in front of it.
+// spread over several <script> blocks and assembled into a virtual file, served
+// with a file of declarations generated from the page.
 //
-// The thing worth testing hardest is the preamble boundary. Every answer the
-// language service gives is in virtual-file coordinates, and some of those
-// answers point INTO the preamble or into lib.dom.d.ts. Offering one of those
-// as a place to jump would send the reader to the wrong line; applying one as a
-// rename edit would corrupt the page.
+// The thing worth testing hardest is the page boundary. Some answers the
+// language service gives point into the generated declarations or into
+// lib.dom.d.ts. Offering one of those as a place to jump would send the reader
+// to the wrong line; applying one as a rename edit would corrupt the page.
 
-after(() => { disposeJsLanguageService(); });
+after(() => { disposeAnalysisWorkers(); });
 
 const fakeDoc = (text: string): vscode.TextDocument => fakeDocument(text, { fsPath: 'C:\\site\\page.asp' });
 
-const NOT_CANCELLED = { isCancellationRequested: false } as vscode.CancellationToken;
+const NOT_CANCELLED = new vscode.CancellationTokenSource().token as vscode.CancellationToken;
 
 /** Offset of the Nth occurrence of `needle`, then `at` characters into it. */
 function nth(text: string, needle: string, n: number, at = 0): number {
@@ -55,38 +54,38 @@ const highlightProvider  = new JsDocumentHighlightProvider();
 const renameProvider     = new JsRenameProvider();
 
 describe('Go to Definition inside a <script> block', () => {
-    it('jumps from a call in one block to the declaration in another', () => {
+    it('jumps from a call in one block to the declaration in another', async () => {
         const doc = fakeDoc(PAGE);
         // The call in the SECOND <script> block.
         const at  = doc.positionAt(nth(PAGE, 'addRow', 2, 1));
-        const out = definitionProvider.provideDefinition(doc, at, NOT_CANCELLED) as vscode.Location[];
+        const out = await definitionProvider.provideDefinition(doc, at, NOT_CANCELLED) as vscode.Location[];
 
         assert.ok(out && out.length, 'expected a definition');
         assert.strictEqual(out[0].range.start.line, 3, 'should land on the function declaration');
     });
 
-    it('resolves a local variable to its own declaration', () => {
+    it('resolves a local variable to its own declaration', async () => {
         const doc = fakeDoc(PAGE);
         const at  = doc.positionAt(nth(PAGE, 'total', 3, 1));
-        const out = definitionProvider.provideDefinition(doc, at, NOT_CANCELLED) as vscode.Location[];
+        const out = await definitionProvider.provideDefinition(doc, at, NOT_CANCELLED) as vscode.Location[];
 
         assert.ok(out && out.length, 'expected a definition');
         assert.strictEqual(out[0].range.start.line, 4, 'should land on the var declaration');
     });
 
-    it('offers nothing for a DOM member, whose definition is not in the page', () => {
+    it('offers nothing for a DOM member, whose definition is not in the page', async () => {
         const text = '<script>\ndocument.getElementById("x");\n</script>\n';
         const doc  = fakeDoc(text);
         const at   = doc.positionAt(text.indexOf('getElementById') + 2);
-        const out  = definitionProvider.provideDefinition(doc, at, NOT_CANCELLED);
+        const out  = await definitionProvider.provideDefinition(doc, at, NOT_CANCELLED);
 
         assert.strictEqual(out, undefined, 'lib.dom.d.ts is not a place in this document');
     });
 
-    it('declines a position outside a <script> block', () => {
+    it('declines a position outside a <script> block', async () => {
         const doc = fakeDoc(PAGE);
         const at  = doc.positionAt(PAGE.indexOf('<body>') + 2);
-        assert.strictEqual(definitionProvider.provideDefinition(doc, at, NOT_CANCELLED), undefined);
+        assert.strictEqual(await definitionProvider.provideDefinition(doc, at, NOT_CANCELLED), undefined);
     });
 });
 
@@ -94,10 +93,10 @@ describe('Find All References inside a <script> block', () => {
     const withDeclaration    = { includeDeclaration: true }  as vscode.ReferenceContext;
     const withoutDeclaration = { includeDeclaration: false } as vscode.ReferenceContext;
 
-    it('finds every use of a local across the function', () => {
+    it('finds every use of a local across the function', async () => {
         const doc = fakeDoc(PAGE);
         const at  = doc.positionAt(nth(PAGE, 'total', 1, 1));
-        const out = referenceProvider.provideReferences(
+        const out = await referenceProvider.provideReferences(
             doc, at, withDeclaration, NOT_CANCELLED,
         ) as vscode.Location[];
 
@@ -105,10 +104,10 @@ describe('Find All References inside a <script> block', () => {
         assert.strictEqual(out.length, 4, `got ${JSON.stringify(out.map(l => l.range.start.line))}`);
     });
 
-    it('finds a function used from another <script> block', () => {
+    it('finds a function used from another <script> block', async () => {
         const doc = fakeDoc(PAGE);
         const at  = doc.positionAt(nth(PAGE, 'addRow', 1, 1));
-        const out = referenceProvider.provideReferences(
+        const out = await referenceProvider.provideReferences(
             doc, at, withDeclaration, NOT_CANCELLED,
         ) as vscode.Location[];
 
@@ -116,10 +115,10 @@ describe('Find All References inside a <script> block', () => {
         assert.deepStrictEqual(lines, [3, 10], 'declaration and the cross-block call');
     });
 
-    it('drops the declaration when the caller does not want it', () => {
+    it('drops the declaration when the caller does not want it', async () => {
         const doc = fakeDoc(PAGE);
         const at  = doc.positionAt(nth(PAGE, 'addRow', 1, 1));
-        const out = referenceProvider.provideReferences(
+        const out = await referenceProvider.provideReferences(
             doc, at, withoutDeclaration, NOT_CANCELLED,
         ) as vscode.Location[];
 
@@ -128,10 +127,10 @@ describe('Find All References inside a <script> block', () => {
 });
 
 describe('Occurrence highlighting inside a <script> block', () => {
-    it('separates the write from the reads', () => {
+    it('separates the write from the reads', async () => {
         const doc = fakeDoc(PAGE);
         const at  = doc.positionAt(nth(PAGE, 'total', 1, 1));
-        const out = highlightProvider.provideDocumentHighlights(
+        const out = await highlightProvider.provideDocumentHighlights(
             doc, at, NOT_CANCELLED,
         ) as vscode.DocumentHighlight[];
 
@@ -144,11 +143,11 @@ describe('Occurrence highlighting inside a <script> block', () => {
 
     // The whole point over VS Code's textual fallback: a word inside a string is
     // not a use of the variable.
-    it('does not highlight the same word inside a string', () => {
+    it('does not highlight the same word inside a string', async () => {
         const text = '<script>\nvar total = 0;\nalert("total");\n</script>\n';
         const doc  = fakeDoc(text);
         const at   = doc.positionAt(text.indexOf('total') + 1);
-        const out  = highlightProvider.provideDocumentHighlights(
+        const out  = await highlightProvider.provideDocumentHighlights(
             doc, at, NOT_CANCELLED,
         ) as vscode.DocumentHighlight[];
 
@@ -158,10 +157,10 @@ describe('Occurrence highlighting inside a <script> block', () => {
 });
 
 describe('Rename inside a <script> block', () => {
-    it('renames every use of a local', () => {
+    it('renames every use of a local', async () => {
         const doc  = fakeDoc(PAGE);
         const at   = doc.positionAt(nth(PAGE, 'total', 1, 1));
-        const edit = renameProvider.provideRenameEdits(
+        const edit = await renameProvider.provideRenameEdits(
             doc, at, 'runningTotal', NOT_CANCELLED,
         ) as vscode.WorkspaceEdit;
 
@@ -169,10 +168,10 @@ describe('Rename inside a <script> block', () => {
         assert.strictEqual(edit.size, 1, 'one file — a page is the whole scope for client-side JS');
     });
 
-    it('renames a function across <script> blocks', () => {
+    it('renames a function across <script> blocks', async () => {
         const doc  = fakeDoc(PAGE);
         const at   = doc.positionAt(nth(PAGE, 'addRow', 1, 1));
-        const edit = renameProvider.provideRenameEdits(
+        const edit = await renameProvider.provideRenameEdits(
             doc, at, 'appendRow', NOT_CANCELLED,
         ) as vscode.WorkspaceEdit;
 
@@ -182,20 +181,20 @@ describe('Rename inside a <script> block', () => {
         );
     });
 
-    it('refuses a DOM member rather than renaming a call it cannot fix', () => {
+    it('refuses a DOM member rather than renaming a call it cannot fix', async () => {
         const text = '<script>\ndocument.getElementById("x");\n</script>\n';
         const doc  = fakeDoc(text);
         const at   = doc.positionAt(text.indexOf('getElementById') + 2);
-        assert.throws(
+        await assert.rejects(
             () => renameProvider.prepareRename(doc, at, NOT_CANCELLED),
             /cannot rename|cannot be renamed|not part of the page/i,
         );
     });
 
-    it('opens on the symbol itself for a name it can rename', () => {
+    it('opens on the symbol itself for a name it can rename', async () => {
         const doc   = fakeDoc(PAGE);
         const at    = doc.positionAt(nth(PAGE, 'total', 1, 1));
-        const range = renameProvider.prepareRename(doc, at, NOT_CANCELLED) as vscode.Range;
+        const range = await renameProvider.prepareRename(doc, at, NOT_CANCELLED) as vscode.Range;
 
         assert.strictEqual(range.start.line, 4);
         assert.strictEqual(
@@ -203,12 +202,12 @@ describe('Rename inside a <script> block', () => {
         );
     });
 
-    it('declines a position outside a <script> block, leaving VBScript to the ASP provider', () => {
+    it('declines a position outside a <script> block, leaving VBScript to the ASP provider', async () => {
         const doc = fakeDoc(PAGE);
         const at  = doc.positionAt(PAGE.indexOf('<body>') + 2);
-        assert.strictEqual(renameProvider.prepareRename(doc, at, NOT_CANCELLED), undefined);
+        assert.strictEqual(await renameProvider.prepareRename(doc, at, NOT_CANCELLED), undefined);
         assert.strictEqual(
-            renameProvider.provideRenameEdits(doc, at, 'x', NOT_CANCELLED), undefined,
+            await renameProvider.provideRenameEdits(doc, at, 'x', NOT_CANCELLED), undefined,
         );
     });
 });

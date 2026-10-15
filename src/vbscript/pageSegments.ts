@@ -17,7 +17,7 @@
  * program: its `<% %>` code is JScript, and reading it as VBScript filled the
  * page with false errors.
  *
- * Each `<script language="vbscript">` body (the blocks getZone reports as the
+ * Each `<script language="vbscript">` body (the blocks the zone map reports as the
  * asp zone) is a program of its own. A client-side one runs in the browser,
  * and even a `runat="server"` one is not part of the page flow, so a Sub in it
  * does not sit inside whatever `<% If %>` surrounds the tag.
@@ -46,6 +46,8 @@ export interface ProgramSource {
      * it runs in the browser, so its names are not the page's.
      */
     server: boolean;
+    /** The text to read the program from, when it is not the page as written (see maskBlocks). */
+    text?: string;
 }
 
 /**
@@ -73,8 +75,12 @@ export function pagePrograms(text: string): ProgramSource[] {
     if (pageLanguage(text) === 'vbscript') { programs.push({ segments: pageFlow(text, aspBlocks), server: true }); }
 
     // Each script body, less any `<% %>` block written inside it: that block
-    // belongs to the page flow, and splits the script around it.
+    // belongs to the page flow, and splits a server script around it.
     for (const body of scriptBodies) {
+        if (!runsAtServer(text, body.start)) {
+            programs.push({ segments: [{ kind: 'code', start: body.start, end: body.end }], server: false, text: maskBlocks(text, aspBlocks, body) });
+            continue;
+        }
         const pieces: Segment[] = [];
         let from = body.start;
         for (const block of aspBlocks) {
@@ -83,10 +89,29 @@ export function pagePrograms(text: string): ProgramSource[] {
             from = Math.max(from, block.end);
         }
         if (from < body.end) { pieces.push({ kind: 'code', start: from, end: body.end }); }
-        if (pieces.length > 0) { programs.push({ segments: pieces, server: runsAtServer(text, body.start) }); }
+        if (pieces.length > 0) { programs.push({ segments: pieces, server: true }); }
     }
 
     return programs;
+}
+
+/**
+ * The page with each `<% %>` block inside a client-side script body masked,
+ * the same length so every offset holds. The server has replaced the block
+ * by the time the browser reads the script: `<%= x %>` with a value, written
+ * here as a number (`MsgBox "Hi <%= name %>"`, `n = <%= count %>`), and any
+ * other block with what it writes, here nothing.
+ */
+function maskBlocks(text: string, aspBlocks: { start: number; end: number }[], body: { start: number; end: number }): string {
+    let masked = '';
+    let pos = 0;
+    for (const block of aspBlocks) {
+        if (block.end <= body.start || block.start >= body.end) { continue; }
+        const source = text.slice(block.start, block.end);
+        masked += text.slice(pos, block.start) + (/^<%\s*=/.test(source) ? '0'.repeat(source.length) : source.replace(/[^\r\n]/g, ' '));
+        pos = block.end;
+    }
+    return masked + text.slice(pos);
 }
 
 /** The page flow: each `<% %>` block's code or `<%= %>` expression, and the HTML between them. */

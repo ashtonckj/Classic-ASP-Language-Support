@@ -13,10 +13,10 @@
  * Out: the tokens as [line, char, length, type, modifiers] × n in the order
  * they were found, and the SQL warnings as ranges and messages.
  *
- * The worker's entry point is workers/aspColouringWorker.ts.
+ * It runs on the VBScript worker (workers/vbscriptWorker.ts), on the parse
+ * that worker's page analysis and checks read too.
  */
 
-import type { FileSymbols } from './symbolParser';
 import {
     T_FUNCTION, T_NAMESPACE, T_VARIABLE, T_PARAMETER, T_CONSTANT,
     M_DECLARATION, M_READONLY,
@@ -24,8 +24,8 @@ import {
     SqlStringGroup, emitSqlTokensForGroup, TokenSink,
 } from './sqlTokens';
 import type * as A from './ast';
-import { parsePage, serverObjects, symbolsOfPage, walkStatements } from './symbols';
-import { bindPage, type Scope } from './binder';
+import { lineAt, parsePage, serverObjects, symbolsOfPage, walkStatements, type FileSymbols, type ParsedPage } from './symbols';
+import { bindPage, rootOf } from './binder';
 import {
     concatOperands, isConcat, isStringLiteral, statementExpressions, stringValue, walkExpression,
 } from './expressions';
@@ -55,42 +55,22 @@ export interface AspColouringResult {
     error?:   string;
 }
 
-/**
- * The offset each of the page's lines starts at, split where a TextDocument
- * splits them — at \r\n, \n or a lone \r — so every offset matches the
- * editor's own.
- */
-function lineStartsOf(text: string): number[] {
-    const starts: number[] = [];
-    let start = 0;
-    for (let i = 0; i < text.length; i++) {
-        const ch = text.charCodeAt(i);
-        if (ch !== 10 && ch !== 13) { continue; }
-        starts.push(start);
-        if (ch === 13 && text.charCodeAt(i + 1) === 10) { i++; }
-        start = i + 1;
-    }
-    starts.push(start);
-    return starts;
-}
-
 /** The page's own symbols followed by its includes', as completion sees them. */
 function withIncludes(own: FileSymbols, includes: FileSymbols): FileSymbols {
-    own.variables.push(...includes.variables);
-    own.constants.push(...includes.constants);
-    own.functions.push(...includes.functions);
-    own.comVariables.push(...includes.comVariables);
-    own.classes.push(...includes.classes);
-    return own;
+    return {
+        variables:    [...own.variables,    ...includes.variables],
+        constants:    [...own.constants,    ...includes.constants],
+        functions:    [...own.functions,    ...includes.functions],
+        comVariables: [...own.comVariables, ...includes.comVariables],
+        classes:      [...own.classes,      ...includes.classes],
+    };
 }
 
-export function colourAspPage(request: AspColouringRequest): AspColouringResult {
+/** `page` is the parse of the request's text, which the VBScript worker shares with its other work. */
+export function colourAspPage(request: AspColouringRequest, page: ParsedPage = parsePage(request.text)): AspColouringResult {
     const { text: fullText, docPath } = request;
-    // One parse for both the symbols and the SQL passes below.
-    const page = parsePage(fullText);
     const allSymbols = withIncludes(symbolsOfPage(page, docPath), request.includeSymbols);
 
-    const lineStarts = lineStartsOf(fullText);
 
     const tokens: number[] = [];
     const builder: TokenSink = {
@@ -122,13 +102,8 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
 
     /** 0-based line and column of an offset, on the lines the editor counts. */
     function positionOf(offset: number): { line: number; col: number } {
-        let lo = 0;
-        let hi = lineStarts.length - 1;
-        while (lo < hi) {
-            const mid = (lo + hi + 1) >> 1;
-            if (lineStarts[mid] <= offset) { lo = mid; } else { hi = mid - 1; }
-        }
-        return { line: lo, col: offset - lineStarts[lo] };
+        const line = lineAt(page, offset);
+        return { line, col: offset - page.lineStarts[line] };
     }
 
     function isSqlOrFragment(t: string): boolean {
@@ -432,7 +407,6 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
     const binding = bindPage(docPath, page);
     const pageObjects = new Set(serverObjects(fullText).map(object => object.id.toLowerCase()));
     const serverScope = binding.scopes[0];
-    const rootOf = (scope: Scope): Scope => { let s = scope; while (s.parent) { s = s.parent; } return s; };
     for (const r of binding.references) {
         const { line, col } = positionOf(r.span.start);
         const length = r.span.end - r.span.start;

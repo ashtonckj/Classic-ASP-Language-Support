@@ -90,7 +90,7 @@ export interface MemberUse {
     file: string;
     span: A.Span;
     scope: Scope;
-    /** What it is a member of: `rs.Fields("a")` for `rs.Fields("a").Name`. None after `.` in a With. */
+    /** What it is a member of: `rs.Fields("a")` for `rs.Fields("a").Name`, or the With block's object for `.Name`. */
     object?: A.Expr | null;
 }
 
@@ -138,6 +138,9 @@ class Binder {
     /** The client-side script block being declared, and the block each of its declarations came from. */
     private block: A.Program | null = null;
     private readonly blockOf = new WeakMap<Declaration, A.Program>();
+
+    /** The objects of the With blocks around the statement being resolved, innermost last. */
+    private readonly withObjects: A.Expr[] = [];
 
     constructor(private readonly scriptScope: ScriptScope) {}
 
@@ -420,7 +423,9 @@ class Binder {
                     break;
                 case 'With':
                     this.expr(s.object, scope, file);
+                    this.withObjects.push(s.object);
                     this.resolve(s.body, scope, file);
+                    this.withObjects.pop();
                     break;
                 case 'Erase':
                     for (const t of s.targets) { this.expr(t, scope, file); }
@@ -490,7 +495,8 @@ class Binder {
                     if (e.object?.kind === 'Me') {
                         this.member(e.name, scope, file);
                     } else {
-                        if (e.name.name) { stack.push({ ...e.name, object: e.object }); }
+                        // A bare `.name` is a member of the With block's object.
+                        if (e.name.name) { stack.push({ ...e.name, object: e.object ?? this.withObjects[this.withObjects.length - 1] ?? null }); }
                         if (e.object) { stack.push(e.object); }
                     }
                     break;
@@ -545,6 +551,13 @@ function statementAt(stmts: A.Stmt[], offset: number): A.Stmt | undefined {
     }
     const s = stmts[lo];
     return s && s.start <= offset && offset < s.end ? s : undefined;
+}
+
+/** The script scope a scope sits in: the server script, or a client-side script. */
+export function rootOf(scope: Scope): Scope {
+    let s = scope;
+    while (s.parent) { s = s.parent; }
+    return s;
 }
 
 /** Calls `visit` on every statement of a procedure body, nested blocks included, in source order. */

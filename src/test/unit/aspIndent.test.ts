@@ -1,8 +1,11 @@
 import * as assert from 'assert';
-import { isBlockOpener } from '../../asp/typing/vbIndent';
+import { isBlockOpener } from '../../vbscript/indentRules';
+import { findMatchingOpenerIndent, vbNextLineIndent } from '../../asp/typing/vbIndent';
+import { parsePage } from '../../vbscript/symbols';
 import { tagToAutoClose } from '../../asp/typing/autoClose';
 import { continuesOpenJsDocComment } from '../../asp/typing/enterKey';
 import { Zone } from '../../core/zoneUtils';
+import { applyIndentForLine } from '../../formatter/aspFormatter';
 
 // The shared opener test used by both Enter and Tab. A single-line `If … Then <stmt>` opens nothing; Property and access-modified declarations DO open a block.
 describe('isBlockOpener', () => {
@@ -14,7 +17,15 @@ describe('isBlockOpener', () => {
         for (const line of ['For i = 1 To 3 : Next', 'Do While x : Loop', 'With o : .a = 1 : End With', 'Sub S() : End Sub']) {
             assert.strictEqual(isBlockOpener(line), false, line);
         }
-        assert.strictEqual(isBlockOpener('If x Then : y = 1'), true);
+    });
+
+    // cscript: `If x Then : y = 1` followed by `End If` is "Expected 'Sub'" — the
+    // If ended on its own line — while `x = 1 : If x Then` opens a block.
+    it('reads If x Then : y as a one-line If, as cscript does', () => {
+        assert.strictEqual(isBlockOpener('If x Then : y = 1'), false);
+        assert.strictEqual(applyIndentForLine('If x Then : y = 1', 0, []).endLevel, 0);
+        assert.strictEqual(isBlockOpener('x = 1 : If x Then'), true);
+        assert.strictEqual(applyIndentForLine('x = 1 : If x Then', 0, []).endLevel, 1);
     });
 
     it('is true for a multi-line If … Then (bare, or with only a comment)', () => {
@@ -38,6 +49,82 @@ describe('isBlockOpener', () => {
         assert.strictEqual(isBlockOpener('Dim x'), false);
         assert.strictEqual(isBlockOpener('x = 1'), false);
         assert.strictEqual(isBlockOpener('Public Balance'), false); // a field, not a block
+    });
+});
+
+// Enter (on the line) and Tab (on the blank line below it) both take the next
+// line's indent from vbNextLineIndent, which follows the formatter's rule.
+describe('vbNextLineIndent', () => {
+    const after = (...lines: string[]) =>
+        vbNextLineIndent({ lineAt: i => ({ text: lines[i] }) }, lines.length - 1, lines[lines.length - 1], '    ');
+
+    it('indents the body after an opener, Else and Case', () => {
+        assert.strictEqual(after('  If x Then'), '      ');
+        assert.strictEqual(after('  Else'), '      ');
+        assert.strictEqual(after('    Case 1'), '        ');
+        assert.strictEqual(after('  Case Else'), '      ');
+        assert.strictEqual(after('<% If x Then'), '    ');
+    });
+
+    it('keeps the indent after a closer, a plain statement and a one-line If', () => {
+        for (const line of ['  End If', '  x = 1', '  If x Then : y = 1', '  For i = 1 To 3 : Next', '  <%']) {
+            assert.strictEqual(after(line), '  ', line);
+        }
+    });
+
+    it('steps back after a statement that closes a block behind a colon', () => {
+        assert.strictEqual(after('        x = 1 : End If'), '    ');
+    });
+
+    it('lines a string joined with & _ up under its first string, not under a quote in the HTML', () => {
+        assert.strictEqual(after('  s = "a" & _'), '      ');
+        const line = '<td class="x"><% s = "a" & _';
+        assert.strictEqual(after(line), ' '.repeat(line.indexOf('"a"')));
+    });
+
+    it('goes back to where the statement started after the last line of a chain', () => {
+        assert.strictEqual(after('If x Then', '    s = "a" & _', '        "b"'), '    ');
+        assert.strictEqual(after('    s = "a"_', '        & "b"'), '    ');
+    });
+});
+
+// Enter and the auto-snap move a closer, Else or Case to the indent of the
+// block the parser pairs it with.
+describe('findMatchingOpenerIndent', () => {
+    /** The snap indent of the line marked `|`. */
+    const snap = (...lines: string[]) => {
+        const line = lines.findIndex(l => l.startsWith('|'));
+        const text = ['<%', ...lines.map(l => l.replace(/^\|/, '')), '%>'].join('\r\n');
+        return findMatchingOpenerIndent(parsePage(text), line + 1, '    ');
+    };
+
+    it('snaps a closer to its opener, past nested blocks of other kinds', () => {
+        assert.strictEqual(snap('  If a Then', '    For i = 1 To 2', '    Next', '|End If'), '  ');
+        assert.strictEqual(snap('Do', '    While x', '    Wend', '|        Loop'), '');
+        assert.strictEqual(snap('  With o', '|.a = 1 : End With'), null);
+        assert.strictEqual(snap('  With o', '    .a = 1', '|End With'), '  ');
+        assert.strictEqual(snap('  Public Default Property Get P', '|End Property'), '  ');
+    });
+
+    it('snaps Else and ElseIf to the branch above, and Case to the Case above or inside Select Case', () => {
+        assert.strictEqual(snap('  If a Then', '    x = 1', '|Else'), '  ');
+        assert.strictEqual(snap('If a Then', '  ElseIf b Then', '|ElseIf c Then'), '  ');
+        assert.strictEqual(snap('  Select Case x', '|Case 1'), '      ');
+        assert.strictEqual(snap('  Select Case x', '     Case 1', '|Case Else'), '     ');
+    });
+
+    it('finds the opener of an If whose condition runs over a _ continuation', () => {
+        assert.strictEqual(snap('  If a Or _', '        b Then', '    x = 1', '|End If'), '  ');
+    });
+
+    it('snaps a closer that follows an If with Else, or a Select with Cases', () => {
+        assert.strictEqual(snap('  Function F(v)', '    If v Then', '      F = 1', '    Else', '      F = 2', '    End If', '|End Function'), '  ');
+        assert.strictEqual(snap('  For i = 1 To 2', '    Select Case i', '      Case 1', '        x = 1', '    End Select', '|Next'), '  ');
+    });
+
+    it('is null for a closer with no block, and for a one-line If', () => {
+        assert.strictEqual(snap('x = 1', '|End If'), null);
+        assert.strictEqual(snap('If a Then x = 1', '|Else'), null);
     });
 });
 

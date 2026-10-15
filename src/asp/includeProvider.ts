@@ -1,13 +1,15 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { FileSymbols } from '../vbscript/symbolParser';
-import { resolveIncludePathsIn } from '../core/includeDirectives';
+import type { FileSymbols } from '../vbscript/symbols';
+import type { ScopeRequest } from '../vbscript/pageChecks';
+import { includeRoot, resolveIncludePathsIn } from '../core/includeDirectives';
 import { defaultIncludesSetting, onSettingsChange, virtualRootSetting } from '../platform/settings';
 import { loadIncludeTree } from '../workers/analysisClient';
 import { pathKey, withoutBom } from '../core/paths';
 import { openBuffers, openDocument } from '../platform/documentState';
 import { pathCompletions } from '../platform/pathCompletion';
+import { isListedAspFile, onAspFilesChange } from '../platform/workspaceIndex';
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -22,7 +24,7 @@ import { pathCompletions } from '../platform/pathCompletion';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function getVirtualRoot(documentPath: string): string {
-    return configuredVirtualRoot(documentPath) ?? path.dirname(documentPath);
+    return includeRoot(configuredVirtualRoot(documentPath), documentPath);
 }
 
 /**
@@ -58,13 +60,30 @@ export function readIncludeText(fsPath: string): string | null {
     try { return withoutBom(fs.readFileSync(fsPath, 'utf8')); } catch { return null; }
 }
 
+/**
+ * What the VBScript worker needs to read `document` with its includes, as the
+ * checks and the include symbols both do. The worker reads files from disk; an
+ * include open with unsaved changes counts as the editor shows it.
+ */
+export function scopeRequest(document: vscode.TextDocument): ScopeRequest {
+    const docPath = document.uri.fsPath;
+    return {
+        text: document.getText(),
+        docPath,
+        configuredRoot: configuredVirtualRoot(docPath),
+        defaultIncludes: defaultIncludeCandidates(getVirtualRoot(docPath)),
+        openFiles: openBuffers(document).texts,
+    };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Symbol collection
 //
 // The active document is always parsed synchronously from its current editor
-// buffer. Include files are loaded and parsed by a worker thread and cached
-// independently, so editing the active document never forces a synchronous walk
-// of the include tree on the extension-host thread.
+// buffer. Include files are loaded and parsed by the VBScript worker thread
+// (the same reading of the include tree its checks use) and cached here per
+// file, so editing the active document never forces a synchronous walk of the
+// include tree on the extension-host thread.
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface IncludeSymbolCacheEntry {
@@ -161,7 +180,7 @@ export function areIncludeSymbolsReady(document: vscode.TextDocument): boolean {
 }
 
 /**
- * Loads the document's include tree on the include worker. Repeated callers share the
+ * Loads the document's include tree on the VBScript worker. Repeated callers share the
  * same in-flight request, and stale results are ignored after cache invalidation.
  */
 export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<void> {
@@ -172,12 +191,10 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
         return Promise.resolve();
     }
 
-    // Undefined when nothing says where the site starts: the worker then resolves
-    // each include's virtual= from its own folder, as the page checks do.
-    const virtualRoot = configuredVirtualRoot(document.uri.fsPath);
+    const request = scopeRequest(document);
     const generation = _includeCacheGeneration;
     const requestKey = [
-        pathKey(virtualRoot ?? ''),
+        pathKey(request.configuredRoot ?? ''),
         ...roots.map(pathKey).sort(),
     ].join('|');
 
@@ -186,12 +203,12 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
         return pending.promise;
     }
 
-    // The worker cannot ask the editor, so it is sent the unsaved text of open files.
-    const { texts: openFiles, versions: openVersions } = openBuffers();
+    // Which buffer each unsaved text was read from, to tell when it goes stale.
+    const openVersions = openBuffers(document).versions;
 
     // Include loading is best-effort: the worker never rejects, and a load that
     // failed or was superseded leaves the cache as it was.
-    const promise = loadIncludeTree(requestKey, roots, virtualRoot, openFiles).then(entries => {
+    const promise = loadIncludeTree(requestKey, request).then(entries => {
         if (!entries || generation !== _includeCacheGeneration) { return; }
         for (const entry of entries) {
             const key = pathKey(entry.filePath);
@@ -200,7 +217,7 @@ export function preloadIncludeSymbols(document: vscode.TextDocument): Promise<vo
                 children: entry.children,
                 bufferVersion: openVersions.get(key),
             });
-            watchIncludeFolder(entry.filePath);
+            void watchIncludeFolder(entry.filePath);
         }
         _includeSymbolEpoch++;
     });
@@ -288,45 +305,55 @@ export function withIncludeSymbols(document: vscode.TextDocument, own: FileSymbo
 }
 
 /**
- * Forgets one file's include symbols, because it was saved or changed on disk.
+ * Forgets one file's include symbols, because it changed on disk.
  *
  * Only that file: saving a page used to throw away every include of every open
  * page, and each of those then went back to the worker to be read and parsed
  * again. A load already under way may have read the old text, so its results
  * are ignored and whatever it covered is loaded again when next asked for.
  */
-export function forgetIncludeFile(fsPath: string): void {
+function forgetIncludeFile(fsPath: string): void {
     const key = pathKey(fsPath);
     if (!_includeSymbolCache.has(key) && _includeLoadPromises.size === 0) { return; }
     _includeCacheGeneration++;
     _includeSymbolEpoch++;
     _includeSymbolCache.delete(key);
+    pruneIncludeFolderWatchers();
+}
+
+function forgetAllIncludes(): void {
+    _includeCacheGeneration++;
+    _includeSymbolEpoch++;
+    _includeSymbolCache.clear();
+    pruneIncludeFolderWatchers();
 }
 
 /**
- * Forgets every include's symbols when what an include path resolves to, or
- * which files every page includes, changes. Registered from registerAspFeatures.
+ * Forgets an include's symbols when it changes on disk — saved in the editor,
+ * or changed by a checkout, another editor, a deploy script — and every
+ * include's when what an include path resolves to, or which files every page
+ * includes, changes. Registered from registerAspFeatures.
  */
-export function watchIncludeSettings(): vscode.Disposable[] {
-    const forgetAll = () => {
-        _includeCacheGeneration++;
-        _includeSymbolEpoch++;
-        _includeSymbolCache.clear();
-    };
+export function watchIncludeChanges(): vscode.Disposable[] {
     return [
-        onSettingsChange(['classicAsp.virtualRoot', 'classicAsp.defaultIncludes'], forgetAll),
-        vscode.workspace.onDidChangeWorkspaceFolders(forgetAll),
+        onAspFilesChange(change => {
+            const files = [...change.created, ...change.changed, ...change.deleted];
+            if (files.length === 0) { forgetAllIncludes(); return; }
+            for (const file of files) { forgetIncludeFile(file); }
+        }),
+        onSettingsChange(['classicAsp.virtualRoot', 'classicAsp.defaultIncludes'], forgetAllIncludes),
+        vscode.workspace.onDidChangeWorkspaceFolders(forgetAllIncludes),
     ];
 }
 
-// The folder of every cached include, watched without recursing into it. A save
-// in the editor is seen by onDidSaveTextDocument, but a change made anywhere
-// else — a git pull, another editor, a deploy script — is not, and the include
-// kept its old symbols until the window was reloaded. Watching these folders,
-// rather than the workspace, also covers includes outside the workspace.
+// The workspace index reports changes to the ASP files it lists. An include it
+// does not list — outside the workspace, or not named like an ASP file — has its
+// folder watched instead, without recursing into it, for as long as an include
+// in that folder is cached.
 const _includeFolderWatchers = new Map<string, vscode.FileSystemWatcher>();
 
-function watchIncludeFolder(filePath: string): void {
+async function watchIncludeFolder(filePath: string): Promise<void> {
+    if (await isListedAspFile(filePath) || !_includeSymbolCache.has(pathKey(filePath))) { return; }
     const folder = path.dirname(filePath);
     const key = pathKey(folder);
     if (_includeFolderWatchers.has(key)) { return; }
@@ -339,6 +366,15 @@ function watchIncludeFolder(filePath: string): void {
     watcher.onDidCreate(forget);
     watcher.onDidDelete(forget);
     _includeFolderWatchers.set(key, watcher);
+}
+
+/** Stops watching the folders no cached include is in any more. */
+function pruneIncludeFolderWatchers(): void {
+    if (_includeFolderWatchers.size === 0) { return; }
+    const needed = new Set([..._includeSymbolCache.keys()].map(key => path.dirname(key)));
+    for (const [folder, watcher] of _includeFolderWatchers) {
+        if (!needed.has(folder)) { watcher.dispose(); _includeFolderWatchers.delete(folder); }
+    }
 }
 
 /** Stops watching include folders. Called from deactivate. */

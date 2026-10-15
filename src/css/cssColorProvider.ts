@@ -15,11 +15,13 @@
  *
  * Two coordinate systems have to be reconciled:
  *
- *   * a `<style>` block's virtual document is POSITION-ALIGNED — buildCssDoc
- *     replaces everything before the block with spaces and keeps the newlines —
- *     so an offset in it is already an offset in the page;
+ *   * a `<style>` block's virtual document holds just its body
+ *     (buildCssBodyDoc), so an offset in it is shifted by where the body starts;
  *   * an inline `style=""` value is wrapped in a fake `* { … }` ruleset so the
  *     parser sees valid CSS, which shifts every offset by the wrapper's prefix.
+ *
+ * Only the page's own markup has colours: a style attribute or a <style> in a
+ * VBScript or JavaScript string, or in a comment, is text there.
  *
  * Both are handled by converting the service's line/character positions to
  * offsets with the virtual document's own offsetAt, then applying one shift.
@@ -28,8 +30,8 @@
 import * as vscode from 'vscode';
 import type { Stylesheet } from 'vscode-css-languageservice';
 import type { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
-import { buildCssDoc, buildInlineCssDoc, cssLanguageService, INLINE_PREFIX, inlinePageOffset, inlineStyleValues } from './cssUtils';
-import { getParsedCssBlocks, pageOffset } from './cssPageStylesheet';
+import { buildInlineCssDoc, cssLanguageService, inlineDocOffset, inlinePageOffset } from './cssUtils';
+import { getParsedCssBlockAt, getParsedCssBlocks, pageOffset } from './cssPageStylesheet';
 import { textOf, zonesFor } from '../platform/documentState';
 
 /**
@@ -78,7 +80,7 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
 
         // Parsed once per document version and shared with CSS validation, which
         // wants the same blocks on its own debounce a moment later.
-        for (const block of getParsedCssBlocks(uri, content, version, zonesFor(document).cssBlocks)) {
+        for (const block of getParsedCssBlocks(document)) {
             if (token.isCancellationRequested) { return undefined; }
             colors.push(...colorsIn(
                 document, block.cssDoc, content.length,
@@ -87,12 +89,12 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
             ));
         }
 
-        for (const value of inlineStyleValues(content)) {
+        for (const value of zonesFor(document).markup.styleAttributes) {
             if (token.isCancellationRequested) { return undefined; }
-            const cssDoc = buildInlineCssDoc(uri, content, version, value.valueStart, value.valueEnd);
+            const cssDoc = buildInlineCssDoc(uri, content, version, value.start, value.end);
             colors.push(...colorsIn(
                 document, cssDoc, content.length,
-                offset => inlinePageOffset(value.valueStart, offset),
+                offset => inlinePageOffset(value.start, offset),
             ));
         }
 
@@ -112,24 +114,27 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
         const start    = document.offsetAt(context.range.start);
         const end      = document.offsetAt(context.range.end);
 
-        // Rebuild whichever virtual document holds the colour being edited, so
-        // the service writes its replacement in the notation that fits there.
-        const inline = inlineStyleValues(content)
-            .find(v => start >= v.valueStart && end <= v.valueEnd);
+        // Whichever virtual document holds the colour being edited, so the
+        // service writes its replacement in the notation that fits there.
+        const zones  = zonesFor(document);
+        const inline = zones.markup.styleAttributes.find(v => start >= v.start && end <= v.end);
 
-        let cssDoc: LsTextDocument | null;
+        let cssDoc: LsTextDocument;
+        let stylesheet: Stylesheet;
         let toVirtual: (pageOffset: number) => number;
 
         if (inline) {
-            cssDoc    = buildInlineCssDoc(uri, content, version, inline.valueStart, inline.valueEnd);
-            toVirtual = pageOffset => pageOffset - inline.valueStart + INLINE_PREFIX.length;
+            cssDoc     = buildInlineCssDoc(uri, content, version, inline.start, inline.end);
+            stylesheet = cssLanguageService().parseStylesheet(cssDoc);
+            toVirtual  = pageOffset => inlineDocOffset(inline.start, pageOffset);
         } else {
-            cssDoc    = buildCssDoc(uri, content, version, start);
-            toVirtual = pageOffset => pageOffset;
+            const block = getParsedCssBlockAt(document, start);
+            if (!block) { return undefined; }
+            ({ cssDoc, stylesheet } = block);
+            toVirtual = pageOffset => pageOffset - block.range.start;
         }
-        if (!cssDoc || token.isCancellationRequested) { return undefined; }
+        if (token.isCancellationRequested) { return undefined; }
 
-        const stylesheet = cssLanguageService().parseStylesheet(cssDoc);
         const presentations = cssLanguageService().getColorPresentations(
             cssDoc, stylesheet,
             { red: color.red, green: color.green, blue: color.blue, alpha: color.alpha },

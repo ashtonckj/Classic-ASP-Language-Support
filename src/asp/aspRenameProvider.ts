@@ -3,10 +3,12 @@ import * as path from 'path';
 import { getVirtualRoot, readIncludeText } from './includeProvider';
 import { movedPathLookup, rewriteIncludesAfterMove } from '../core/includeDirectives';
 import { getWorkspaceAspFiles } from '../platform/workspaceIndex';
-import { VBSCRIPT_KEYWORDS_SET } from '../constants/aspKeywords';
+import { ASP_OBJECT_NAMES } from '../constants/aspKeywords';
+import { isReservedWord } from '../vbscript/parser';
 import { contextAt } from '../platform/documentState';
 import { findSites, resolveAt } from '../vbscript/references';
 import { editorWorkspace, siteToLocation } from './vbscriptWorkspace';
+import type { WorkspaceHost } from '../vbscript/references';
 import { isFile, pathKey } from '../core/paths';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,20 +49,30 @@ function wordAt(
     if (caret.inVbStringOrComment) {
         return { reason: `"${word}" is inside a string or a comment, not code.` };
     }
-    if (VBSCRIPT_KEYWORDS_SET.has(word.toLowerCase())) {
+    if (isKeyword(word)) {
         return { reason: `"${word}" is a VBScript keyword and cannot be renamed.` };
     }
     return { word, range };
 }
 
+/** A word no page can declare, or the name of an ASP object, which a page should not shadow. */
+const isKeyword = (word: string) => isReservedWord(word.toLowerCase()) || ASP_OBJECT_NAMES.has(word.toLowerCase());
+
 const notASymbol = (word: string) => `"${word}" is not a recognised VBScript symbol.`;
 
-/** Every place the VBScript symbol at `position` is used, in every file that can see it. */
-export function findSymbolLocations(document: vscode.TextDocument, position: vscode.Position): SymbolLocation[] {
+/**
+ * Every place the VBScript symbol at `position` is used, in every file that can
+ * see it. `host` reads the workspace's includes afresh unless one is given.
+ */
+export function findSymbolLocations(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    host: WorkspaceHost = editorWorkspace(document, { freshIncludes: true }),
+): SymbolLocation[] {
     const found = wordAt(document, position);
     if ('reason' in found) { return []; }
 
-    const sites = findSites(editorWorkspace(document, { freshIncludes: true }), document.uri.fsPath, document.offsetAt(found.range.start)) ?? [];
+    const sites = findSites(host, document.uri.fsPath, document.offsetAt(found.range.start)) ?? [];
     return sites.map(site => {
         const { uri, range } = siteToLocation(document, site);
         return { uri, range, declaration: site.declaration };
@@ -80,6 +92,10 @@ export function findSymbolLocations(document: vscode.TextDocument, position: vsc
 
 export class AspRenameProvider implements vscode.RenameProvider {
 
+    // The workspace prepareRename read, so the edits that follow for the same
+    // text read every page's includes once between them, not twice.
+    private prepared: { document: vscode.TextDocument; version: number; host: WorkspaceHost } | undefined;
+
     // ── prepareRename ─────────────────────────────────────────────────────────
     // Called before the rename input box appears. Return the current word range
     // so VS Code pre-fills it, or throw to show an error and abort.
@@ -89,7 +105,9 @@ export class AspRenameProvider implements vscode.RenameProvider {
     ): vscode.ProviderResult<vscode.Range | { range: vscode.Range; placeholder: string }> {
         const found = wordAt(document, position);
         if ('reason' in found) { throw new Error(found.reason); }
-        if (!resolveAt(editorWorkspace(document, { freshIncludes: true }), document.uri.fsPath, document.offsetAt(found.range.start))) {
+        const host = editorWorkspace(document, { freshIncludes: true });
+        this.prepared = { document, version: document.version, host };
+        if (!resolveAt(host, document.uri.fsPath, document.offsetAt(found.range.start))) {
             throw new Error(notASymbol(found.word));
         }
         return { range: found.range, placeholder: found.word };
@@ -117,13 +135,17 @@ export class AspRenameProvider implements vscode.RenameProvider {
             return null;
         }
 
-        if (VBSCRIPT_KEYWORDS_SET.has(newName.toLowerCase())) {
+        if (isKeyword(newName)) {
             vscode.window.showErrorMessage(`"${newName}" is a VBScript keyword and cannot be used as an identifier.`);
             return null;
         }
 
+        const prepared = this.prepared;
+        this.prepared = undefined;
+        const host = prepared?.document === document && prepared.version === document.version ? prepared.host : undefined;
+
         const edit = new vscode.WorkspaceEdit();
-        for (const location of findSymbolLocations(document, position)) {
+        for (const location of findSymbolLocations(document, position, host)) {
             edit.replace(location.uri, location.range, newName);
         }
 

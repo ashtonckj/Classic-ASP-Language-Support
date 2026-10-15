@@ -121,10 +121,10 @@ describe('binder — what a name refers to', () => {
     });
 
     it('finds a page variable an include declares', () => {
-        const host = site({ 'lib.inc': '<%\nDim shared\nSub Bump\n  shared = shared + 1\nEnd Sub\n%>' });
-        const scope = buildScriptScope(at('page.asp'), '<!-- #include file="lib.inc" -->\n<% shared = 0 : Bump %>', host);
+        const host = site({ 'lib.inc': '<%\nDim tally\nSub Bump\n  tally = tally + 1\nEnd Sub\n%>' });
+        const scope = buildScriptScope(at('page.asp'), '<!-- #include file="lib.inc" -->\n<% tally = 0 : Bump %>', host);
         const binding = bindScriptScope(scope);
-        const uses = binding.references.filter(r => r.name === 'shared' && !r.declaration);
+        const uses = binding.references.filter(r => r.name === 'tally' && !r.declaration);
         assert.strictEqual(uses.length, 3);
         assert.ok(uses.every(r => r.target?.file === at('lib.inc') && !r.target.implicit));
     });

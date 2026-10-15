@@ -1,18 +1,18 @@
 import * as vscode from 'vscode';
 import { withIncludeSymbols } from './includeProvider';
-import { isCursorInHtmlFileLinkAttribute } from '../html/htmlLinkUtils';
 import { COM_MEMBER_DOCS } from '../constants/comObjects';
 import {
-    ASP_MEMBER_DOCS, ASP_OBJECTS, ASP_OBJECT_NAMES, AspObjectDef, BUILTIN_FUNCTION_DOCS, VBSCRIPT_CONSTANTS, VBSCRIPT_KEYWORDS_SET, isBuiltinName,
+    ASP_MEMBER_DOCS, ASP_OBJECTS, AspObjectDef, BUILTIN_FUNCTION_DOCS, VBSCRIPT_CONSTANTS, isBuiltinName,
 } from '../constants/aspKeywords';
 import * as path from 'path';
 import { declarationsOf, resolveAt, type BoundPage, type Target } from '../vbscript/references';
+import { isReservedWord } from '../vbscript/parser';
 import type { Declaration } from '../vbscript/binder';
 import { PROCEDURE_WORD, sourceOf, walkStatements, type ParsedPage } from '../vbscript/symbols';
 import { analysedPage, editorWorkspace } from './vbscriptWorkspace';
 import { pathKey, samePath } from '../core/paths';
-import { contextAt, textOf } from '../platform/documentState';
-import { enclosingWithObject } from './aspCompletionProvider';
+import { contextAt } from '../platform/documentState';
+import { withObjectAt, withObjectType } from '../vbscript/pageAnalysis';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // VBScript keyword docs for hover
@@ -77,13 +77,6 @@ export const KEYWORD_DOCS: Record<string, string> = {
 
     // ── Error handling ────────────────────────────────────────────────────────
     'on error resume next': '**On Error Resume Next** — Suppresses runtime errors and continues execution. Always check `Err.Number` after suspicious calls.\n\nExample: `On Error Resume Next\nconn.Open ...\nIf Err.Number <> 0 Then ...`',
-    'on error goto':        '**On Error GoTo 0** — Re-enables normal error handling after `On Error Resume Next`.\n\nExample: `On Error GoTo 0`',
-    'goto 0':               '**On Error GoTo 0** — Re-enables normal error handling after `On Error Resume Next`.\n\nExample: `On Error GoTo 0`',
-    // Middle/tail words of the 3-word compounds — resolved to the full compound doc
-    'error resume':  '**On Error Resume Next** — Suppresses runtime errors and continues execution. Always check `Err.Number` after suspicious calls.',
-    'resume next':   '**On Error Resume Next** — Suppresses runtime errors and continues execution. Always check `Err.Number` after suspicious calls.',
-    'error goto':    '**On Error GoTo 0** — Re-enables normal error handling after `On Error Resume Next`.',
-
     'on error goto 0':      '**On Error GoTo 0** — Re-enables normal error handling after `On Error Resume Next`.\n\nExample: `On Error GoTo 0`',
 
     // ── Option ────────────────────────────────────────────────────────────────
@@ -143,14 +136,35 @@ export const KEYWORD_DOCS: Record<string, string> = {
 };
 
 
-// 3-word compound keyword sequences — checked before 2-word compounds.
-// Each entry maps the lowercase 3-word key to the KEYWORD_DOCS key to use.
-const THREE_WORD_COMPOUNDS: Record<string, string> = {
-    'on error resume':   'on error resume next',
-    'error resume next': 'on error resume next',
-    'on error goto':     'on error goto',
-    'error goto 0':      'on error goto',
-};
+/** How many words the longest KEYWORD_DOCS phrase has. */
+const LONGEST_PHRASE = Math.max(...Object.keys(KEYWORD_DOCS).map(key => key.split(' ').length));
+
+/**
+ * The longest KEYWORD_DOCS phrase on `line` that covers the word from `start`
+ * to `end`, its words apart by whitespace only: `End If` for either word,
+ * `On Error Resume Next` for any of its four. Its doc and columns.
+ */
+export function keywordPhraseAt(line: string, start: number, end: number): { doc: string; start: number; end: number } | undefined {
+    const words = [...line.matchAll(/\w+/g)].map(m => ({ text: m[0].toLowerCase(), start: m.index, end: m.index + m[0].length }));
+    const at = words.findIndex(w => w.start === start && w.end === end);
+    if (at === -1) { return undefined; }
+    const joined = (i: number) => /^\s+$/.test(line.slice(words[i].end, words[i + 1].start));
+
+    let best: { doc: string; start: number; end: number } | undefined;
+    let bestLength = 0;
+    for (let from = at; from >= 0 && at - from < LONGEST_PHRASE; from--) {
+        if (from < at && !joined(from)) { break; }
+        for (let to = at; to < words.length && to - from < LONGEST_PHRASE; to++) {
+            if (to > at && !joined(to - 1)) { break; }
+            const doc = KEYWORD_DOCS[words.slice(from, to + 1).map(w => w.text).join(' ')];
+            if (doc && to - from + 1 > bestLength) {
+                best = { doc, start: words[from].start, end: words[to].end };
+                bestLength = to - from + 1;
+            }
+        }
+    }
+    return best;
+}
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -242,16 +256,12 @@ export class AspHoverProvider implements vscode.HoverProvider {
 
         const lineText = document.lineAt(position.line).text;
 
-        // Suppress hover inside HTML file-link attributes (href, src, etc.)
-        if (isCursorInHtmlFileLinkAttribute(lineText, position.character)) return null;
-
         // A word inside a VBScript string or comment is text, not a name, so
         // `Case "Active"` and `' uses Split here` get no hover. The line is read
         // from where its VBScript starts, so an apostrophe in the HTML around a
         // block (`<div class='box'><% If x Then %>`) is not taken for a comment.
         const caret = contextAt(document, position);
         if (caret.zone !== 'asp' || caret.inVbStringOrComment) return null;
-        const fullText = textOf(document);
 
         const wordRange = document.getWordRangeAtPosition(position, /\w+/);
         if (!wordRange) return null;
@@ -271,39 +281,27 @@ export class AspHoverProvider implements vscode.HoverProvider {
         const charBeforeWord = lineText.charAt(wordRange.start.character - 1);
         if (charBeforeWord === '.') {
             const textBeforeDot = lineText.substring(0, wordRange.start.character - 1);
-            const withObject    = () => /^[A-Za-z_]\w*$/.exec(enclosingWithObject(fullText, position.line, wordRange.start.character) ?? '')?.[0];
-            const objectName    = /\b(\w+)$/.exec(textBeforeDot)?.[1] ?? (/[)\]]$/.test(textBeforeDot) ? undefined : withObject());
-            if (objectName) {
-                const objName    = objectName.toLowerCase();
+            const named         = /\b(\w+)$/.exec(textBeforeDot)?.[1];
+            const comTypes      = new Map(allSymbols.comVariables.map(cv => [cv.name.toLowerCase(), cv.progId]));
+            // An intrinsic object or a COM variable by name; a bare `.EOF` in a With block is its object's.
+            const type = named ? withObjectType({ name: named }, comTypes)
+                : /[)\]]$/.test(textBeforeDot) ? undefined
+                : withObjectType(withObjectAt(page.blocks.withBlocks, document.offsetAt(wordRange.start)), comTypes);
 
-                // An intrinsic object first: Response, Request, Server and the
-                // rest are always in scope and are never declared, so they will
-                // not be among the collected symbols.
-                const aspMember = ASP_MEMBER_DOCS[`${objName}.${wordKey}`];
-                if (aspMember) {
-                    return new vscode.Hover(
-                        new vscode.MarkdownString(
-                            `**${aspMember.label}** *(${aspMember.kind})*\n\n${aspMember.doc}`,
-                        )
-                    );
-                }
-
-                const comVar     = allSymbols.comVariables.find(cv => cv.name.toLowerCase() === objName);
-                if (comVar) {
-                    const memberDoc = COM_MEMBER_DOCS[`${comVar.progId}.${wordKey}`];
-                    if (memberDoc) {
-                        return new vscode.Hover(
-                            new vscode.MarkdownString(`**${memberDoc.label}**\n\n${memberDoc.doc}`)
-                        );
-                    }
-                }
+            const aspMember = ASP_MEMBER_DOCS[`${type}.${wordKey}`];
+            if (aspMember) {
+                return new vscode.Hover(new vscode.MarkdownString(`**${aspMember.label}** *(${aspMember.kind})*\n\n${aspMember.doc}`));
+            }
+            const memberDoc = COM_MEMBER_DOCS[`${type}.${wordKey}`];
+            if (memberDoc) {
+                return new vscode.Hover(new vscode.MarkdownString(`**${memberDoc.label}**\n\n${memberDoc.doc}`));
             }
         }
 
         // ── 2. A name the page declares ───────────────────────────────────────
         // The parser says which declaration the name means: a local, a
         // parameter, a page variable, a procedure or a class member.
-        if (!VBSCRIPT_KEYWORDS_SET.has(wordKey)) {
+        if (!isReservedWord(wordKey)) {
             const resolved = resolveAt(
                 editorWorkspace(document), document.uri.fsPath, document.offsetAt(wordRange.start), !isBuiltinName(wordKey),
             );
@@ -321,10 +319,7 @@ export class AspHoverProvider implements vscode.HoverProvider {
 
         // ── 3. Intrinsic object — Response, Request, Server, Session, … ─────────
         // Always in scope and never declared, so never among the symbols above.
-        // After a dot the word is a member of something else (`obj.Response`).
-        const aspObject = charBeforeWord === '.'
-            ? undefined
-            : ASP_OBJECTS.find(object => object.name.toLowerCase() === wordKey);
+        const aspObject = ASP_OBJECTS.find(object => object.name.toLowerCase() === wordKey);
         if (aspObject) {
             return new vscode.Hover(new vscode.MarkdownString(describeAspObject(aspObject)));
         }
@@ -343,138 +338,13 @@ export class AspHoverProvider implements vscode.HoverProvider {
             return new vscode.Hover(new vscode.MarkdownString(BUILTIN_FUNCTION_DOCS[wordKey]));
         }
 
-        // Extract words immediately before and after the hovered word so we can
-        // assemble 2-word and 3-word compound keys and return the correct doc
-        // with a range that spans the entire compound, not just the hovered word.
-
-        const textBefore      = lineText.substring(0, wordRange.start.character);
-        const textAfter       = lineText.substring(wordRange.end.character);
-        const wordBeforeMatch = textBefore.match(/\b(\w+)(\s+)$/);
-        const wordAfterMatch  = textAfter.match(/^(\s+)(\w+)\b/);
-        const twoBeforeMatch  = wordBeforeMatch
-            ? textBefore.substring(0, textBefore.length - wordBeforeMatch[0].length).match(/\b(\w+)(\s+)$/)
-            : null;
-        const twoAfterMatch   = wordAfterMatch
-            ? textAfter.substring(wordAfterMatch[0].length).match(/^(\s+)(\w+)\b/)
-            : null;
-
-        const wBefore  = wordBeforeMatch?.[1]?.toLowerCase() ?? '';
-        const wAfter   = wordAfterMatch?.[2]?.toLowerCase()  ?? '';
-        const wwBefore = twoBeforeMatch?.[1]?.toLowerCase()  ?? '';
-        const wwAfter  = twoAfterMatch?.[2]?.toLowerCase()   ?? '';
-
-        // Helper: return a Hover with a range spanning from startCol to endCol
-        const makeHover = (doc: string, startCol: number, endCol: number) =>
-            new vscode.Hover(
-                new vscode.MarkdownString(doc),
-                new vscode.Range(
-                    new vscode.Position(position.line, startCol),
-                    new vscode.Position(position.line, endCol)
-                )
+        // ── 6. Keyword: the longest phrase it is part of — `End If`, `On Error Resume Next` ──
+        const phrase = keywordPhraseAt(lineText, wordRange.start.character, wordRange.end.character);
+        if (phrase) {
+            return new vscode.Hover(
+                new vscode.MarkdownString(phrase.doc),
+                new vscode.Range(position.line, phrase.start, position.line, phrase.end),
             );
-
-        const wStart  = wordRange.start.character;
-        const wEnd    = wordRange.end.character;
-        const bStart  = wordBeforeMatch  ? wStart  - wordBeforeMatch[0].length  : wStart;
-        const bbStart = twoBeforeMatch   ? bStart  - twoBeforeMatch[0].length   : bStart;
-        const aEnd    = wordAfterMatch   ? wEnd    + wordAfterMatch[0].length    : wEnd;
-        const aaEnd   = twoAfterMatch    ? aEnd    + twoAfterMatch[0].length     : aEnd;
-
-        // ── 3-word compounds ─────────────────────────────────────────────────
-        // Check word3 first (cursor on last word), then word2, then word1.
-        // This ensures the widest possible range is always returned — e.g.
-        // hovering "GoTo" should span "On Error GoTo 0", not just "Error GoTo 0".
-
-        // Helper: if a compound ends with 'goto', extend the range to include
-        // a trailing '0' (On Error GoTo 0) since 0 is part of the statement.
-        // Also extends 'on error resume' to include trailing 'Next'.
-        const extendForGoTo = (docKey: string, endCol: number): number => {
-            const tail = lineText.substring(endCol);
-            if (docKey.endsWith('goto')) {
-                const m = tail.match(/^(\s+)(0)\b/);
-                return m ? endCol + m[0].length : endCol;
-            }
-            if (docKey === 'on error resume next') {
-                const m = tail.match(/^(\s+)(next)\b/i);
-                return m ? endCol + m[0].length : endCol;
-            }
-            return endCol;
-        };
-
-        // Cursor on word 3: prev 2 + hovered  (e.g. hover "Resume" in "On Error Resume")
-        // Also try to look one level further back in case this 3-word compound is itself
-        // the tail of a longer known compound (e.g. "error goto 0" inside "on error goto 0").
-        if (wwBefore && wBefore) {
-            const k = `${wwBefore} ${wBefore} ${wordKey}`;
-            const docKey = THREE_WORD_COMPOUNDS[k];
-            if (docKey && KEYWORD_DOCS[docKey]) {
-                let startCol = bbStart;
-                // Look one more word back — if it extends to a known 3-word compound
-                // that shares the same docKey, widen to include it too.
-                const textBeforeBb = lineText.substring(0, wordRange.start.character
-                    - wordBeforeMatch![0].length
-                    - twoBeforeMatch![0].length);
-                const threeBackMatch = textBeforeBb.match(/\b(\w+)(\s+)$/);
-                if (threeBackMatch) {
-                    const w3 = threeBackMatch[1].toLowerCase();
-                    const wider = THREE_WORD_COMPOUNDS[`${w3} ${wwBefore} ${wBefore}`];
-                    if (wider === docKey) startCol = bbStart - threeBackMatch[0].length;
-                }
-                return makeHover(KEYWORD_DOCS[docKey], startCol, extendForGoTo(docKey, wEnd));
-            }
-        }
-        // Cursor on word 2: prev + hovered + next  (e.g. hover "Error" in "On Error GoTo")
-        if (wBefore && wAfter) {
-            const k = `${wBefore} ${wordKey} ${wAfter}`;
-            const docKey = THREE_WORD_COMPOUNDS[k];
-            if (docKey && KEYWORD_DOCS[docKey]) return makeHover(KEYWORD_DOCS[docKey], bStart, extendForGoTo(docKey, aEnd));
-        }
-        // Cursor on word 1: hovered + next 2  (e.g. hover "On" in "On Error GoTo")
-        if (wAfter && wwAfter) {
-            const k = `${wordKey} ${wAfter} ${wwAfter}`;
-            const docKey = THREE_WORD_COMPOUNDS[k];
-            if (docKey && KEYWORD_DOCS[docKey]) return makeHover(KEYWORD_DOCS[docKey], wStart, extendForGoTo(docKey, aaEnd));
-        }
-
-        // ── 2-word compounds ─────────────────────────────────────────────────
-        // Case a: word before + hovered  (e.g. "End Function", "Do While", "GoTo 0")
-        // Walk back up to two extra levels to widen to the full compound range.
-        if (wBefore) {
-            const k = `${wBefore} ${wordKey}`;
-            if (KEYWORD_DOCS[k]) {
-                let startCol = bStart;
-                // One level back: e.g. "error goto 0" → startCol = bbStart (Error)
-                if (wwBefore) {
-                    const wider1 = THREE_WORD_COMPOUNDS[`${wwBefore} ${wBefore} ${wordKey}`];
-                    if (wider1) {
-                        startCol = bbStart;
-                        // Two levels back: look for a word before wwBefore that forms a 3-word
-                        // compound with wwBefore+wBefore — e.g. "on" before "error goto 0"
-                        const textBeforeBb = lineText.substring(0, wordRange.start.character - wordBeforeMatch![0].length - twoBeforeMatch![0].length);
-                        const threeBeforeMatch = textBeforeBb.match(/\b(\w+)(\s+)$/);
-                        if (threeBeforeMatch) {
-                            const ww3 = threeBeforeMatch[1].toLowerCase();
-                            const wider2 = THREE_WORD_COMPOUNDS[`${ww3} ${wwBefore} ${wBefore}`];
-                            if (wider2 === wider1) startCol = bbStart - threeBeforeMatch[0].length;
-                        }
-                    }
-                }
-                return makeHover(KEYWORD_DOCS[k], startCol, wEnd);
-            }
-        }
-        // Case b: hovered + word after  (e.g. "For Each", "Loop Until")
-        // Special case: GoTo + 0 — extend range to include the 0
-        if (wAfter) {
-            const k = `${wordKey} ${wAfter}`;
-            if (KEYWORD_DOCS[k]) {
-                const endCol = extendForGoTo(k, aEnd);
-                return makeHover(KEYWORD_DOCS[k], wStart, endCol);
-            }
-        }
-
-        // ── Single keyword ────────────────────────────────────────────────────
-        if (KEYWORD_DOCS[wordKey]) {
-            return new vscode.Hover(new vscode.MarkdownString(KEYWORD_DOCS[wordKey]));
         }
 
         return null;

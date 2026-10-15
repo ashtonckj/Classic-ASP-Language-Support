@@ -132,6 +132,8 @@ describe('VBScript parser — errors VBScript reports', () => {
         ['Dim a(n), b(-1), c(1.5)',                       '1: Expected integer constant'],
         ['Dim me',                                        '1: Expected identifier'],
         ['Dim as',                                        '1: Expected identifier'],
+        ['Dim integer',                                   '1: Expected identifier'],
+        ['x = variant',                                   '1: Syntax error'],
         ['Class C\nConst a = 1\nEnd Class',               '2: Only declarations are allowed directly inside a Class'],
         ['Function F bar\nEnd Function',                  "1: Expected '('"],
         ['Property Get P\nEnd Property',                  '1: Must be defined inside a Class'],
@@ -300,6 +302,11 @@ describe('VBScript page programs', () => {
     it('parses a <script language="vbscript"> body as a program of its own', () => {
         const text = '<% If x Then %><script language="vbscript">\nSub A\nEnd Sub\n</script><% End If %>';
         assert.strictEqual(pagePrograms(text).length, 2);
+        assert.deepStrictEqual(diagnostics(text), []);
+    });
+
+    it('reads a <% %> block in a client-side script as what the server writes there', () => {
+        const text = '<script language="vbscript">\nSub Greet()\n  MsgBox "Hello <%= name %>"\n  n = <%= count %>\n  <% If admin Then %>x = 1<% End If %>\nEnd Sub\n</script>';
         assert.deepStrictEqual(diagnostics(text), []);
     });
 
