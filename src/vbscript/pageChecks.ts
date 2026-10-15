@@ -106,7 +106,8 @@ export function checkPageFiles(request: ScopeRequest, parse: (fsPath: string, te
     // ── Missing Set, with the object types known from the page and its includes ──
     const comTypes = new Map<string, string>();
     for (const [filePath, file] of bound?.pages ?? [[docPath, page] as const]) {
-        for (const variable of symbolsOfPage(file, filePath).comVariables) {
+        // The page under its own path, as completion read it, so its symbols are not read twice.
+        for (const variable of symbolsOfPage(file, file === page ? docPath : filePath).comVariables) {
             if (!comTypes.has(variable.name.toLowerCase())) { comTypes.set(variable.name.toLowerCase(), variable.progId); }
         }
     }

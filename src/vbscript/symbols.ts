@@ -166,8 +166,19 @@ export function symbolsFromTree(text: string, filePath: string): FileSymbols {
     return symbolsOfPage(parsePage(text), filePath);
 }
 
-/** symbolsFromTree for a page already parsed. */
+/** Each parse's symbols, so a page that completion and the checks both read is read once. */
+const symbolsKept = new WeakMap<ParsedPage, Map<string, FileSymbols>>();
+
+/** symbolsFromTree for a page already parsed, read once per parse and path, and shared: not to be changed. */
 export function symbolsOfPage(page: ParsedPage, filePath: string): FileSymbols {
+    let kept = symbolsKept.get(page);
+    if (!kept) { symbolsKept.set(page, kept = new Map()); }
+    let symbols = kept.get(filePath);
+    if (!symbols) { kept.set(filePath, symbols = readSymbols(page, filePath)); }
+    return symbols;
+}
+
+function readSymbols(page: ParsedPage, filePath: string): FileSymbols {
     const text = page.text;
     const result: FileSymbols = { variables: [], constants: [], functions: [], comVariables: [], classes: [] };
 
