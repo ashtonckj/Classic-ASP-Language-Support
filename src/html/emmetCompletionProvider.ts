@@ -6,6 +6,7 @@ import { textOf, zonesFor } from '../platform/documentState';
 import { fromLspCompletion, type LspCompletionItem } from '../platform/lspConvert';
 import { loadEmmetHelper } from '../core/lazyModule';
 import { inHtmlComment } from './htmlLanguageFeatures';
+import { styleAttributeAt } from '../css/cssUtils';
 
 /**
  * Emmet abbreviations in the suggest widget, offered only where the caret is
@@ -81,11 +82,13 @@ export class EmmetCompletionProvider implements vscode.CompletionItemProvider {
         // TypeScript service — expanding an abbreviation in either would
         // replace working code with markup.
         const offset = document.offsetAt(position);
-        const zone = zonesFor(document).zoneAt(offset);
+        const zones = zonesFor(document);
+        const zone = zones.zoneAt(offset);
         if (zone !== 'html' && zone !== 'css') { return; }
         // A .html file does not expand abbreviations inside a comment either.
         if (zone === 'html' && inHtmlComment(document, offset)) { return; }
-        const syntax = zone === 'css' ? 'css' : 'html';
+        // Inside style="…" an abbreviation is CSS — `m10` is `margin: 10px;` — as in a .html file.
+        const syntax = zone === 'css' || styleAttributeAt(zones, offset) ? 'css' : 'html';
 
         // The helper reads an LSP document. Its own language id is what it uses
         // to tell a stylesheet from markup, so it is given the ZONE's syntax

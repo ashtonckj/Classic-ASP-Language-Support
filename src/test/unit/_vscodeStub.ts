@@ -225,6 +225,9 @@ export class MarkdownString {
     appendCodeblock(code: string, language = ''): this { this.value += `\n\`\`\`${language}\n${code}\n\`\`\`\n`; return this; }
 }
 
+// The Emmet helper reads its messages through this when it finds the vscode module.
+export const l10n = { t: (message: string) => message };
+
 // ── Colours ──────────────────────────────────────────────────────────────────
 // Channels are 0..1 floats, as the real API defines them.
 
