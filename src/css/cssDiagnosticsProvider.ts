@@ -41,14 +41,13 @@ function validateDocument(
     const fullText = textOf(document);
     const diagnostics: vscode.Diagnostic[] = [];
 
+    const zones = zonesFor(document);
+
     // The zone map's <style> blocks: real ones only, not one inside an HTML
     // comment, a <% %> block, another tag's attribute or a script's string.
-    const zones = zonesFor(document);
-    const blockRanges = zones.cssBlocks;
-
     // Each block's document holds only that block, so the language service
     // reports positions relative to it; pagePosition shifts them back.
-    for (const block of getParsedCssBlocks(document.uri.toString(), fullText, document.version, blockRanges)) {
+    for (const block of getParsedCssBlocks(document)) {
         const blockStart = document.positionAt(block.range.start);
 
         for (const d of cssLanguageService().doValidation(block.cssDoc, block.stylesheet)) {

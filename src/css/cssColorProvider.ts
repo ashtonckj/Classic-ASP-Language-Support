@@ -80,7 +80,7 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
 
         // Parsed once per document version and shared with CSS validation, which
         // wants the same blocks on its own debounce a moment later.
-        for (const block of getParsedCssBlocks(uri, content, version, zonesFor(document).cssBlocks)) {
+        for (const block of getParsedCssBlocks(document)) {
             if (token.isCancellationRequested) { return undefined; }
             colors.push(...colorsIn(
                 document, block.cssDoc, content.length,
@@ -128,7 +128,7 @@ export class CssColorProvider implements vscode.DocumentColorProvider {
             stylesheet = cssLanguageService().parseStylesheet(cssDoc);
             toVirtual  = pageOffset => inlineDocOffset(inline.start, pageOffset);
         } else {
-            const block = getParsedCssBlockAt(uri, content, version, zones.cssBlocks, start);
+            const block = getParsedCssBlockAt(document, start);
             if (!block) { return undefined; }
             ({ cssDoc, stylesheet } = block);
             toVirtual = pageOffset => pageOffset - block.range.start;

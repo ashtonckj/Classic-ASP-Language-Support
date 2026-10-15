@@ -2,6 +2,8 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { createZoneResolver } from '../../core/zoneUtils';
 import { contextAt, textOf, zonesFor } from '../../platform/documentState';
+import { getParsedCssBlocks } from '../../css/cssPageStylesheet';
+import { linkValues } from '../../html/htmlLanguageFeatures';
 import { fakeDocument } from './_helpers';
 
 const PAGE = [
@@ -42,5 +44,20 @@ describe('documentState', () => {
         assert.strictEqual(at(2, 'note').inVbStringOrComment, true);
         assert.deepStrictEqual([at(1, 'var').zone, at(1, 'var').inVbStringOrComment], ['js', false]);
         assert.strictEqual(at(0, 'color').zone, 'css');
+    });
+
+    it('keeps each page its own parses while two pages take turns, and drops them on an edit', () => {
+        const first = fakeDocument('<style>a { color: red }</style><a href="x.asp">x</a>', { fsPath: '/site/a.asp' });
+        const second = fakeDocument('<style>b { color: blue }</style><a href="y.asp">y</a>', { fsPath: '/site/b.asp' });
+        const stylesheet = getParsedCssBlocks(first);
+        const links = linkValues(first);
+        getParsedCssBlocks(second);
+        linkValues(second);
+        assert.strictEqual(getParsedCssBlocks(first), stylesheet);
+        assert.strictEqual(linkValues(first), links);
+
+        first.setText('<style>a { color: green }</style>');
+        assert.notStrictEqual(getParsedCssBlocks(first), stylesheet);
+        assert.deepStrictEqual(linkValues(first), []);
     });
 });

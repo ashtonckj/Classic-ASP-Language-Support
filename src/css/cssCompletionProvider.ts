@@ -51,7 +51,7 @@ export class CssCompletionProvider implements vscode.CompletionItemProvider {
         // ── <style> block ──────────────────────────────────────────────────────
         if (zones.zoneAt(offset) !== 'css') return [];
 
-        const block = getParsedCssBlockAt(document.uri.toString(), fullText, document.version, zones.cssBlocks, offset);
+        const block = getParsedCssBlockAt(document, offset);
         if (!block) return [];
 
         const lsPosition = block.cssDoc.positionAt(offset - block.range.start);

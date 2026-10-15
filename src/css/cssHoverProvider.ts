@@ -27,7 +27,7 @@ export class CssHoverProvider implements vscode.HoverProvider {
         // ── <style> block hover ───────────────────────────────────────────────
         if (zones.zoneAt(offset) !== 'css') return null;
 
-        const block = getParsedCssBlockAt(document.uri.toString(), fullText, document.version, zones.cssBlocks, offset);
+        const block = getParsedCssBlockAt(document, offset);
         if (!block) return null;
 
         const lsPosition = block.cssDoc.positionAt(offset - block.range.start);

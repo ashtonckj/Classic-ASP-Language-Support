@@ -16,7 +16,7 @@ import type * as HtmlLs from 'vscode-html-languageservice';
 import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
 import { getAspBlockRanges, inRanges } from '../core/zoneUtils';
 import { loadHtmlService } from '../core/lazyModule';
-import { textOf, zonesFor } from '../platform/documentState';
+import { derivedFrom, textOf, zonesFor } from '../platform/documentState';
 import type { BlockEvent } from '../vbscript/pageAnalysis';
 import { analysedPage } from '../asp/vbscriptWorkspace';
 import { fromLspCompletion, fromLspMarkdown, fromLspRange } from '../platform/lspConvert';
@@ -40,26 +40,22 @@ function htmlService(): HtmlLs.LanguageService {
 }
 
 interface ParsedPage {
-    version:  number;
     document: LsTextDocument;
     html:     HtmlLs.HTMLDocument;
     /** Where the values of the page's link attributes (href, src, form action…) are, read when first asked. */
     links?:   Array<{ start: number; end: number }>;
 }
 
-const _parsed = new WeakMap<vscode.TextDocument, ParsedPage>();
-
-/** The masked page and its parse, kept until the page changes. */
-function parse(document: vscode.TextDocument): ParsedPage {
-    const cached = _parsed.get(document);
-    if (cached && cached.version === document.version) { return cached; }
-
+function parsePage(document: vscode.TextDocument): ParsedPage {
     const lsDocument = LsTextDocument.create(
         document.uri.toString(), 'html', document.version, zonesFor(document).markup.masked,
     );
-    const page = { version: document.version, document: lsDocument, html: htmlService().parseHTMLDocument(lsDocument) };
-    _parsed.set(document, page);
-    return page;
+    return { document: lsDocument, html: htmlService().parseHTMLDocument(lsDocument) };
+}
+
+/** The masked page and its parse, kept until the page changes. */
+function parse(document: vscode.TextDocument): ParsedPage {
+    return derivedFrom(document, parsePage);
 }
 
 /** True when `position` is in the page's markup, not its VBScript, JavaScript or CSS. */

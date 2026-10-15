@@ -11,7 +11,10 @@
  * times per keystroke. Here the first question after an edit pays for one scan
  * of the page; the rest are a binary search.
  *
- * Keyed by the document object, so a closed page's state goes with it.
+ * Keyed by the document object, so a closed page's state goes with it. Anything
+ * else built from a page's text — its HTML parse, its parsed <style> blocks —
+ * is kept here too (derivedFrom), so every page holds its own and an edit drops
+ * them all at once.
  *
  * Also here: which files are open, and their unsaved text, for the code that
  * reads a page's includes.
@@ -26,7 +29,8 @@ import { pathKey } from '../core/paths';
 interface State {
     version: number;
     text: string;
-    zones?: ZoneResolver;
+    /** Built from `text`, by the function that built it. */
+    derived: Map<(document: vscode.TextDocument) => unknown, unknown>;
 }
 
 const states = new WeakMap<vscode.TextDocument, State>();
@@ -34,7 +38,7 @@ const states = new WeakMap<vscode.TextDocument, State>();
 function stateOf(document: vscode.TextDocument): State {
     let state = states.get(document);
     if (!state || state.version !== document.version) {
-        state = { version: document.version, text: document.getText() };
+        state = { version: document.version, text: document.getText(), derived: new Map() };
         states.set(document, state);
     }
     return state;
@@ -45,10 +49,22 @@ export function textOf(document: vscode.TextDocument): string {
     return stateOf(document).text;
 }
 
+/**
+ * What `build` makes of the document, built once per version and kept with
+ * it. `build` is the key, so it must be one function, not a new closure per
+ * call.
+ */
+export function derivedFrom<T>(document: vscode.TextDocument, build: (document: vscode.TextDocument) => T): T {
+    const { derived } = stateOf(document);
+    if (!derived.has(build)) { derived.set(build, build(document)); }
+    return derived.get(build) as T;
+}
+
+const scanZones = (document: vscode.TextDocument) => createZoneResolver(textOf(document));
+
 /** The document's zones, scanned once per version. */
 export function zonesFor(document: vscode.TextDocument): ZoneResolver {
-    const state = stateOf(document);
-    return (state.zones ??= createZoneResolver(state.text));
+    return derivedFrom(document, scanZones);
 }
 
 /** Where the caret is, as every provider needs to know before it answers. */
