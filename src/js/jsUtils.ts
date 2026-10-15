@@ -11,6 +11,10 @@
  * declarations generated from it, so an offset in the one is an offset in the
  * page.
  *
+ * The script is every JavaScript <script> body and every on…="" value
+ * (onclick, onchange…), as VS Code's HTML support builds it: a value stays
+ * where it is, and its closing quote becomes the `;` that ends it.
+ *
  * ── ASP → JS Projection strategy ────────────────────────────────────────────
  *
  * The core problem with fake-literal placeholders ("", 0, [], false) was that
@@ -73,7 +77,7 @@
 
 import * as path from 'path';
 import type * as ts from 'typescript';
-import { getAspBlockRanges, getJsBlockRanges } from '../core/zoneUtils';
+import { getAspBlockRanges, scanMarkup, type PageMarkup } from '../core/zoneUtils';
 import { endsWithContinuation, vbStatements } from '../core/vbLexical';
 import { ASP_DOM_TYPES } from './aspDomTypes.generated';
 import { loadTypeScript } from '../core/lazyModule';
@@ -372,7 +376,7 @@ export function collectCrossFrameNames(
 /**
  * Builds the preamble and the expression-sentinel map for the virtual file.
  * @param content   Raw ASP source text.
- * @param jsRanges  Pre-computed JS script ranges (from getJsBlockRanges).
+ * @param jsRanges  The page's JavaScript: <script> bodies and on…="" values.
  */
 function buildPreamble(
     content: string,
@@ -483,10 +487,10 @@ export function substituteAspBlock(asp: string, sentinel: string | undefined): s
 // ─────────────────────────────────────────────────────────────────────────────
 // buildVirtualJsContent — public entry point
 // ─────────────────────────────────────────────────────────────────────────────
-export function buildVirtualJsContent(
-    content: string,
-    jsRanges: ReadonlyArray<{ start: number; end: number }> = getJsBlockRanges(content),
-): VirtualJsResult {
+export function buildVirtualJsContent(content: string, markup: PageMarkup = scanMarkup(content)): VirtualJsResult {
+    const handlers = new Set(markup.eventHandlers);
+    const jsRanges = [...markup.scripts.filter(s => s.language === 'javascript'), ...handlers].sort((a, b) => a.start - b.start);
+
     // ── Pass 1: build preamble + sentinel map ────────────────────────────────
     const { preamble, exprSentinels } = buildPreamble(content, jsRanges);
 
@@ -517,6 +521,14 @@ export function buildVirtualJsContent(
         jsOut += jsSection.slice(jsPrev);
         body += jsOut;
         prev = range.end;
+
+        // A handler ends where its value does: the closing quote, or the
+        // character after an unquoted value, becomes its `;`.
+        const after = content[range.end];
+        if (handlers.has(range) && after !== undefined && after !== '\n' && after !== '\r') {
+            body += ';';
+            prev++;
+        }
     }
 
     body += blankNonNewlines(content.slice(prev));
@@ -712,11 +724,11 @@ export class JsLanguageService {
     /**
      * Loads the page `text`, unless it is the page loaded already: building
      * the virtual file reads the whole page, and every query asks with it.
-     * `jsRanges` are its <script> blocks, when the caller has them.
+     * `markup` is its scanMarkup, when the caller has it.
      */
-    loadPage(text: string, jsRanges?: ReadonlyArray<{ start: number; end: number }>): void {
+    loadPage(text: string, markup?: PageMarkup): void {
         if (text === this._page) { return; }
-        const { virtualContent, preamble } = buildVirtualJsContent(text, jsRanges);
+        const { virtualContent, preamble } = buildVirtualJsContent(text, markup);
         this.updateContent(virtualContent, preamble);
         this._page = text;
     }

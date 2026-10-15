@@ -1,8 +1,8 @@
 /**
  * jsDiagnosticsProvider.ts  (js/)
  *
- * Error/warning squiggles for JavaScript inside <script> blocks, powered by
- * the TypeScript Language Service. Debounced at 750 ms.
+ * Error/warning squiggles for JavaScript inside <script> blocks and on…=""
+ * values, powered by the TypeScript Language Service. Debounced at 750 ms.
  *
  * The analysis itself runs on a worker thread (jsAnalysisWorker.ts) and what
  * comes back is plain data, because a ts.Diagnostic holds a reference to the
@@ -18,7 +18,7 @@ import * as vscode from 'vscode';
 import { CHECK_DELAY, createAspDiagnosticCollection, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
 import { analyseEmbeddedJs } from '../workers/analysisClient';
 import { tsSeverityToVs } from './jsTsKinds';
-import { textOf } from '../platform/documentState';
+import { textOf, zonesFor } from '../platform/documentState';
 
 // Codes suppressed because embedded ASP <script> lacks whole-project context
 // (cross-file globals, jQuery, DOM null-returns, implicit any). ASP-injected
@@ -41,14 +41,15 @@ export const SUPPRESSED_CODES = new Set([
 async function getDiagnosticsForDocument(document: vscode.TextDocument): Promise<vscode.Diagnostic[]> {
     const fullText = textOf(document);
 
-    // Worth checking before waking the worker: most pages have no <script>.
-    if (!/<script/i.test(fullText)) { return []; }
+    // Worth checking before waking the worker: most pages have no JavaScript.
+    const zones = zonesFor(document);
+    if (zones.jsBlocks.length === 0 && zones.markup.eventHandlers.length === 0) { return []; }
 
     // Type-checking the whole script block is the most expensive thing this
     // extension does, so it happens on a worker thread rather than on the
     // extension host — see jsAnalysisWorker.ts.
     const analysis = await analyseEmbeddedJs(document.uri.toString(), fullText);
-    if (!analysis || analysis.jsRanges.length === 0) { return []; }
+    if (!analysis) { return []; }
 
     return analysis.diagnostics
         .filter(d => !SUPPRESSED_CODES.has(d.code))

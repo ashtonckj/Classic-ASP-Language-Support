@@ -393,6 +393,8 @@ export interface PageMarkup {
     styles: OffsetRange[];
     /** Each style="…" value, inside its quotes. */
     styleAttributes: OffsetRange[];
+    /** Each on…="…" value (onclick, onchange…), inside its quotes: JavaScript, as a .html file reads it. */
+    eventHandlers: OffsetRange[];
 }
 
 /** VBScript by type= or language=; JavaScript with no type or a JavaScript/module one; anything else is other. */
@@ -408,7 +410,7 @@ export function scanMarkup(text: string): PageMarkup {
     const masked    = maskAsp(text, undefined, aspBlocks);
     const { TokenType } = loadHtmlService();
 
-    const markup: PageMarkup = { masked, aspBlocks, tags: [], comments: [], scripts: [], styles: [], styleAttributes: [] };
+    const markup: PageMarkup = { masked, aspBlocks, tags: [], comments: [], scripts: [], styles: [], styleAttributes: [], eventHandlers: [] };
     let tag: MarkupTag | undefined;
     let inTag = false;
     let attribute = '';
@@ -458,8 +460,9 @@ export function scanMarkup(text: string): PageMarkup {
                 // A quote never closed runs to the end of the page: not a value yet.
                 if (quoted && (value.length < 2 || value[value.length - 1] !== value[0])) { break; }
                 attributes.set(attribute, quoted ? value.slice(1, -1) : value);
-                if (attribute === 'style' && tag && !tag.close) {
-                    markup.styleAttributes.push(quoted ? { start: start + 1, end: end - 1 } : { start, end });
+                const list = attribute === 'style' ? markup.styleAttributes : /^on\w+$/.test(attribute) ? markup.eventHandlers : undefined;
+                if (list && tag && !tag.close) {
+                    list.push(quoted ? { start: start + 1, end: end - 1 } : { start, end });
                 }
                 break;
             }
@@ -603,6 +606,8 @@ export function createZoneResolver(text: string): ZoneResolver {
             if (inRanges(cssBlocks, offset, false))  { return 'css'; }
             if (inRanges(vbsScripts, offset, false)) { return 'asp'; }
             if (inRanges(jsBlocks, offset, false))   { return 'js'; }
+            // An on…="" value is JavaScript, as VS Code's HTML support reads it.
+            if (inRanges(markup.eventHandlers, offset, false)) { return 'js'; }
             return 'html';
         },
     };

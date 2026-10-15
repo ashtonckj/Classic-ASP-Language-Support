@@ -27,7 +27,7 @@
 import * as ts from 'typescript';
 import { getJsLanguageService, VIRTUAL_FILENAME } from '../js/jsUtils';
 import { jsOutline, type JsOutlineSymbol } from '../js/jsOutline';
-import { getJsBlockRanges, inRanges } from '../core/zoneUtils';
+import { inRanges, scanMarkup } from '../core/zoneUtils';
 import { workerData } from 'node:worker_threads';
 import { serveWorker, type WorkerAnswer } from './serveWorker';
 
@@ -68,7 +68,7 @@ export interface PlainJsDiagnostic {
 }
 
 export interface JsAnalysisResult extends WorkerAnswer {
-    /** Empty when the document has no JavaScript at all. */
+    /** The <script> bodies; empty when the document has no JavaScript at all. */
     jsRanges: Array<{ start: number; end: number }>;
     /** Classification triples: [offset, length, encoded] × n, inside the script only. */
     spans: number[];
@@ -81,14 +81,19 @@ export interface JsAnalysisResult extends WorkerAnswer {
 }
 
 function analyse(request: JsWorkerRequest): JsAnalysisResult {
-    const jsRanges = getJsBlockRanges(request.text);
-    if (jsRanges.length === 0) { return { id: request.id, jsRanges, spans: [], diagnostics: [], outline: [] }; }
+    const markup   = scanMarkup(request.text);
+    const jsRanges = markup.scripts.filter(s => s.language === 'javascript').map(({ start, end }) => ({ start, end }));
+    if (jsRanges.length === 0 && markup.eventHandlers.length === 0) { return { id: request.id, jsRanges, spans: [], diagnostics: [], outline: [] }; }
 
     const svc = getJsLanguageService(cancellation);
-    svc.loadPage(request.text, jsRanges);
+    svc.loadPage(request.text, markup);
     // `end` is the `<` of `</script>`, a valid place for a token that abuts the
     // closing tag, so the test is inclusive at both ends.
     const inScript = (offset: number) => inRanges(jsRanges, offset, false);
+    // An on…="" value is checked as VS Code's HTML support checks it: syntax
+    // only, as its service does not type-check JavaScript, and a `return` at
+    // the top of one is the handler's own (code 1108, which it ignores too).
+    const inHandler = (offset: number, code: number) => code !== 1108 && inRanges(markup.eventHandlers, offset, false);
 
     // Classification first: it builds the program and the type checker that the
     // diagnostics then reuse, so this order pays for the type-check once.
@@ -99,8 +104,10 @@ function analyse(request: JsWorkerRequest): JsAnalysisResult {
     }
 
     const diagnostics: PlainJsDiagnostic[] = [];
-    for (const d of [...svc.getSyntacticDiagnostics(), ...svc.getSemanticDiagnostics()]) {
-        if (d.start === undefined || d.length === undefined || !inScript(d.start)) { continue; }
+    const syntactic = new Set<ts.Diagnostic>(svc.getSyntacticDiagnostics());
+    for (const d of [...syntactic, ...svc.getSemanticDiagnostics()]) {
+        if (d.start === undefined || d.length === undefined) { continue; }
+        if (!inScript(d.start) && !(syntactic.has(d) && inHandler(d.start, d.code))) { continue; }
         diagnostics.push({
             start:    d.start,
             length:   d.length,

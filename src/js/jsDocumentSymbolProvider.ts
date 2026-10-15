@@ -50,7 +50,7 @@ export function outlineOnHost(document: vscode.TextDocument): vscode.DocumentSym
     if (jsRanges.length === 0) { return []; }
 
     const ts: typeof TS = loadTypeScript();
-    const { virtualContent } = buildVirtualJsContent(textOf(document), jsRanges);
+    const { virtualContent } = buildVirtualJsContent(textOf(document), zonesFor(document).markup);
     // Only the syntax tree is needed — no types — so the script is parsed on
     // its own, with no language service.
     const sourceFile = ts.createSourceFile(VIRTUAL_FILENAME, virtualContent, ts.ScriptTarget.ES2020, true, ts.ScriptKind.JS);
