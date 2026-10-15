@@ -13,6 +13,7 @@ import {
     VBSCRIPT_BLOCK_CLOSERS, VBSCRIPT_MID_BLOCK,
 } from './vbIndent';
 import { getIndentUnit, insertAndPlaceCaret } from './editing';
+import { parsedDocument } from '../vbscriptWorkspace';
 
 // ── Enter key handler ──────────────────────────────────────────────────────
 
@@ -153,7 +154,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         if (zone === 'asp') {
             // Else, Case and a closer such as End If first snap to their opener's indent.
             const snapped = VBSCRIPT_MID_BLOCK.test(currentLineText) || VBSCRIPT_BLOCK_CLOSERS.test(currentLineText)
-                ? findMatchingOpenerIndent(document, position.line, currentLineText, indentUnit) ?? indent
+                ? findMatchingOpenerIndent(parsedDocument(document), position.line, indentUnit) ?? indent
                 : indent;
             const next = vbNextLineIndent(document, position.line, snapped + textBefore.trimStart(), indentUnit);
             const caret = new vscode.Position(position.line + 1, next.length);

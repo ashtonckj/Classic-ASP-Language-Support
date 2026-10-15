@@ -6,6 +6,7 @@ import type { ParsedPage } from '../vbscript/symbols';
 import { ParseCache } from '../vbscript/parseCache';
 import { BindCache, type Site, type WorkspaceHost } from '../vbscript/references';
 import { defaultIncludesSetting } from '../platform/settings';
+import { textOf } from '../platform/documentState';
 import { pathKey, samePath } from '../core/paths';
 import { analysePage, type PageAnalysis } from '../vbscript/pageAnalysis';
 import { checkPageFiles, type PageChecks } from '../vbscript/pageChecks';
@@ -23,6 +24,9 @@ import { analyseVbscriptPage, checkVbscriptPage, vbscriptWorkerUsable } from '..
 /** Recently parsed files, so asking twice about one page does not parse its includes twice. */
 const parsed = new ParseCache(300, 8_000_000);
 const parseCached = (fsPath: string, text: string): ParsedPage => parsed.parse(fsPath, text);
+
+/** The parse of the document's text as it is now, parsed once per version and shared with hover and the rest. */
+export const parsedDocument = (document: vscode.TextDocument): ParsedPage => parseCached(document.uri.fsPath, textOf(document));
 
 /** Recently bound pages, each reused only while every file it read still reads the same. */
 const bound = new BindCache(20);

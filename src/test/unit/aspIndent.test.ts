@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import { isBlockOpener } from '../../vbscript/indentRules';
-import { vbNextLineIndent } from '../../asp/typing/vbIndent';
+import { findMatchingOpenerIndent, vbNextLineIndent } from '../../asp/typing/vbIndent';
+import { parsePage } from '../../vbscript/symbols';
 import { tagToAutoClose } from '../../asp/typing/autoClose';
 import { continuesOpenJsDocComment } from '../../asp/typing/enterKey';
 import { Zone } from '../../core/zoneUtils';
@@ -84,6 +85,46 @@ describe('vbNextLineIndent', () => {
     it('goes back to where the statement started after the last line of a chain', () => {
         assert.strictEqual(after('If x Then', '    s = "a" & _', '        "b"'), '    ');
         assert.strictEqual(after('    s = "a"_', '        & "b"'), '    ');
+    });
+});
+
+// Enter and the auto-snap move a closer, Else or Case to the indent of the
+// block the parser pairs it with.
+describe('findMatchingOpenerIndent', () => {
+    /** The snap indent of the line marked `|`. */
+    const snap = (...lines: string[]) => {
+        const line = lines.findIndex(l => l.startsWith('|'));
+        const text = ['<%', ...lines.map(l => l.replace(/^\|/, '')), '%>'].join('\r\n');
+        return findMatchingOpenerIndent(parsePage(text), line + 1, '    ');
+    };
+
+    it('snaps a closer to its opener, past nested blocks of other kinds', () => {
+        assert.strictEqual(snap('  If a Then', '    For i = 1 To 2', '    Next', '|End If'), '  ');
+        assert.strictEqual(snap('Do', '    While x', '    Wend', '|        Loop'), '');
+        assert.strictEqual(snap('  With o', '|.a = 1 : End With'), null);
+        assert.strictEqual(snap('  With o', '    .a = 1', '|End With'), '  ');
+        assert.strictEqual(snap('  Public Default Property Get P', '|End Property'), '  ');
+    });
+
+    it('snaps Else and ElseIf to the branch above, and Case to the Case above or inside Select Case', () => {
+        assert.strictEqual(snap('  If a Then', '    x = 1', '|Else'), '  ');
+        assert.strictEqual(snap('If a Then', '  ElseIf b Then', '|ElseIf c Then'), '  ');
+        assert.strictEqual(snap('  Select Case x', '|Case 1'), '      ');
+        assert.strictEqual(snap('  Select Case x', '     Case 1', '|Case Else'), '     ');
+    });
+
+    it('finds the opener of an If whose condition runs over a _ continuation', () => {
+        assert.strictEqual(snap('  If a Or _', '        b Then', '    x = 1', '|End If'), '  ');
+    });
+
+    it('snaps a closer that follows an If with Else, or a Select with Cases', () => {
+        assert.strictEqual(snap('  Function F(v)', '    If v Then', '      F = 1', '    Else', '      F = 2', '    End If', '|End Function'), '  ');
+        assert.strictEqual(snap('  For i = 1 To 2', '    Select Case i', '      Case 1', '        x = 1', '    End Select', '|Next'), '  ');
+    });
+
+    it('is null for a closer with no block, and for a one-line If', () => {
+        assert.strictEqual(snap('x = 1', '|End If'), null);
+        assert.strictEqual(snap('If a Then x = 1', '|Else'), null);
     });
 });
 
