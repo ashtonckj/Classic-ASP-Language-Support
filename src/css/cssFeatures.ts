@@ -34,15 +34,12 @@ function suggestInEmptyStyle(event: vscode.TextEditorSelectionChangeEvent): void
 
 export function registerCssFeatures(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
-        // Trigger chars are limited to punctuation that genuinely starts or
-        // continues a CSS token. The a-z letters are left out — the zone check
-        // inside CssCompletionProvider already guards every call, so VS Code's
-        // word-based activation is enough to keep completions flowing while the
-        // user is typing a property or value name. Letter triggers called the
-        // provider on every keystroke anywhere in the file, not just in CSS.
+        // VS Code's own CSS support triggers on these alone; typing a word opens
+        // the list as usual. `{`, `;` and space also opened it, so the Enter
+        // after `.a {` took `display` instead of starting a new line.
         vscode.languages.registerCompletionItemProvider(
             'asp', guarded('CssCompletionProvider', new CssCompletionProvider()),
-            ':', ';', '-', ' ', '{', '(',
+            '/', '-', ':',
         ),
         vscode.window.onDidChangeTextEditorSelection(suggestInEmptyStyle),
 
