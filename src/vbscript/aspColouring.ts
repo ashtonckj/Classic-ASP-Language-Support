@@ -13,7 +13,8 @@
  * Out: the tokens as [line, char, length, type, modifiers] × n in the order
  * they were found, and the SQL warnings as ranges and messages.
  *
- * The worker's entry point is workers/aspColouringWorker.ts.
+ * It runs on the VBScript worker (workers/vbscriptWorker.ts), on the parse
+ * that worker's page analysis and checks read too.
  */
 
 import {
@@ -23,9 +24,8 @@ import {
     SqlStringGroup, emitSqlTokensForGroup, TokenSink,
 } from './sqlTokens';
 import type * as A from './ast';
-import { lineAt, serverObjects, symbolsOfPage, walkStatements, type FileSymbols } from './symbols';
+import { lineAt, parsePage, serverObjects, symbolsOfPage, walkStatements, type FileSymbols, type ParsedPage } from './symbols';
 import { bindPage, rootOf } from './binder';
-import { ParseCache } from './parseCache';
 import {
     concatOperands, isConcat, isStringLiteral, statementExpressions, stringValue, walkExpression,
 } from './expressions';
@@ -66,13 +66,9 @@ function withIncludes(own: FileSymbols, includes: FileSymbols): FileSymbols {
     };
 }
 
-/** The last parse of each page coloured, so colouring it again once its includes are read parses nothing. */
-const parsed = new ParseCache(8, 8_000_000);
-
-export function colourAspPage(request: AspColouringRequest): AspColouringResult {
+/** `page` is the parse of the request's text, which the VBScript worker shares with its other work. */
+export function colourAspPage(request: AspColouringRequest, page: ParsedPage = parsePage(request.text)): AspColouringResult {
     const { text: fullText, docPath } = request;
-    // One parse for both the symbols and the SQL passes below.
-    const page = parsed.parse(docPath, fullText);
     const allSymbols = withIncludes(symbolsOfPage(page, docPath), request.includeSymbols);
 
 

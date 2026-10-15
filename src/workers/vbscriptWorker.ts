@@ -6,14 +6,16 @@
  * typed (auto-close, indent) and every other extension's requests.
  *
  * It answers the whole-page work that runs whether or not the user asked for
- * anything: the page's own symbols (completion, the outline) and its blocks
- * (the structure warnings, the matching-keyword highlight, the object of each
- * With block), and — a moment after typing stops — its checks, which bind the
- * page with its includes. Each version of a file is parsed once here, however
- * many of those ask about it. The checks are the one long job nobody waits
- * on, so they stop (workerData.cancel) for the page analysis, and the
- * extension host asks for them again after. It also reads the include tree
- * completion offers names from, with the same parses the checks use.
+ * anything: the VBScript and SQL colouring and the SQL warnings
+ * (vbscript/aspColouring.ts), the page's own symbols (completion, the outline)
+ * and its blocks (the structure warnings, the matching-keyword highlight, the
+ * object of each With block), and — a moment after typing stops — its checks,
+ * which bind the page with its includes. Each version of a file is parsed once
+ * here, however many of those ask about it. The checks are the one long job
+ * nobody waits on, so they stop (workerData.cancel) for the colouring or the
+ * page analysis, and the extension host asks for them again after. It also
+ * reads the include tree completion offers names from, with the same parses
+ * the checks use.
  *
  * What runs only when the user asks — hover, Go to Definition, rename, Find
  * All References, parameter hints — stays on the extension host, as the
@@ -28,6 +30,7 @@ import type { ParsedPage } from '../vbscript/symbols';
 import { ParseCache } from '../vbscript/parseCache';
 import { analysePage, type PageAnalysis } from '../vbscript/pageAnalysis';
 import { checkPageFiles, includeFiles, type IncludeFile, type PageChecks, type ScopeRequest } from '../vbscript/pageChecks';
+import { colourAspPage, type AspColouringRequest, type AspColouringResult } from '../vbscript/aspColouring';
 import { serveWorker, type WorkerAnswer } from './serveWorker';
 
 export interface PageRequest {
@@ -37,6 +40,7 @@ export interface PageRequest {
     docPath: string;
 }
 
+export type ColourRequest = AspColouringRequest & { kind: 'colour' };
 export type ChecksRequest = ScopeRequest & { id: number; kind: 'checks' };
 export type IncludesRequest = ScopeRequest & { id: number; kind: 'includes' };
 
@@ -48,8 +52,8 @@ export type IncludesResult = { entries: IncludeFile[] } & WorkerAnswer;
 const parsed = new ParseCache(200, 8_000_000);
 const parseCached = (fsPath: string, text: string): ParsedPage => parsed.parse(fsPath, text);
 
-type Request = PageRequest | ChecksRequest | IncludesRequest;
-type Result  = PageResult | ChecksResult | IncludesResult;
+type Request = PageRequest | ColourRequest | ChecksRequest | IncludesRequest;
+type Result  = PageResult | AspColouringResult | ChecksResult | IncludesResult;
 
 // Set to 1 by the extension host to stop the checks under way for work someone
 // is waiting on (analysisClient). Absent when this file is loaded outside a worker.
@@ -62,6 +66,7 @@ const stopIfCancelled = () => {
 function answer(request: Request): Result {
     switch (request.kind) {
         case 'page':     return { id: request.id, ...analysePage(parseCached(request.docPath, request.text), request.docPath) };
+        case 'colour':   return colourAspPage(request, parseCached(request.docPath, request.text));
         case 'includes': return { id: request.id, entries: includeFiles(request, parseCached) };
         case 'checks':
             try {
@@ -74,8 +79,11 @@ function answer(request: Request): Result {
 }
 
 // A half-typed page that trips a pass must cost this one answer, not the worker.
+// The colour tokens are handed over, not copied: on a large page they run to
+// hundreds of thousands of numbers.
 serveWorker<Request, Result>(answer, request => {
     switch (request.kind) {
+        case 'colour': return { id: request.id, tokens: new Uint32Array(), warnings: [] };
         case 'page': return {
             id: request.id,
             symbols: { variables: [], constants: [], functions: [], comVariables: [], classes: [] },
@@ -84,4 +92,4 @@ serveWorker<Request, Result>(answer, request => {
         case 'checks':   return { id: request.id, missingSet: [], checks: [] };
         case 'includes': return { id: request.id, entries: [] };
     }
-});
+}, result => 'tokens' in result ? [result.tokens.buffer as ArrayBuffer] : []);

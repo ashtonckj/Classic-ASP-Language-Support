@@ -6,9 +6,9 @@
  *   • jsAnalysisWorker.ts   — the JavaScript service: the type-aware colouring,
  *     the squiggles and the Outline from one TypeScript pass, and every
  *     JavaScript query (completion, hover, rename…);
- *   • aspColouringWorker.ts — the VBScript and SQL colouring, and the SQL warnings;
- *   • vbscriptWorker.ts     — the VBScript page's symbols and blocks, its checks,
- *     and the symbols of its include tree.
+ *   • vbscriptWorker.ts     — the VBScript and SQL colouring and the SQL
+ *     warnings, the VBScript page's symbols and blocks, its checks, and the
+ *     symbols of its include tree, all from one parse of each version.
  *
  * Each is a long-lived worker thread of its own, so none waits behind another,
  * and all are driven the same way:
@@ -313,31 +313,24 @@ const jsWorker = new AnalysisWorker<Omit<JsWorkerRequest, 'id'>, JsAnalysisResul
     input => input.query !== undefined,
 );
 
-type AspColouringInput = Omit<AspColouringRequest, 'id'>;
-
-const aspWorker = new AnalysisWorker<AspColouringInput, AspColouringResult>(
-    'VBScript colouring',
-    path.join(__dirname, 'aspColouringWorker.js'),
-    // The include symbols come from a memo that hands back the same object
-    // until the document or one of its includes changes.
-    (a, b) => a.text === b.text && a.docPath === b.docPath && a.includeSymbols === b.includeSymbols,
-    result => !result.failed,
-);
-
 type VbscriptInput =
     | { kind: 'page'; text: string; docPath: string }
+    | (Omit<AspColouringRequest, 'id'> & { kind: 'colour' })
     | (ScopeRequest & { kind: 'checks' })
     | (ScopeRequest & { kind: 'includes' });
 
-const vbscriptWorker = new AnalysisWorker<VbscriptInput, PageResult | ChecksResult | IncludesResult>(
+const vbscriptWorker = new AnalysisWorker<VbscriptInput, PageResult | AspColouringResult | ChecksResult | IncludesResult>(
     'VBScript analysis',
     path.join(__dirname, 'vbscriptWorker.js'),
     // Checks and includes read files from disk, which may have changed since,
-    // so only a page's own reading is shared. includeProvider already shares
+    // so only a page's own reading and its colouring are shared. The include
+    // symbols come from a memo that hands back the same object until the
+    // document or one of its includes changes. includeProvider already shares
     // an include load under way for the same includes.
-    (a, b) => a.kind === 'page' && b.kind === 'page' && a.text === b.text && a.docPath === b.docPath,
-    result => !result.failed && 'symbols' in result,
-    // What completion is waiting on goes before checks nobody is waiting on.
+    (a, b) => (a.kind === 'page' && b.kind === 'page' && a.text === b.text && a.docPath === b.docPath)
+        || (a.kind === 'colour' && b.kind === 'colour' && a.text === b.text && a.docPath === b.docPath && a.includeSymbols === b.includeSymbols),
+    result => !result.failed && ('symbols' in result || 'tokens' in result),
+    // The colouring and what completion is waiting on stop, and go before, checks nobody is waiting on.
     input => input.kind !== 'checks',
 );
 
@@ -374,7 +367,7 @@ export async function queryEmbeddedJs<M extends JsQueryMethod>(
 export function colourAspPage(
     key: string, text: string, docPath: string, includeSymbols: FileSymbols,
 ): Promise<AspColouringResult | undefined> {
-    return aspWorker.request(key, { text, docPath, includeSymbols });
+    return vbscriptWorker.request(`colour:${key}`, { kind: 'colour', text, docPath, includeSymbols }) as Promise<AspColouringResult | undefined>;
 }
 
 /**
@@ -420,6 +413,5 @@ export function vbscriptWorkerUsable(): boolean {
 /** Shuts the workers down. Called from deactivate. */
 export function disposeAnalysisWorkers(): void {
     jsWorker.dispose();
-    aspWorker.dispose();
     vbscriptWorker.dispose();
 }
