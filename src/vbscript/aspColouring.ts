@@ -23,8 +23,9 @@ import {
     SqlStringGroup, emitSqlTokensForGroup, TokenSink,
 } from './sqlTokens';
 import type * as A from './ast';
-import { lineAt, parsePage, serverObjects, symbolsOfPage, walkStatements, type FileSymbols } from './symbols';
+import { lineAt, serverObjects, symbolsOfPage, walkStatements, type FileSymbols } from './symbols';
 import { bindPage, rootOf } from './binder';
+import { ParseCache } from './parseCache';
 import {
     concatOperands, isConcat, isStringLiteral, statementExpressions, stringValue, walkExpression,
 } from './expressions';
@@ -56,18 +57,22 @@ export interface AspColouringResult {
 
 /** The page's own symbols followed by its includes', as completion sees them. */
 function withIncludes(own: FileSymbols, includes: FileSymbols): FileSymbols {
-    own.variables.push(...includes.variables);
-    own.constants.push(...includes.constants);
-    own.functions.push(...includes.functions);
-    own.comVariables.push(...includes.comVariables);
-    own.classes.push(...includes.classes);
-    return own;
+    return {
+        variables:    [...own.variables,    ...includes.variables],
+        constants:    [...own.constants,    ...includes.constants],
+        functions:    [...own.functions,    ...includes.functions],
+        comVariables: [...own.comVariables, ...includes.comVariables],
+        classes:      [...own.classes,      ...includes.classes],
+    };
 }
+
+/** The last parse of each page coloured, so colouring it again once its includes are read parses nothing. */
+const parsed = new ParseCache(8, 8_000_000);
 
 export function colourAspPage(request: AspColouringRequest): AspColouringResult {
     const { text: fullText, docPath } = request;
     // One parse for both the symbols and the SQL passes below.
-    const page = parsePage(fullText);
+    const page = parsed.parse(docPath, fullText);
     const allSymbols = withIncludes(symbolsOfPage(page, docPath), request.includeSymbols);
 
 
