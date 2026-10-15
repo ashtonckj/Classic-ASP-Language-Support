@@ -242,3 +242,19 @@ describe('embedded JS analysis — request handling', () => {
         assert.deepStrictEqual(after.spans, before.spans);
     });
 });
+
+// A browser puts each <form name="x"> on document; a page without one gets the
+// error, as it would fail in the browser too.
+describe('embedded JS — named forms on document', () => {
+    const errors = (page: string) => inProcess(page).diagnostics.filter(d => d.code === 2339).map(d => d.message);
+    const script = '<script>\nvar v = document.webform.forder.value.substring(1);\n</script>';
+
+    it('knows a form the page names, in markup or written by Response.Write', () => {
+        assert.deepStrictEqual(errors(`<form name="webform"><input name="forder"></form>\n${script}`), []);
+        assert.deepStrictEqual(errors(`<% Response.Write "<form name='webform'>" %>\n${script}`), []);
+    });
+
+    it('still reports a form the page does not have', () => {
+        assert.strictEqual(errors(script).length, 1);
+    });
+});

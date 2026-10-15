@@ -420,6 +420,16 @@ function buildPreamble(
         lines.push('}');
     }
 
+    // A browser puts every <form name="x"> on the page on document as
+    // document.x, as a .html file's JavaScript expects. Only names the page
+    // really has: a form it lacks is still an error, as it is in the browser.
+    const formNames = new Set([...content.matchAll(/<form\b[^>]*?\bname\s*=\s*["']?([A-Za-z_$][\w$]*)/gi)].map(m => m[1]));
+    if (formNames.size > 0) {
+        lines.push('interface Document {');
+        for (const formName of formNames) { lines.push(`    ${formName}: HTMLFormElement;`); }
+        lines.push('}');
+    }
+
     return { preamble: lines.join('\n') + '\n', exprSentinels };
 }
 
