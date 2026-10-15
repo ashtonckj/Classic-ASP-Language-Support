@@ -27,12 +27,12 @@ interface Analysis {
 }
 
 /** What the extension host itself would produce, with no worker involved. */
-function inProcess(text: string): Analysis {
+function inProcess(text: string, includeMarkup = ''): Analysis {
     const jsRanges = getJsBlockRanges(text);
     if (jsRanges.length === 0) { return { jsRanges: [], spans: [], diagnostics: [] }; }
 
     const svc = getJsLanguageService();
-    svc.loadPage(text);
+    svc.loadPage(text, undefined, includeMarkup);
     const inScript = (offset: number) => jsRanges.some(r => offset >= r.start && offset <= r.end);
 
     const classified = svc.getEncodedSemanticClassifications(0, text.length);
@@ -256,5 +256,14 @@ describe('embedded JS — named forms on document', () => {
 
     it('still reports a form the page does not have', () => {
         assert.strictEqual(errors(script).length, 1);
+    });
+
+    it('knows a form one of the includes writes', () => {
+        assert.deepStrictEqual(inProcess(script, '<form name="webform" method="post">').diagnostics.filter(d => d.code === 2339), []);
+    });
+
+    it('knows named images, embeds, objects and frames, each as its own type', () => {
+        const page = '<img name="logo"><iframe name="side"></iframe>\n<script>\nvar s = document.logo.src; var w = document.side.location.href; document.logo.nope;\n</script>';
+        assert.deepStrictEqual(errors(page).map(m => m.includes("'nope'")), [true]);
     });
 });

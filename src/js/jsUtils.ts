@@ -378,9 +378,14 @@ export function collectCrossFrameNames(
  * @param content   Raw ASP source text.
  * @param jsRanges  The page's JavaScript: <script> bodies and on…="" values.
  */
+const NAMED_ELEMENT_TYPES: Record<string, string> = {
+    form: 'HTMLFormElement', img: 'HTMLImageElement', embed: 'HTMLEmbedElement', object: 'HTMLObjectElement', iframe: 'Window',
+};
+
 function buildPreamble(
     content: string,
-    jsRanges: ReadonlyArray<{ start: number; end: number }>
+    jsRanges: ReadonlyArray<{ start: number; end: number }>,
+    includeMarkup = '',
 ): PreambleResult {
     const vbsConsts = collectVbsConsts(content);
     const exprSentinels = collectExprSentinels(content, jsRanges);
@@ -420,13 +425,18 @@ function buildPreamble(
         lines.push('}');
     }
 
-    // A browser puts every <form name="x"> on the page on document as
-    // document.x, as a .html file's JavaScript expects. Only names the page
-    // really has: a form it lacks is still an error, as it is in the browser.
-    const formNames = new Set([...content.matchAll(/<form\b[^>]*?\bname\s*=\s*["']?([A-Za-z_$][\w$]*)/gi)].map(m => m[1]));
-    if (formNames.size > 0) {
+    // A browser puts every named form, image, embed and object, and every
+    // named frame's window, on document as document.x. Only names the page and
+    // its includes really have: one it lacks is still an error, as in the browser.
+    const named = new Map<string, string>();
+    for (const m of (content + includeMarkup).matchAll(/<(form|img|embed|object|iframe)\b[^>]*?\bname\s*=\s*["']?([A-Za-z_$][\w$]*)/gi)) {
+        const type = NAMED_ELEMENT_TYPES[m[1].toLowerCase()];
+        // Two elements of one name are a collection in the browser.
+        named.set(m[2], named.has(m[2]) ? 'any' : type);
+    }
+    if (named.size > 0) {
         lines.push('interface Document {');
-        for (const formName of formNames) { lines.push(`    ${formName}: HTMLFormElement;`); }
+        for (const [name, type] of named) { lines.push(`    ${name}: ${type};`); }
         lines.push('}');
     }
 
@@ -497,12 +507,12 @@ export function substituteAspBlock(asp: string, sentinel: string | undefined): s
 // ─────────────────────────────────────────────────────────────────────────────
 // buildVirtualJsContent — public entry point
 // ─────────────────────────────────────────────────────────────────────────────
-export function buildVirtualJsContent(content: string, markup: PageMarkup = scanMarkup(content)): VirtualJsResult {
+export function buildVirtualJsContent(content: string, markup: PageMarkup = scanMarkup(content), includeMarkup = ''): VirtualJsResult {
     const handlers = new Set(markup.eventHandlers);
     const jsRanges = [...markup.scripts.filter(s => s.language === 'javascript'), ...handlers].sort((a, b) => a.start - b.start);
 
     // ── Pass 1: build preamble + sentinel map ────────────────────────────────
-    const { preamble, exprSentinels } = buildPreamble(content, jsRanges);
+    const { preamble, exprSentinels } = buildPreamble(content, jsRanges, includeMarkup);
 
     // ── Pass 2: build offset-preserving body ────────────────────────────────
     let body = '';
@@ -661,6 +671,7 @@ export class JsLanguageService {
     private          _preamble:        ts.IScriptSnapshot;
     private          _preambleVersion: number = 0;
     private          _page:            string | undefined;
+    private          _includeMarkup = '';
 
     /**
      * `cancellation` is asked during a long check; once it says yes, the call
@@ -734,13 +745,15 @@ export class JsLanguageService {
     /**
      * Loads the page `text`, unless it is the page loaded already: building
      * the virtual file reads the whole page, and every query asks with it.
-     * `markup` is its scanMarkup, when the caller has it.
+     * `markup` is its scanMarkup, when the caller has it; `includeMarkup` the
+     * named elements its includes write (see includeNamedElements).
      */
-    loadPage(text: string, markup?: PageMarkup): void {
-        if (text === this._page) { return; }
-        const { virtualContent, preamble } = buildVirtualJsContent(text, markup);
+    loadPage(text: string, markup?: PageMarkup, includeMarkup = ''): void {
+        if (text === this._page && includeMarkup === this._includeMarkup) { return; }
+        const { virtualContent, preamble } = buildVirtualJsContent(text, markup, includeMarkup);
         this.updateContent(virtualContent, preamble);
         this._page = text;
+        this._includeMarkup = includeMarkup;
     }
 
     /**

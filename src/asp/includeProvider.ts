@@ -245,6 +245,38 @@ function appendCachedIncludeSymbols(target: FileSymbols, fsPath: string, visited
 }
 
 /**
+ * The named forms, images, embeds, objects and frames a document's includes
+ * write, as their tags, so the page's JavaScript knows `document.myForm` when
+ * the form is in an include. Read from the cached include tree, and from each
+ * include once until an include changes.
+ */
+const _namedTagsByFile = new Map<string, string>();
+let _namedTagsEpoch = -1;
+const NAMED_TAG = /<(?:form|img|embed|object|iframe)\b[^>]*?\bname\s*=[^>]*>/gi;
+
+export function includeNamedElements(document: vscode.TextDocument): string {
+    if (document.languageId !== 'asp') { return ''; }
+    if (_namedTagsEpoch !== _includeSymbolEpoch) { _namedTagsByFile.clear(); _namedTagsEpoch = _includeSymbolEpoch; }
+    const tags: string[] = [];
+    const visited = new Set<string>();
+    const walk = (fsPath: string) => {
+        const key = pathKey(fsPath);
+        const cached = _includeSymbolCache.get(key);
+        if (visited.has(key) || !cached) { return; }
+        visited.add(key);
+        let fileTags = _namedTagsByFile.get(key);
+        if (fileTags === undefined) {
+            fileTags = (readIncludeText(fsPath) ?? '').match(NAMED_TAG)?.join('\n') ?? '';
+            _namedTagsByFile.set(key, fileTags);
+        }
+        if (fileTags) { tags.push(fileTags); }
+        cached.children.forEach(walk);
+    };
+    includeRoots(document).forEach(walk);
+    return tags.join('\n');
+}
+
+/**
  * A result kept per document version and include epoch (the include symbols
  * change without the document's version changing).
  *

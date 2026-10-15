@@ -48,6 +48,8 @@ export interface JsWorkerRequest {
     id:   number;
     /** The page, as it is now. */
     text: string;
+    /** The named elements the page's includes write, as tags. */
+    includeMarkup?: string;
     /** A question about the page; without one, the request is for its analysis. */
     query?: { method: JsQueryMethod; args: unknown[] };
 }
@@ -86,7 +88,7 @@ function analyse(request: JsWorkerRequest): JsAnalysisResult {
     if (jsRanges.length === 0 && markup.eventHandlers.length === 0) { return { id: request.id, jsRanges, spans: [], diagnostics: [], outline: [] }; }
 
     const svc = getJsLanguageService(cancellation);
-    svc.loadPage(request.text, markup);
+    svc.loadPage(request.text, markup, request.includeMarkup);
     // `end` is the `<` of `</script>`, a valid place for a token that abuts the
     // closing tag, so the test is inclusive at both ends.
     const inScript = (offset: number) => inRanges(jsRanges, offset, false);
@@ -146,7 +148,7 @@ function analyse(request: JsWorkerRequest): JsAnalysisResult {
 
 function answerQuery(request: JsWorkerRequest, query: NonNullable<JsWorkerRequest['query']>): JsQueryAnswer {
     const svc = getJsLanguageService(cancellation);
-    svc.loadPage(request.text);
+    svc.loadPage(request.text, undefined, request.includeMarkup);
     const call = svc[query.method] as (...args: unknown[]) => unknown;
     return { id: request.id, value: call.apply(svc, query.args) };
 }

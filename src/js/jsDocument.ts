@@ -10,6 +10,7 @@ import * as vscode from 'vscode';
 import type * as ts from 'typescript';
 import { textOf, zonesFor } from '../platform/documentState';
 import { queryEmbeddedJs } from '../workers/analysisClient';
+import { includeNamedElements } from '../asp/includeProvider';
 import type { JsQueryMethod } from '../workers/jsAnalysisWorker';
 import { VIRTUAL_FILENAME, type JsLanguageService } from './jsUtils';
 
@@ -32,7 +33,7 @@ export async function askJs<M extends JsQueryMethod>(
     token:    vscode.CancellationToken,
 ): Promise<ReturnType<JsLanguageService[M]> | undefined> {
     const version = document.version;
-    const answer = await queryEmbeddedJs(document.uri.toString(), textOf(document), method, args, token);
+    const answer = await queryEmbeddedJs(document.uri.toString(), textOf(document), method, args, token, includeNamedElements(document));
     return document.version === version && !token.isCancellationRequested ? answer : undefined;
 }
 

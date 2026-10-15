@@ -26,6 +26,7 @@
 
 import * as vscode from 'vscode';
 import { analyseEmbeddedJs } from '../workers/analysisClient';
+import { includeNamedElements } from '../asp/includeProvider';
 import { textOf } from '../platform/documentState';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -161,7 +162,7 @@ export class JsSemanticTokensProvider implements vscode.DocumentSemanticTokensPr
         // host is also where auto-close, indenting and suggestions run — so it
         // cannot be the thread that spends a second type-checking.
         const requestedVersion = document.version;
-        const analysis = await analyseEmbeddedJs(document.uri.toString(), fullText, token);
+        const analysis = await analyseEmbeddedJs(document.uri.toString(), fullText, token, includeNamedElements(document));
 
         if (!analysis || token.isCancellationRequested) { return undefined; }
 

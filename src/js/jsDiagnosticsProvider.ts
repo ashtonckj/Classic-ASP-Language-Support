@@ -17,6 +17,7 @@
 import * as vscode from 'vscode';
 import { CHECK_DELAY, createAspDiagnosticCollection, makeDiagnostic, watchAspDocuments } from '../platform/diagnostics';
 import { analyseEmbeddedJs } from '../workers/analysisClient';
+import { includeNamedElements } from '../asp/includeProvider';
 import { tsSeverityToVs } from './jsTsKinds';
 import { textOf, zonesFor } from '../platform/documentState';
 
@@ -48,7 +49,7 @@ async function getDiagnosticsForDocument(document: vscode.TextDocument): Promise
     // Type-checking the whole script block is the most expensive thing this
     // extension does, so it happens on a worker thread rather than on the
     // extension host — see jsAnalysisWorker.ts.
-    const analysis = await analyseEmbeddedJs(document.uri.toString(), fullText);
+    const analysis = await analyseEmbeddedJs(document.uri.toString(), fullText, undefined, includeNamedElements(document));
     if (!analysis) { return []; }
 
     return analysis.diagnostics

@@ -305,7 +305,7 @@ const jsWorker = new AnalysisWorker<Omit<JsWorkerRequest, 'id'>, JsAnalysisResul
     'JavaScript',
     path.join(__dirname, 'jsAnalysisWorker.js'),
     // Only an analysis is shared or kept: a query is asked when it is needed.
-    (a, b) => !a.query && !b.query && a.text === b.text,
+    (a, b) => !a.query && !b.query && a.text === b.text && a.includeMarkup === b.includeMarkup,
     // An empty answer is also what a failed analysis looks like, so it is not
     // kept: asking again is the only way to recover from that.
     result => 'jsRanges' in result && result.jsRanges.length > 0,
@@ -341,8 +341,10 @@ const vbscriptWorker = new AnalysisWorker<VbscriptInput, PageResult | AspColouri
  * `token` was cancelled, or the worker could not answer. Offsets in the result
  * are page offsets.
  */
-export function analyseEmbeddedJs(key: string, text: string, token?: vscode.CancellationToken): Promise<JsAnalysisResult | undefined> {
-    return jsWorker.request(key, { text }, token) as Promise<JsAnalysisResult | undefined>;
+export function analyseEmbeddedJs(
+    key: string, text: string, token?: vscode.CancellationToken, includeMarkup = '',
+): Promise<JsAnalysisResult | undefined> {
+    return jsWorker.request(key, { text, includeMarkup }, token) as Promise<JsAnalysisResult | undefined>;
 }
 
 /**
@@ -352,10 +354,10 @@ export function analyseEmbeddedJs(key: string, text: string, token?: vscode.Canc
  * cancelled, or the worker could not answer.
  */
 export async function queryEmbeddedJs<M extends JsQueryMethod>(
-    key: string, text: string, method: M, args: Parameters<JsLanguageService[M]>, token?: vscode.CancellationToken,
+    key: string, text: string, method: M, args: Parameters<JsLanguageService[M]>, token?: vscode.CancellationToken, includeMarkup = '',
 ): Promise<ReturnType<JsLanguageService[M]> | undefined> {
     // Keyed by kind, so a hover does not displace a completion, nor either an analysis.
-    const answer = await jsWorker.request(`${method}:${key}`, { text, query: { method, args } }, token) as JsQueryAnswer | undefined;
+    const answer = await jsWorker.request(`${method}:${key}`, { text, includeMarkup, query: { method, args } }, token) as JsQueryAnswer | undefined;
     return answer?.value as ReturnType<JsLanguageService[M]> | undefined;
 }
 
