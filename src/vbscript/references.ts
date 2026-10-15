@@ -16,16 +16,19 @@
  *              another page, with other includes, does not.
  *   member     declared in a Class. Reached from outside as `obj.name`, and
  *              nothing says what class `obj` is, so every `.name` counts, and
- *              so does a member of the same name in another class.
+ *              so does a member of the same name in another class. Except
+ *              where `obj` is an ASP object or a COM object the page created:
+ *              `Request.Form.Count` and `dict.Count` are never the class's.
  *
  * Imports no vscode APIs: the caller says how to read files and which files
  * include which, so the editor and the tests share it.
  */
 
 import type * as A from './ast';
-import { bindScriptScope, type Binding, type Declaration, type Scope } from './binder';
+import { bindScriptScope, rootOf, type Binding, type Declaration, type Scope } from './binder';
 import { buildScriptScope, type ScopeHost, type ScopeProblem } from './scriptScope';
-import { lineAt, type ParsedPage } from './symbols';
+import { lineAt, symbolsOfPage, type ParsedPage } from './symbols';
+import { ASP_OBJECT_NAMES } from '../constants/aspKeywords';
 import { pathKey } from '../core/paths';
 
 export type Target =
@@ -123,12 +126,6 @@ function sameTarget(a: Target, b: Target): boolean {
     return a.kind === b.kind && a.name === b.name && (a.kind !== 'local' || a.scope === (b as typeof a).scope);
 }
 
-function rootOf(scope: Scope): Scope {
-    let s = scope;
-    while (s.parent) { s = s.parent; }
-    return s;
-}
-
 const covers = (span: A.Span, offset: number) => span.start <= offset && offset <= span.end;
 
 /** What the name at `offset` of `file` refers to, or null when it names nothing the page declares. */
@@ -159,6 +156,36 @@ function siteAt(bound: BoundPage, file: string, span: A.Span, declaration: boole
     return { file, start, end, line, character: start - page.lineStarts[line], declaration };
 }
 
+/** Names whose members are never a class's: the ASP objects, and every COM object the pages create. */
+function foreignReceivers(bound: BoundPage): Set<string> {
+    const names = new Set(ASP_OBJECT_NAMES);
+    for (const [file, page] of bound.pages) {
+        for (const com of symbolsOfPage(page, file).comVariables) { names.add(com.name.toLowerCase()); }
+    }
+    return names;
+}
+
+/**
+ * The name a chain like `rs.Fields("a")` starts from: `rs`. Remembered per
+ * node, so the members of a chain thousands long are not each walked to its end.
+ */
+function receiverLookup(): (e: A.Expr) => string | undefined {
+    const known = new Map<A.Expr, string | undefined>();
+    return start => {
+        const walked: A.Expr[] = [];
+        let e: A.Expr | null = start;
+        let name: string | undefined;
+        while (e) {
+            if (known.has(e)) { name = known.get(e); break; }
+            walked.push(e);
+            if (e.kind === 'Ident') { name = e.name.name; break; }
+            e = e.kind === 'Member' ? e.object : e.kind === 'Call' ? e.callee : null;
+        }
+        for (const w of walked) { known.set(w, name); }
+        return name;
+    };
+}
+
 /** Every place `target` is written in one binding. */
 export function sitesIn(bound: BoundPage, target: Target): Site[] {
     const { binding } = bound;
@@ -174,8 +201,13 @@ export function sitesIn(bound: BoundPage, target: Target): Site[] {
         }
     }
     if (target.kind === 'member') {
+        const foreign = foreignReceivers(bound);
+        const receiver = receiverLookup();
         for (const m of binding.members) {
-            if (m.name === target.name && rootOf(m.scope) === binding.scopes[0]) { add(m.file, m.span, false); }
+            if (m.name !== target.name || rootOf(m.scope) !== binding.scopes[0]) { continue; }
+            const from = m.object && receiver(m.object);
+            if (from && foreign.has(from)) { continue; }
+            add(m.file, m.span, false);
         }
     }
     return sites;

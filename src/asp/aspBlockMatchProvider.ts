@@ -21,15 +21,10 @@ interface BlockPair {
 // warnings can never disagree about how a file's blocks nest.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Cached by document version. A rescan reads the whole file, so it must never
-// be asked for on every keystroke — onDidChangeTextEditorSelection fires
-// once per cursor move, and a `type` command moves the cursor AND bumps the
-// version in the same tick, so naively rescanning there added a synchronous
-// full-document scan to every character typed anywhere in an .asp file. That
-// was enough to starve other listeners on the same event loop turn (a real,
-// observed regression in this extension's own auto-close-tag handler under
-// load) for a highlight nobody was even looking at yet. The 200ms debounce
-// below mirrors highlight.ts's own region-tint rescan for the same reason.
+// Cached by document version. A rescan asks the VBScript worker to read the
+// whole page, so it waits for a pause in typing (the debounce below, as
+// highlight.ts does for the region tint) rather than running on every cursor
+// move: onDidChangeTextEditorSelection fires once per character typed.
 interface PairCache { version: number; pairs: BlockPair[]; }
 const _pairCache = new Map<string, PairCache>();
 

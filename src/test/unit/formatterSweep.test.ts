@@ -16,7 +16,7 @@ import { testSettings } from './_vscodeStub';
 // adjacent blocks, which only appears when a block follows another with nothing
 // between them.
 //
-// Four properties are checked, and each has caught a real defect:
+// Five properties are checked, and each has caught a real defect:
 //
 //   * it settles in ONE pass. `format(format(x)) === format(x)`. A formatter
 //     that does not converge is losing, duplicating or re-deciding something,
@@ -28,6 +28,9 @@ import { testSettings } from './_vscodeStub';
 //   * the ASP survives. Every non-whitespace character inside `<% … %>` must
 //     still be there afterwards — the one property that catches losing code
 //     rather than merely mis-indenting it.
+//   * the page survives. For a generated page, every non-whitespace character
+//     outside the ASP too: a `;` added to a script, a quote swapped, text lost.
+//     And the text of a <pre> or <textarea>, whitespace included, everywhere.
 //   * it does not throw.
 //
 // Both htmlIndentMode values are swept, because they take different paths
@@ -52,7 +55,19 @@ const WRAPPERS = [
     '<table><thead><tr><th>|</th></tr></thead></table>',
     '<blockquote>|</blockquote>',
     '<b>|</b>',
+    // Where the block is code, a value or rendered as written.
+    '<script>|</script>',
+    '<style>|</style>',
+    "<script>var s = '|';</script>",
+    '<pre>|</pre>',
+    '<div><pre>|</pre></div>',
+    '<textarea>|</textarea>',
+    '<a href=|>x</a>',
+    "<div title='|'>x</div>",
 ];
+
+/** Unquoted, a value ends at whitespace or a tag, so text holding either would be a different page. */
+const UNQUOTED = '<a href=|>x</a>';
 
 const BLOCKS = [
     '<% If a Then %>y<% End If %>',
@@ -92,6 +107,26 @@ function aspSignature(source: string): string {
 }
 
 /**
+ * The whole page without its whitespace, with the ASP lowercased. Prettier
+ * would change a page of plain HTML too — quotes, `/>` on void elements — but
+ * the generated pages are written the way it writes them, so what is left to
+ * change is what the page renders or runs.
+ */
+function pageSignature(source: string): string {
+    return source.replace(/<%[\s\S]*?%>/g, block => block.toLowerCase()).replace(/\s+/g, '');
+}
+
+/**
+ * The text of every <pre> and <textarea>, which renders as written, its ASP
+ * compared as aspSignature does. A newline straight after the tag is not
+ * rendered, so it is dropped.
+ */
+function verbatimText(source: string): string[] {
+    return [...source.matchAll(/<(pre|textarea)>\n?([\s\S]*?)<\/\1>/g)]
+        .map(m => m[2].replace(/<%[\s\S]*?%>/g, block => block.replace(/\s+/g, '').toLowerCase()));
+}
+
+/**
  * How many blank lines the text contains.
  *
  * The final newline is dropped first. Splitting `"a\n"` yields a trailing empty
@@ -108,6 +143,7 @@ function combinations(): string[] {
     for (const wrapper of WRAPPERS) {
         for (const block of BLOCKS) {
             for (const lead of LEADS) {
+                if (wrapper === UNQUOTED && /[\s<>]/.test((lead + block).replace(/<%[\s\S]*?%>/g, ''))) { continue; }
                 pages.push(wrapper.replace('|', lead + block) + '\n');
             }
         }
@@ -115,8 +151,8 @@ function combinations(): string[] {
     return pages;
 }
 
-/** Runs the four checks over one page, returning a reason when it fails. */
-async function check(page: string): Promise<string | undefined> {
+/** Runs the checks over one page, returning a reason when it fails; `whole` compares the whole page, not only its ASP. */
+async function check(page: string, whole = false): Promise<string | undefined> {
     let once: string;
     try {
         once = await formatCompleteAspFile(page);
@@ -143,6 +179,12 @@ async function check(page: string): Promise<string | undefined> {
     if (aspSignature(once) !== aspSignature(page)) {
         return `changed the ASP\n    was: ${aspSignature(page)}\n    now: ${aspSignature(once)}`;
     }
+    if (whole && pageSignature(once) !== pageSignature(page)) {
+        return `changed the page\n    was: ${pageSignature(page)}\n    now: ${pageSignature(once)}`;
+    }
+    if (JSON.stringify(verbatimText(once)) !== JSON.stringify(verbatimText(page))) {
+        return `changed rendered text\n    was: ${JSON.stringify(verbatimText(page))}\n    now: ${JSON.stringify(verbatimText(once))}`;
+    }
     return undefined;
 }
 
@@ -168,7 +210,7 @@ describe('formatter sweep — generated combinations', () => {
             const pages    = combinations();
             const failures: Array<[string, string]> = [];
             for (const page of pages) {
-                const reason = await check(page);
+                const reason = await check(page, true);
                 if (reason) { failures.push([page, reason]); }
             }
             report(failures, pages.length);

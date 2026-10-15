@@ -1,15 +1,30 @@
 import * as vscode from 'vscode';
-import { buildCssDoc, getInlineStyleContext, buildInlineCssDoc, cssLanguageService } from './cssUtils';
+import type { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocument';
+import { buildInlineCssDoc, cssLanguageService, inlineDocOffset, inlinePageOffset, styleAttributeAt } from './cssUtils';
+import { getParsedCssBlockAt } from './cssPageStylesheet';
 import { textOf, zonesFor } from '../platform/documentState';
 import { fromLspCompletion, type LspCompletionItem } from '../platform/lspConvert';
 
 /**
- * The CSS service's items as VS Code's, for a <style> block and an inline
- * style alike. Their ranges are left out: an inline style is read from a
- * document built around it, whose positions are not the page's.
+ * The CSS service's items as VS Code's, each replacing the range the service
+ * gave it — `background-co` whole, though the editor's word stops at the `-` —
+ * moved from the document built around the CSS onto the page.
  */
-function convertItems(lsItems: LspCompletionItem[]): vscode.CompletionItem[] {
-    return lsItems.map(item => fromLspCompletion(item, { kind: vscode.CompletionItemKind.Property }));
+function convertItems(
+    document: vscode.TextDocument, cssDoc: LsTextDocument, lsItems: LspCompletionItem[], toPage: (cssOffset: number) => number,
+): vscode.CompletionItem[] {
+    return lsItems.map(item => {
+        const converted = fromLspCompletion(item, { kind: vscode.CompletionItemKind.Property });
+        const edit = item.textEdit;
+        if (edit) {
+            const range = 'range' in edit ? edit.range : edit.replace;
+            converted.range = new vscode.Range(
+                document.positionAt(toPage(cssDoc.offsetAt(range.start))),
+                document.positionAt(toPage(cssDoc.offsetAt(range.end))),
+            );
+        }
+        return converted;
+    });
 }
 
 export class CssCompletionProvider implements vscode.CompletionItemProvider {
@@ -21,47 +36,26 @@ export class CssCompletionProvider implements vscode.CompletionItemProvider {
     ): vscode.CompletionItem[] {
         const fullText = textOf(document);
         const offset = document.offsetAt(position);
-        const zone = zonesFor(document).zoneAt(offset);
+        const zones = zonesFor(document);
 
         // ── Inline style="" attribute ──────────────────────────────────────────
-        // Run inline detection for html, asp, and js zones — style="" can appear anywhere in the HTML markup regardless of what other zones are nearby.
-        // Crucially we do NOT run this for the css zone (inside <style> blocks) because style="" never appears inside a <style> block.
-        if (zone !== 'css') {
-            const inlineCtx = getInlineStyleContext(fullText, offset);
-            if (inlineCtx) {
-                const lsDoc = buildInlineCssDoc(
-                    document.uri.toString(),
-                    fullText,
-                    document.version,
-                    inlineCtx.valueStart,
-                    inlineCtx.valueEnd
-                );
-
-                const stylesheet = cssLanguageService().parseStylesheet(lsDoc);
-                // Use the wrapped offset so the CSS service knows where we are inside the fake "* { ... }" ruleset
-                const lsPosition = lsDoc.positionAt(inlineCtx.wrappedOffset);
-                const lsItems = cssLanguageService().doComplete(lsDoc, lsPosition, stylesheet).items;
-
-                // For inline styles, filter out suggestions that only make sense inside a full stylesheet (e.g. @media, selectors)
-                const filtered = lsItems.filter(item => {
-                    const label = typeof item.label === 'string' ? item.label : (item.label as any).label;
-                    return !label.startsWith('@') && !label.startsWith('.');
-                });
-
-                return convertItems(filtered);
-            }
+        const value = styleAttributeAt(zones, offset);
+        if (value) {
+            const lsDoc = buildInlineCssDoc(document.uri.toString(), fullText, document.version, value.start, value.end);
+            const stylesheet = cssLanguageService().parseStylesheet(lsDoc);
+            const lsPosition = lsDoc.positionAt(inlineDocOffset(value.start, offset));
+            const lsItems = cssLanguageService().doComplete(lsDoc, lsPosition, stylesheet).items;
+            return convertItems(document, lsDoc, lsItems, o => inlinePageOffset(value.start, o));
         }
 
         // ── <style> block ──────────────────────────────────────────────────────
-        if (zone !== 'css') return [];
+        if (zones.zoneAt(offset) !== 'css') return [];
 
-        const lsDoc = buildCssDoc(document.uri.toString(), fullText, document.version, offset);
-        if (!lsDoc) return [];
+        const block = getParsedCssBlockAt(document, offset);
+        if (!block) return [];
 
-        const stylesheet = cssLanguageService().parseStylesheet(lsDoc);
-        const lsPosition = lsDoc.positionAt(offset);
-        const lsItems = cssLanguageService().doComplete(lsDoc, lsPosition, stylesheet).items;
-
-        return convertItems(lsItems);
+        const lsPosition = block.cssDoc.positionAt(offset - block.range.start);
+        const lsItems = cssLanguageService().doComplete(block.cssDoc, lsPosition, block.stylesheet).items;
+        return convertItems(document, block.cssDoc, lsItems, o => o + block.range.start);
     }
 }

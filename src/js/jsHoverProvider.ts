@@ -4,40 +4,30 @@
  * Hover info for symbols inside <script> blocks, laid out like VS Code's own
  * JavaScript hover: the signature in a typescript code block, then the docs.
  * Node.js declarations never show up, because jsUtils leaves out @types/node.
- *
- * TypeScript answers in the virtual file, which starts with a preamble, so the
- * caret offset goes in shifted by preambleLength and the span comes back
- * shifted the other way before it becomes a Range.
  */
 
 import * as vscode from 'vscode';
-import { jsQueryAt, jsRange } from './jsDocument';
+import { askJs, jsDocMarkdown, jsOffsetAt, jsRange } from './jsDocument';
 import { VIRTUAL_FILENAME } from './jsUtils';
 
 export class JsHoverProvider implements vscode.HoverProvider {
 
-    provideHover(
+    async provideHover(
         document: vscode.TextDocument,
         position: vscode.Position,
         token:    vscode.CancellationToken
-    ): vscode.ProviderResult<vscode.Hover> {
+    ): Promise<vscode.Hover | undefined> {
 
-        const query = jsQueryAt(document, position);
-        if (!query || token.isCancellationRequested) { return undefined; }
-        const { svc, virtualOffset, preambleLength } = query;
+        const offset = jsOffsetAt(document, position);
+        if (offset === undefined) { return undefined; }
 
-        const info = svc.getQuickInfo(virtualOffset);
-        if (!info || token.isCancellationRequested) { return undefined; }
+        const info = await askJs(document, 'getQuickInfo', [offset], token);
+        if (!info) { return undefined; }
 
         const displayText = info.displayParts?.map(p => p.text).join('') ?? '';
-        const docsText    = info.documentation?.map(p => p.text).join('') ?? '';
-        const tagsText    = info.tags?.map(tag => {
-            const name    = tag.name;
-            const tagBody = tag.text?.map(p => p.text).join('') ?? '';
-            return tagBody ? `*@${name}* — ${tagBody}` : `*@${name}*`;
-        }).join('\n\n') ?? '';
+        const docs        = jsDocMarkdown(info.documentation, info.tags);
 
-        if (!displayText && !docsText) { return undefined; }
+        if (!displayText && !docs) { return undefined; }
 
         // Format exactly like VS Code's built-in JS hover:
         //   ```typescript
@@ -45,12 +35,10 @@ export class JsHoverProvider implements vscode.HoverProvider {
         //   ```
         //   Documentation text here.
         const md = new vscode.MarkdownString('', true);
-        md.isTrusted = true;
         if (displayText) { md.appendCodeblock(displayText, 'typescript'); }
-        if (docsText)    { md.appendMarkdown(docsText); }
-        if (tagsText)    { md.appendMarkdown('\n\n' + tagsText); }
+        if (docs)        { md.appendMarkdown(docs); }
 
-        const range = info.textSpan && jsRange(document, preambleLength, VIRTUAL_FILENAME, info.textSpan);
+        const range = info.textSpan && jsRange(document, VIRTUAL_FILENAME, info.textSpan);
         return new vscode.Hover(md, range);
     }
 }

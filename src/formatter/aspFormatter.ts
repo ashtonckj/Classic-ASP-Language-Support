@@ -1,8 +1,8 @@
-import { codeWithoutStrings, splitCodeAndComment, vbStatements, vbStringSegments } from '../core/vbLexical';
+import { codeWithoutStrings, endsWithContinuation, splitCodeAndComment, vbStatements, vbStringSegments } from '../core/vbLexical';
 import type { FormatterSettings, PrettierSettings } from '../platform/settings';
 import { ASP_MEMBER_DOCS, VBSCRIPT_BARE_FUNCTIONS, VBSCRIPT_FUNCTIONS } from '../constants/aspKeywords';
 import { getStringAlignColumn, isBlockOpener, VBSCRIPT_BLOCK_CLOSERS } from '../vbscript/indentRules';
-import { parsePage } from '../vbscript/symbols';
+import type { ParsedPage } from '../vbscript/symbols';
 import { bindPage } from '../vbscript/binder';
 
 // ─── Settings ──────────────────────────────────────────────────────────────
@@ -26,8 +26,8 @@ export interface AspFormatterSettings {
  * variable (Type mismatch), and after `Function Len(s)`, `Len("abc")` calls
  * the page's function. The formatter leaves those names as the author wrote them.
  */
-export function pageNames(code: string): Set<string> {
-    const binding = bindPage('', parsePage(code));
+export function pageNames(parsed: ParsedPage): Set<string> {
+    const binding = bindPage('', parsed);
     const page = binding.scopes[0];
     return new Set(binding.declarations.filter(d => d.scope === page && !d.implicit).map(d => d.name));
 }
@@ -315,7 +315,7 @@ function formatMultiLineAspBlock(
                 formattedLines.push(
                     continuationIndent(continuationAlignCol, baseLevel, aspIndentLevel, settings) + trimmed);
 
-                if (!trimmed.trimEnd().endsWith('_')) {
+                if (!endsWithContinuation(trimmed)) {
                     prevHadContinuation = false;
                     inMultilineString   = false;
                     isInSQLBlock        = false;
@@ -335,7 +335,7 @@ function formatMultiLineAspBlock(
                     continuationIndent(continuationAlignCol, baseLevel, aspIndentLevel, settings) + trimmed);
             }
 
-            if (!trimmed.trimEnd().endsWith('_')) {
+            if (!endsWithContinuation(trimmed)) {
                 prevHadContinuation = false;
                 inMultilineString   = false;
                 isInSQLBlock        = false;
@@ -492,7 +492,7 @@ function updateContinuationState(
     state:         ContinuationState,
     setState:      (v: ContinuationState) => void,
 ): void {
-    if (formattedLine.trimEnd().endsWith('_')) {
+    if (endsWithContinuation(formattedLine)) {
         const col   = calcContinuationColumn(formattedLine, aspIndent);
         const isSql = isSQLStatement(formattedLine);
         setState({
@@ -657,21 +657,23 @@ export const KEYWORDS_SORTED: string[] = [
     'response', 'request', 'server', 'session', 'application',
 ].sort((a, b) => b.length - a.length);
 
-// Pre-compile all regexes once at module load.
-// A key may span words, the way the keyword regexes already allow, so a
-// multi-word form can override the generic title-caser — `On Error GoTo 0`
-// would otherwise come back out as `On Error Goto 0`.
-const PROPER_CASING_REGEXES = Object.entries(PROPER_CASING_MAP).map(([lower, proper]) => ({
-    re: new RegExp('\\b' + lower.replace(/\s+/g, '\\s+') + '\\b', 'gi'),
-    replacement: proper,
-}));
+/** One alternation of `words`, longest first so `end if` wins over `end`; a space matches any run of whitespace. */
+function anyOf(words: string[]): string {
+    return '(?:' + [...words].sort((a, b) => b.length - a.length).map(w => w.replace(/\s+/g, '\\s+')).join('|') + ')';
+}
+
+/** The lower-cased word with its whitespace runs as single spaces — a casing map's key. */
+const keyOf = (word: string) => word.toLowerCase().replace(/\s+/g, ' ');
+
+// One regex per table rather than one per word: casing ran hundreds of
+// replaces over every piece of code. A key may span words, so a multi-word
+// form can override the generic title-caser — `On Error GoTo 0` would
+// otherwise come back out as `On Error Goto 0`.
+const PROPER_CASING_RE = new RegExp('\\b' + anyOf(Object.keys(PROPER_CASING_MAP)) + '\\b', 'gi');
 
 // Anchored on a preceding dot, so only a member access is touched. `rs.MoveNext`
 // is cased; `Dim movenext` is the author's variable and is left alone.
-const MEMBER_CASING_REGEXES = Object.entries(MEMBER_CASING_MAP).map(([lower, proper]) => ({
-    re: new RegExp('(?<=\\.)' + lower + '\\b', 'gi'),
-    replacement: proper,
-}));
+const MEMBER_CASING_RE = new RegExp('(?<=\\.)' + anyOf(Object.keys(MEMBER_CASING_MAP)) + '\\b', 'gi');
 
 // Longest first, so ScriptEngineMajorVersion is not read as ScriptEngine.
 const FUNCTION_NAME_RE = new RegExp(
@@ -719,10 +721,10 @@ function caseFunctions(
 
 const HANDLED_KEYWORDS = new Set(Object.keys(PROPER_CASING_MAP));
 
-const KEYWORD_REGEXES = KEYWORDS_SORTED.map(kw => ({
-    kw,
-    re: new RegExp('\\b' + kw.replace(/\s+/g, '\\s+') + '\\b', 'gi'),
-}));
+const KEYWORD_RE = new RegExp('\\b' + anyOf(KEYWORDS_SORTED) + '\\b', 'gi');
+// Only PascalCase has an exact form for these (ElseIf, ReDim, ByVal); in the
+// other modes they are cased like the rest.
+const PASCAL_KEYWORD_RE = new RegExp('\\b' + anyOf(KEYWORDS_SORTED.filter(kw => !HANDLED_KEYWORDS.has(kw))) + '\\b', 'gi');
 
 export function applyKeywordCase(code: string, caseStyle: string, ownNames?: ReadonlySet<string>): string {
     // Split off a trailing VBScript comment FIRST — keyword casing and operator/
@@ -747,12 +749,8 @@ function applyKeywordCaseToText(
     let result = text;
 
     if (caseStyle === 'PascalCase') {
-        for (const { re, replacement } of PROPER_CASING_REGEXES) {
-            result = result.replace(re, replacement);
-        }
-        for (const { re, replacement } of MEMBER_CASING_REGEXES) {
-            result = result.replace(re, replacement);
-        }
+        result = result.replace(PROPER_CASING_RE, m => PROPER_CASING_MAP[keyOf(m)]);
+        result = result.replace(MEMBER_CASING_RE, m => MEMBER_CASING_MAP[keyOf(m)]);
         result = caseFunctions(result, first, last, ownNames, name => VBSCRIPT_FUNCTIONS_MAP[name.toLowerCase()]);
     } else {
         // The built-in functions follow the chosen case like every other
@@ -761,23 +759,15 @@ function applyKeywordCaseToText(
         result = caseFunctions(result, first, last, ownNames, name => formatKeyword(name, caseStyle));
     }
 
-    for (const { kw, re } of KEYWORD_REGEXES) {
-        // Only PascalCase has an exact form for these (ElseIf, ReDim, ByVal);
-        // in the other modes they are cased like the rest.
-        if (caseStyle === 'PascalCase' && HANDLED_KEYWORDS.has(kw.toLowerCase())) continue;
-        result = result.replace(re, m => formatKeyword(m, caseStyle));
-    }
-
-    return result;
+    return result.replace(caseStyle === 'PascalCase' ? PASCAL_KEYWORD_RE : KEYWORD_RE, m => formatKeyword(m, caseStyle));
 }
 
 function formatKeyword(keyword: string, caseStyle: string): string {
     switch (caseStyle) {
         case 'lowercase': return keyword.toLowerCase();
         case 'UPPERCASE': return keyword.toUpperCase();
-        default: return keyword.split(' ')
-            .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-            .join(' ');
+        // Every word, whatever separates them: `End<tab>If` is matched whole now, not as `End` then `If`.
+        default: return keyword.replace(/\S+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
     }
 }
 
@@ -833,6 +823,17 @@ function splitOpaque(code: string): Array<{ text: string; opaque: boolean }> {
                 flush();
                 parts.push({ text: m[0], opaque: true });
                 i += m[0].length;
+                continue;
+            }
+        }
+
+        // A bracketed identifier [a/b] is a name, whatever characters it holds.
+        if (ch === '[') {
+            const end = code.indexOf(']', i + 1);
+            if (end !== -1) {
+                flush();
+                parts.push({ text: code.slice(i, end + 1), opaque: true });
+                i = end + 1;
                 continue;
             }
         }

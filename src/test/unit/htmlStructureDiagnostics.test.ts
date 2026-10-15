@@ -79,6 +79,18 @@ describe('scanHtmlStructure — a bare < in body text', () => {
     });
 });
 
+// The tags are read the way the zones, the formatter's tag ends and the HTML
+// service read them, so a quote ASP writes into an attribute is not the value's.
+describe('scanHtmlStructure — ASP inside an attribute value', () => {
+    it("does not end the value at a quote inside the ASP", () => {
+        assert.deepStrictEqual(messages(`<div title='<%= "it's" %>'>x</div>\n`), []);
+    });
+
+    it('does not read a tag in an ASP string or a comment', () => {
+        assert.deepStrictEqual(messages('<!-- <div> -->\n<% s = "</div>" %>\n<p>x</p>\n'), []);
+    });
+});
+
 // Each branch of an If opening its own copy of a wrapper, or a tag whose
 // partner Response.Write writes, is valid ASP; read top to bottom it looks
 // unbalanced. Only one branch runs, so the branches are read as alternatives.

@@ -7,6 +7,7 @@ import {
     pageNames,
     type AspFormatterSettings,
 } from '../../formatter/aspFormatter';
+import { parsePage } from '../../vbscript/symbols';
 
 const DEFAULT_SETTINGS: AspFormatterSettings = {
     keywordCase: 'PascalCase',
@@ -97,7 +98,7 @@ describe('applyKeywordCase — a function name is cased only where it is the fun
     // cscript: after a page-level `Dim hex`, `hex(255)` is the variable (Type
     // mismatch), and after `Function Len(s)`, `Len("abc")` calls the page's own.
     it('leaves a call alone when the page declares the name itself', () => {
-        const own = pageNames('<%\nDim hex\nFunction len(s)\n  Dim day\nEnd Function\nx = 1\n%>');
+        const own = pageNames(parsePage('<%\nDim hex\nFunction len(s)\n  Dim day\nEnd Function\nx = 1\n%>'));
         assert.deepStrictEqual([...own].sort(), ['hex', 'len']);
         assert.strictEqual(applyKeywordCase('x = hex(255) & len(s) & day(now)', 'PascalCase', own), 'x = hex(255) & len(s) & Day(Now)');
     });
@@ -142,6 +143,10 @@ describe('applyKeywordCase — numeric / date literals', () => {
     it('does not break a #..# date literal', () => {
         const out = applyKeywordCase('d = #12/25/2024#', 'PascalCase');
         assert.ok(out.includes('#12/25/2024#'), `date literal must stay intact; got ${JSON.stringify(out)}`);
+    });
+
+    it('does not space the characters inside a [bracketed] identifier', () => {
+        assert.strictEqual(applyKeywordCase('x = [a/b]+[c-d,e]', 'PascalCase'), 'x = [a/b] + [c-d,e]');
     });
 
     it('still spaces a genuine & concatenation operator', () => {
@@ -381,6 +386,11 @@ describe('formatMultiLineAspBlock — a continuation that also closes the block'
         // statement indenter moved the level as well as the column.
         const out = formatSingleAspBlock('<% If a And _\n   b Then %>', settings, '', 0);
         assert.strictEqual(out.formatted, '<%\nIf a And _\n  b Then\n%>');
+    });
+
+    it('does not read a comment ending in _ as a continuation', () => {
+        const out = formatSingleAspBlock("<%\nx = 1 ' trailing_\ny = 2\n%>", settings, '', 0);
+        assert.strictEqual(out.formatted, "<%\nx = 1 ' trailing_\ny = 2\n%>");
     });
 
     it('keeps a multi-part SQL concatenation aligned', () => {

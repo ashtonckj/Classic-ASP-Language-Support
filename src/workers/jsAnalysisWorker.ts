@@ -1,21 +1,23 @@
 /**
  * jsAnalysisWorker.ts  (workers/)
  *
- * A worker thread that runs the JavaScript analysis that is recomputed after
- * every edit whether or not the user asked for anything: semantic
- * classification (type-aware colouring), semantic/syntactic diagnostics (the
- * error squiggles), and the Outline, read off the syntax tree the first two
- * have already parsed.
+ * The one TypeScript service of the extension, on a worker thread, as VS
+ * Code's own HTML support keeps its JavaScript service in its language server.
+ * It answers two kinds of request about a page:
  *
- * Why these two and not the rest. TypeScript resolves types lazily, so a query
- * about ONE offset — a completion, a hover, a Go to Definition — only checks
- * what that offset depends on, and measured about a third of a whole-file pass.
- * These two are whole-file by definition and measured over a second each on a
- * 670 KB <script> block, on a thread that also has to run this extension's
- * auto-close, indent and suggestion handling. Moving the on-demand queries here
- * too would be worse, not better: this thread handles one job at a time, so a
- * completion would then have to wait behind a classification it has nothing to
- * do with. They stay on the extension host, where they are cheap and prompt.
+ *   • its analysis, recomputed after every edit whether or not the user asked
+ *     for anything: semantic classification (type-aware colouring),
+ *     semantic/syntactic diagnostics (the error squiggles), and the Outline,
+ *     read off the syntax tree the first two have already parsed;
+ *   • a query — completion, hover, signature help, definition, references,
+ *     highlights, rename, quick fixes — which is one JsLanguageService call,
+ *     named in the request, its answer posted back as TypeScript gives it.
+ *
+ * The analysis is whole-file and takes over a second on a 670 KB <script>;
+ * a query looks at one offset and takes tens of milliseconds. So a query never
+ * waits behind an analysis: the extension host sends it first, and stops the
+ * analysis under way through workerData.cancel, which the service's
+ * cancellation token reads (analysisClient re-sends the analysis after).
  *
  * Nothing here may import vscode — a worker thread has no access to it. That
  * is why jsUtils.ts holds no vscode import and the two enum mappings that did
@@ -23,19 +25,41 @@
  */
 
 import * as ts from 'typescript';
-import { buildVirtualJsContent, getJsLanguageService, VIRTUAL_FILENAME } from '../js/jsUtils';
+import { getJsLanguageService, VIRTUAL_FILENAME } from '../js/jsUtils';
 import { jsOutline, type JsOutlineSymbol } from '../js/jsOutline';
-import { getJsBlockRanges } from '../core/zoneUtils';
+import { inRanges, scanMarkup } from '../core/zoneUtils';
+import { workerData } from 'node:worker_threads';
 import { serveWorker, type WorkerAnswer } from './serveWorker';
 
-export interface JsAnalysisRequest {
+// Set to 1 by the extension host to stop the call under way (analysisClient).
+// Absent when this file is loaded outside a worker, as the tests do.
+const cancelFlag: Int32Array | undefined = workerData?.cancel;
+const cancellation: ts.HostCancellationToken = {
+    isCancellationRequested: () => cancelFlag !== undefined && Atomics.load(cancelFlag, 0) === 1,
+};
+
+/** The service calls a provider may ask for. */
+export type JsQueryMethod =
+    | 'getCompletions' | 'getCompletionDetails' | 'getQuickInfo' | 'getSignatureHelp'
+    | 'getDefinitions' | 'getReferences' | 'getDocumentHighlights'
+    | 'getRenameInfo' | 'findRenameLocations' | 'getCodeFixes';
+
+export interface JsWorkerRequest {
     id:   number;
+    /** The page, as it is now. */
     text: string;
+    /** A question about the page; without one, the request is for its analysis. */
+    query?: { method: JsQueryMethod; args: unknown[] };
+}
+
+/** What the service call in a query returned. */
+export interface JsQueryAnswer extends WorkerAnswer {
+    value?: unknown;
 }
 
 /** A ts.Diagnostic flattened to what survives being posted between threads. */
 export interface PlainJsDiagnostic {
-    /** Offset in VIRTUAL-file space, as TypeScript reports it. */
+    /** A page offset. */
     start:    number;
     length:   number;
     code:     number;
@@ -44,11 +68,11 @@ export interface PlainJsDiagnostic {
 }
 
 export interface JsAnalysisResult extends WorkerAnswer {
-    /** Empty when the document has no JavaScript at all. */
+    /** The <script> bodies; empty when the document has no JavaScript at all. */
     jsRanges: Array<{ start: number; end: number }>;
-    preambleLength: number;
-    /** Classification triples: [virtualOffset, length, encoded] × n. */
+    /** Classification triples: [offset, length, encoded] × n, inside the script only. */
     spans: number[];
+    /** Inside the script only. */
     diagnostics: PlainJsDiagnostic[];
     /** The Outline's entries, in page offsets. */
     outline: JsOutlineSymbol[];
@@ -56,26 +80,34 @@ export interface JsAnalysisResult extends WorkerAnswer {
     outlineError?: string;
 }
 
-function analyse(request: JsAnalysisRequest): JsAnalysisResult {
-    const empty: JsAnalysisResult = {
-        id: request.id, jsRanges: [], preambleLength: 0, spans: [], diagnostics: [], outline: [],
-    };
+function analyse(request: JsWorkerRequest): JsAnalysisResult {
+    const markup   = scanMarkup(request.text);
+    const jsRanges = markup.scripts.filter(s => s.language === 'javascript').map(({ start, end }) => ({ start, end }));
+    if (jsRanges.length === 0 && markup.eventHandlers.length === 0) { return { id: request.id, jsRanges, spans: [], diagnostics: [], outline: [] }; }
 
-    const jsRanges = getJsBlockRanges(request.text);
-    if (jsRanges.length === 0) { return empty; }
-
-    const { virtualContent, preambleLength } = buildVirtualJsContent(request.text, 0, jsRanges);
-
-    const svc = getJsLanguageService();
-    svc.updateContent(virtualContent);
+    const svc = getJsLanguageService(cancellation);
+    svc.loadPage(request.text, markup);
+    // `end` is the `<` of `</script>`, a valid place for a token that abuts the
+    // closing tag, so the test is inclusive at both ends.
+    const inScript = (offset: number) => inRanges(jsRanges, offset, false);
+    // An on…="" value is checked as VS Code's HTML support checks it: syntax
+    // only, as its service does not type-check JavaScript, and a `return` at
+    // the top of one is the handler's own (code 1108, which it ignores too).
+    const inHandler = (offset: number, code: number) => code !== 1108 && inRanges(markup.eventHandlers, offset, false);
 
     // Classification first: it builds the program and the type checker that the
     // diagnostics then reuse, so this order pays for the type-check once.
-    const classified = svc.getEncodedSemanticClassifications(0, virtualContent.length);
+    const classified = svc.getEncodedSemanticClassifications(0, request.text.length);
+    const spans: number[] = [];
+    for (let i = 0; i + 2 < classified.spans.length; i += 3) {
+        if (inScript(classified.spans[i])) { spans.push(classified.spans[i], classified.spans[i + 1], classified.spans[i + 2]); }
+    }
 
     const diagnostics: PlainJsDiagnostic[] = [];
-    for (const d of [...svc.getSyntacticDiagnostics(), ...svc.getSemanticDiagnostics()]) {
+    const syntactic = new Set<ts.Diagnostic>(svc.getSyntacticDiagnostics());
+    for (const d of [...syntactic, ...svc.getSemanticDiagnostics()]) {
         if (d.start === undefined || d.length === undefined) { continue; }
+        if (!inScript(d.start) && !(syntactic.has(d) && inHandler(d.start, d.code))) { continue; }
         diagnostics.push({
             start:    d.start,
             length:   d.length,
@@ -97,7 +129,7 @@ function analyse(request: JsAnalysisRequest): JsAnalysisResult {
     let outlineError: string | undefined;
     try {
         const sourceFile = svc.getProgram()?.getSourceFile(VIRTUAL_FILENAME);
-        if (sourceFile) { outline = jsOutline(ts, sourceFile, jsRanges, preambleLength); }
+        if (sourceFile) { outline = jsOutline(ts, sourceFile, jsRanges); }
     } catch (err) {
         outlineError = err instanceof Error ? err.stack ?? err.message : String(err);
     }
@@ -105,16 +137,34 @@ function analyse(request: JsAnalysisRequest): JsAnalysisResult {
     return {
         id: request.id,
         jsRanges,
-        preambleLength,
-        spans: Array.from(classified.spans),
+        spans,
         diagnostics,
         outline,
         outlineError,
     };
 }
 
-// Analysis is best-effort: a half-typed document that trips the parser must
-// cost this one refresh, not the worker.
-serveWorker<JsAnalysisRequest, JsAnalysisResult>(analyse, request => ({
-    id: request.id, jsRanges: [], preambleLength: 0, spans: [], diagnostics: [], outline: [],
-}));
+function answerQuery(request: JsWorkerRequest, query: NonNullable<JsWorkerRequest['query']>): JsQueryAnswer {
+    const svc = getJsLanguageService(cancellation);
+    svc.loadPage(request.text);
+    const call = svc[query.method] as (...args: unknown[]) => unknown;
+    return { id: request.id, value: call.apply(svc, query.args) };
+}
+
+/** The answer, or one marked `cancelled` when the host stopped the work. */
+function answer(request: JsWorkerRequest): JsAnalysisResult | JsQueryAnswer {
+    try {
+        return request.query ? answerQuery(request, request.query) : analyse(request);
+    } catch (error) {
+        if (!(error instanceof ts.OperationCanceledException)) { throw error; }
+        return { ...emptyAnswer(request), cancelled: true };
+    }
+}
+
+function emptyAnswer(request: JsWorkerRequest): JsAnalysisResult | JsQueryAnswer {
+    return request.query ? { id: request.id } : { id: request.id, jsRanges: [], spans: [], diagnostics: [], outline: [] };
+}
+
+// Best-effort: a half-typed document that trips the parser must cost this one
+// answer, not the worker.
+serveWorker<JsWorkerRequest, JsAnalysisResult | JsQueryAnswer>(answer, emptyAnswer);

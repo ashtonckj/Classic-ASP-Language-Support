@@ -11,23 +11,22 @@ import { SUPPRESSED_CODES } from '../../js/jsDiagnosticsProvider';
 // one separates statements, and a comment is not part of the value.
 describe('buildVirtualJsContent — VBScript Consts read by statement', () => {
     const preambleOf = (page: string) => {
-        const { virtualContent, preambleLength } = buildVirtualJsContent(page, page.indexOf('var y'));
-        return virtualContent.slice(0, preambleLength);
+        return buildVirtualJsContent(page).preamble;
     };
     const script = '\n<script>\nvar y = 1;\n</script>\n';
 
     it('keeps a colon inside a string literal', () => {
-        assert.ok(preambleOf('<% Const URL = "http://example.com/app" %>' + script).includes('var _asp_URL: string;'));
+        assert.ok(preambleOf('<% Const URL = "http://example.com/app" %>' + script).includes('declare var _asp_URL: string;'));
     });
     it('cuts the value at a statement-separating colon, and finds a Const after one', () => {
         const preamble = preambleOf('<% Const A = 1 : Const B = "x" %>' + script);
-        assert.ok(preamble.includes('var _asp_A: number;') && preamble.includes('var _asp_B: string;'), preamble);
+        assert.ok(preamble.includes('declare var _asp_A: number;') && preamble.includes('declare var _asp_B: string;'), preamble);
     });
     it('leaves a trailing comment out of the value', () => {
-        assert.ok(preambleOf("<% Const MAX = 10 ' the most %>" + script).includes('var _asp_MAX: number;'));
+        assert.ok(preambleOf("<% Const MAX = 10 ' the most %>" + script).includes('declare var _asp_MAX: number;'));
     });
     it('joins a line continued with _', () => {
-        assert.ok(preambleOf('<%\nConst NAME = _\n    "joined"\n%>' + script).includes('var _asp_NAME: string;'));
+        assert.ok(preambleOf('<%\nConst NAME = _\n    "joined"\n%>' + script).includes('declare var _asp_NAME: string;'));
     });
     it('reads no Const from an expression block or a commented-out line', () => {
         const preamble = preambleOf("<%= Const %>\n<%\n' Const OLD = 1\n%>" + script);
@@ -44,6 +43,16 @@ describe('substituteAspBlock — statement placeholder is terminated', () => {
         const out = substituteAspBlock('<% If x Then %>', undefined);
         assert.ok(out.startsWith('_asp;'), `should start with "_asp;"; got ${JSON.stringify(out)}`);
         assert.strictEqual(out.length, '<% If x Then %>'.length, 'width preserved');
+    });
+
+    // Without its line breaks, the JavaScript after the block joined the line of
+    // a `//` comment before it, and was read as part of the comment.
+    it('keeps every line break of a block written over several lines', () => {
+        const asp = '<%\r\nIf x Then\r\n%>';
+        const out = substituteAspBlock(asp, undefined);
+        assert.strictEqual(out.length, asp.length);
+        assert.strictEqual(out.split('\n').length, asp.split('\n').length);
+        assert.ok(out.includes('_asp;'), JSON.stringify(out));
     });
 
     it('leaves an expression block as a bare value (no semicolon)', () => {
@@ -93,16 +102,15 @@ describe('a <script> block ends at its first </script>', () => {
             const [first] = getJsBlockRanges(text);
             assert.strictEqual(first.end, text.indexOf('</script>'), 'the block closes on its own line');
 
-            const { virtualContent, preambleLength } = buildVirtualJsContent(text, 0);
             const svc = getJsLanguageService();
-            svc.updateContent(virtualContent);
+            svc.loadPage(text);
 
             const markupStart = script.length;
             const markupEnd   = script.length + markup.length;
             const onMarkup = [...svc.getSyntacticDiagnostics(), ...svc.getSemanticDiagnostics()]
                 .filter(d => d.start !== undefined
-                    && d.start - preambleLength >= markupStart
-                    && d.start - preambleLength < markupEnd);
+                    && d.start >= markupStart
+                    && d.start < markupEnd);
             assert.deepStrictEqual(onMarkup.map(d => d.code), [], 'no JS diagnostics on the HTML');
         });
     }
@@ -119,17 +127,17 @@ describe('the JS language service reuses its program for unchanged text', () => 
 
     it('keeps the same program when the same text is handed in again', () => {
         const svc = getJsLanguageService();
-        svc.updateContent(buildVirtualJsContent(page, 0).virtualContent);
+        svc.loadPage(page);
         const before = svc.getProgram();
-        svc.updateContent(buildVirtualJsContent(page, 0).virtualContent);
+        svc.updateContent(buildVirtualJsContent(page).virtualContent, buildVirtualJsContent(page).preamble);
         assert.strictEqual(svc.getProgram(), before);
     });
 
     it('builds a new program once the text changes', () => {
         const svc = getJsLanguageService();
-        svc.updateContent(buildVirtualJsContent(page, 0).virtualContent);
+        svc.loadPage(page);
         const before = svc.getProgram();
-        svc.updateContent(buildVirtualJsContent(page.replace('= 1', '= 2'), 0).virtualContent);
+        svc.loadPage(page.replace('= 1', '= 2'));
         assert.notStrictEqual(svc.getProgram(), before);
     });
 });
@@ -139,8 +147,22 @@ describe('the JS language service reuses its program for unchanged text', () => 
 describe('buildVirtualJsContent — a Const list', () => {
     it('declares each constant with its own type', () => {
         const page = '<% Const A = 1, B = "x, y" %>\n<script>\nvar y = 1;\n</script>\n';
-        const { virtualContent, preambleLength } = buildVirtualJsContent(page, page.indexOf('var y'));
-        const preamble = virtualContent.slice(0, preambleLength);
-        assert.ok(preamble.includes('var _asp_A: number;') && preamble.includes('var _asp_B: string;'), preamble);
+        const { preamble } = buildVirtualJsContent(page);
+        assert.ok(preamble.includes('declare var _asp_A: number;') && preamble.includes('declare var _asp_B: string;'), preamble);
+    });
+});
+
+// A page is not a module of the workspace, and hover must not show what is in a
+// file on disk just because a <script> names it.
+describe('the JS language service reads no file a page imports', () => {
+    after(() => { disposeJsLanguageService(); });
+
+    it('does not load the file an import names', () => {
+        const svc = getJsLanguageService();
+        const page = `<script>\nimport { leaked } from ${JSON.stringify(__filename)};\nleaked;\n</script>\n`;
+        svc.loadPage(page);
+        const program = svc.getProgram();
+        assert.ok(program, 'no program');
+        assert.ok(!program.getSourceFiles().some(f => f.fileName.toLowerCase().includes('jsembedded')), 'read the imported file');
     });
 });

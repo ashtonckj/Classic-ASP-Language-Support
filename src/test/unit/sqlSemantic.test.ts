@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { isSql } from '../../vbscript/sqlTokens';
+import { emitSqlTokensForGroup, isSql } from '../../vbscript/sqlTokens';
 
 // SQL-in-string detection must not light up plain English that happens to
 // contain SQL keywords, while still recognising real SQL (including UPDATE…SET
@@ -12,6 +12,8 @@ describe('isSql — precision vs recall', () => {
             'You can delete a file from the disk',
             'Insert a new line before the footer',
             'Update your profile and set a new password',
+            'Please select one from the list where possible',
+            'Daily total hours exceeds limit. Delete from Orders where needed',
         ]) {
             it(`rejects: ${s}`, () => assert.strictEqual(isSql(s), false));
         }
@@ -25,8 +27,81 @@ describe('isSql — precision vs recall', () => {
             'INSERT INTO users (name) VALUES (?)',
             'SELECT a.name FROM users a',                     // aliased column (a.name)
             'SELECT TOP 10 * FROM orders ORDER BY total DESC',
+            'EXEC sp_x 5',
+            'EXECUTE dbo.[Refresh Totals] @id',
+            'SELECT .5 * Price FROM t',
+            '  (SELECT a FROM t) UNION (SELECT b FROM u)',
+            'SELECT * FROM a INNER JOIN b ON a.id = b.id',
         ]) {
             it(`accepts: ${s}`, () => assert.strictEqual(isSql(s), true));
         }
+    });
+});
+
+// Words in a 'literal' or after a -- comment are data: 'Tom and Jerry' has no
+// AND in it, and a comment names no table.
+describe('emitSqlTokensForGroup — literals and comments', () => {
+    const coloured = (sql: string): string[] => {
+        const tokens: string[] = [];
+        const group = {
+            stitched: sql,
+            omLine: new Int32Array(sql.length),
+            omCol:  Int32Array.from({ length: sql.length }, (_, i) => i),
+        };
+        emitSqlTokensForGroup({ push: (_line, col, length) => { tokens.push(sql.slice(col, col + length)); } }, group);
+        return tokens;
+    };
+
+    it('colours nothing inside a quoted value', () => {
+        const words = coloured("SELECT id FROM t WHERE name = 'Tom and Jerry select from' AND d = '2020-01-01'");
+        assert.ok(words.includes('SELECT') && words.includes('AND'), JSON.stringify(words));
+        for (const inside of ['Tom', 'and', 'select', 'from', '2020', '01']) {
+            assert.ok(!words.includes(inside), `${inside} in ${JSON.stringify(words)}`);
+        }
+    });
+
+    it('colours nothing after a -- comment', () => {
+        const words = coloured('SELECT id FROM t -- where from comment');
+        assert.ok(!words.includes('where') && !words.includes('comment'), JSON.stringify(words));
+    });
+});
+
+// Many SQL words are also everyday column names. Each is coloured as SQL only
+// where it stands as SQL; anywhere else it is a name the theme leaves alone.
+describe('emitSqlTokensForGroup — a word is SQL by where it stands', () => {
+    const SQL_DML = 23;
+    const SQL_KEYWORD = 26;
+    const SQL_FUNC = 27;
+    const SQL_TYPE = 28;
+    /** The token type each coloured stretch of `sql` was given, by its text. */
+    const roles = (sql: string): Record<string, number> => {
+        const found: Record<string, number> = {};
+        const group = { stitched: sql, omLine: new Int32Array(sql.length), omCol: Int32Array.from({ length: sql.length }, (_, i) => i) };
+        emitSqlTokensForGroup({ push: (_line, col, length, type) => { found[sql.slice(col, col + length)] = type; } }, group);
+        return found;
+    };
+
+    it('leaves columns called Date, Text, Time, Open, Key, Index and View alone', () => {
+        const found = roles('SELECT Date, Text, Time, Open, Key, Index, View, COUNT(DISTINCT Date) FROM t ORDER BY Date');
+        for (const word of ['Date', 'Text', 'Time', 'Open', 'Key', 'Index', 'View']) {
+            assert.ok(!(word in found), `${word} coloured as ${found[word]}`);
+        }
+        assert.strictEqual(found.SELECT, SQL_DML);
+    });
+
+    it('colours a type where a type goes', () => {
+        const found = roles('CREATE TABLE t (id INT PRIMARY KEY, note TEXT); DECLARE @d DATE; SELECT CAST(x AS VARCHAR(10)), CONVERT(DATETIME, y) FROM u');
+        for (const word of ['INT', 'TEXT', 'DATE', 'VARCHAR', 'DATETIME']) {
+            assert.strictEqual(found[word], SQL_TYPE, word);
+        }
+        assert.strictEqual(found.KEY, SQL_KEYWORD);
+    });
+
+    it('reads a date part, LEFT and a function by their place', () => {
+        const found = roles('SELECT DATEADD(hour, 1, x) FROM t LEFT OUTER JOIN u ON t.id = u.id');
+        assert.strictEqual(found.hour, SQL_KEYWORD);
+        assert.strictEqual(found.DATEADD, SQL_FUNC);
+        assert.strictEqual(found.LEFT, SQL_DML);
+        assert.strictEqual(roles('SELECT LEFT(a, 2) FROM t').LEFT, SQL_FUNC);
     });
 });

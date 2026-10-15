@@ -1,5 +1,7 @@
 import * as assert from 'assert';
-import { aspTagProblems, getZone, findTagEnd, findNextRealTag, getVbScriptBlockRanges } from '../../core/zoneUtils';
+import { aspTagProblems, createZoneResolver, findTagEnd, findNextRealTag, getVbScriptBlockRanges } from '../../core/zoneUtils';
+
+const zoneAt = (text: string, offset: number) => createZoneResolver(text).zoneAt(offset);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ASP block-scanning is LEXICAL (verified against a live IIS/ASP engine):
@@ -16,17 +18,17 @@ import { aspTagProblems, getZone, findTagEnd, findNextRealTag, getVbScriptBlockR
 // accidentally make block-scanning string-aware.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('getZone — lexical ASP block boundaries', () => {
+describe('zones — lexical ASP block boundaries', () => {
     it('treats code before the first %> as the ASP zone', () => {
         const text = '<% x = "a%>b" %>';
-        assert.strictEqual(getZone(text, text.indexOf('x')), 'asp');
+        assert.strictEqual(zoneAt(text, text.indexOf('x')), 'asp');
     });
 
     it('treats a %> inside a string as closing the block (first %> wins)', () => {
         const text = '<% x = "a%>b" %>';
         // The `b` sits after the in-string %>, so the block has closed and `b`
         // is literal HTML output — the only ASP-correct answer.
-        assert.strictEqual(getZone(text, text.indexOf('b')), 'html');
+        assert.strictEqual(zoneAt(text, text.indexOf('b')), 'html');
     });
 
     it("matches the author's fahhh%> reproduction", () => {
@@ -40,22 +42,22 @@ describe('getZone — lexical ASP block boundaries', () => {
         ].join('\n');
 
         // `testing =` is inside the first block → asp.
-        assert.strictEqual(getZone(text, text.indexOf('testing =')), 'asp');
+        assert.strictEqual(zoneAt(text, text.indexOf('testing =')), 'asp');
 
         // The closing quote right after the in-string %> is already outside the
         // block (the block ended at that %>), so it is HTML.
         const afterInStringClose = text.indexOf('%>') + 2;
-        assert.strictEqual(getZone(text, afterInStringClose), 'html');
+        assert.strictEqual(zoneAt(text, afterInStringClose), 'html');
 
         // The later <%= … %> output expression is its own ASP block.
-        assert.strictEqual(getZone(text, text.indexOf('<%= testing') + 4), 'asp');
+        assert.strictEqual(zoneAt(text, text.indexOf('<%= testing') + 4), 'asp');
     });
 
     it('keeps a plain multi-line block fully in the ASP zone', () => {
         const text = '<%\nDim x\nx = 1\n%>\n<p>hi</p>';
-        assert.strictEqual(getZone(text, text.indexOf('Dim x')), 'asp');
-        assert.strictEqual(getZone(text, text.indexOf('x = 1')), 'asp');
-        assert.strictEqual(getZone(text, text.indexOf('<p>hi') + 1), 'html');
+        assert.strictEqual(zoneAt(text, text.indexOf('Dim x')), 'asp');
+        assert.strictEqual(zoneAt(text, text.indexOf('x = 1')), 'asp');
+        assert.strictEqual(zoneAt(text, text.indexOf('<p>hi') + 1), 'html');
     });
 });
 
@@ -64,30 +66,30 @@ describe('getZone — lexical ASP block boundaries', () => {
 // tags must be recognised regardless of case. See plan finding A9/A4.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('getZone — HTML tags are case-insensitive', () => {
+describe('zones — HTML tags are case-insensitive', () => {
     it('detects CSS inside an uppercase <STYLE> block', () => {
         const text = '<STYLE>\n.a { color: red; }\n</STYLE>';
-        assert.strictEqual(getZone(text, text.indexOf('color')), 'css');
+        assert.strictEqual(zoneAt(text, text.indexOf('color')), 'css');
     });
 
     it('ends the CSS zone at an uppercase </STYLE>', () => {
         const text = '<STYLE>.a{color:red}</STYLE><p>hi</p>';
-        assert.strictEqual(getZone(text, text.indexOf('hi')), 'html');
+        assert.strictEqual(zoneAt(text, text.indexOf('hi')), 'html');
     });
 
     it('detects JS inside an uppercase <SCRIPT> block', () => {
         const text = '<SCRIPT>\nvar x = 1;\n</SCRIPT>';
-        assert.strictEqual(getZone(text, text.indexOf('var x')), 'js');
+        assert.strictEqual(zoneAt(text, text.indexOf('var x')), 'js');
     });
 
     it('ends the JS zone at an uppercase </SCRIPT>', () => {
         const text = '<SCRIPT>var x=1;</SCRIPT><p>hi</p>';
-        assert.strictEqual(getZone(text, text.indexOf('hi')), 'html');
+        assert.strictEqual(zoneAt(text, text.indexOf('hi')), 'html');
     });
 
     it('tolerates whitespace in the closing tag (</style >)', () => {
         const text = '<style>.a{color:red}</style ><p>hi</p>';
-        assert.strictEqual(getZone(text, text.indexOf('hi')), 'html');
+        assert.strictEqual(zoneAt(text, text.indexOf('hi')), 'html');
     });
 });
 
@@ -99,20 +101,32 @@ describe('getZone — HTML tags are case-insensitive', () => {
 // reported edge cases.)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('getZone — robust tag-boundary scanning', () => {
+describe('zones — robust tag-boundary scanning', () => {
     it('keeps CSS content in the css zone when the tag has an ASP attribute', () => {
         const text = '<style type="<%= t %>">\n.a { color: red }\n</style>';
-        assert.strictEqual(getZone(text, text.indexOf('color')), 'css');
+        assert.strictEqual(zoneAt(text, text.indexOf('color')), 'css');
     });
 
     it('keeps JS content in the js zone when the tag has an ASP attribute', () => {
         const text = '<script src="<%= u %>">\nvar x = 1;\n</script>';
-        assert.strictEqual(getZone(text, text.indexOf('var x')), 'js');
+        assert.strictEqual(zoneAt(text, text.indexOf('var x')), 'js');
     });
 
     it('does not let a </style> inside a <% %> block close the element early', () => {
         const text = '<style>.a{}<% x = "</style>" %>.b{color:red}</style>';
-        assert.strictEqual(getZone(text, text.indexOf('.b')), 'css');
+        assert.strictEqual(zoneAt(text, text.indexOf('.b')), 'css');
+    });
+
+    // A string cannot span lines: one still being typed must not hide the page below it.
+    it('ends a VBScript string left open at the line break or at its %>', () => {
+        for (const text of [
+            '<% x = "abc %>\n<script>\nvar a = 1;\n</script>',
+            '<% x = "abc\n%>\n<script>\nvar a = 1;\n</script>',
+            '<% x = "abc %>\r\n<style>\n.a { color: red }\n</style>',
+        ]) {
+            const at = text.includes('var a') ? text.indexOf('var a') : text.indexOf('color');
+            assert.strictEqual(zoneAt(text, at), text.includes('var a') ? 'js' : 'css', JSON.stringify(text));
+        }
     });
 
     // A <script>/<style> inside a VBScript string or comment is data, not markup.
@@ -121,40 +135,40 @@ describe('getZone — robust tag-boundary scanning', () => {
     it('does NOT treat <script> emitted via Response.Write as a tag', () => {
         const text = '<%\nResponse.Write "<script>alert(1)</script>"\nDim x\n%>\n<p>ok</p>';
         // The <script> lives inside a VBScript string in the block → asp, not js.
-        assert.strictEqual(getZone(text, text.indexOf('alert')), 'asp');
+        assert.strictEqual(zoneAt(text, text.indexOf('alert')), 'asp');
         // Real VBScript after the string stays asp; nothing becomes a JS zone.
-        assert.strictEqual(getZone(text, text.indexOf('Dim x')), 'asp');
+        assert.strictEqual(zoneAt(text, text.indexOf('Dim x')), 'asp');
         // Markup after the block closes is html.
-        assert.strictEqual(getZone(text, text.indexOf('<p>ok') + 1), 'html');
+        assert.strictEqual(zoneAt(text, text.indexOf('<p>ok') + 1), 'html');
     });
 
     it('does NOT treat <style> emitted via Response.Write as a tag', () => {
         const text = '<% Response.Write "<style>.a{}</style>" %><p>ok</p>';
-        assert.strictEqual(getZone(text, text.indexOf('.a{')), 'asp');
-        assert.strictEqual(getZone(text, text.indexOf('<p>ok') + 1), 'html');
+        assert.strictEqual(zoneAt(text, text.indexOf('.a{')), 'asp');
+        assert.strictEqual(zoneAt(text, text.indexOf('<p>ok') + 1), 'html');
     });
 
     it('does NOT treat a <script> inside a VBScript string as a tag (even with an in-string %>)', () => {
         const text = '<% s = "%><script>" %>var zz=1;';
-        assert.notStrictEqual(getZone(text, text.indexOf('zz')), 'js');
+        assert.notStrictEqual(zoneAt(text, text.indexOf('zz')), 'js');
     });
 
     it('does NOT treat a <style> inside a VBScript string as a tag (even with an in-string %>)', () => {
         const text = '<% s = "%><style>" %>.x{color:red}';
-        assert.notStrictEqual(getZone(text, text.indexOf('.x')), 'css');
+        assert.notStrictEqual(zoneAt(text, text.indexOf('.x')), 'css');
     });
 
     it('does NOT treat a <script> inside a VBScript comment as a tag', () => {
         const text = '<%\n\' see <script> in the docs\nDim x\n%>\n<p>ok</p>';
-        assert.strictEqual(getZone(text, text.indexOf('Dim x')), 'asp');
-        assert.strictEqual(getZone(text, text.indexOf('<p>ok') + 1), 'html');
+        assert.strictEqual(zoneAt(text, text.indexOf('Dim x')), 'asp');
+        assert.strictEqual(zoneAt(text, text.indexOf('<p>ok') + 1), 'html');
     });
 
     // ...but a real <style>/<script> AFTER a one-line <% ' comment %> block must
     // still be detected (the %> closes the block even though it sits mid-comment).
     it('still detects a real <style> after a one-line <% ... %> comment block', () => {
         const text = "<% ' cmt %><style>.y{color:red}</style>";
-        assert.strictEqual(getZone(text, text.indexOf('.y')), 'css');
+        assert.strictEqual(zoneAt(text, text.indexOf('.y')), 'css');
     });
 });
 
@@ -188,46 +202,53 @@ describe('findTagEnd — opening-tag terminator', () => {
     });
 });
 
-describe('getZone — <script> type/language discrimination', () => {
+describe('zones — <script> type/language discrimination', () => {
     it('treats <script type="text/vbscript"> as the asp zone', () => {
         const text = '<script type="text/vbscript">\nx = 1\n</script>';
-        assert.strictEqual(getZone(text, text.indexOf('x = 1')), 'asp');
+        assert.strictEqual(zoneAt(text, text.indexOf('x = 1')), 'asp');
     });
 
     it('treats <script language="vbscript"> as the asp zone', () => {
         const text = '<script language="vbscript">\nx = 1\n</script>';
-        assert.strictEqual(getZone(text, text.indexOf('x = 1')), 'asp');
+        assert.strictEqual(zoneAt(text, text.indexOf('x = 1')), 'asp');
+    });
+
+    it('reads an unquoted language=vbscript, and not a data-type=, as a browser does', () => {
+        const vbs = '<script language=vbscript runat=server>\nx = 1\n</script>';
+        assert.strictEqual(zoneAt(vbs, vbs.indexOf('x = 1')), 'asp');
+        const js = '<script data-type="widget">\nvar x = 1;\n</script>';
+        assert.strictEqual(zoneAt(js, js.indexOf('var x')), 'js');
     });
 
     it('treats an uppercase server-side VBScript block as the asp zone', () => {
         const text = '<SCRIPT LANGUAGE="VBScript" RUNAT="SERVER">\nx = 1\n</SCRIPT>';
-        assert.strictEqual(getZone(text, text.indexOf('x = 1')), 'asp');
+        assert.strictEqual(zoneAt(text, text.indexOf('x = 1')), 'asp');
     });
 
     it('treats a known non-JS <script type> (text/template) as html, not js', () => {
         const text = '<script type="text/template">\n<div>{{x}}</div>\n</script>';
-        assert.strictEqual(getZone(text, text.indexOf('<div>') + 1), 'html');
+        assert.strictEqual(zoneAt(text, text.indexOf('<div>') + 1), 'html');
     });
 });
 
-describe('getZone — boundaries and multiple blocks', () => {
+describe('zones — boundaries and multiple blocks', () => {
     it('classifies the exact <% / %> delimiter offsets', () => {
         const text = '<% x = 1 %>after';
-        assert.strictEqual(getZone(text, 0), 'html');  // on the '<' of <%
-        assert.strictEqual(getZone(text, 1), 'asp');   // between '<' and '%'
-        assert.strictEqual(getZone(text, 10), 'asp');  // on the '>' of %>
-        assert.strictEqual(getZone(text, 11), 'html'); // first char after %>
+        assert.strictEqual(zoneAt(text, 0), 'html');  // on the '<' of <%
+        assert.strictEqual(zoneAt(text, 1), 'asp');   // between '<' and '%'
+        assert.strictEqual(zoneAt(text, 10), 'asp');  // on the '>' of %>
+        assert.strictEqual(zoneAt(text, 11), 'html'); // first char after %>
     });
 
     it('handles multiple <style> blocks and the gap between them', () => {
         const text = '<style>.a{}</style><p>x</p><style>.b{color:red}</style>';
-        assert.strictEqual(getZone(text, text.indexOf('.b')), 'css');
-        assert.strictEqual(getZone(text, text.indexOf('<p>x') + 1), 'html');
+        assert.strictEqual(zoneAt(text, text.indexOf('.b')), 'css');
+        assert.strictEqual(zoneAt(text, text.indexOf('<p>x') + 1), 'html');
     });
 
     it('reports html when the cursor is inside the opening <style ...> tag', () => {
         const text = '<style type="text/css">.a{}</style>';
-        assert.strictEqual(getZone(text, text.indexOf('type')), 'html');
+        assert.strictEqual(zoneAt(text, text.indexOf('type')), 'html');
     });
 });
 
@@ -235,15 +256,15 @@ describe('getZone — boundaries and multiple blocks', () => {
 // opener. Treating it as one started an attribute-list walk that ran to the next
 // `>` — which could be the `>` of the following <script>/<style> tag, so that
 // whole embedded block was never recognised as a JS/CSS zone.
-describe('findNextRealTag / getZone — literal < in body text', () => {
+describe('findNextRealTag / zones — literal < in body text', () => {
     it('finds a <script> after a literal < with no > in between', () => {
         const text = 'Show rows where qty < 5\n<script>\n  var y = 1;\n</script>\n';
-        assert.strictEqual(getZone(text, text.indexOf('var y')), 'js');
+        assert.strictEqual(zoneAt(text, text.indexOf('var y')), 'js');
     });
 
     it('finds a <style> after a literal < with no > in between', () => {
         const text = '<p>qty < 5\n<style>\n  .a { color: red }\n</style>\n';
-        assert.strictEqual(getZone(text, text.indexOf('.a')), 'css');
+        assert.strictEqual(zoneAt(text, text.indexOf('.a')), 'css');
     });
 
     it('locates the <script> tag itself past a literal <', () => {
@@ -253,7 +274,7 @@ describe('findNextRealTag / getZone — literal < in body text', () => {
 
     it('still treats a real tag as a tag', () => {
         const text = '<div title="a > b">\n<script>\n  var z = 1;\n</script>\n';
-        assert.strictEqual(getZone(text, text.indexOf('var z')), 'js');
+        assert.strictEqual(zoneAt(text, text.indexOf('var z')), 'js');
     });
 
     it('still ignores a <script> that is only text inside another tag attribute', () => {
@@ -263,7 +284,7 @@ describe('findNextRealTag / getZone — literal < in body text', () => {
 
     it('leaves body text after the literal < as html', () => {
         const text = 'qty < 5 items\n';
-        assert.strictEqual(getZone(text, text.indexOf('items')), 'html');
+        assert.strictEqual(zoneAt(text, text.indexOf('items')), 'html');
     });
 });
 

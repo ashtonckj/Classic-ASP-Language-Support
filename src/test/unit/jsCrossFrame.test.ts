@@ -1,6 +1,5 @@
 import * as assert from 'assert';
 import {
-    buildVirtualJsContent,
     collectCrossFrameNames,
     disposeJsLanguageService,
     getJsLanguageService,
@@ -84,15 +83,13 @@ function shownCodes(scriptBody: string): number[] {
     const jsRanges = getJsBlockRanges(fullText);
     if (jsRanges.length === 0) { return []; }
 
-    const { virtualContent, preambleLength } = buildVirtualJsContent(fullText, 0);
     const svc = getJsLanguageService();
-    svc.updateContent(virtualContent);
+    svc.loadPage(fullText);
 
     return [...svc.getSyntacticDiagnostics(), ...svc.getSemanticDiagnostics()]
         .filter(d => d.start !== undefined && d.length !== undefined)
         .filter(d => {
-            const offset = d.start! - preambleLength;
-            return jsRanges.some(r => offset >= r.start && offset <= r.end);
+            return jsRanges.some(r => d.start! >= r.start && d.start! <= r.end);
         })
         .filter(d => !SUPPRESSED_CODES.has(d.code))
         .map(d => d.code);

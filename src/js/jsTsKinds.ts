@@ -11,53 +11,44 @@
 
 import * as vscode from 'vscode';
 import type * as ts from 'typescript';
-import { loadTypeScript } from '../core/lazyModule';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ts.ScriptElementKind → vscode.CompletionItemKind
 // ─────────────────────────────────────────────────────────────────────────────
+// TypeScript's own ScriptElementKind strings, part of its public API. Named
+// through the enum, they would load all of TypeScript onto the extension host
+// (~200 ms), which otherwise never needs it: the service is on the JS worker.
+// The template-literal key type makes tsc check every string against the enum.
+// A Map rather than an object: 'constructor' is a kind too, and an object
+// would answer it with Object.prototype.constructor.
+const COMPLETION_KINDS = new Map<`${ts.ScriptElementKind}`, vscode.CompletionItemKind>([
+    ['function',             vscode.CompletionItemKind.Function],
+    ['local function',       vscode.CompletionItemKind.Function],
+    ['method',               vscode.CompletionItemKind.Method],
+    ['call',                 vscode.CompletionItemKind.Method],
+    ['construct',            vscode.CompletionItemKind.Method],
+    ['var',                  vscode.CompletionItemKind.Variable],
+    ['local var',            vscode.CompletionItemKind.Variable],
+    ['let',                  vscode.CompletionItemKind.Variable],
+    ['const',                vscode.CompletionItemKind.Variable],
+    ['class',                vscode.CompletionItemKind.Class],
+    ['local class',          vscode.CompletionItemKind.Class],
+    ['interface',            vscode.CompletionItemKind.Interface],
+    ['enum',                 vscode.CompletionItemKind.Enum],
+    ['enum member',          vscode.CompletionItemKind.EnumMember],
+    ['module',               vscode.CompletionItemKind.Module],
+    ['external module name', vscode.CompletionItemKind.Module],
+    ['property',             vscode.CompletionItemKind.Field],
+    ['getter',               vscode.CompletionItemKind.Field],
+    ['setter',               vscode.CompletionItemKind.Field],
+    ['type',                 vscode.CompletionItemKind.TypeParameter],
+    ['type parameter',       vscode.CompletionItemKind.TypeParameter],
+    ['keyword',              vscode.CompletionItemKind.Keyword],
+    ['string',               vscode.CompletionItemKind.Value],
+]);
+
 export function tsKindToVsKind(kind: string): vscode.CompletionItemKind {
-    // Only JavaScript completion calls this, and it has TypeScript loaded already.
-    const ts = loadTypeScript();
-    switch (kind) {
-        case ts.ScriptElementKind.functionElement:
-        case ts.ScriptElementKind.localFunctionElement:
-            return vscode.CompletionItemKind.Function;
-        case ts.ScriptElementKind.memberFunctionElement:
-        case ts.ScriptElementKind.callSignatureElement:
-        case ts.ScriptElementKind.constructSignatureElement:
-            return vscode.CompletionItemKind.Method;
-        case ts.ScriptElementKind.variableElement:
-        case ts.ScriptElementKind.localVariableElement:
-        case ts.ScriptElementKind.letElement:
-        case ts.ScriptElementKind.constElement:
-            return vscode.CompletionItemKind.Variable;
-        case ts.ScriptElementKind.classElement:
-        case ts.ScriptElementKind.localClassElement:
-            return vscode.CompletionItemKind.Class;
-        case ts.ScriptElementKind.interfaceElement:
-            return vscode.CompletionItemKind.Interface;
-        case ts.ScriptElementKind.enumElement:
-            return vscode.CompletionItemKind.Enum;
-        case ts.ScriptElementKind.enumMemberElement:
-            return vscode.CompletionItemKind.EnumMember;
-        case ts.ScriptElementKind.moduleElement:
-        case ts.ScriptElementKind.externalModuleName:
-            return vscode.CompletionItemKind.Module;
-        case ts.ScriptElementKind.memberVariableElement:
-        case ts.ScriptElementKind.memberGetAccessorElement:
-        case ts.ScriptElementKind.memberSetAccessorElement:
-            return vscode.CompletionItemKind.Field;
-        case ts.ScriptElementKind.typeElement:
-        case ts.ScriptElementKind.typeParameterElement:
-            return vscode.CompletionItemKind.TypeParameter;
-        case ts.ScriptElementKind.keyword:
-            return vscode.CompletionItemKind.Keyword;
-        case ts.ScriptElementKind.string:
-            return vscode.CompletionItemKind.Value;
-        default:
-            return vscode.CompletionItemKind.Property;
-    }
+    return COMPLETION_KINDS.get(kind as ts.ScriptElementKind) ?? vscode.CompletionItemKind.Property;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -8,11 +8,6 @@
  * Nothing here opens the channel on its own: a message the user should see
  * gets a "Show Details" button that calls showLog, and everything else just
  * waits in the log for whoever goes looking.
- *
- * `safely` is how a provider guards against its own bugs: an unexpected error
- * is logged and the provider answers "nothing to offer" instead of throwing
- * into VS Code, which shows the user nothing useful and, under a debugger,
- * stops the Extension Host.
  */
 
 import * as vscode from 'vscode';
@@ -54,27 +49,4 @@ export function disposeLog(): void {
     channel?.dispose();
     channel = undefined;
     loggedErrors.clear();
-}
-
-/**
- * Runs `work`, and returns undefined instead of throwing when it fails, with
- * the error logged under `name` (the provider or feature it came from).
- */
-export function safely<T>(name: string, work: () => T): T | undefined {
-    try {
-        return work();
-    } catch (error) {
-        log.error(`${name} failed`, error);
-        return undefined;
-    }
-}
-
-/** `safely` for async work: a rejected promise is logged and becomes undefined. */
-export async function safelyAsync<T>(name: string, work: () => Promise<T>): Promise<T | undefined> {
-    try {
-        return await work();
-    } catch (error) {
-        log.error(`${name} failed`, error);
-        return undefined;
-    }
 }

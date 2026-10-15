@@ -6,7 +6,7 @@ import { pathKey } from './paths';
  *
  * Parsing and resolving `<!--#include file="…"-->` / `virtual="…"` directives.
  *
- * Imports no vscode APIs, so the include worker can use it too. That is the
+ * Imports no vscode APIs, so the VBScript worker can use it too. That is the
  * point of it existing: the same directive pattern and the same file/virtual
  * resolution rules were written out three times — once for the synchronous
  * path, once for the worker's request builder, once inside the worker — and
@@ -43,6 +43,14 @@ export function parseIncludeDirectives(text: string): IncludeDirective[] {
 }
 
 /**
+ * The folder `virtual="…"` paths in `fromPath` start at: the site root when the
+ * settings or an open folder give one, otherwise the file's own folder.
+ */
+export function includeRoot(configuredRoot: string | undefined, fromPath: string): string {
+    return configuredRoot ?? path.dirname(fromPath);
+}
+
+/**
  * Absolute path for one directive. `virtual="/x"` is resolved from the
  * application root, `file="x"` relative to the file containing the directive —
  * which is what IIS itself does.
@@ -52,9 +60,13 @@ export function resolveIncludeDirective(
     documentPath: string,
     virtualRoot: string,
 ): string {
+    // IIS reads `\` as `/`; on macOS and Linux path treats it as a name character.
+    const raw = directive.raw.replace(/\\/g, '/');
+    // A path starting `//` names a network share, which IIS never includes
+    // from, and reading one would send the user's Windows credentials there.
     return directive.type === 'virtual'
-        ? path.join(virtualRoot, directive.raw.replace(/^\//, ''))
-        : path.resolve(path.dirname(documentPath), directive.raw);
+        ? path.join(virtualRoot, raw.replace(/^\/+/, ''))
+        : path.resolve(path.dirname(documentPath), raw.replace(/^\/{2,}/, ''));
 }
 
 /** A directive path to rewrite: where it is written, and what to write instead. */

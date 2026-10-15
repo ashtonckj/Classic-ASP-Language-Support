@@ -36,11 +36,21 @@ export const workspace = {
         dispose: () => { /* no-op */ },
     }),
     onDidChangeWorkspaceFolders: () => ({ dispose: () => { /* no-op */ } }),
-    onDidChangeConfiguration:    () => ({ dispose: () => { /* no-op */ } }),
+    onDidChangeConfiguration: (listener: (event: { affectsConfiguration(key: string): boolean }) => void) => {
+        configListeners.push(listener);
+        return { dispose: () => { configListeners = configListeners.filter(l => l !== listener); } };
+    },
     onDidCloseTextDocument:      () => ({ dispose: () => { /* no-op */ } }),
     getWorkspaceFolder: (uri: { fsPath: string }) =>
         workspace.workspaceFolders?.find(folder => uri.fsPath.startsWith(folder.uri.fsPath)),
 };
+
+let configListeners: Array<(event: { affectsConfiguration(key: string): boolean }) => void> = [];
+
+/** Tells every settings listener the code under test registered that `key` changed. */
+export function fireConfigurationChange(key: string): void {
+    for (const listener of configListeners) { listener({ affectsConfiguration: section => key === section || key.startsWith(section + '.') }); }
+}
 
 type FileEvent = 'create' | 'change' | 'delete';
 const fileListeners: Record<FileEvent, Array<(uri: StubUri) => void>> = { create: [], change: [], delete: [] };
@@ -154,6 +164,10 @@ export class DocumentSymbol {
         // symbol took down the whole Outline. Reproduce it so a unit test can
         // catch that rather than waiting for the Extension Host.
         if (!name) { throw new Error('name must not be falsy'); }
+        const before = (a: Position, b: Position) => a.line < b.line || (a.line === b.line && a.character < b.character);
+        if (before(selectionRange.start, range.start) || before(range.end, selectionRange.end)) {
+            throw new Error('selectionRange must be contained in fullRange');
+        }
     }
 }
 
@@ -199,6 +213,10 @@ export class SnippetString {
     constructor(public readonly value: string) {}
 }
 
+export class Hover {
+    constructor(public readonly contents: unknown, public readonly range?: Range) {}
+}
+
 /** Keeps what was appended as one Markdown string, as the real class does. */
 export class MarkdownString {
     constructor(public value = '') {}
@@ -206,6 +224,9 @@ export class MarkdownString {
     appendText(text: string): this { this.value += text.replace(/[\\`*_{}[\]()#+\-.!<>]/g, '\\$&'); return this; }
     appendCodeblock(code: string, language = ''): this { this.value += `\n\`\`\`${language}\n${code}\n\`\`\`\n`; return this; }
 }
+
+// The Emmet helper reads its messages through this when it finds the vscode module.
+export const l10n = { t: (message: string) => message };
 
 // ── Colours ──────────────────────────────────────────────────────────────────
 // Channels are 0..1 floats, as the real API defines them.
@@ -245,6 +266,25 @@ export class SymbolInformation {
         public readonly containerName: string,
         public readonly location: Location,
     ) {}
+}
+
+export class CancellationTokenSource {
+    private listeners: Array<() => void> = [];
+    readonly token = {
+        isCancellationRequested: false,
+        onCancellationRequested: (listener: () => void) => {
+            this.listeners.push(listener);
+            return { dispose: () => { this.listeners = this.listeners.filter(l => l !== listener); } };
+        },
+    };
+
+    cancel(): void {
+        if (this.token.isCancellationRequested) { return; }
+        this.token.isCancellationRequested = true;
+        for (const listener of [...this.listeners]) { listener(); }
+    }
+
+    dispose(): void { this.listeners = []; }
 }
 
 export const DocumentHighlightKind = { Text: 0, Read: 1, Write: 2 };

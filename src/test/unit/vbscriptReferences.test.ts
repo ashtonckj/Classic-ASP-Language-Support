@@ -116,6 +116,37 @@ describe('findSites — which uses are the same name', () => {
         assert.deepStrictEqual(sitesOf(host, 'page.asp', 'items', 5), ['page.asp:8:0']);
     });
 
+    it('leaves out members of the ASP objects and of COM objects the page creates', () => {
+        const host = one([
+            '<%',
+            'Class Cart',
+            '  Public Count',                          // 2
+            'End Class',
+            'Set c = New Cart',
+            'Set d = Server.CreateObject("Scripting.Dictionary")',
+            'Set rs = CreateObject("ADODB.Recordset")',
+            'x = c.Count + d.Count + Request.Form.Count + rs.Fields("a").Count', // 7
+            '%>',
+        ].join('\n'));
+        assert.deepStrictEqual(sitesOf(host, 'page.asp', 'Count'), ['page.asp:2:9*', 'page.asp:7:6']);
+    });
+
+    it('leaves out a bare .name in a With block on an ASP or COM object', () => {
+        const host = one([
+            '<%',
+            'Class Person',
+            '  Public Name',                                       // 2
+            'End Class',
+            'Set rs = Server.CreateObject("ADODB.Recordset")',
+            'Set p = New Person',
+            'With rs : x = .Name : End With',                      // 6
+            'With Server.CreateObject("Scripting.FileSystemObject") : y = .Name : End With',
+            'With p : z = .Name : End With',                       // 8
+            '%>',
+        ].join('\n'));
+        assert.deepStrictEqual(sitesOf(host, 'page.asp', 'Name'), ['page.asp:2:9*', 'page.asp:8:14']);
+    });
+
     it('keeps a client-side script apart from the server code', () => {
         const host = one('<% Dim total : total = 1 %>\n<script language="vbscript">\nDim total\ntotal = 2\n</script>');
         assert.deepStrictEqual(sitesOf(host, 'page.asp', 'total'), ['page.asp:0:15', 'page.asp:0:7*']);

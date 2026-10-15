@@ -204,7 +204,9 @@ function lexRange(
             let j = i + 1;
             while (j < to && isIdentChar(text[j])) { j++; }
             const word = text.slice(i, j).toLowerCase();
-            if (word === 'rem') {
+            // After a `.`, `Rem` is a member name: `x = a.Rem`.
+            const prev = tokens[tokens.length - 1];
+            if (word === 'rem' && !(prev?.kind === TokenKind.Punct && prev.value === '.')) {
                 const end = lineEnd(j);
                 comments.push({ start: i, end });
                 i = end;
@@ -242,8 +244,11 @@ function lexRange(
             while (j < to && isSpace(text[j])) { j++; }
             if (j < to && (text[j] === '\r' || text[j] === '\n')) {
                 j += text[j] === '\r' && text[j + 1] === '\n' ? 2 : 1;
+                // The next line carries on the expression: `conn _` then
+                // `    .Execute(sql)` is conn.Execute, not a With member.
+                while (j < to && isSpace(text[j])) { j++; }
                 i = j;
-                spaceBefore = true;
+                spaceBefore = false;
                 continue;
             }
             push(TokenKind.Invalid, i, i + 1, '_', { error: 'Invalid character' });

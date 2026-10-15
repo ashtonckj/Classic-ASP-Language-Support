@@ -6,9 +6,8 @@
  * COMBINED_SEMANTIC_LEGEND must be shared with aspSemanticProvider.ts.
  * VS Code maps token type indices through whichever legend it sees first for a
  * given language ID, so if two providers register with different legends the
- * colours for one of them will be wrong. Import COMBINED_SEMANTIC_LEGEND from
- * this file in aspSemanticProvider.ts and pass it to both registrations in
- * extension.ts.
+ * colours for one of them will be wrong. aspSemanticProvider.ts imports it
+ * from here, and semanticTokens.ts registers the one provider both share.
  *
  * TwentyTwenty encoding (from src/services/classifier2020.ts in the TS source):
  *   encoded = (tokenType << 8) | modifierBitmask
@@ -16,9 +15,8 @@
  *   modifiers  = encoded & 0xFF (bit flags: declaration=1, defaultLibrary=16, …)
  *   'member' in the TS source corresponds to 'method' in VS Code's token types.
  *
- * Token offsets are in the virtual file, which starts with a preamble, so
- * preambleLength comes off each one before the JS-range test and before
- * document.positionAt.
+ * Token offsets are page offsets, and the worker sends only those inside a
+ * <script> block.
  *
  * The classification runs on a worker thread (jsAnalysisWorker.ts); this file
  * only decodes what comes back. VS Code re-requests these tokens after every
@@ -28,7 +26,7 @@
 
 import * as vscode from 'vscode';
 import { analyseEmbeddedJs } from '../workers/analysisClient';
-import { inRanges } from '../core/zoneUtils';
+import { textOf } from '../platform/documentState';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Combined legend — shared with aspSemanticProvider.ts
@@ -40,7 +38,7 @@ export const TOKEN_TYPES = [
     'event', 'function', 'method', 'macro', 'keyword', 'modifier',
     'comment', 'string', 'number', 'regexp', 'operator', 'decorator',
     // ASP/SQL-specific token types — indices 23–34
-    // Must match the order declared in sqlSemanticProvider.ts exactly
+    // Must match the numbering listed in vbscript/sqlTokens.ts exactly
     'sqlDml', 'sqlDdl', 'sqlLogical', 'sqlKeyword', 'sqlFunction', 'sqlType',
     'sqlVariable', 'sqlNumber', 'sqlBracketPunct', 'sqlBracketContent',
     'sqlTable', 'sqlColumn',
@@ -152,7 +150,7 @@ export class JsSemanticTokensProvider implements vscode.DocumentSemanticTokensPr
 
         if (token.isCancellationRequested) { return undefined; }
 
-        const fullText = document.getText();
+        const fullText = textOf(document);
 
         // Cheap enough to be worth doing before waking the worker: a page with
         // no <script> at all is the common case and needs no analysis.
@@ -163,7 +161,7 @@ export class JsSemanticTokensProvider implements vscode.DocumentSemanticTokensPr
         // host is also where auto-close, indenting and suggestions run — so it
         // cannot be the thread that spends a second type-checking.
         const requestedVersion = document.version;
-        const analysis = await analyseEmbeddedJs(document.uri.toString(), fullText);
+        const analysis = await analyseEmbeddedJs(document.uri.toString(), fullText, token);
 
         if (!analysis || token.isCancellationRequested) { return undefined; }
 
@@ -173,35 +171,19 @@ export class JsSemanticTokensProvider implements vscode.DocumentSemanticTokensPr
         // asks again after a change, so dropping this answer loses nothing.
         if (document.version !== requestedVersion) { return undefined; }
 
-        const { spans, jsRanges, preambleLength } = analysis;
-        if (jsRanges.length === 0) { return undefined; }
+        const { spans } = analysis;
+        if (spans.length === 0) { return undefined; }
 
         const builder = new vscode.SemanticTokensBuilder(COMBINED_SEMANTIC_LEGEND);
 
         for (let i = 0; i + 2 < spans.length; i += 3) {
             if (token.isCancellationRequested) { break; }
 
-            const virtualOffset = spans[i];
-            const length        = spans[i + 1];
-            const encoded       = spans[i + 2];
-
-            // From the virtual file's offsets to the page's. A token inside the
-            // preamble itself is one of its generated declarations, with nothing
-            // on the page to colour.
-            const docOffset = virtualOffset - preambleLength;
-            if (docOffset < 0) { continue; }
-
-            // Inclusive at both ends so a token that abuts the closing </script>
-            // tag is not dropped. Binary search rather than a scan: this runs
-            // once per token, and a page can hold both many tokens and many
-            // script blocks.
-            if (!inRanges(jsRanges, docOffset, false)) { continue; }
-
-            const { typeIdx, modBits } = decode(encoded);
+            const { typeIdx, modBits } = decode(spans[i + 2]);
             if (typeIdx === -1) { continue; }
 
-            const pos = document.positionAt(docOffset);
-            builder.push(pos.line, pos.character, length, typeIdx, modBits);
+            const pos = document.positionAt(spans[i]);
+            builder.push(pos.line, pos.character, spans[i + 1], typeIdx, modBits);
         }
 
         return builder.build();

@@ -19,6 +19,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { symbolsFromTree } from '../vbscript/symbols';
 import { aspFiles, onAspFilesChange } from '../platform/workspaceIndex';
+import { withoutBom } from '../core/paths';
 
 interface IndexedSymbol {
     /** The name, lower-cased once rather than on every keystroke. */
@@ -60,17 +61,12 @@ async function symbolsOfFile(filePath: string): Promise<IndexedSymbol[]> {
     if (cached) { return cached; }
 
     let text: string;
-    try { text = await fs.promises.readFile(filePath, 'utf8'); }
+    try { text = withoutBom(await fs.promises.readFile(filePath, 'utf8')); }
     catch { return []; }
 
     const symbols = symbolsOfText(filePath, text);
     _wsCache.set(filePath, symbols);
     return symbols;
-}
-
-export function clearWorkspaceSymbolCache(filePath?: string): void {
-    if (filePath) { _wsCache.delete(filePath); }
-    else          { _wsCache.clear(); }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

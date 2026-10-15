@@ -31,7 +31,7 @@ describe('findAspRegionOffsets — lexical <% %> pairing', () => {
     });
 
     it('treats the FIRST %> as the close, even one inside a string', () => {
-        // Matches the lexical rule isInsideAspBlock uses.
+        // Matches the lexical rule getAspBlockRanges uses.
         const text    = '<% x = "a %> b" %>';
         const regions = findAspRegionOffsets(text);
         assert.strictEqual(regions.length, 1);

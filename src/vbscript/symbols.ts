@@ -2,7 +2,7 @@
  * symbols.ts
  *
  * Reads the declared symbols of a page from its syntax trees, in the
- * FileSymbols shape (symbolParser.ts) that completion, the Outline, Ctrl+T and
+ * FileSymbols shape that completion, the Outline, Ctrl+T and
  * the colouring read. It took over from a line scanner, and keeps that
  * scanner's deliberate choices:
  *   - A plain `x = …` records an implicit variable only when the page has no
@@ -18,8 +18,30 @@
 import type * as A from './ast';
 import { parseProgram } from './parser';
 import { pagePrograms } from './pageSegments';
-import type { FileSymbols } from './symbolParser';
 import { COM_METHOD_RETURN_TYPES, normalizeProgId } from '../constants/comObjects';
+
+/** A page's declared symbols, which every feature reads. */
+export interface FileSymbols {
+    // `implicit` marks a name that was never explicitly declared - a bare
+    // assignment (no Option Explicit) or a For Each loop variable. VBScript
+    // does NOT create a new local for those: inside a procedure they resolve to
+    // the module-level variable of that name when one exists. Only an explicit
+    // Dim/Const shadows it, so anything reasoning about scope must tell them
+    // apart.
+    variables:    { name: string; line: number; filePath: string; implicit?: boolean }[];
+    constants:    { name: string; value: string; line: number; filePath: string }[];
+    functions:    {
+        name: string;
+        kind: 'Function' | 'Sub' | 'Property';
+        params: string;
+        paramNames: string[];
+        line: number;
+        endLine: number;
+        filePath: string;
+    }[];
+    comVariables: { name: string; progId: string; line: number; filePath: string }[];
+    classes:      { name: string; line: number; endLine: number; filePath: string }[];
+}
 
 export interface ParsedPage {
     text: string;
@@ -59,13 +81,27 @@ function valueOf(match: RegExpExecArray | null): string | null {
 }
 
 export function parsePage(text: string): ParsedPage {
-    const programs = pagePrograms(text).map(p => parseProgram(text, p.segments, p.server));
-    const lineStarts = [0];
-    // Lines split at `\n` only, as VS Code counts the lines of a CRLF file.
+    const programs = pagePrograms(text).map(p => parseProgram(p.text ?? text, p.segments, p.server));
+    return { text, programs, lineStarts: lineStartsOf(text) };
+}
+
+/**
+ * The offset each of the page's lines starts at, split where a TextDocument
+ * splits them — at \r\n, \n or a lone \r — so every offset matches the
+ * editor's own.
+ */
+function lineStartsOf(text: string): number[] {
+    const starts: number[] = [];
+    let start = 0;
     for (let i = 0; i < text.length; i++) {
-        if (text[i] === '\n') { lineStarts.push(i + 1); }
+        const ch = text.charCodeAt(i);
+        if (ch !== 10 && ch !== 13) { continue; }
+        starts.push(start);
+        if (ch === 13 && text.charCodeAt(i + 1) === 10) { i++; }
+        start = i + 1;
     }
-    return { text, programs, lineStarts };
+    starts.push(start);
+    return starts;
 }
 
 /** 0-based line of an offset. */
@@ -115,18 +151,34 @@ export function sourceOf(text: string, span: A.Span): string {
     return text.slice(span.start, span.end).replace(/[ \t]*_[ \t]*(?:\r\n|\r|\n)[ \t]*/g, ' ').trim();
 }
 
-function isCreateObject(callee: A.Expr): boolean {
-    if (callee.kind === 'Ident') { return callee.name.name === 'createobject'; }
-    return callee.kind === 'Member' && callee.name.name === 'createobject'
-        && callee.object?.kind === 'Ident' && callee.object.name.name === 'server';
+/** The ProgID of `CreateObject("…")` or `Server.CreateObject("…")`, normalised; undefined for any other expression. */
+export function createdProgId(e: A.Expr): string | undefined {
+    if (e.kind !== 'Call' || e.args.length !== 1) { return undefined; }
+    const callee = e.callee;
+    const creates = callee.kind === 'Ident' ? callee.name.name === 'createobject'
+        : callee.kind === 'Member' && callee.name.name === 'createobject'
+            && callee.object?.kind === 'Ident' && callee.object.name.name === 'server';
+    const arg = e.args[0];
+    return creates && arg?.kind === 'Literal' && arg.type === 'string' ? normalizeProgId(arg.raw.slice(1, -1).replace(/""/g, '"')) : undefined;
 }
 
 export function symbolsFromTree(text: string, filePath: string): FileSymbols {
     return symbolsOfPage(parsePage(text), filePath);
 }
 
-/** symbolsFromTree for a page already parsed. */
+/** Each parse's symbols, so a page that completion and the checks both read is read once. */
+const symbolsKept = new WeakMap<ParsedPage, Map<string, FileSymbols>>();
+
+/** symbolsFromTree for a page already parsed, read once per parse and path, and shared: not to be changed. */
 export function symbolsOfPage(page: ParsedPage, filePath: string): FileSymbols {
+    let kept = symbolsKept.get(page);
+    if (!kept) { symbolsKept.set(page, kept = new Map()); }
+    let symbols = kept.get(filePath);
+    if (!symbols) { kept.set(filePath, symbols = readSymbols(page, filePath)); }
+    return symbols;
+}
+
+function readSymbols(page: ParsedPage, filePath: string): FileSymbols {
     const text = page.text;
     const result: FileSymbols = { variables: [], constants: [], functions: [], comVariables: [], classes: [] };
 
@@ -208,16 +260,8 @@ export function symbolsOfPage(page: ParsedPage, filePath: string): FileSymbols {
     }
     const sets = statements.filter((s): s is A.AssignStmt => s.kind === 'Assign' && s.set && s.target.kind === 'Ident');
     for (const s of sets) {
-        const v = s.value;
-        if (v.kind !== 'Call' || !isCreateObject(v.callee) || v.args.length !== 1) { continue; }
-        const arg = v.args[0];
-        if (arg?.kind !== 'Literal' || arg.type !== 'string') { continue; }
-        result.comVariables.push({
-            name:   (s.target as A.IdentExpr).name.text,
-            progId: normalizeProgId(arg.raw.slice(1, -1).replace(/""/g, '"')),
-            line:   line(s.start),
-            filePath,
-        });
+        const progId = createdProgId(s.value);
+        if (progId) { result.comVariables.push({ name: (s.target as A.IdentExpr).name.text, progId, line: line(s.start), filePath }); }
     }
 
     const comVarIndex = new Map(result.comVariables.map(cv => [cv.name.toLowerCase(), cv.progId]));

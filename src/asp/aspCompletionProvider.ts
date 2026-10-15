@@ -4,13 +4,11 @@ import {
     BUILTIN_FUNCTION_DOCS, builtinSignature,
 } from '../constants/aspKeywords';
 import { getTextBeforeCursor } from '../platform/documentHelper';
-import { contextAt, textOf } from '../platform/documentState';
+import { contextAt } from '../platform/documentState';
 import { areIncludeSymbolsReady, preloadIncludeSymbols, withIncludeSymbols } from './includeProvider';
 import { analysedPage } from './vbscriptWorkspace';
-import { COM_METHOD_RETURN_TYPES, COM_TYPE_MAP } from '../constants/comObjects';
-import { callIsWholeExpression } from '../vbscript/symbolParser';
-import { parsePage } from '../vbscript/symbols';
-import { pageBlocks, withObjectAt } from '../vbscript/pageAnalysis';
+import { COM_TYPE_MAP } from '../constants/comObjects';
+import { withObjectAt, withObjectType, type WithObject } from '../vbscript/pageAnalysis';
 import * as path from 'path';
 
 
@@ -26,20 +24,6 @@ function buildComVarMap(includeComVars: { name: string; progId: string }[]): Map
     return map;
 }
 
-/**
- * The object of the `With` block that `line` sits in, as written — `rs`,
- * `Server.CreateObject("ADODB.Recordset")` — or undefined outside one.
- *
- * Read from the syntax tree, so a With in a comment, a string or the markup
- * never counts, and nested blocks and procedures nest the way VBScript reads
- * them. A block still being typed, with no End With yet, runs to where the
- * parser closed it.
- */
-export function enclosingWithObject(text: string, line: number, character: number): string | undefined {
-    const page = parsePage(text);
-    return withObjectAt(pageBlocks(page).withBlocks, (page.lineStarts[line] ?? text.length) + character);
-}
-
 export class AspCompletionProvider implements vscode.CompletionItemProvider {
 
     async provideCompletionItems(
@@ -49,7 +33,6 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         context: vscode.CompletionContext
     ): Promise<vscode.CompletionItem[] | vscode.CompletionList | undefined> {
 
-        const fullText = textOf(document);
         const version  = document.version;
 
         // Only inside VBScript, and not in a VBScript string literal or a comment
@@ -115,10 +98,9 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
         // offer; the keyword and function list is never right here.
         const withDot = /(?:^|[^\w)\].])\.(\w*)$/.exec(lineText);
         if (withDot && !/^\d/.test(withDot[1])) {
-            const object = page.version === version
-                ? withObjectAt(page.blocks.withBlocks, offset)
-                : enclosingWithObject(fullText, position.line, position.character);
-            return object ? this.provideWithMembers(object, comVarMap) : [];
+            // Typed on while the worker read the page: its offsets are not this text's.
+            if (page.version !== version) { return undefined; }
+            return this.provideWithMembers(withObjectAt(page.blocks.withBlocks, offset), comVarMap);
         }
 
         // ── 2. Object member access  e.g. "rs."  or "rs.EO" ─────────────────
@@ -307,31 +289,13 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
     }
 
     // ── Members of a known COM object variable (rs., conn., dict., etc.) ─────
-    /**
-     * The members of a With block's object: a variable, the same way `rs.`
-     * resolves it; an object created right there; or a method on a variable
-     * that returns a known type, like `With conn.Execute(sql)`.
-     */
-    private provideWithMembers(object: string, comVarMap: Map<string, string>): vscode.CompletionItem[] {
-        if (/^[A-Za-z_]\w*$/.test(object)) {
-            if (ASP_OBJECT_NAMES.has(object.toLowerCase())) { return this.provideMethodCompletions(object); }
-            const progId = comVarMap.get(object.toLowerCase());
-            return progId && COM_TYPE_MAP[progId] ? this.provideComObjectMembers(object, progId) : [];
-        }
-
-        const created = /^(?:Server\s*\.\s*)?CreateObject\s*\(\s*"([^"]+)"\s*\)$/i.exec(object);
-        if (created) {
-            const progId = created[1].toLowerCase();
-            return COM_TYPE_MAP[progId] ? this.provideComObjectMembers(COM_TYPE_MAP[progId].label, progId) : [];
-        }
-
-        const call = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*(\(|$)/.exec(object);
-        if (call && (call[3] === '' || callIsWholeExpression(object, call[0].length - 1))) {
-            const source = comVarMap.get(call[1].toLowerCase());
-            const result = source && COM_METHOD_RETURN_TYPES[`${source}.${call[2].toLowerCase()}`];
-            if (result && COM_TYPE_MAP[result]) { return this.provideComObjectMembers(COM_TYPE_MAP[result].label, result); }
-        }
-        return [];
+    /** The members of a With block's object, found the way hover finds them (withObjectType). */
+    private provideWithMembers(object: WithObject | null | undefined, comVarMap: Map<string, string>): vscode.CompletionItem[] {
+        const type = withObjectType(object, comVarMap);
+        if (!type) { return []; }
+        if (ASP_OBJECT_NAMES.has(type)) { return this.provideMethodCompletions(type); }
+        const label = object && 'name' in object && !object.method ? object.name : COM_TYPE_MAP[type]?.label;
+        return label ? this.provideComObjectMembers(label, type) : [];
     }
 
     private provideComObjectMembers(varName: string, progId: string): vscode.CompletionItem[] {

@@ -12,9 +12,10 @@ import { CHECK_DELAY, createAspDiagnosticCollection, DiagnosticCode, makeDiagnos
 import type { BlockEvent } from '../vbscript/pageAnalysis';
 import { analyseHtmlStructure } from '../core/htmlStructure';
 import { analysedPage } from '../asp/vbscriptWorkspace';
+import { textOf } from '../platform/documentState';
 
 export function scanHtmlStructure(document: vscode.TextDocument, events?: BlockEvent[]): vscode.Diagnostic[] {
-    return analyseHtmlStructure(document.getText(), events).issues.map(issue => {
+    return analyseHtmlStructure(textOf(document), events).issues.map(issue => {
         const isVoid = issue.kind === 'void';
         return makeDiagnostic(
             new vscode.Range(document.positionAt(issue.start), document.positionAt(issue.end)),

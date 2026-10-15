@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { BLOCKS_FORMATTING, cssCode, DIAGNOSTIC_SOURCE, DiagnosticCode, DocumentDebouncer, makeDiagnostic } from '../../platform/diagnostics';
+import { cssCode, DIAGNOSTIC_SOURCE, DiagnosticCode, DocumentDebouncer, makeDiagnostic } from '../../platform/diagnostics';
 import { fakeDocument } from './_helpers';
 
 describe('diagnostics', () => {
@@ -13,11 +13,6 @@ describe('diagnostics', () => {
     it("writes a CSS service code as one of ours", () => {
         assert.strictEqual(cssCode('unknownProperties'), 'css-unknown-properties');
         assert.strictEqual(cssCode('emptyRules'), 'css-empty-rules');
-    });
-
-    it('names the problems that stop Format Document, and only those', () => {
-        assert.ok(BLOCKS_FORMATTING.has(DiagnosticCode.vbscriptBlock) && BLOCKS_FORMATTING.has(DiagnosticCode.aspTag));
-        assert.ok(!BLOCKS_FORMATTING.has(DiagnosticCode.missingSet) && !BLOCKS_FORMATTING.has(DiagnosticCode.sql));
     });
 });
 

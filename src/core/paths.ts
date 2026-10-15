@@ -25,3 +25,11 @@ export function samePath(a: string, b: string): boolean {
 export function isFile(fsPath: string): boolean {
     try { return fs.statSync(fsPath).isFile(); } catch { return false; }
 }
+
+/**
+ * A file's text as an editor holds it. Node keeps a UTF-8 byte order mark
+ * that VS Code strips, and it would shift every position on the first line.
+ */
+export function withoutBom(text: string): string {
+    return text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
+}

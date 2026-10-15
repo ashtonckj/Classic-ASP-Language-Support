@@ -21,6 +21,8 @@ export interface WorkerAnswer {
     failed?: boolean;
     /** What was thrown, for the log. */
     error?: string;
+    /** True when the work was stopped through workerData.cancel; the job is asked again. */
+    cancelled?: boolean;
 }
 
 export function serveWorker<Request extends { id: number }, Answer extends WorkerAnswer>(

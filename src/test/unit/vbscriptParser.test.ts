@@ -75,6 +75,16 @@ describe('VBScript parser — code VBScript accepts', () => {
         'Select Case x : Case 1 : y = 1 : End Select',
         'x = a Is Nothing',
         'x = Not a = b',
+        'x = a & Not b',
+        'x = a.Rem',
+        'x = 1 + Not 2',
+        'x = -Not a',
+        'x = a Mod Not b',
+        'x = a = Not b',
+        // After a continuation, a `.` carries on the line before, indented or not.
+        'Set rs = conn _\n.Execute(sql)',
+        'x = d _\n    .Count',
+        'With o\nx = d _\n  .Count\nEnd With',
         'x = -2 ^ 2 + 2 ^ -1',
         'x = 1 <= 2 >= 3 <> 4 =< 5',
         'Set x = New C',
@@ -122,6 +132,8 @@ describe('VBScript parser — errors VBScript reports', () => {
         ['Dim a(n), b(-1), c(1.5)',                       '1: Expected integer constant'],
         ['Dim me',                                        '1: Expected identifier'],
         ['Dim as',                                        '1: Expected identifier'],
+        ['Dim integer',                                   '1: Expected identifier'],
+        ['x = variant',                                   '1: Syntax error'],
         ['Class C\nConst a = 1\nEnd Class',               '2: Only declarations are allowed directly inside a Class'],
         ['Function F bar\nEnd Function',                  "1: Expected '('"],
         ['Property Get P\nEnd Property',                  '1: Must be defined inside a Class'],
@@ -290,6 +302,11 @@ describe('VBScript page programs', () => {
     it('parses a <script language="vbscript"> body as a program of its own', () => {
         const text = '<% If x Then %><script language="vbscript">\nSub A\nEnd Sub\n</script><% End If %>';
         assert.strictEqual(pagePrograms(text).length, 2);
+        assert.deepStrictEqual(diagnostics(text), []);
+    });
+
+    it('reads a <% %> block in a client-side script as what the server writes there', () => {
+        const text = '<script language="vbscript">\nSub Greet()\n  MsgBox "Hello <%= name %>"\n  n = <%= count %>\n  <% If admin Then %>x = 1<% End If %>\nEnd Sub\n</script>';
         assert.deepStrictEqual(diagnostics(text), []);
     });
 

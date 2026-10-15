@@ -88,11 +88,11 @@ describe('formatPage — the result says what happened', () => {
     });
 });
 
-// Void-element closing tags (</br>, </input>, …) that Prettier rejects are
-// stripped from the HTML, but that strip must NOT reach into VBScript strings or
-// ASP blocks (it used to run on the raw file and delete `</br>` from strings —
-// silent data loss). It now runs after ASP/JS masking.
-describe('formatCompleteAspFile — void-tag strip stays out of strings', () => {
+// A void element's closing tag (</br>, </input>, …) is text wherever it is not
+// markup — in a string, a comment, an attribute value — and must come through.
+// One in the markup stops the format: the structure check reports it first in
+// the editor, and Prettier cannot read it.
+describe('formatCompleteAspFile — void closing tags', () => {
     it('preserves a void closing tag emitted from a VBScript string', async () => {
         const input = '<%\nResponse.Write "</br>"\n%>';
         const out = await formatCompleteAspFile(input);
@@ -102,10 +102,14 @@ describe('formatCompleteAspFile — void-tag strip stays out of strings', () => 
         );
     });
 
-    it('still removes a real HTML void closing tag', async () => {
-        const input = '<div></div>\n</br>\n<p>x</p>';
-        const out = await formatCompleteAspFile(input);
-        assert.ok(!/<\/br>/i.test(out), `a real </br> element should be removed; got ${JSON.stringify(out)}`);
+    it('preserves one in a JS string, an HTML comment and an attribute value', async () => {
+        const input = '<script>\n  var s = "line</br>next";\n</script>\n<!-- a</br>b -->\n<div title="a</br>b">x</div>\n';
+        assert.strictEqual(await formatCompleteAspFile(input), input);
+    });
+
+    it('refuses, rather than drops, one in the markup', async () => {
+        const result = await formatPage('<div></div>\n<p>a</br>b</p>\n');
+        assert.ok(!result.ok && result.reason === 'prettier' && result.line === 1, JSON.stringify(result));
     });
 });
 
@@ -144,6 +148,40 @@ describe('formatCompleteAspFile — ASP inside <script> keeps JS order', () => {
             `<%= %> must stay between "var x =" and alert(x); got ${JSON.stringify(out)}`);
         assert.ok(!/var x = alert\(x\)/.test(out),
             `assignment must not merge with alert(x); got ${JSON.stringify(out)}`);
+    });
+});
+
+// A statement block stands for code Prettier cannot see, so reading it as a
+// bare word added `;` and `,` that changed what the script does.
+describe('formatCompleteAspFile — a <script> or <style> body with <% %> statements', () => {
+    const script = '<script>\nif (ready)\n<% If isAdmin Then %>\nshowAdmin();\n<% End If %>\n'
+        + 'var a = [<% For i = 1 To 3 %><%= i %>,<% Next %>];\n<% x = 1 %>\n</script>\n';
+
+    it('is left exactly as written', async () => {
+        assert.strictEqual(await formatCompleteAspFile(script), script);
+        const style = '<style>\n<% If dark Then %>\nbody{color:#fff}\n<% End If %>\n</style>\n';
+        assert.strictEqual(await formatCompleteAspFile(style), style);
+    });
+
+    it('settles in one pass inside other elements, its closing tag under its opening tag', async () => {
+        const once = await formatCompleteAspFile(`<div><p>x</p>\n${script}</div>\n`);
+        assert.ok(once.includes('if (ready)\n<% If isAdmin Then %>\nshowAdmin();\n'), once);
+        assert.match(once, /\n {2}<script>[\s\S]*\n {2}<\/script>\n/);
+        assert.strictEqual(await formatCompleteAspFile(once), once);
+    });
+
+    it('is left as written when an expression stands where a statement or a rule starts', async () => {
+        for (const source of [
+            '<script><%= js %></script>\n',
+            '<script>\nif (ready)\n<%= adminCall %>\nshow();\n</script>\n',
+            '<style>\n.a { <%= rules %> }\n</style>\n',
+        ]) {
+            assert.strictEqual(await formatCompleteAspFile(source), source);
+        }
+    });
+
+    it('still formats a body with only <%= %> expressions', async () => {
+        assert.strictEqual(await formatCompleteAspFile('<script>var x=<%= y %>;</script>\n'), '<script>\n  var x = <%= y %>;\n</script>\n');
     });
 });
 
@@ -414,8 +452,19 @@ describe('formatCompleteAspFile — ASP inside an HTML tag stays inside it', () 
             `the tag should stay on one line; got:\n${out}`);
     });
 
+    it('keeps a block inside an unquoted attribute value', async () => {
+        const link = await formatCompleteAspFile('<a href=page.asp?id=<%=id%>>x</a>\n');
+        assert.match(link, /^<a href=("?)page\.asp\?id=<%= id %>\1>x<\/a>\n$/);
+        const img = await formatCompleteAspFile('<img src=<%= s %> alt=x>\n');
+        assert.match(img, /^<img src=("?)<%= s %>\1 alt="x" \/>\n$/);
+        const statement = await formatCompleteAspFile('<a href=p.asp?<% If a Then %>b=1<% End If %>>x</a>\n');
+        assert.match(statement, /^<a href=("?)p\.asp\?<% If a Then %>b=1<% End If %>\1>x<\/a>\n$/);
+    });
+
     it('settles in one pass for every in-tag shape', async () => {
         for (const source of [
+            '<a href=page.asp?id=<%=id%>>x</a>\n',
+            '<img src=<%= s %>>\n',
             '<input type="text" <% If sel Then %>checked<% End If %> name="a">\n',
             '<input <% If a Then %>checked<% End If %>>\n',
             '<input value="<% If a Then %>x<% End If %>">\n',
@@ -427,6 +476,55 @@ describe('formatCompleteAspFile — ASP inside an HTML tag stays inside it', () 
             const twice = await formatCompleteAspFile(once);
             assert.strictEqual(twice, once, `a second format changed:\n${once}\n--- became ---\n${twice}`);
         }
+    });
+});
+
+// What ASP writes into a value may hold either quote, so the one the author
+// chose around it is the one that keeps the page working.
+describe('formatCompleteAspFile — the quotes around ASP output stay as written', () => {
+
+    afterEach(() => { testSettings.delete('classicAsp.prettier.singleQuote'); });
+
+    it('keeps single quotes round an attribute value and a JS string', async () => {
+        const out = await formatCompleteAspFile("<script>var html = '<%= rowHtml %>';</script>\n<div title='<%= t %>'>x</div>\n");
+        assert.strictEqual(out, "<script>\n  var html = '<%= rowHtml %>';\n</script>\n<div title='<%= t %>'>x</div>\n");
+    });
+
+    it('keeps double quotes when Prettier would pick single ones', async () => {
+        testSettings.set('classicAsp.prettier.singleQuote', true);
+        const out = await formatCompleteAspFile('<script>var a = "x <%= y %>", b = "it\'s";</script>\n');
+        assert.strictEqual(out, '<script>\n  var a = "x <%= y %>",\n    b = "it\'s";\n</script>\n');
+    });
+
+    it('leaves an unquoted value unquoted', async () => {
+        assert.strictEqual(await formatCompleteAspFile('<a href=page.asp?id=<%=id%>>x</a>\n'), '<a href=page.asp?id=<%= id %>>x</a>\n');
+    });
+
+    it('still lets Prettier pick the quotes of values without ASP', async () => {
+        assert.strictEqual(await formatCompleteAspFile("<div title='a'>x</div>\n"), '<div title="a">x</div>\n');
+    });
+});
+
+// A browser renders a line break between two words as a space, and every
+// character of <pre> and <textarea> as it is.
+describe('formatCompleteAspFile — whitespace the page renders stays as written', () => {
+
+    // A newline straight after either tag is not rendered, so Prettier may drop it.
+    it('keeps the blanks before an expression inside <pre> and <textarea>', async () => {
+        const source = '<div><pre>\n  <%= x %></pre></div>\n<textarea>\n  <%= x %></textarea>\n';
+        const out = await formatCompleteAspFile(source);
+        assert.match(out, /<pre>\n? {2}<%= x %><\/pre>/);
+        assert.match(out, /<textarea>\n? {2}<%= x %><\/textarea>/);
+    });
+
+    it('keeps statement blocks inside <pre> where they are', async () => {
+        const source = '<pre>\n  a\n    <% If b Then %>\n  c\n<% End If %>d</pre>\n';
+        assert.strictEqual(await formatCompleteAspFile(source), source);
+    });
+
+    it('does not split text glued to a statement block on both sides', async () => {
+        const source = '<span>abc<% If x Then %>def<% End If %>ghi</span>\n';
+        assert.strictEqual(await formatCompleteAspFile(source), source);
     });
 });
 
@@ -540,6 +638,15 @@ describe('formatCompleteAspFile — a tag each branch of an If opens', () => {
         assert.strictEqual(count(out, '<form'), 2, out);
         assert.strictEqual(count(out, '</form>'), 1, out);
         assert.ok(/^<form action="b\.asp">$/m.test(out), `the second <form> belongs at the first one's indent:\n${out}`);
+    });
+
+    it('adds no closing tag for any element both branches open', async () => {
+        for (const tag of ['p', 'span', 'a', 'li']) {
+            const out = await settlesInOnePass(
+                `<div><% If a Then %><${tag} class="x"><% Else %><${tag} class="y"><% End If %>text</${tag}></div>\n`);
+            // `</${tag}` alone: Prettier may put the closing tag's `>` on the next line.
+            assert.strictEqual(count(out, `</${tag}`), 1, out);
+        }
     });
 
     it('keeps a closing tag whose opening tag Response.Write writes', async () => {

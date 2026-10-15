@@ -24,14 +24,26 @@ import type * as A from './ast';
 import { tokenize, Token, TokenKind } from './lexer';
 import type { Segment } from './pageSegments';
 
-/** Words that can never be a plain name. After a `.` any word is a name. */
+/**
+ * Words that can never be a plain name, as cscript rejects `Dim <word>`: the
+ * keywords, and the words VBScript reserves without using (`Integer`, `Enum`).
+ * After a `.` any word is a name.
+ */
 export const RESERVED = new Set([
     'and', 'as', 'byref', 'byval', 'call', 'case', 'class', 'const', 'dim', 'do', 'each', 'else',
     'elseif', 'empty', 'end', 'eqv', 'exit', 'false', 'for', 'function', 'get', 'goto', 'if',
     'imp', 'in', 'is', 'let', 'loop', 'mod', 'new', 'next', 'not', 'nothing', 'null', 'on',
     'option', 'or', 'preserve', 'private', 'public', 'redim', 'resume', 'select', 'set',
     'stop', 'sub', 'then', 'to', 'true', 'until', 'wend', 'while', 'with', 'xor',
+    'boolean', 'byte', 'currency', 'double', 'endif', 'enum', 'event', 'implements', 'integer',
+    'like', 'long', 'lset', 'optional', 'paramarray', 'raiseevent', 'rset', 'shared', 'single',
+    'static', 'type', 'typeof', 'variant',
 ]);
+
+/** True when `word` (lower-cased) can never name a variable, procedure or class: a reserved word, `Me` or `Rem`. */
+export function isReservedWord(word: string): boolean {
+    return RESERVED.has(word) || word === 'me' || word === 'rem';
+}
 
 type BlockKind = 'if' | 'select' | 'for' | 'foreach' | 'do' | 'while' | 'with' | 'sub' | 'function' | 'property' | 'class';
 
@@ -1054,6 +1066,8 @@ class Parser {
     private parseMultiplicative(): A.Expr { return this.parsePunctLevel(['*', '/'], () => this.parseUnary()); }
 
     private parseUnary(): A.Expr {
+        // VBScript takes `Not` after any operator: `a & Not b`, `1 + Not 2`.
+        if (this.word() === 'not') { return this.parseNot(); }
         if (this.isPunct('-') || this.isPunct('+')) {
             if (!this.enter()) { return this.missingExpr(); }
             const t = this.advance();

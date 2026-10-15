@@ -42,6 +42,18 @@ describe('globToRegExp', () => {
         assert.ok(!globToRegExp('lib/*.html').test('lib/a/c.html'));
         assert.ok(globToRegExp('lib/*.html').test('lib/c.html'));
     });
+
+    it('a leading double-star folder matches whole folder names only, at any depth', () => {
+        assert.ok(globToRegExp('**/.git').test('.git'));
+        assert.ok(globToRegExp('**/.git').test('a/b/.git'));
+        assert.ok(!globToRegExp('**/.git').test('repo.git'));
+    });
+
+    it('matches either alternative of a brace group', () => {
+        assert.ok(globToRegExp('**/{dist,build}').test('site/build'));
+        assert.ok(globToRegExp('*.{asp,inc}').test('a.inc'));
+        assert.ok(!globToRegExp('**/{dist,build}').test('site/src'));
+    });
 });
 
 describe('isAspFile', () => {
@@ -132,6 +144,17 @@ describe('findAspFilesInFolder', () => {
         const found = findAspFilesInFolder(dir, dir, extensions, []);
         assert.deepStrictEqual(found.map(f => path.basename(f)), ['real.asp']);
     });
+
+    it('skips what the exclusions name, by its path in the folder', () => {
+        fs.mkdirSync(path.join(dir, 'backup', 'old'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'backup', 'old', 'page.asp'), '');
+        fs.writeFileSync(path.join(dir, 'real.asp'), '');
+        fs.writeFileSync(path.join(dir, 'real.bak.asp'), '');
+
+        const patterns = [globToRegExp('**/backup'), globToRegExp('**/*.bak.asp')];
+        const found = findAspFilesInFolder(dir, dir, extensions, [], rel => patterns.some(p => p.test(rel.replace(/\\/g, '/'))));
+        assert.deepStrictEqual(found.map(f => path.basename(f)), ['real.asp']);
+    });
 });
 
 // Ctrl+T asks on every keystroke typed into it. Each ask used to walk every
@@ -163,6 +186,24 @@ describe('AspWorkspaceSymbolProvider — the workspace file index', () => {
 
     it('finds the symbols of every ASP file in the workspace', async () => {
         assert.deepStrictEqual(await names(), ['RenderOne', 'RenderTwo']);
+    });
+
+    it('leaves out what files.exclude and search.exclude hide, as VS Code\'s search does', async () => {
+        fs.mkdirSync(path.join(dir, 'backup'));
+        fs.writeFileSync(path.join(dir, 'backup', 'old.asp'), lib('RenderOld'));
+        stub.testSettings.set('files.exclude', { '**/backup': true, '**/one.asp': false });
+        stub.testSettings.set('search.exclude', { 'lib': true });
+        try {
+            assert.deepStrictEqual(await names(), ['RenderOne']);
+
+            const created = path.join(dir, 'backup', 'new.asp');
+            fs.writeFileSync(created, lib('RenderNew'));
+            stub.fireFileEvent('create', created);
+            assert.deepStrictEqual(await names(), ['RenderOne']);
+        } finally {
+            stub.testSettings.delete('files.exclude');
+            stub.testSettings.delete('search.exclude');
+        }
     });
 
     it('answers the next keystroke from the index, without going back to the disk', async () => {

@@ -22,7 +22,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { parseIncludeDirectives, resolveIncludeDirective } from '../core/includeDirectives';
-import { pathKey } from '../core/paths';
+import { pathKey, withoutBom } from '../core/paths';
 import { aspFiles, getWorkspaceAspFiles, onAspFilesChange } from '../platform/workspaceIndex';
 import { onSettingsChange } from '../platform/settings';
 import { getVirtualRoot, readIncludeText } from './includeProvider';
@@ -36,8 +36,12 @@ interface Entry {
 /** By path key. Complete once `complete` is set; until then a query reads the workspace itself. */
 let entries = new Map<string, Entry>();
 let complete = false;
-/** Bumped on every change, so a background read that started earlier does not overwrite it. */
+/** Bumped on every change, so a reverse graph built earlier is not reused. */
 let generation = 0;
+/** Bumped when the include paths resolve differently, so a background read under way is dropped. */
+let readEpoch = 0;
+/** Files deleted while the background read is under way, which it may already have read. */
+let deletedDuringRead = new Set<string>();
 /** The reverse graph last built, and what it was built from. */
 let lastIncludedBy: { key: string; includedBy: Map<string, string[]> } | null = null;
 
@@ -63,17 +67,25 @@ function readAllNow(): void {
     changed();
 }
 
-/** Every file of the workspace read without blocking; dropped if anything changed meanwhile. */
+/**
+ * Every file of the workspace read without blocking. A file the watcher saw
+ * change meanwhile is already in `entries`, newer than what this read, so it
+ * wins; giving up instead left the graph incomplete until a query read the
+ * whole workspace on the extension host.
+ */
 async function readAllInBackground(): Promise<void> {
-    const started = generation;
+    const started = readEpoch;
     const next = new Map<string, Entry>();
     for (const fsPath of await aspFiles()) {
         let text: string;
-        try { text = await fs.promises.readFile(fsPath, 'utf8'); } catch { continue; }
+        try { text = withoutBom(await fs.promises.readFile(fsPath, 'utf8')); } catch { continue; }
         next.set(pathKey(fsPath), entryOf(fsPath, text));
-        if (generation !== started) { return; }
+        if (readEpoch !== started) { return; }
     }
-    if (generation !== started || complete) { return; }
+    if (readEpoch !== started || complete) { return; }
+    for (const key of deletedDuringRead) { next.delete(key); }
+    for (const [key, entry] of entries) { next.set(key, entry); }
+    deletedDuringRead = new Set();
     entries = next;
     complete = true;
     changed();
@@ -82,8 +94,9 @@ async function readAllInBackground(): Promise<void> {
 async function reread(files: string[]): Promise<void> {
     for (const fsPath of files) {
         let text: string;
-        try { text = await fs.promises.readFile(fsPath, 'utf8'); } catch { continue; }
+        try { text = withoutBom(await fs.promises.readFile(fsPath, 'utf8')); } catch { continue; }
         entries.set(pathKey(fsPath), entryOf(fsPath, text));
+        deletedDuringRead.delete(pathKey(fsPath));
         changed();
     }
 }
@@ -91,7 +104,9 @@ async function reread(files: string[]): Promise<void> {
 /** Forgets everything: the include paths resolve differently now. */
 function startAgain(): void {
     entries = new Map();
+    deletedDuringRead = new Set();
     complete = false;
+    readEpoch++;
     changed();
     void readAllInBackground();
 }
@@ -102,14 +117,19 @@ function startAgain(): void {
  */
 export function registerIncludeGraph(context: vscode.ExtensionContext): void {
     entries = new Map();
+    deletedDuringRead = new Set();
     complete = false;
+    readEpoch++;
     changed();
     const timer = setTimeout(() => { if (!complete) { void readAllInBackground(); } }, 3000);
     context.subscriptions.push(
         { dispose: () => clearTimeout(timer) },
         onAspFilesChange(change => {
             if (change.created.length + change.changed.length + change.deleted.length === 0) { startAgain(); return; }
-            for (const fsPath of change.deleted) { entries.delete(pathKey(fsPath)); }
+            for (const fsPath of change.deleted) {
+                entries.delete(pathKey(fsPath));
+                if (!complete) { deletedDuringRead.add(pathKey(fsPath)); }
+            }
             changed();
             void reread([...change.created, ...change.changed]);
         }),

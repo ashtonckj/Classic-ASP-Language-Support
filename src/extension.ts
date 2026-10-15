@@ -18,7 +18,6 @@ import { registerJsDiagnostics } from './js/jsDiagnosticsProvider';
 import { addRegionHighlights } from './asp/highlight';
 import { disposeIncludeWatchers } from './asp/includeProvider';
 import { disposeWorkspaceIndex } from './platform/workspaceIndex';
-import { disposeJsLanguageService } from './js/jsUtils';
 import { disposeAnalysisWorkers } from './workers/analysisClient';
 import { migrateOldSettingsAndTell } from './platform/settingsMigration';
 import { checkForCompetingExtensions } from './platform/competingExtensions';
@@ -66,7 +65,6 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate(): void {
-    disposeJsLanguageService();
     disposeAnalysisWorkers();
     disposeIncludeWatchers();
     disposeWorkspaceIndex();

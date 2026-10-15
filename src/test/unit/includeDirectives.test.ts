@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as path from 'path';
-import { movedPathLookup, rewriteIncludesAfterMove } from '../../core/includeDirectives';
+import { movedPathLookup, parseIncludeDirectives, resolveIncludeDirective, rewriteIncludesAfterMove } from '../../core/includeDirectives';
 
 // Moving a file left every #include that named it pointing at nothing. These
 // work out what each directive has to say instead.
@@ -25,6 +25,26 @@ describe('movedPathLookup', () => {
 
     it('is undefined for a path that did not move', () => {
         assert.strictEqual(moved(at('page.asp')), undefined);
+    });
+});
+
+describe('resolveIncludeDirective', () => {
+    const page = at('admin', 'page.asp');
+    const resolve = (text: string) => resolveIncludeDirective(parseIncludeDirectives(text)[0], page, ROOT);
+
+    it('resolves file= from the page and virtual= from the site root', () => {
+        assert.strictEqual(resolve('<!--#include file="../inc/db.asp"-->'), at('inc', 'db.asp'));
+        assert.strictEqual(resolve('<!--#include virtual="/inc/db.asp"-->'), at('inc', 'db.asp'));
+    });
+
+    it('reads a backslash as a slash, as IIS does', () => {
+        assert.strictEqual(resolve('<!--#include file="..\\inc\\db.asp"-->'), at('inc', 'db.asp'));
+        assert.strictEqual(resolve('<!--#include virtual="\\inc\\db.asp"-->'), at('inc', 'db.asp'));
+    });
+
+    it('never names a network share', () => {
+        assert.strictEqual(resolve('<!--#include file="\\\\host\\share\\x.inc"-->'), at('admin', 'host', 'share', 'x.inc'));
+        assert.strictEqual(resolve('<!--#include virtual="//host/share/x.inc"-->'), at('host', 'share', 'x.inc'));
     });
 });
 

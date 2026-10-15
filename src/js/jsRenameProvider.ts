@@ -7,8 +7,8 @@
  * it will and will not touch.
  *
  * A rename here covers THIS document only. The virtual file the language service
- * sees is assembled from one page: every <script> block in it, plus a generated
- * preamble. So a JS symbol's scope really is the page, and renaming it cannot
+ * sees is assembled from one page: every <script> block in it, plus a file of
+ * declarations generated from it. So a JS symbol's scope really is the page, and renaming it cannot
  * reach another file — which is the honest answer for client-side script.
  *
  * Two cases are refused rather than half-done:
@@ -26,7 +26,7 @@
 
 import * as vscode from 'vscode';
 import { VIRTUAL_FILENAME } from './jsUtils';
-import { jsQueryAt, jsRange } from './jsDocument';
+import { askJs, jsOffsetAt, jsRange } from './jsDocument';
 
 export class JsRenameProvider implements vscode.RenameProvider {
 
@@ -34,16 +34,17 @@ export class JsRenameProvider implements vscode.RenameProvider {
      * Decides up front whether F2 should open at all, so the user finds out
      * before typing a new name rather than after.
      */
-    prepareRename(
+    async prepareRename(
         document: vscode.TextDocument,
         position: vscode.Position,
         token:    vscode.CancellationToken,
-    ): vscode.ProviderResult<vscode.Range> {
+    ): Promise<vscode.Range | undefined> {
 
-        const ready = jsQueryAt(document, position);
-        if (!ready || token.isCancellationRequested) { return undefined; }
+        const offset = jsOffsetAt(document, position);
+        if (offset === undefined) { return undefined; }
 
-        const info = ready.svc.getRenameInfo(ready.virtualOffset);
+        const info = await askJs(document, 'getRenameInfo', [offset], token);
+        if (token.isCancellationRequested) { return undefined; }
         if (!info || !info.canRename) {
             // TypeScript's own explanation is better than anything invented here.
             throw new Error(
@@ -52,31 +53,28 @@ export class JsRenameProvider implements vscode.RenameProvider {
             );
         }
 
-        const range = jsRange(document, ready.preambleLength, VIRTUAL_FILENAME, info.triggerSpan);
-        if (!range) {
-            throw new Error('This name is generated, not part of the page, so it cannot be renamed.');
-        }
-        return range;
+        // The caret is in the page, and so is the name it is on.
+        return jsRange(document, VIRTUAL_FILENAME, info.triggerSpan);
     }
 
-    provideRenameEdits(
+    async provideRenameEdits(
         document: vscode.TextDocument,
         position: vscode.Position,
         newName:  string,
         token:    vscode.CancellationToken,
-    ): vscode.ProviderResult<vscode.WorkspaceEdit> {
+    ): Promise<vscode.WorkspaceEdit | undefined> {
 
-        const ready = jsQueryAt(document, position);
-        if (!ready || token.isCancellationRequested) { return undefined; }
+        const offset = jsOffsetAt(document, position);
+        if (offset === undefined) { return undefined; }
 
-        const locations = ready.svc.findRenameLocations(ready.virtualOffset);
-        if (!locations.length) { return undefined; }
+        const locations = await askJs(document, 'findRenameLocations', [offset], token);
+        if (!locations?.length) { return undefined; }
 
         const edit = new vscode.WorkspaceEdit();
         let inDocument = 0;
 
         for (const loc of locations) {
-            const range = jsRange(document, ready.preambleLength, loc.fileName, loc.textSpan);
+            const range = jsRange(document, loc.fileName, loc.textSpan);
             if (!range) {
                 // A location this rename would have to change but cannot reach.
                 // Renaming only part of a symbol's uses is worse than refusing.

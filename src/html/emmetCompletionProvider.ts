@@ -5,6 +5,8 @@ import { TextDocument as LsTextDocument } from 'vscode-languageserver-textdocume
 import { textOf, zonesFor } from '../platform/documentState';
 import { fromLspCompletion, type LspCompletionItem } from '../platform/lspConvert';
 import { loadEmmetHelper } from '../core/lazyModule';
+import { inHtmlComment } from './htmlLanguageFeatures';
+import { styleAttributeAt } from '../css/cssUtils';
 
 /**
  * Emmet abbreviations in the suggest widget, offered only where the caret is
@@ -36,7 +38,7 @@ import { loadEmmetHelper } from '../core/lazyModule';
  * So the mapping is left unset and the expansions are produced here instead,
  * from `@vscode/emmet-helper` — the same library Emmet's own extension calls
  * into, so the abbreviations and their output are identical. What changes is
- * who decides where they apply: `getZone`, which reads the page the way the
+ * who decides where they apply: the page's zones, which read it the way the
  * engine does, rather than a backwards scan for a stray angle bracket.
  */
 
@@ -79,9 +81,14 @@ export class EmmetCompletionProvider implements vscode.CompletionItemProvider {
         // around the caret. `asp` is VBScript and `js` belongs to the embedded
         // TypeScript service — expanding an abbreviation in either would
         // replace working code with markup.
-        const zone = zonesFor(document).zoneAt(document.offsetAt(position));
+        const offset = document.offsetAt(position);
+        const zones = zonesFor(document);
+        const zone = zones.zoneAt(offset);
         if (zone !== 'html' && zone !== 'css') { return; }
-        const syntax = zone === 'css' ? 'css' : 'html';
+        // A .html file does not expand abbreviations inside a comment either.
+        if (zone === 'html' && inHtmlComment(document, offset)) { return; }
+        // Inside style="…" an abbreviation is CSS — `m10` is `margin: 10px;` — as in a .html file.
+        const syntax = zone === 'css' || styleAttributeAt(zones, offset) ? 'css' : 'html';
 
         // The helper reads an LSP document. Its own language id is what it uses
         // to tell a stylesheet from markup, so it is given the ZONE's syntax

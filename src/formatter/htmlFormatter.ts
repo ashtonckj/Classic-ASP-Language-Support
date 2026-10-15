@@ -4,6 +4,8 @@ import { aspTagProblems, findNextRealTag, findTagEnd, findClosingTag, getVbScrip
 import { analyseHtmlStructure } from '../core/htmlStructure';
 import { VOID_ELEMENTS } from '../constants/htmlTags';
 import { pageLanguage } from '../vbscript/pageSegments';
+import { parsePage, type ParsedPage } from '../vbscript/symbols';
+import { pageBlocks } from '../vbscript/pageAnalysis';
 import { formatterSettings, prettierSettings as readPrettierSettings, type PrettierSettings } from '../platform/settings';
 import { loadPrettier } from '../core/lazyModule';
 import { lineOf, OffsetMap, offsetOf, replaceRecorded, toOriginal } from './offsetMap';
@@ -15,10 +17,10 @@ import { lineOf, OffsetMap, offsetOf, replaceRecorded, toOriginal } from './offs
 //   text    – a <%= … %> expression in page content → word placeholder
 //   inline  – inside a quoted attribute value      → bare token placeholder
 //   midtag  – between attributes, not quoted       → data- attribute placeholder
-//   rawtext – inside a <script>/<style> body       → bare identifier placeholder
-//             (an HTML-comment placeholder is legal JS/CSS and gets parsed by
-//              Prettier — it would REORDER/corrupt the code — so raw-text blocks
-//              use an identifier token Prettier leaves in place instead)
+//   rawtext – a <%= … %> value in a <script>/<style> body → bare identifier placeholder
+//             (Prettier formats the body as JS or CSS, so the stand-in for a
+//              value has to read as one there; a body with a statement block
+//              is never formatted — see takeAspScriptBodies)
 type AspBlockKind = 'normal' | 'text' | 'inline' | 'midtag' | 'rawtext';
 
 interface AspBlock {
@@ -28,6 +30,9 @@ interface AspBlock {
     kind:       AspBlockKind;
     /** The exact string emitted in place of the block, for kinds that need one. */
     token?:     string;
+    /** In an attribute value: its quote ('' when unquoted), and its text before the block. */
+    quote?:     string;
+    prefix?:    string;
 }
 
 /** A tag kept out of Prettier's sight behind `<!--id-->` — see analyseHtmlStructure. */
@@ -124,10 +129,6 @@ export class PlaceholderNames {
     id(prefix: string, number: number): string { return `${prefix}${number}_${this.tag}_${this.tail}`; }
 }
 
-// A closing tag for a void element — `</br>`, `</img>` — which HTML has no
-// such thing as.
-const VOID_CLOSING_TAG_RE = new RegExp(`</(${[...VOID_ELEMENTS].join('|')})\\s*>`, 'gi');
-
 // ─── JS event attribute masking ───────────────────────────────────────────
 
 interface JsAttrMask {
@@ -173,18 +174,6 @@ function restoreJsEventAttrs(code: string, masks: JsAttrMask[]): string {
     });
 }
 
-// ─── Safety check ─────────────────────────────────────────────────────────
-
-/**
- * True when the page has a `<%` that is never closed or a `%>` outside every
- * block, by the same lexical rule IIS uses: the first `%>` ends a block, even
- * one at the end of a comment, so `<% 'Response.Write x %>` is a whole block.
- * An unclosed `<%` would run the masking to the end of the page.
- */
-function hasUnclosedAspTags(code: string): boolean {
-    return aspTagProblems(code).length > 0;
-}
-
 // ─── ASP block classifier ─────────────────────────────────────────────────
 
 /**
@@ -201,6 +190,10 @@ function hasUnclosedAspTags(code: string): boolean {
 class EmittedContext {
     private inTag     = false;
     private attrQuote = '';
+    /** Inside an unquoted attribute value: `href=page.asp?id=`. */
+    private unquoted  = false;
+    /** The current attribute value so far, its quote excluded. */
+    private value     = '';
     private inComment = false;
     private dashes    = 0;
     /** The last character that is not a space or a tab. */
@@ -220,8 +213,14 @@ class EmittedContext {
         // nothing after it, it opens no tag; `<!` and `<!-` each open one.
         if (this.pending.length >= 2) { return 'midtag'; }
         if (this.attrQuote) { return 'inline'; }
-        if (this.inTag)     { return 'midtag'; }
+        // Straight after `=`, or inside an unquoted value, the block is part of the value.
+        if (this.inTag)     { return this.unquoted || this.lastSolid === '=' ? 'inline' : 'midtag'; }
         return 'normal';
+    }
+
+    /** For an `inline` block: the value's quote ('' when unquoted) and its text before the block. */
+    attribute(): { quote: string; prefix: string } {
+        return { quote: this.attrQuote, prefix: this.attrQuote || this.unquoted ? this.value : '' };
     }
 
     private step(ch: string): void {
@@ -255,17 +254,48 @@ class EmittedContext {
             return;
         }
         if (this.attrQuote) {
-            if (ch === this.attrQuote) { this.attrQuote = ''; }
+            if (ch === this.attrQuote) { this.attrQuote = ''; } else { this.value += ch; }
             return;
         }
         if (this.inTag) {
-            if (ch === '>') { this.inTag = false; }
-            // A quote opens a value only straight after `=` (spaces allowed).
-            else if ((ch === '"' || ch === "'") && before === '=') { this.attrQuote = ch; }
+            if (ch === '>' || /\s/.test(ch)) {
+                if (ch === '>') { this.inTag = false; }
+                this.unquoted = false;
+            } else if (this.unquoted) {
+                this.value += ch;
+            } else if (before === '=') {
+                // A quote opens a value only straight after `=` (spaces allowed);
+                // anything else there starts an unquoted one.
+                if (ch === '"' || ch === "'") { this.attrQuote = ch; this.value = ''; } else { this.unquoted = true; this.value = ch; }
+            }
             return;
         }
         if (ch === '<') { this.pending = '<'; }
     }
+}
+
+/**
+ * Quotes each unquoted attribute value that holds a placeholder, given where
+ * each value starts and where a placeholder in it ends, in page order. Prettier
+ * ends an unquoted value at its first `=`, so `href=a.asp?id=<%= id %>` came
+ * back as `href="a.asp?id" ="…"`.
+ */
+function quoteUnquotedValues(text: string, values: Array<[number, number]>, map: OffsetMap): string {
+    let out = '';
+    let last = 0;
+    for (const [start, from] of values) {
+        if (start < last) { continue; }   // a second placeholder in a value already quoted
+        let end = from;
+        while (end < text.length && text[end] !== '>' && !/\s/.test(text[end])) { end++; }
+        const quote = text.slice(start, end).includes('"') ? "'" : '"';
+        out += text.slice(last, start);
+        map.replaced(start, start, out.length, out.length + 1);
+        out += quote + text.slice(start, end);
+        map.replaced(end, end, out.length, out.length + 1);
+        out += quote;
+        last = end;
+    }
+    return out + text.slice(last);
 }
 
 // ─── Raw-text (<script>/<style>) ASP handling ───────────────────────────────
@@ -282,14 +312,14 @@ function rawTokenFor(id: string): string {
 
 /**
  * Byte ranges [start, end) of every real <script>/<style> element BODY (between
- * the opening tag's `>` and the closing tag). Reuses the zone scanners so ASP
- * blocks, quoted attributes, and VBScript strings are handled the same way the
- * rest of the extension handles them.
+ * the opening tag's `>` and the closing tag) — or of the elements named. Reuses
+ * the zone scanners so ASP blocks, quoted attributes, and VBScript strings are
+ * handled the same way the rest of the extension handles them.
  */
-function computeRawTextRanges(text: string): Array<[number, number]> {
+function computeRawTextRanges(text: string, names: readonly string[] = ['script', 'style']): Array<[number, number]> {
     const ranges: Array<[number, number]> = [];
-    for (const tag of ['<script', '<style'] as const) {
-        const name = tag.slice(1); // 'script' | 'style'
+    for (const name of names) {
+        const tag = '<' + name;
         let from = 0;
         while (true) {
             const open = findNextRealTag(text, tag, from);
@@ -308,6 +338,53 @@ function computeRawTextRanges(text: string): Array<[number, number]> {
 
 function isInRawText(pos: number, ranges: Array<[number, number]>): boolean {
     return ranges.some(([s, e]) => pos >= s && pos < e);
+}
+
+/** The quote and the text so far of the JS or CSS string that `line` ends inside, if it ends inside one. */
+function stringAtEnd(line: string): { quote: string; prefix: string } | undefined {
+    let quote = '';
+    let start = 0;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (quote) {
+            if (ch === '\\') { i++; } else if (ch === quote) { quote = ''; }
+        } else if (ch === '"' || ch === "'" || ch === '`') {
+            quote = ch;
+            start = i + 1;
+        } else if (ch === '/' && line[i + 1] === '/') {
+            break;
+        }
+    }
+    return quote === '"' || quote === "'" ? { quote, prefix: line.slice(start) } : undefined;
+}
+
+/**
+ * Gives each attribute value and JS/CSS string that holds a placeholder back
+ * the quote it was written with — none, for an unquoted value. Prettier picks
+ * its own, but what ASP writes into the value may hold the one it picked.
+ * Left alone wherever the text before the placeholder is not as it was.
+ */
+function restoreQuotes(text: string, blocks: AspBlock[]): string {
+    const found = findInOrder(text, blocks.map(placeholderOf));
+    // From the end, so the places found before each are still where they were.
+    for (let i = blocks.length - 1; i >= 0; i--) {
+        const { quote, prefix, kind } = blocks[i];
+        const at = found[i];
+        if (quote === undefined || prefix === undefined || at === -1) { continue; }
+        const open = at - prefix.length - 1;
+        const now = text[open];
+        if ((now !== '"' && now !== "'") || now === quote || text.slice(open + 1, at) !== prefix) { continue; }
+
+        const js = kind === 'rawtext';
+        let close = at;
+        while (close < text.length && text[close] !== now) { close += js && text[close] === '\\' ? 2 : 1; }
+        if (close >= text.length) { continue; }
+        let body = text.slice(open + 1, close);
+        if (js) { body = body.replace(/\\[\s\S]|['"]/g, m => m === quote ? '\\' + m : m); }
+        else if (quote && body.includes(quote)) { continue; }
+        text = text.slice(0, open) + quote + body + quote + text.slice(close + 1);
+    }
+    return text;
 }
 
 // ─── Implied table end-tag normaliser ───────────────────────────────────────
@@ -413,22 +490,13 @@ export function insertImpliedTableEndTags(html: string, map?: OffsetMap): string
 // ─── Main entry point ──────────────────────────────────────────────────────
 
 /**
- * True when `before` — the text from the start of its line up to a placeholder —
- * holds real content, so the block will have to be moved onto lines of its own.
- *
- * A placeholder sitting inside an unclosed quote is an attribute value, not tag
- * content — breaking the line there would split the tag open — so it does not
- * count however much text precedes it.
+ * True when `before` — the text from the start of its line up to a statement
+ * block's or a hidden tag's comment — holds real content, so the block will
+ * have to be moved onto lines of its own. Such a comment is never inside an
+ * attribute value: a block there is masked as `inline`.
  */
 function isInlinePlaced(before: string): boolean {
-    if (before.trim().length === 0) { return false; }
-
-    let quote: string | null = null;
-    for (const ch of before) {
-        if (!quote && (ch === '"' || ch === "'")) { quote = ch; }
-        else if (quote && ch === quote)           { quote = null; }
-    }
-    return quote === null;
+    return before.trim().length > 0;
 }
 
 /**
@@ -515,6 +583,48 @@ function findInOrder(text: string, needles: readonly string[]): number[] {
     });
 }
 
+// ─── <script>/<style> bodies kept from Prettier ────────────────────────────
+// Taken out before Prettier runs, and put back afterwards.
+
+/** `code` with the text of each range taken out; the ranges may come in any order. */
+function takeOut(code: string, ranges: Array<[number, number]>, map: OffsetMap): string {
+    let masked = '';
+    let last = 0;
+    for (const [start, end] of [...ranges].sort((a, b) => a[0] - b[0])) {
+        masked += code.slice(last, start);
+        map.replaced(start, end, masked.length, masked.length);
+        last = end;
+    }
+    return masked + code.slice(last);
+}
+
+/**
+ * Puts each body back in place of its range, laid out by `layOut` from the
+ * indent of the tag it belongs to; a null body's range is left alone. Null
+ * when the ranges no longer line up with the bodies.
+ */
+function putBack(
+    code: string, ranges: Array<[number, number]>, bodies: Array<string | null>,
+    layOut: (body: string, tagIndent: string) => string,
+): string | null {
+    if (bodies.every(body => body === null)) { return code; }
+    if (ranges.length !== bodies.length) { return null; }
+
+    const lower = code.toLowerCase();
+    let out = code;
+    // From the end, so each range is still where it was found.
+    for (const k of ranges.map((_, k) => k).filter(k => bodies[k] !== null).sort((a, b) => ranges[b][0] - ranges[a][0])) {
+        const [start, end] = ranges[k];
+        const tagAt = Math.max(lower.lastIndexOf('<script', start), lower.lastIndexOf('<style', start));
+        const tagIndent = /^[ \t]*/.exec(code.slice(code.lastIndexOf('\n', tagAt) + 1, tagAt))![0];
+        out = out.slice(0, start) + layOut(bodies[k]!, tagIndent) + out.slice(end);
+    }
+    return out;
+}
+
+/** A body as it was written, with the closing tag lined up under its opening tag. */
+const asWritten = (body: string, tagIndent: string): string => body.replace(/\n[ \t]*$/, '\n' + tagIndent);
+
 // ─── VBScript <script> blocks ──────────────────────────────────────────────
 // Prettier picks a script's language from its `type` alone, so it reads
 // `<script language="vbscript">` as JavaScript: it moves the code about and,
@@ -524,17 +634,10 @@ function findInOrder(text: string, needles: readonly string[]): number[] {
 
 /** Takes out the body of every closed VBScript `<script>` block, in page order. */
 function takeVbScriptBodies(code: string, map: OffsetMap): { masked: string; bodies: string[] } {
-    const bodies: string[] = [];
-    let masked = '';
-    let last = 0;
-    for (const { start, end } of getVbScriptBlockRanges(code)) {
-        if (!/^<\/script/i.test(code.slice(end, end + 8))) { continue; }
-        bodies.push(code.slice(start, end));
-        masked += code.slice(last, start);
-        map.replaced(start, end, masked.length, masked.length);
-        last = end;
-    }
-    return { masked: masked + code.slice(last), bodies };
+    const ranges = getVbScriptBlockRanges(code)
+        .filter(({ end }) => /^<\/script/i.test(code.slice(end, end + 8)))
+        .map(({ start, end }): [number, number] => [start, end]);
+    return { masked: takeOut(code, ranges, map), bodies: ranges.map(([start, end]) => code.slice(start, end)) };
 }
 
 /**
@@ -543,32 +646,42 @@ function takeVbScriptBodies(code: string, map: OffsetMap): { masked: string; bod
  * `<% %>` in it is not one piece of VBScript, so it goes back as it was.
  */
 function putBackVbScriptBodies(code: string, bodies: string[], settings: AspFormatterSettings): string | null {
-    const empty = getVbScriptBlockRanges(code).filter(r => r.start === r.end);
-    if (empty.length !== bodies.length) { return null; }
-
+    const empty = getVbScriptBlockRanges(code).filter(r => r.start === r.end).map(({ start, end }): [number, number] => [start, end]);
     const unit = settings.useTabs ? '\t' : ' '.repeat(settings.indentSize);
-    const lower = code.toLowerCase();
-    let out = '';
-    let last = 0;
-    empty.forEach(({ start }, i) => {
-        const body = bodies[i];
-        out += code.slice(last, start);
-        last = start;
-        const tagAt = lower.lastIndexOf('<script', start);
-        const tagIndent = /^[ \t]*/.exec(code.slice(code.lastIndexOf('\n', tagAt) + 1, tagAt))![0];
-        if (!body.trim() || body.includes('<%')) {
-            // As it was, but with `</script>` lined up under its tag.
-            out += body.replace(/\n[ \t]*$/, '\n' + tagIndent);
-            return;
-        }
+    return putBack(code, empty, bodies, (body, tagIndent) => {
+        if (!body.trim() || body.includes('<%')) { return asWritten(body, tagIndent); }
 
         // The line breaks after the tag and before `</script>` are the tag's, not the code's.
         const vbscript = body.replace(/^[ \t]*\r?\n/, '').replace(/\r?\n[ \t]*$/, '');
         const formatted = formatSingleAspBlock(`<%\n${vbscript}\n%>`, { ...settings, aspTagsOnSameLine: false }).formatted;
         const lines = formatted.split('\n').slice(1, -1).map(line => line.trim() ? tagIndent + unit + line : '');
-        out += '\n' + lines.join('\n') + '\n' + tagIndent;
+        return '\n' + lines.join('\n') + '\n' + tagIndent;
     });
-    return out + code.slice(last);
+}
+
+// ─── <script>/<style> bodies with <% %> statements ─────────────────────────
+// A statement block in JavaScript or CSS stands for code Prettier cannot see:
+// `if (ready)\n<% If admin Then %>\nshow();` read with the block as a bare word
+// gained a `;` that made show() unconditional, and every format indented the
+// block one level deeper. Such a body is taken out and put back as written.
+
+/**
+ * Takes out every <script>/<style> body that holds a `<% %>` statement, or a
+ * `<%= %>` standing where a statement or a rule starts — what it writes may be
+ * code of any shape, and Prettier ended `<script><%= js %></script>` with a `;`.
+ * `bodies` lines up with computeRawTextRanges' order, null for a body left in.
+ */
+function takeAspScriptBodies(code: string, map: OffsetMap): { masked: string; bodies: Array<string | null> } {
+    const ranges = computeRawTextRanges(code);
+    const bodies = ranges.map(([start, end]) => {
+        const body = code.slice(start, end);
+        const isCode = (m: RegExpMatchArray) => {
+            const before = body.slice(0, m.index).trimEnd();
+            return !isAspExpression(m[0]) || before === '' || ';{})'.includes(before[before.length - 1]);
+        };
+        return [...body.matchAll(/<%[\s\S]*?%>/g)].some(isCode) ? body : null;
+    });
+    return { masked: takeOut(code, ranges.filter((_, k) => bodies[k] !== null), map), bodies };
 }
 
 /**
@@ -598,8 +711,13 @@ export async function formatCompleteAspFile(code: string): Promise<string> {
     return result.ok ? result.text : code;
 }
 
-export async function formatPage(code: string): Promise<FormatResult> {
-    if (hasUnclosedAspTags(code)) {
+/** `parsed`, when given, is a parse the caller already has; it is used only for the text it is a parse of. */
+export async function formatPage(code: string, parsed?: ParsedPage): Promise<FormatResult> {
+    // A `<%` never closed, or a `%>` outside every block, by the lexical rule IIS
+    // uses: the first `%>` ends a block, even one at the end of a comment, so
+    // `<% 'Response.Write x %>` is a whole block. An unclosed `<%` would run the
+    // masking to the end of the page.
+    if (aspTagProblems(code).length > 0) {
         return {
             ok: false, reason: 'asp-tags', severity: 'warning',
             message: 'Formatting skipped — unclosed <% or stray %> detected. Fix the ASP tag mismatch first.',
@@ -616,14 +734,18 @@ export async function formatPage(code: string): Promise<FormatResult> {
     }
 
     const prettierSettings = readPrettierSettings();
+    // The page is asked for its names and for its If structure, often of the
+    // same text: one parse serves both.
+    const parse = (text: string): ParsedPage => parsed?.text === text ? parsed : (parsed = parsePage(text));
     const run: FormatRun = {
         code,
+        parse,
         // A token's number is part of its length, and Prettier lays a line out
         // by its length, so the numbers start again for every page — see
         // PlaceholderNames.
         names:    new PlaceholderNames(code),
         prettier: prettierSettings,
-        asp:      { ...aspFormatterSettings(formatterSettings(), prettierSettings), pageNames: pageNames(code) },
+        asp:      { ...aspFormatterSettings(formatterSettings(), prettierSettings), pageNames: pageNames(parse(code)) },
         options:  prettierOptionsFor(prettierSettings),
         // Loaded on the first format rather than when the extension starts: nothing
         // else needs it, and loading it added ~40 ms to every window's startup.
@@ -636,17 +758,18 @@ export async function formatPage(code: string): Promise<FormatResult> {
     // Each stage records what it replaced, so a Prettier error can be traced to the user's line.
     const bodiesMap = new OffsetMap();
     const jsAttrMap = new OffsetMap();
+    const aspBodiesMap = new OffsetMap();
     const vbscriptBodies = takeVbScriptBodies(code, bodiesMap);
-    const { masked: jsPreMasked, masks: jsAttrMasks } = maskJsEventAttrs(vbscriptBodies.masked, run.names, jsAttrMap);
+    const aspBodies = takeAspScriptBodies(vbscriptBodies.masked, aspBodiesMap);
+    const { masked: jsPreMasked, masks: jsAttrMasks } = maskJsEventAttrs(aspBodies.masked, run.names, jsAttrMap);
 
-    // <script>/<style> body ranges — ASP blocks inside them need a JS/CSS-safe
-    // identifier placeholder, not an HTML comment (which Prettier would parse as
-    // a JS/CSS comment and reorder around, corrupting the code).
+    // <script>/<style> body ranges — a value written into one is masked as a
+    // JS/CSS identifier: see AspBlockKind.
     const rawRanges = computeRawTextRanges(jsPreMasked);
 
     // ── Step 2: Mask all ASP blocks ──────────────────────────────────────────
     const page = maskAspBlocks(run, jsPreMasked, rawRanges);
-    page.maps.unshift(bodiesMap, jsAttrMap);
+    page.maps.unshift(bodiesMap, aspBodiesMap, jsAttrMap);
 
     // ── Step 3: Run Prettier on the masked HTML ──────────────────────────────
     let prettifiedCode: string;
@@ -680,7 +803,7 @@ export async function formatPage(code: string): Promise<FormatResult> {
     }
 
     // ── Step 3b: Lay the page out the way it is going to end up ─────────────
-    prettifiedCode = await layOutAsWritten(run, page, prettifiedCode);
+    prettifiedCode = restoreQuotes(await layOutAsWritten(run, page, prettifiedCode), page.aspBlocks);
 
     // ── Step 3c: Verify all placeholders survived Prettier ──────────────────
     const located = locatePlaceholders(page, prettifiedCode);
@@ -689,6 +812,7 @@ export async function formatPage(code: string): Promise<FormatResult> {
     // ── Steps 4 and 5: Format each block's VBScript, and put it back ────────
     const blocks = formatAspBlocks(run, page, prettifiedCode, located.placeholderAt);
     const restored = restoreAspBlocks(run, page, prettifiedCode, located, blocks);
+    if (typeof restored !== 'string') { return restored; }
 
     // ── Step 5b: Restore JS event-handler attribute values ──────────────────
     // Must happen after ASP blocks are restored so token text is never
@@ -696,10 +820,12 @@ export async function formatPage(code: string): Promise<FormatResult> {
     // ── Step 6: Fix broken whitespace-sensitive tags (<textarea>, <pre>) ─────
     const restoredCode = fixWhitespaceSensitiveTags(restoreJsEventAttrs(restored, jsAttrMasks));
 
-    // ── Step 7: Put back the VBScript <script> bodies, formatted ────────────
+    // ── Step 7: Put back the <script>/<style> bodies, and the VBScript ones formatted ──
     // Should Prettier have dropped or added a block, nothing is changed rather
     // than a body landing in the wrong one.
-    return { ok: true, text: putBackVbScriptBodies(restoredCode, vbscriptBodies.bodies, run.asp) ?? code };
+    const withAspBodies = putBack(restoredCode, computeRawTextRanges(restoredCode), aspBodies.bodies, asWritten);
+    if (withAspBodies === null) { return { ok: true, text: code }; }
+    return { ok: true, text: putBackVbScriptBodies(withAspBodies, vbscriptBodies.bodies, run.asp) ?? code };
 }
 
 // ─── The stages of formatPage ──────────────────────────────────────────────
@@ -708,6 +834,8 @@ export async function formatPage(code: string): Promise<FormatResult> {
 interface FormatRun {
     /** The page as it was given. */
     code:     string;
+    /** The VBScript parse of `text`, reused while the text is the same. */
+    parse:    (text: string) => ParsedPage;
     names:    PlaceholderNames;
     prettier: PrettierSettings;
     asp:      AspFormatterSettings;
@@ -738,7 +866,14 @@ interface FormattedBlocks {
 
 type FormatRefusal = Exclude<FormatResult, { ok: true }>;
 
-const commentFor = (block: AspBlock) => `<!--${block.id}-->`;
+/** The comment a statement block or a hidden tag is masked behind. */
+const commentFor = ({ id }: { id: string }) => `<!--${id}-->`;
+
+/** What a block is found by in Prettier's output: for a statement block, the id inside its comment. */
+const placeholderOf = (block: AspBlock) =>
+    block.kind === 'rawtext' ? rawTokenFor(block.id) :
+    block.kind === 'normal'  ? block.id              :
+    block.token!;
 
 function prettierOptionsFor(prettierSettings: PrettierSettings): prettier.Options {
     return {
@@ -769,13 +904,19 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
     const masked    = new TextBuilder();
     const blocksMap = new OffsetMap();
     const context   = new EmittedContext();
+    /** Each unquoted attribute value with a placeholder in it: where it starts, and where the placeholder ends. */
+    const unquoted: Array<[number, number]> = [];
+    // Bodies whose whitespace is rendered as written.
+    const verbatimRanges = computeRawTextRanges(jsPreMasked, ['pre', 'textarea']);
 
     // Tags Prettier must not see: one branch's copy of a tag another branch of
     // the same If opens or closes, or a tag whose partner VBScript writes. Read
     // top to bottom they look unbalanced, and Prettier re-nests the page around
     // them or appends a closing tag of its own. Each is hidden behind a comment
     // and put back afterwards, the indent it belongs at included.
-    const hidden = analyseHtmlStructure(jsPreMasked).hidden;
+    // Every element, not only the structural ones: `<p class="x">` opened in
+    // both branches gained a `</p>` after the first.
+    const hidden = analyseHtmlStructure(jsPreMasked, pageBlocks(run.parse(jsPreMasked)).events, name => !VOID_ELEMENTS.has(name)).hidden;
     const hiddenTags: HiddenTagPlaceholder[] = [];
     let   nextHidden = 0;
 
@@ -838,7 +979,7 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
             const id = run.names.id('ASPTAG', hiddenTags.length);
             hiddenTags.push({ id, text: jsPreMasked.slice(pos, end), dedent });
             const from = masked.length;
-            emit(`<!--${id}-->`);
+            emit(commentFor({ id }));
             blocksMap.replaced(pos, end, from, masked.length);
             pos = end;
             continue;
@@ -860,7 +1001,7 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
         const leadingWS = lineLeading;
 
         // The block ends at the first %>, as IIS ends it, even one at the end of
-        // a ' comment. hasUnclosedAspTags has already made sure there is one.
+        // a ' comment. formatPage has already made sure there is one.
         const close = jsPreMasked.indexOf('%>', pos + 2);
         const end   = close === -1 ? jsPreMasked.length : close + 2;
 
@@ -882,6 +1023,13 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
         // by the old placeholder is pulled back together the next time it is
         // formatted.
         if (kind === 'normal' && isAspExpression(aspBlock)) { kind = 'text'; }
+        // A statement block is masked as text, so left where it is, wherever a
+        // line break would be rendered: inside <pre> or <textarea>, or glued to
+        // text on both sides — `abc<% If x Then %>def` would render `abc def`.
+        const isText = (ch: string | undefined) => ch !== undefined && /[^\s<>]/.test(ch);
+        if (kind === 'normal' && (isInRawText(pos, verbatimRanges) || (isText(jsPreMasked[pos - 1]) && isText(jsPreMasked[end])))) {
+            kind = 'text';
+        }
 
         // `midtag` is emitted as `name="1"`, four characters more than the
         // name itself, so the name is padded to that much less.
@@ -891,13 +1039,16 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
             kind === 'midtag' ? paddedToken('aspmid',  index, aspBlock.length - 4, collisions.aspmid)  :
             undefined;
 
-        aspBlocks.push({ code: aspBlock, id, lineNumber, kind, token });
+        // Where the block sits in a quoted value or string, so its quote can be put back — see restoreQuotes.
+        const quoting = kind === 'inline' ? context.attribute() : kind === 'rawtext' ? stringAtEnd(masked.currentLine().text) : undefined;
+        aspBlocks.push({ code: aspBlock, id, lineNumber, kind, token, ...quoting });
 
         // Replace leading whitespace + block with the placeholder
         // (strip the leadingWS we already emitted so the placeholder
         //  takes its place cleanly)
+        // Only a comment placeholder: before any other the blanks may be rendered text or a JS string's.
         let replacedFrom = pos;
-        if (leadingWS && lineTrailing.endsWith(leadingWS)) {
+        if (kind === 'normal' && leadingWS && lineTrailing.endsWith(leadingWS)) {
             replacedFrom -= leadingWS.length;
             masked.dropEnd(leadingWS.length);
             lineTrailing = lineTrailing.slice(0, lineTrailing.length - leadingWS.length);
@@ -910,29 +1061,23 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
             case 'inline':  emit(token!);           break;
             case 'midtag':  emit(`${token}="1"`);   break;
             case 'rawtext': emit(rawTokenFor(id));  break;
-            default:        emit(`<!--${id}-->`);   break;
+            default:        emit(commentFor({ id })); break;
         }
         blocksMap.replaced(replacedFrom, end, placedAt, masked.length);
+        const placed = aspBlocks[aspBlocks.length - 1];
+        if (placed.quote === '') { unquoted.push([placedAt - placed.prefix!.length, masked.length]); }
         pos = end;
     }
 
-    let maskedCode = masked.toString();
-
-    // Strip closing tags on void elements (</br>, </input>, …) that Prettier
-    // hard-fails on. Done AFTER masking so a void closer that lives inside a
-    // VBScript string or ASP block (e.g. Response.Write "</br>") is already a
-    // placeholder here and is preserved — the previous raw-text strip silently
-    // deleted it. Real HTML void closers are still removed; the structure
-    // diagnostic continues to flag them for the user to fix.
-    const voidMap = new OffsetMap();
-    maskedCode = replaceRecorded(maskedCode, VOID_CLOSING_TAG_RE, () => '', voidMap);
+    const quotesMap = new OffsetMap();
+    let maskedCode = quoteUnquotedValues(masked.toString(), unquoted, quotesMap);
 
     // Insert implied </td> </tr> … closers so Prettier doesn't mis-nest tables
     // whose optional end tags were omitted (very common in Classic ASP).
     const tableMap = new OffsetMap();
     maskedCode = insertImpliedTableEndTags(maskedCode, tableMap);
 
-    return { maskedCode, aspBlocks, hiddenTags, maps: [blocksMap, voidMap, tableMap] };
+    return { maskedCode, aspBlocks, hiddenTags, maps: [blocksMap, quotesMap, tableMap] };
 }
 
 async function layOutAsWritten(run: FormatRun, page: MaskedPage, firstPass: string): Promise<string> {
@@ -962,11 +1107,11 @@ async function layOutAsWritten(run: FormatRun, page: MaskedPage, firstPass: stri
         // gets a line of its own too, rather than being left after a `%>`.
         const placeholders = [
             ...normalBlocks.map(commentFor),
-            ...hiddenTags.map(tag => `<!--${tag.id}-->`),
+            ...hiddenTags.map(commentFor),
         ];
         const at = [
             ...findInOrder(prettifiedCode, normalBlocks.map(commentFor)),
-            ...findInOrder(prettifiedCode, hiddenTags.map(tag => `<!--${tag.id}-->`)),
+            ...findInOrder(prettifiedCode, hiddenTags.map(commentFor)),
         ];
         const toSplit = placeholders
             .map((placeholder, i) => ({ placeholder, at: at[i] }))
@@ -1018,28 +1163,25 @@ async function layOutAsWritten(run: FormatRun, page: MaskedPage, firstPass: stri
     return prettifiedCode;
 }
 
+function blockRemoved(block: AspBlock): FormatRefusal {
+    return {
+        ok: false, reason: 'block-removed', severity: 'warning',
+        message: `Formatting skipped — an ASP block on line ${block.lineNumber + 1} was removed by Prettier. `
+            + `This usually happens when a <% %> block is in an unexpected position inside an HTML tag.`,
+    };
+}
+
 function locatePlaceholders(page: MaskedPage, prettifiedCode: string): PlaceholderPositions | FormatRefusal {
     const { aspBlocks, hiddenTags } = page;
 
     // ── Step 3c: Verify all placeholders survived Prettier ──────────────────
 
-    const needles = aspBlocks.map(block =>
-        block.kind === 'rawtext' ? rawTokenFor(block.id) :
-        block.kind === 'normal'  ? block.id              :
-        block.token!);
-    const found = findInOrder(prettifiedCode, needles);
+    const found = findInOrder(prettifiedCode, aspBlocks.map(placeholderOf));
 
-    for (let i = 0; i < aspBlocks.length; i++) {
-        if (found[i] === -1) {
-            return {
-                ok: false, reason: 'block-removed', severity: 'warning',
-                message: `Formatting skipped — an ASP block on line ${aspBlocks[i].lineNumber + 1} was removed by Prettier. `
-                    + `This usually happens when a <% %> block is in an unexpected position inside an HTML tag.`,
-            };
-        }
-    }
+    const lost = aspBlocks.find((_, i) => found[i] === -1);
+    if (lost) { return blockRemoved(lost); }
 
-    const hiddenAt = findInOrder(prettifiedCode, hiddenTags.map(tag => `<!--${tag.id}-->`));
+    const hiddenAt = findInOrder(prettifiedCode, hiddenTags.map(commentFor));
     if (hiddenAt.includes(-1)) {
         return {
             ok: false, reason: 'tag-removed', severity: 'warning',
@@ -1146,7 +1288,7 @@ function restoreAspBlocks(
     prettifiedCode: string,
     { placeholderAt, hiddenAt }: PlaceholderPositions,
     { formattedBlocks, blockTagIndents }: FormattedBlocks,
-): string {
+): string | FormatRefusal {
     const { aspBlocks, hiddenTags } = page;
     const aspSettings = run.asp;
     const prettierSettings = run.prettier;
@@ -1175,7 +1317,7 @@ function restoreAspBlocks(
     for (const item of order) {
         if ('tag' in item) {
             restored.push(prettifiedCode.slice(scan, item.at));
-            scan = item.at + `<!--${item.tag.id}-->`.length;
+            scan = item.at + commentFor(item.tag).length;
 
             // On a line of its own, the tag goes at the indent it belongs at —
             // not the one Prettier gave its placeholder, inside the element the
@@ -1221,11 +1363,9 @@ function restoreAspBlocks(
             }
 
             case 'inline': {
-                const isExpression = block.code.trimStart().startsWith('<%=') ||
-                                     block.code.trimStart().startsWith('<% =');
                 scan = at + block.token!.length;
 
-                if (isExpression) {
+                if (isAspExpression(block.code)) {
                     // <%= ... %> is an inline expression — part of the HTML content.
                     // Restore it exactly in place without touching any surrounding
                     // whitespace, and keep it on one line: breaking it would
@@ -1254,11 +1394,8 @@ function restoreAspBlocks(
                 const value = /\s*=\s*["']1["']/y;
                 value.lastIndex = at + block.token!.length;
                 const m = value.exec(prettifiedCode);
-                if (!m) {
-                    restored.push(block.token!);
-                    scan = at + block.token!.length;
-                    break;
-                }
+                // Prettier read the placeholder as something else; putting the token back would lose the block.
+                if (!m) { return blockRemoved(block); }
                 restored.dropEndWhile(isWhitespace);
                 restored.push(` ${formatted}`);
                 scan = at + block.token!.length + m[0].length;
@@ -1273,52 +1410,34 @@ function restoreAspBlocks(
 
                 // A block is "inline placed" when Prettier left non-whitespace
                 // content before the placeholder on the same line.
-                // EXCEPTION: if that content contains an unclosed quote the
-                // placeholder is sitting inside an attribute value
-                // (e.g. value="<!--ID-->" or onclick="...<!--ID-->...").
-                // In that case we must restore inline — no newlines inserted —
-                // because breaking the attribute value open corrupts the HTML.
-                const hasContentBefore = textBeforeOnLine.trimStart().length > 0;
-                const isInsideQuote    = hasContentBefore && (() => {
-                    let inQ: string | null = null;
-                    for (const ch of textBeforeOnLine) {
-                        if (!inQ && (ch === '"' || ch === "'")) { inQ = ch; }
-                        else if (inQ && ch === inQ)             { inQ = null; }
-                    }
-                    return inQ !== null; // still inside a quote → unclosed
-                })();
-                const isExpression     = block.code.trimStart().startsWith('<%=') ||
-                                         block.code.trimStart().startsWith('<% =');
-                const isInlinePlacedHere = hasContentBefore && !isInsideQuote && !isExpression;
+                const afterContent = isInlinePlaced(textBeforeOnLine);
 
                 // Every restore below replaces the spaces and tabs in front of
                 // the placeholder along with it.
                 const blanksBefore = textBeforeOnLine.slice(textBeforeOnLine.length - trailingBlankCount(textBeforeOnLine));
                 restored.dropEndWhile(isBlank);
 
-                if (isInlinePlacedHere && !aspSettings.aspTagsOnSameLine) {
+                // With the delimiters at column 0, aspFormatter already adds the
+                // HTML depth to the content indent, so the content is complete
+                // and the tags go to column 0: the block's tag column is ''. With
+                // the delimiters at the HTML indent, it is the group's shared
+                // column (the HTML indent of the first, shallowest block of the
+                // group), which goes in front of both, so every <% / %> of the
+                // group aligns at the same column.
+                const tagIndent = blockTagIndents[i];
+                const indentedBlock = formatted
+                    .split('\n')
+                    .map(line => {
+                        const t = line.trim();
+                        if (!t) return line;
+                        return tagIndent + (t === '<%' || t === '%>' ? t : line);
+                    })
+                    .join('\n');
+
+                if (afterContent && !aspSettings.aspTagsOnSameLine) {
                     // Block sits inline in tag text content (e.g. <td><!--ID--></td>).
                     // Expand it onto its own indented lines.
                     const baseIndent = leadingBlanks(textBeforeOnLine);
-
-                    // With the delimiters at the HTML indent, use the group's
-                    // shared tag column so this block's tags align with all
-                    // sibling blocks in the same VBScript group.
-                    const inlineTagIndent = delimitersAtColumnZero(aspSettings)
-                        ? ''
-                        : blockTagIndents[i];
-
-                    const indentedBlock = formatted
-                        .split('\n')
-                        .map(line => {
-                            if (!line.trim()) return line;
-                            const t = line.trim();
-                            if (t === '<%' || t === '%>') return inlineTagIndent + t;
-                            return delimitersAtColumnZero(aspSettings)
-                                ? line
-                                : blockTagIndents[i] + line;
-                        })
-                        .join('\n');
 
                     // Start a new line AFTER the block only when something
                     // else is still on this one. When the placeholder ended
@@ -1344,44 +1463,12 @@ function restoreAspBlocks(
                     break;
                 }
 
-                // Expression sitting inline in tag text content (e.g. <td><%= val %></td>)
-                // — restore it exactly as-is with no indentation applied.
-                if (isExpression && hasContentBefore && !isInsideQuote) {
-                    restored.push(formatted.trim());
-                    break;
-                }
-
-                // Block is either standalone on its own line, or inside a
-                // quoted attribute value — restore with correct tag indentation.
-                //
-                // With the delimiters at column 0, aspFormatter already adds the
-                // HTML depth to the content indent, so the content is complete
-                // and the tags go to column 0. With the delimiters at the HTML
-                // indent, the group's shared tag column (the HTML indent of the
-                // first, shallowest block of the group) goes in front of both,
-                // so every <% / %> of the group aligns at the same column.
-                const tagIndent = delimitersAtColumnZero(aspSettings)
-                    ? ''                   // tags at col 0; content has full indent
-                    : blockTagIndents[i];  // shared group column
-
-                const indentedBlock = formatted
-                    .split('\n')
-                    .map(line => {
-                        if (!line.trim()) return line;
-                        const t = line.trim();
-                        if (t === '<%' || t === '%>') return tagIndent + t;
-                        return delimitersAtColumnZero(aspSettings)
-                            ? line
-                            : blockTagIndents[i] + line;
-                    })
-                    .join('\n');
-
                 // After other content — where aspTagsOnSameLine leaves it — the
                 // block stays where Prettier put it, with the space it had in
                 // front. The group's tag column belongs at the start of a line:
                 // mid-line it was a run of spaces, which the next format broke
                 // the line at.
-                if (hasContentBefore && !isInsideQuote) {
+                if (afterContent) {
                     restored.push(blanksBefore + indentedBlock.slice(leadingBlanks(indentedBlock).length));
                     break;
                 }

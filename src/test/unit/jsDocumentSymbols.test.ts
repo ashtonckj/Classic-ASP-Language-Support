@@ -85,3 +85,14 @@ describe('JS document symbols still report named declarations', () => {
         assert.deepStrictEqual(names('const MAX = 10;'), ['MAX']);
     });
 });
+
+// A callback is named by a label longer than the code it names. VS Code rejects
+// a symbol whose name range runs past the symbol, and the whole Outline with it.
+describe('JS document symbols for callbacks shorter than their label', () => {
+    it('keeps every symbol on a page with short callbacks', () => {
+        assert.deepStrictEqual(
+            names('function go() {}\nitems.forEach(a=>1);\nsetTimeout(() => {}, 10);'),
+            ['forEach(a) callback', 'go', 'setTimeout() callback'],
+        );
+    });
+});

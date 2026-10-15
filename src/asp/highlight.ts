@@ -127,11 +127,6 @@ export function halfAlpha(colour: string): string | undefined {
     return undefined;
 }
 
-/** True when at least one selection in the editor covers real text. */
-export function hasNonEmptySelection(selections: readonly { isEmpty: boolean }[]): boolean {
-    return selections.some(selection => !selection.isEmpty);
-}
-
 /**
  * The editors the region colours go on: every Classic ASP page on screen. It
  * used to be the focused editor only — whatever its language — so with the

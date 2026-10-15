@@ -8,12 +8,12 @@
 import * as vscode from 'vscode';
 import { isSelfClosingTag } from '../../constants/htmlTags';
 import { zonesFor } from '../../platform/documentState';
-import { endsWithContinuation } from '../../core/vbLexical';
 import {
-    findAspOpenerIndent, findContinuationChainBaseIndent, findEnclosingHtmlChildIndent, findMatchingOpenerIndent,
-    getStringAlignColumn, isBlockOpener, VBSCRIPT_BLOCK_CLOSERS, VBSCRIPT_MID_BLOCK,
+    findAspOpenerIndent, findEnclosingHtmlChildIndent, findMatchingOpenerIndent, vbNextLineIndent,
+    VBSCRIPT_BLOCK_CLOSERS, VBSCRIPT_MID_BLOCK,
 } from './vbIndent';
 import { getIndentUnit, insertAndPlaceCaret } from './editing';
+import { parsedDocument } from '../vbscriptWorkspace';
 
 // ── Enter key handler ──────────────────────────────────────────────────────
 
@@ -152,118 +152,30 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         }
 
         if (zone === 'asp') {
-
-            // After <% or <%= on its own line: VBScript code sits at the same indent
-            // as <% itself — no extra level added. <% is at HTML child level and
-            // VBScript lines sit flush with it.
-            if (/^<%=?$/.test(currentLineText)) {
-                void insertAndPlaceCaret(editor, position, `\n${indent}`, new vscode.Position(position.line + 1, indent.length));
-                return;
+            // Else, Case and a closer such as End If first snap to their opener's indent.
+            const snapped = VBSCRIPT_MID_BLOCK.test(currentLineText) || VBSCRIPT_BLOCK_CLOSERS.test(currentLineText)
+                ? findMatchingOpenerIndent(parsedDocument(document), position.line, indentUnit) ?? indent
+                : indent;
+            const next = vbNextLineIndent(document, position.line, snapped + textBefore.trimStart(), indentUnit);
+            const caret = new vscode.Position(position.line + 1, next.length);
+            if (snapped !== indent) {
+                const lineEnd = new vscode.Position(position.line, indent.length + currentLineText.length);
+                void insertAndPlaceCaret(editor, new vscode.Range(new vscode.Position(position.line, 0), lineEnd), `${snapped}${currentLineText}\n${next}`, caret);
+            } else {
+                void insertAndPlaceCaret(editor, position, `\n${next}`, caret);
             }
-
-            // Mid-block keyword (ElseIf, Else, Case, Case Else):
-            // Snap the current line to its opener's indent level, then give +1 on next line.
-            // Always use openerIndent as the base for the next line — even if the current line
-            // failed to snap (e.g. typed without triggering auto-snap), so the body indent is
-            // always openerIndent + 1 regardless of where the mid-block line physically sits.
-            if (VBSCRIPT_MID_BLOCK.test(currentLineText)) {
-                const openerIndent = findMatchingOpenerIndent(document, position.line, currentLineText, indentUnit);
-                const targetIndent = openerIndent !== null ? openerIndent : indent;
-                const bodyIndent   = targetIndent + indentUnit;
-
-                if (targetIndent !== indent) {
-                    // Current line is at the wrong indent — fix it and set cursor
-                    const lineEnd = new vscode.Position(position.line, indent.length + currentLineText.length);
-                    void insertAndPlaceCaret(editor, new vscode.Range(new vscode.Position(position.line, 0), lineEnd), `${targetIndent}${currentLineText}\n${bodyIndent}`, new vscode.Position(position.line + 1, bodyIndent.length));
-                } else {
-                    void insertAndPlaceCaret(editor, position, `\n${bodyIndent}`, new vscode.Position(position.line + 1, bodyIndent.length));
-                }
-                return;
-            }
-
-            // Pure block closer (End If, Next, Loop, Wend, …):
-            // Snap current line to opener indent, newline at same level.
-            if (VBSCRIPT_BLOCK_CLOSERS.test(currentLineText)) {
-                const openerIndent = findMatchingOpenerIndent(document, position.line, currentLineText, indentUnit);
-                const targetIndent = openerIndent !== null ? openerIndent : indent;
-
-                if (targetIndent !== indent) {
-                    const lineEnd = new vscode.Position(position.line, indent.length + currentLineText.length);
-                    void insertAndPlaceCaret(editor, new vscode.Range(new vscode.Position(position.line, 0), lineEnd), `${targetIndent}${currentLineText}\n${targetIndent}`, new vscode.Position(position.line + 1, targetIndent.length));
-                } else {
-                    void insertAndPlaceCaret(editor, position, `\n${indent}`, new vscode.Position(position.line + 1, indent.length));
-                }
-                return;
-            }
-
-            // ── Line continuation (_) ────────────────────────────────────
-            //
-            // When the current line ends with `& _` or `+ _` we try to align
-            // the next line to the opening `"` of the string on THIS line.
-            //
-            // Three sub-cases:
-            //   A. Current line has a string literal → align to its `"` column.
-            //   B. Current line has no string (e.g. bare `& _`) but a previous
-            //      continuation line established a column → stay at that column
-            //      (detected because `indent` already equals that column's spaces).
-            //   C. No string anywhere in the chain → fall back to indent+indentUnit.
-            //
-            // When the current line does NOT end with `_` but the previous line
-            // DID (i.e. we are on the last line of a continuation chain), snap
-            // back to the base-statement indent so the next statement starts
-            // at the correct column.
-            if (endsWithContinuation(currentLineText)) {
-                // Lines ending with & _ or + _ (string concatenation continuation)
-                const isStringConcat = /[&+]\s*_\s*$/.test(currentLineText);
-                if (isStringConcat) {
-                    const col = getStringAlignColumn(line.text);
-                    if (col >= 0) {
-                        // Case A: align to the `"` on this line.
-                        const alignIndent = ' '.repeat(col);
-                        void insertAndPlaceCaret(editor, position, '\n' + alignIndent, new vscode.Position(position.line + 1, col));
-                    } else {
-                        // Case B/C: no string on this line — keep current column.
-                        void insertAndPlaceCaret(editor, position, '\n' + indent, new vscode.Position(position.line + 1, indent.length));
-                    }
-                } else {
-                    // Non-string continuation (e.g. arithmetic / assignment split):
-                    // give +1 indent level as before.
-                    void insertAndPlaceCaret(editor, position, '\n' + indent + indentUnit, new vscode.Position(position.line + 1, indent.length + indentUnit.length));
-                }
-                return;
-            }
-
-            // ── Snap back after last continuation line ───────────────────
-            // If the line above this one ended with `_`, we are on the final
-            // line of a continuation chain. On Enter, snap back to the indent
-            // of the statement that started the chain (scan up past all `_` lines).
-            {
-                let prevNonEmpty = '';
-                for (let i = position.line - 1; i >= 0; i--) {
-                    const t = document.lineAt(i).text;
-                    if (t.trim()) { prevNonEmpty = t; break; }
-                }
-                if (endsWithContinuation(prevNonEmpty)) {
-                    const baseIndent = findContinuationChainBaseIndent(document, position.line);
-                    void insertAndPlaceCaret(editor, position, '\n' + baseIndent, new vscode.Position(position.line + 1, baseIndent.length));
-                    return;
-                }
-            }
-
-            // Block opener → next line +1. isBlockOpener excludes a single-line
-            // `If … Then <statement>` (which opens nothing) and now also matches
-            // access-modified and Property declarations.
-            if (isBlockOpener(currentLineText)) {
-                void insertAndPlaceCaret(editor, position, `\n${indent}${indentUnit}`, new vscode.Position(position.line + 1, indent.length + indentUnit.length));
-                return;
-            }
-
-            // Default inside ASP → match current indent
-            void insertAndPlaceCaret(editor, position, `\n${indent}`, new vscode.Position(position.line + 1, indent.length));
             return;
         }
 
         // ── HTML context handling ───────────────────────────────────────
+
+        // Script and style bodies are not markup: `i<n;i++)` is not a tag to
+        // close. Only the <script>/<style> tag just typed, which the caret is
+        // already past, still opens its body.
+        if (zone !== 'html' && !/<(script|style)\b[^>]*>$/i.test(textBefore)) {
+            void insertAndPlaceCaret(editor, position, `\n${indent}`, new vscode.Position(position.line + 1, indent.length));
+            return;
+        }
 
         // HTML comment: <!-- | -->
         if (textBefore.trim().endsWith('<!--') && textAfter.trim().startsWith('-->')) {

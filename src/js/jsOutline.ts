@@ -39,14 +39,13 @@ export interface JsOutlineSymbol {
 
 /**
  * The outline of the script in `sourceFile`, the virtual file built from the
- * page (jsUtils), whose first `preambleLength` characters are not the page's.
- * Only nodes inside one of `jsRanges` (page offsets) count.
+ * page (jsUtils), whose offsets are the page's. Only nodes inside one of
+ * `jsRanges` count.
  */
 export function jsOutline(
     ts: typeof TS,
     sourceFile: TS.SourceFile,
     jsRanges: ReadonlyArray<{ start: number; end: number }>,
-    preambleLength: number,
 ): JsOutlineSymbol[] {
 
     const formatParams = (node: TS.SignatureDeclarationBase) => node.parameters.map(p => p.name.getText(sourceFile)).join(', ');
@@ -54,18 +53,14 @@ export function jsOutline(
         !!node.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword);
 
     /**
-     * A symbol from virtual-file offsets, or undefined when there is no name to
-     * show. TypeScript's error recovery inserts a MISSING identifier while a
-     * declaration is still being typed, so `function(` parses as a declaration
-     * whose name exists but is empty, and VS Code rejects an empty name.
+     * A symbol, or undefined when there is no name to show. TypeScript's
+     * error recovery inserts a MISSING identifier while a declaration is still
+     * being typed, so `function(` parses as a declaration whose name exists but
+     * is empty, and VS Code rejects an empty name.
      */
     function symbol(name: string, detail: string, kind: JsOutlineKind, start: number, end: number, nameStart: number): JsOutlineSymbol | undefined {
         if (!name) { return undefined; }
-        return {
-            name, detail, kind,
-            start: start - preambleLength, end: end - preambleLength, nameStart: nameStart - preambleLength,
-            children: [],
-        };
+        return { name, detail, kind, start, end, nameStart, children: [] };
     }
 
     // ── Name for a call-expression callback, the way VS Code's HTML support names it:
@@ -237,10 +232,7 @@ export function jsOutline(
 
     const result: JsOutlineSymbol[] = [];
     for (const range of jsRanges) {
-        // Into the virtual file's offsets, which the tree uses.
-        const rangeStart = range.start + preambleLength;
-        const rangeEnd   = range.end   + preambleLength;
-        for (const node of sourceFile.statements) { result.push(...walkNode(node, rangeStart, rangeEnd)); }
+        for (const node of sourceFile.statements) { result.push(...walkNode(node, range.start, range.end)); }
     }
     return result.sort((a, b) => a.start - b.start);
 }

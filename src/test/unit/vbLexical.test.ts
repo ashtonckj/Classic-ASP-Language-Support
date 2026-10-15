@@ -1,8 +1,9 @@
 import * as assert from 'assert';
 import {
-    codeWithoutStrings, endsWithContinuation, isInVbString, isInVbStringOrComment, splitCodeAndComment,
+    codeWithoutStrings, endsWithContinuation, isInVbStringOrComment, scanVbLine, splitCodeAndComment,
     vbStatements, vbStringSegments,
 } from '../../core/vbLexical';
+import { tokenize, TokenKind } from '../../vbscript/lexer';
 
 // The rules below are the parser's lexer's, which were checked against cscript.exe.
 
@@ -59,19 +60,6 @@ describe('isInVbStringOrComment', () => {
     });
 });
 
-describe('isInVbString', () => {
-    it('reports a string but not a comment', () => {
-        assert.strictEqual(isInVbString("x = ' note", 10), false);
-        assert.strictEqual(isInVbString('x = "abc', 8), true);
-    });
-
-    it('honours the start offset', () => {
-        const line = '<p>"</p><% x = 1';
-        // Scanning from 0 would see the stray quote in the HTML and report a string.
-        assert.strictEqual(isInVbString(line, line.length, line.indexOf('<%') + 2), false);
-    });
-});
-
 // A trailing comment must be taken off before opener matching, but an
 // apostrophe inside a string is data, not a comment.
 describe('splitCodeAndComment', () => {
@@ -92,6 +80,12 @@ describe('splitCodeAndComment', () => {
         assert.deepStrictEqual(splitCodeAndComment('Rem old code'), { code: '', comment: 'Rem old code' });
         assert.deepStrictEqual(splitCodeAndComment('x = 1 rem note'), { code: 'x = 1 ', comment: 'rem note' });
     });
+
+    // As the parser and the engine read them.
+    it('takes off a Rem straight after a number, and keeps a member named Rem', () => {
+        assert.deepStrictEqual(splitCodeAndComment('x = 5rem note'), { code: 'x = 5', comment: 'rem note' });
+        assert.deepStrictEqual(splitCodeAndComment('x = a.Rem'), { code: 'x = a.Rem', comment: '' });
+    });
 });
 
 describe('endsWithContinuation', () => {
@@ -100,6 +94,9 @@ describe('endsWithContinuation', () => {
         assert.strictEqual(endsWithContinuation('sql = "SELECT"_  '), true);
         assert.strictEqual(endsWithContinuation('x = (a)_'), true);
         assert.strictEqual(endsWithContinuation('_'), true);
+        assert.strictEqual(endsWithContinuation('x = 1_'), true);
+        assert.strictEqual(endsWithContinuation('x = y _'), true);
+        assert.strictEqual(endsWithContinuation("<p>it's</p><% x = y _", 14), true);
     });
 
     it('is false for a name ending in _, a _ in a string, and a _ in a comment', () => {
@@ -136,5 +133,31 @@ describe('vbStringSegments', () => {
 describe('vbStatements', () => {
     it('splits at colons outside strings and leaves the comment off', () => {
         assert.deepStrictEqual(vbStatements('For i = 1 To 3 : x = "a:b" : Next \' done: yes'), ['For i = 1 To 3 ', ' x = "a:b" ', ' Next ']);
+    });
+
+    it('keeps the rest of a one-line If with the If', () => {
+        assert.deepStrictEqual(vbStatements('x = 1 : If a Then b : c Else d'), ['x = 1 ', ' If a Then b : c Else d']);
+        assert.deepStrictEqual(vbStatements('If a Then : b'), ['If a Then : b']);
+        assert.deepStrictEqual(vbStatements('If a Then'), ['If a Then']);
+    });
+
+    it('does not split at a colon inside a bracketed name', () => {
+        assert.deepStrictEqual(vbStatements('[a:b] = 1 : x = 2'), ['[a:b] = 1 ', ' x = 2']);
+    });
+});
+
+// The line rules are the parser's lexer, so a line reads the same to both.
+describe('scanVbLine agrees with the parser', () => {
+    it('reads Rem after a dot and a space as a member, as cscript does', () => {
+        assert.deepStrictEqual(splitCodeAndComment('x = a. Rem'), { code: 'x = a. Rem', comment: '' });
+    });
+
+    it('marks the same comment and strings as tokenize', () => {
+        for (const line of ['x = "a\'b" \' c', 'If a Then Rem x', 'y = [it\'s] & "q""r"', 'z = #1/2/2000# & "s"_']) {
+            const { tokens, comments } = tokenize(line, [{ kind: 'code', start: 0, end: line.length }]);
+            const scan = scanVbLine(line);
+            assert.strictEqual(scan.codeEnd, comments[0]?.start ?? line.length, line);
+            assert.deepStrictEqual(scan.strings.map(s => s.start), tokens.filter(t => t.kind === TokenKind.String).map(t => t.start), line);
+        }
     });
 });

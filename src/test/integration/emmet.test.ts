@@ -19,7 +19,7 @@ import * as vscode from 'vscode';
 // suite below records the ordinary VBScript that walks straight through it.
 //
 // So the mapping is left unset and the expansions come from this extension's
-// own EmmetCompletionProvider, which asks `getZone` where the caret is.
+// own EmmetCompletionProvider, which asks the page's zones where the caret is.
 
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -61,6 +61,14 @@ suite('Emmet abbreviations are offered in the markup (integration)', () => {
             hasEmmetExpansion(labels, 'div.row'),
             `Emmet should offer the abbreviation; got ${JSON.stringify(labels.slice(0, 25))}`,
         );
+    });
+});
+
+suite('Emmet stays out of HTML comments (integration)', () => {
+
+    test('an abbreviation inside a comment is not offered, as in a .html file', async () => {
+        const labels = await completionsAtEndOf('<body>\n<!-- ul>li*2\n-->\n</body>\n', 1);
+        assert.ok(!hasEmmetExpansion(labels, 'ul>li*2'), `got ${JSON.stringify(labels.slice(0, 25))}`);
     });
 });
 

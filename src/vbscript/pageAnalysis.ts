@@ -11,9 +11,9 @@
  */
 
 import type * as A from './ast';
-import { sourceOf, symbolsOfPage, walkStatements, type ParsedPage } from './symbols';
+import { createdProgId, symbolsOfPage, walkStatements, type FileSymbols, type ParsedPage } from './symbols';
 import { COM_METHOD_RETURN_TYPES } from '../constants/comObjects';
-import type { FileSymbols } from './symbolParser';
+import { ASP_OBJECT_NAMES } from '../constants/aspKeywords';
 
 /**
  * What completion, the outline, the matching-keyword highlight and the
@@ -41,10 +41,44 @@ export interface BlockPairSpan { opener: Keyword; closer: Keyword; }
 export interface BlockWarning { start: number; end: number; message: string; }
 
 /**
- * A With block: `object` as written, and the offsets a bare `.name` belongs
- * to it between, `from` included and `to` not.
+ * A With block's object, as far as its members go: a name (`With rs`,
+ * `With Response`), an object created right there
+ * (`With Server.CreateObject("…")`, its ProgID normalised), or a method of a
+ * name (`With conn.Execute(sql)`). Names are as written.
  */
-export interface WithBlock { object: string; from: number; to: number; }
+export type WithObject = { name: string; method?: string } | { progId: string };
+
+/**
+ * A With block: its object, null when it is none of those, and the offsets a
+ * bare `.name` belongs to it between, `from` included and `to` not.
+ */
+export interface WithBlock { object: WithObject | null; from: number; to: number; }
+
+function withObjectOf(e: A.Expr): WithObject | null {
+    if (e.kind === 'Ident') { return { name: e.name.text }; }
+    const progId = createdProgId(e);
+    if (progId) { return { progId }; }
+    const callee = e.kind === 'Call' ? e.callee : e;
+    return callee.kind === 'Member' && callee.object?.kind === 'Ident'
+        ? { name: callee.object.name.text, method: callee.name.name } : null;
+}
+
+/**
+ * The type the members of a With block's object belong to, keyed as
+ * ASP_MEMBER_DOCS and COM_MEMBER_DOCS are: an ASP object's name (`response`)
+ * or a ProgID (`adodb.recordset`). `comTypes` maps a variable name,
+ * lower-cased, to the ProgID it was created as.
+ */
+export function withObjectType(object: WithObject | null | undefined, comTypes: Map<string, string>): string | undefined {
+    if (!object) { return undefined; }
+    if ('progId' in object) { return object.progId; }
+    const name = object.name.toLowerCase();
+    if (object.method) {
+        const source = comTypes.get(name);
+        return source && COM_METHOD_RETURN_TYPES[`${source}.${object.method}`];
+    }
+    return ASP_OBJECT_NAMES.has(name) ? name : comTypes.get(name);
+}
 
 /**
  * Where a block opens, starts another branch (ElseIf, Else, Case) or closes.
@@ -108,7 +142,7 @@ export function pageBlocks(page: ParsedPage): PageBlocks {
             if (stmt.kind === 'With') {
                 // A block still being typed, with no End With yet, runs to where the parser closed it.
                 withBlocks.push({
-                    object: sourceOf(text, stmt.object),
+                    object: withObjectOf(stmt.object),
                     from:   stmt.object.end + 1,
                     to:     stmt.closer ? stmt.closer.start : stmt.end + 1,
                 });
@@ -151,8 +185,8 @@ export function pageBlocks(page: ParsedPage): PageBlocks {
     return { warnings, pairs, withBlocks, events };
 }
 
-/** The object of the innermost With block `offset` sits in, as written, or undefined outside one. */
-export function withObjectAt(withBlocks: WithBlock[], offset: number): string | undefined {
+/** The object of the innermost With block `offset` sits in, or undefined outside one. */
+export function withObjectAt(withBlocks: WithBlock[], offset: number): WithObject | null | undefined {
     let found: WithBlock | undefined;
     for (const block of withBlocks) {
         if (block.from <= offset && offset < block.to) { found = block; }
