@@ -12,6 +12,7 @@ import { isInlineTag, isSelfClosingTag } from '../../constants/htmlTags';
 import { ASP_OBJECT_NAMES } from '../../constants/aspKeywords';
 import type { Zone } from '../../core/zoneUtils';
 import { zonesFor } from '../../platform/documentState';
+import { styleAttributeAt } from '../../css/cssUtils';
 import { findEnclosingHtmlChildIndent, vbNextLineIndent } from './vbIndent';
 import { getIndentUnit } from './editing';
 
@@ -96,13 +97,19 @@ async function expandAbbreviationOrTab(
     const triggerOnTab = otherSetting<boolean>('emmet', 'triggerExpansionOnTab', editor.document.uri) ?? false;
 
     const lineText = editor.document.lineAt(position.line).text;
+    const zones = zonesFor(editor.document);
+    const offset = editor.document.offsetAt(position);
+    const style = styleAttributeAt(zones, offset);
+    // Inside style="…" every declaration not yet given a value is CSS Emmet's,
+    // `m10` as much as `bd+`; the token on the line would start at `style="`.
+    const declaration = style && editor.document.getText(new vscode.Range(editor.document.positionAt(style.start), position)).split(';').pop()!.trimStart();
     const worthTrying = triggerOnTab
-        || looksLikeAbbreviation(tokenBefore(lineText, position.character));
+        || (style ? /^[\w!+-]+$/.test(declaration ?? '') : looksLikeAbbreviation(tokenBefore(lineText, position.character)));
 
     if (worthTrying) {
-        const zone = zonesFor(editor.document).zoneAt(editor.document.offsetAt(position));
+        const zone = zones.zoneAt(offset);
         if (zone === 'html' || zone === 'css') {
-            const outcome = await tryEmmetExpansion(editor, zone);
+            const outcome = await tryEmmetExpansion(editor, style ? 'css' : zone);
             if (outcome === 'expanded') { return; }
 
             // Emmet's own failure path ends in `executeCommand('tab')`, but only

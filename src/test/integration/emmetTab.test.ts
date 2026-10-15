@@ -218,6 +218,14 @@ suite('Emmet expands on Tab without the global setting (integration)', () => {
         assert.strictEqual((out.match(/<td>/g) ?? []).length, 2, `expected two <td>; got:\n${out}`);
     });
 
+    // Inside style="…" an abbreviation is CSS, as in a .html file; the word on
+    // the line starts at `style="`, which is no abbreviation at all.
+    test('a CSS abbreviation expands inside a style attribute', async () => {
+        const text = '<div style="color: red; m10"></div>';
+        const out = await pressTab(text, 0, text.indexOf('m10') + 3);
+        assert.ok(out.includes('style="color: red; margin: 10px;"'), `expected a margin declaration; got:\n${out}`);
+    });
+
     // The point of the marker requirement: body text must survive Tab.
     test('a plain word is NOT expanded, and Tab still indents', async () => {
         const out = await pressTab('<html>\n<body>\nTotal\n</body>\n</html>\n', 2);
