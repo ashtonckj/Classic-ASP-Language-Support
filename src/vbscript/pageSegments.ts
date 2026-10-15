@@ -17,7 +17,7 @@
  * program: its `<% %>` code is JScript, and reading it as VBScript filled the
  * page with false errors.
  *
- * Each `<script language="vbscript">` body (the blocks getZone reports as the
+ * Each `<script language="vbscript">` body (the blocks the zone map reports as the
  * asp zone) is a program of its own. A client-side one runs in the browser,
  * and even a `runat="server"` one is not part of the page flow, so a Sub in it
  * does not sit inside whatever `<% If %>` surrounds the tag.

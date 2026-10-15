@@ -5,8 +5,8 @@
  * and which zone (ASP, CSS, JavaScript or HTML) an offset is in — read once per
  * version of the document and shared.
  *
- * VS Code builds a new string for every `document.getText()`, and getZone
- * rescans the page from its first character for every offset, so each provider
+ * VS Code builds a new string for every `document.getText()`, and reading the
+ * zones scans the whole page, so each provider
  * asking for itself cost a copy of the page and a scan per question, several
  * times per keystroke. Here the first question after an edit pays for one scan
  * of the page; the rest are a binary search.

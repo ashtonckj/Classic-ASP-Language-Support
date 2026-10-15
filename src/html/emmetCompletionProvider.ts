@@ -38,7 +38,7 @@ import { styleAttributeAt } from '../css/cssUtils';
  * So the mapping is left unset and the expansions are produced here instead,
  * from `@vscode/emmet-helper` — the same library Emmet's own extension calls
  * into, so the abbreviations and their output are identical. What changes is
- * who decides where they apply: `getZone`, which reads the page the way the
+ * who decides where they apply: the page's zones, which read it the way the
  * engine does, rather than a backwards scan for a stray angle bracket.
  */
 

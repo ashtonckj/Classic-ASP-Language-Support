@@ -19,7 +19,7 @@ import * as vscode from 'vscode';
 // suite below records the ordinary VBScript that walks straight through it.
 //
 // So the mapping is left unset and the expansions come from this extension's
-// own EmmetCompletionProvider, which asks `getZone` where the caret is.
+// own EmmetCompletionProvider, which asks the page's zones where the caret is.
 
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
