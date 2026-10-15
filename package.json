@@ -75,6 +75,9 @@
                     "source.asp": "asp",
                     "source.css": "css",
                     "source.js": "javascript"
+                },
+                "tokenTypes": {
+                    "meta.tag string.quoted": "other"
                 }
             }
         ],
