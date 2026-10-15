@@ -81,7 +81,7 @@ function valueOf(match: RegExpExecArray | null): string | null {
 }
 
 export function parsePage(text: string): ParsedPage {
-    const programs = pagePrograms(text).map(p => parseProgram(text, p.segments, p.server));
+    const programs = pagePrograms(text).map(p => parseProgram(p.text ?? text, p.segments, p.server));
     return { text, programs, lineStarts: lineStartsOf(text) };
 }
 

@@ -305,6 +305,11 @@ describe('VBScript page programs', () => {
         assert.deepStrictEqual(diagnostics(text), []);
     });
 
+    it('reads a <% %> block in a client-side script as what the server writes there', () => {
+        const text = '<script language="vbscript">\nSub Greet()\n  MsgBox "Hello <%= name %>"\n  n = <%= count %>\n  <% If admin Then %>x = 1<% End If %>\nEnd Sub\n</script>';
+        assert.deepStrictEqual(diagnostics(text), []);
+    });
+
     it("reads no VBScript in a JScript page's <% %> code, but still reads its VBScript script blocks", () => {
         const code = '<%\nfunction f(a) { return a + 1; }\nfor (var i = 0; i < 3; i++) { Response.Write(f(i)); }\n%>';
         for (const directive of ['<%@ Language="JScript" %>', '<%@ LANGUAGE=JavaScript CODEPAGE=65001 %>']) {
