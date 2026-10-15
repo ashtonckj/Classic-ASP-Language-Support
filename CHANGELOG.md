@@ -5,6 +5,71 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-10-16
+
+### ✨ Added
+- **HTML Outline** - An ASP page's Outline shows its element tree beside the VBScript and JavaScript symbols, as a .html file does
+- **JavaScript in `onclick`** - `on*` attributes get completion, hover, Go to Definition, rename and syntax errors, as in a .html file
+- **Emmet in `style=""`** - `m10` expands to `margin: 10px;` from the suggestions or Tab
+- **Named elements** - `document.webform` works when the page or one of its includes has `<form name="webform">`, and the same for named images, embeds, objects and frames, as the browser does ( thanks to @lolopop01 - Bug report for #97 )
+- **Excluded folders** - Pages hidden by `files.exclude` or `search.exclude` stay out of Ctrl+T, rename and include lookups
+
+### 🛠️ Fixed
+**Formatter**
+- **Unquoted attributes** - `<a href=page.asp?id=<%=id%>>` no longer loses its ASP block
+- **ASP inside `<script>`** - `<% If %>` blocks inside JavaScript no longer gain `;` or change what the script does
+- **Quotes** - `'<%= value %>'` keeps its single quotes
+- **`</br>` in text** - No longer stripped out of strings, comments and attribute values
+- **Whitespace** - Text in `<pre>`, `<textarea>` and next to ASP blocks keeps its spacing
+- **Tags in both If branches** - No longer gain an extra closing tag
+- **`[bracketed names]`** - No longer get spaces added inside them
+
+**Includes**
+- **Backslashes** - `virtual="\inc\file.asp"` resolves on Linux and macOS, as IIS reads it
+- **Multi-root workspaces** - `virtual=` paths start at the page's own workspace folder
+- **Stale symbols** - An include's names update after undo, revert or closing without saving
+- **Byte order marks** - Rename no longer edits the wrong column on the first line of a BOM file
+- **Network paths** - An include never resolves to a network share
+
+**VBScript**
+- **False syntax errors** - `a & Not b`, a `_` line followed by `.Execute`, and `x = a.Rem` are accepted, as cscript does
+- **Rename** - Renaming a class member no longer touches `Request.Form.Count`, `dict.Count` or `.Name` inside `With rs`
+- **Reserved words** - `Integer`, `Enum` and the other words cscript refuses are flagged, while `Step`, `Error` and `Property` can be renamed
+- **Client-side VBScript** - A `<%= %>` inside `<script language="vbscript">` no longer gives false errors
+- **SQL colouring** - Words inside quoted values and `--` comments, and columns named `Date`, `Text` or `Key`, are no longer coloured as SQL
+
+**Typing**
+- **Enter and Tab agree** - Both indent after `Else`, `Case` and `& _`, and `If x Then : y` is a one-line If
+- **Closers snap correctly** - `Next` and `End Function` after an If/Else line up with their opener
+- **Enter in `<script>`** - No longer adds HTML closing tags
+- **Enter after `{` in CSS** - Starts a new line instead of inserting `display`
+
+**HTML & CSS**
+- **Typing a quote** - No longer hides every script and style below it
+- **Tag and attribute suggestions** - Come from VS Code's own HTML data, with every tag and attribute, none inside comments
+- **False "Missing closing tag"** - No longer reported for `<div title='<%= "it's" %>'>`
+- **`data-style`** - No longer checked as CSS
+- **JavaScript Outline** - No longer disappears on pages with short callbacks
+
+**Security**
+- **Doc comment links** - JavaScript hover no longer runs command links written in a page's comments
+- **Script imports** - JavaScript hover no longer reads files a page's `import` names
+
+### ⚡ Performance
+Measured on an 8,000-line JavaScript page and a 14,000-line VBScript page.
+- **JavaScript completion while the page is checked** - Went from **286 ms** to **50 ms**, and never blocks typing
+- **Memory** - The editor's own process went from **110 MB** to **9 MB** with JavaScript open
+- **VBScript keyword casing** - **3.5×** faster when formatting
+- **Each edit is read once** - Background work per edit dropped by about **a third**
+- **Large style blocks** - Went from **100 ms** to **10 ms**
+
+### 🔄 Refactored
+- **One TypeScript service** - JavaScript features share one background service instead of two
+- **One include model** - Completion, checks, hover and rename read includes the same way, on one background thread
+- **One HTML model** - Script, style and attribute regions all come from VS Code's HTML parser
+
+---
+
 ## [0.7.1] - 2026-10-09
 
 ### ✨ Added
