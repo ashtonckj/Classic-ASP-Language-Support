@@ -553,6 +553,13 @@ function statementAt(stmts: A.Stmt[], offset: number): A.Stmt | undefined {
     return s && s.start <= offset && offset < s.end ? s : undefined;
 }
 
+/** The script scope a scope sits in: the server script, or a client-side script. */
+export function rootOf(scope: Scope): Scope {
+    let s = scope;
+    while (s.parent) { s = s.parent; }
+    return s;
+}
+
 /** Calls `visit` on every statement of a procedure body, nested blocks included, in source order. */
 function walkBody(stmts: A.Stmt[], visit: (s: A.Stmt) => void): void {
     for (const s of stmts) {

@@ -24,7 +24,7 @@ import {
 } from './sqlTokens';
 import type * as A from './ast';
 import { lineAt, parsePage, serverObjects, symbolsOfPage, walkStatements, type FileSymbols } from './symbols';
-import { bindPage, type Scope } from './binder';
+import { bindPage, rootOf } from './binder';
 import {
     concatOperands, isConcat, isStringLiteral, statementExpressions, stringValue, walkExpression,
 } from './expressions';
@@ -406,7 +406,6 @@ export function colourAspPage(request: AspColouringRequest): AspColouringResult 
     const binding = bindPage(docPath, page);
     const pageObjects = new Set(serverObjects(fullText).map(object => object.id.toLowerCase()));
     const serverScope = binding.scopes[0];
-    const rootOf = (scope: Scope): Scope => { let s = scope; while (s.parent) { s = s.parent; } return s; };
     for (const r of binding.references) {
         const { line, col } = positionOf(r.span.start);
         const length = r.span.end - r.span.start;

@@ -24,7 +24,7 @@
  */
 
 import type * as A from './ast';
-import type { Declaration, Reference, Scope } from './binder';
+import { rootOf, type Declaration, type Reference } from './binder';
 import { statementExpressions, walkExpression } from './expressions';
 import type { BoundPage } from './references';
 import { serverObjects, walkStatements } from './symbols';
@@ -95,7 +95,6 @@ export function checkPage(bound: BoundPage, path: string, builtins: ReadonlySet<
     const refsHere = binding.references.filter(r => inPage(r.file));
     const refAt = new Map<number, Reference>(refsHere.map(r => [r.span.start, r]));
     const server = binding.scopes[0];
-    const rootOf = (scope: Scope) => { let s = scope; while (s.parent) { s = s.parent; } return s; };
 
     // ── A name nothing declares, under Option Explicit ───────────────────
     // Not when an include could not be read: it may declare the name.

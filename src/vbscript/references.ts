@@ -25,7 +25,7 @@
  */
 
 import type * as A from './ast';
-import { bindScriptScope, type Binding, type Declaration, type Scope } from './binder';
+import { bindScriptScope, rootOf, type Binding, type Declaration, type Scope } from './binder';
 import { buildScriptScope, type ScopeHost, type ScopeProblem } from './scriptScope';
 import { lineAt, symbolsOfPage, type ParsedPage } from './symbols';
 import { ASP_OBJECT_NAMES } from '../constants/aspKeywords';
@@ -124,12 +124,6 @@ function targetOf(binding: Binding, d: Declaration): Target {
 
 function sameTarget(a: Target, b: Target): boolean {
     return a.kind === b.kind && a.name === b.name && (a.kind !== 'local' || a.scope === (b as typeof a).scope);
-}
-
-function rootOf(scope: Scope): Scope {
-    let s = scope;
-    while (s.parent) { s = s.parent; }
-    return s;
 }
 
 const covers = (span: A.Span, offset: number) => span.start <= offset && offset <= span.end;
