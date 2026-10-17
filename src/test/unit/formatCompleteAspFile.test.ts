@@ -374,6 +374,12 @@ describe('formatCompleteAspFile — a block nested in HTML settles in one pass',
         }
     });
 
+    // Prettier measured the block as typed; once recased and spaced it is
+    // longer, so the line wrapped on the next format.
+    it('settles when a block in a tag grows as it is formatted', async () => {
+        await settlesInOnePass('<html><body><form><input type=checkbox name=c <%if c then response.write "checked"%>></form></body></html>\n');
+    });
+
     it('settles for every kind of enclosing element', async () => {
         for (const source of [
             '<table><tr><td><% If a Then %>y<% End If %></td></tr></table>\n',

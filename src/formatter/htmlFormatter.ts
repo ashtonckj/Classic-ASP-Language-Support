@@ -74,6 +74,12 @@ function isAspExpression(block: string): boolean {
  * `collisions` comes from tokenCollisions, so the page is searched once for
  * every block rather than once per block.
  */
+/** How wide a block kept on one line is once formatted, as formatAspBlocks will format it. */
+function formattedWidth(run: FormatRun, aspBlock: string): number {
+    const formatted = formatSingleAspBlock(aspBlock, { ...run.asp, aspTagsOnSameLine: true }, '', 0).formatted;
+    return formatted.includes('\n') ? aspBlock.length : formatted.length;
+}
+
 function paddedToken(prefix: string, index: number, width: number, collisions: Map<string, number>): string {
     // The trailing `E` terminates the number, so no token can be a prefix of
     // another once both are padded — `AspExpr1E…` never occurs inside
@@ -1031,12 +1037,16 @@ function maskAspBlocks(run: FormatRun, jsPreMasked: string, rawRanges: Array<[nu
             kind = 'text';
         }
 
+        // The placeholder is as wide as the block will be once formatted, not as
+        // written: `<%if c then%>` comes back as `<% If c Then %>`, and Prettier
+        // measuring the narrower one wrapped the line on the next format instead.
+        const width = kind === 'text' || kind === 'inline' || kind === 'midtag' ? formattedWidth(run, aspBlock) : aspBlock.length;
         // `midtag` is emitted as `name="1"`, four characters more than the
         // name itself, so the name is padded to that much less.
         const token =
-            kind === 'text'   ? paddedToken('AspExpr', index, aspBlock.length,     collisions.AspExpr) :
-            kind === 'inline' ? paddedToken('AspAttr', index, aspBlock.length,     collisions.AspAttr) :
-            kind === 'midtag' ? paddedToken('aspmid',  index, aspBlock.length - 4, collisions.aspmid)  :
+            kind === 'text'   ? paddedToken('AspExpr', index, width,     collisions.AspExpr) :
+            kind === 'inline' ? paddedToken('AspAttr', index, width,     collisions.AspAttr) :
+            kind === 'midtag' ? paddedToken('aspmid',  index, width - 4, collisions.aspmid)  :
             undefined;
 
         // Where the block sits in a quoted value or string, so its quote can be put back — see restoreQuotes.
