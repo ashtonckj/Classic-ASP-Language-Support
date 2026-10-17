@@ -108,4 +108,12 @@ describe('the JavaScript features in an on…="" value', () => {
         assert.strictEqual(inValues.length, 1, JSON.stringify(inValues));
         assert.ok(inValues[0].start >= page.indexOf('save(1') && inValues[0].start <= page.indexOf('save(1') + 'save(1'.length + 1);
     });
+
+    it('takes no ASP block written straight after a call for a missing semicolon', async function () {
+        this.timeout(30000);
+        const page = '<a onclick="<% If x Then %>a()<% End If %>">x</a>\n<script>\nfunction a() {}\n</script>';
+        const analysis = await analyseEmbeddedJs('file:///C:/site/handler-asp.asp', page);
+        assert.deepStrictEqual(analysis!.diagnostics.map(d => d.code), []);
+    });
+
 });

@@ -41,7 +41,7 @@ describe('buildVirtualJsContent — VBScript Consts read by statement', () => {
 describe('substituteAspBlock — statement placeholder is terminated', () => {
     it('gives a statement block a trailing ; and preserves width', () => {
         const out = substituteAspBlock('<% If x Then %>', undefined);
-        assert.ok(out.startsWith('_asp;'), `should start with "_asp;"; got ${JSON.stringify(out)}`);
+        assert.ok(out.startsWith(';_asp;'), `should start with ";_asp;"; got ${JSON.stringify(out)}`);
         assert.strictEqual(out.length, '<% If x Then %>'.length, 'width preserved');
     });
 

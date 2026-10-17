@@ -488,7 +488,8 @@ export function substituteAspBlock(asp: string, sentinel: string | undefined): s
     // stand in for a STATEMENT and get a trailing `;` so that when a <% %> sits
     // inline with other JS (`a=1; <% If x %> a++;`) the placeholders don't become
     // two juxtaposed identifiers — which TypeScript flags as a syntax error (1434).
-    const token        = isExpression ? (sentinel ?? '_asp') : '_asp;';
+    // A leading `;` ends a statement written straight before it: `a()<% End If %>`.
+    const token        = isExpression ? (sentinel ?? '_asp') : ';_asp;';
 
     const blanked = blankNonNewlines(asp);
     const totalLen = blanked.length;
