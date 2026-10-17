@@ -450,7 +450,10 @@ function buildPreamble(
     if (named.size > 0 || ids.size > 0) {
         lines.push('interface Document {');
         for (const [name, type] of named) { lines.push(`    ${name}: ${type};`); }
-        for (const [id, type] of ids) { lines.push(`    getElementById(elementId: '${id}'): ${type};`); }
+        // Only the ids a script asks for: an overload per id on a generated page
+        // of thousands made every check many times slower.
+        const asked = new Set([...content.matchAll(/getElementById\(\s*["']([^"']+)["']/g)].map(m => m[1]));
+        for (const [id, type] of ids) { if (asked.has(id)) { lines.push(`    getElementById(elementId: '${id}'): ${type};`); } }
         lines.push('}');
     }
     const windowIds = [...ids].filter(([id]) => /^[A-Za-z_$][\w$]*$/.test(id));
