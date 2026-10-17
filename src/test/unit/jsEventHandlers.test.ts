@@ -116,4 +116,11 @@ describe('the JavaScript features in an on…="" value', () => {
         assert.deepStrictEqual(analysis!.diagnostics.map(d => d.code), []);
     });
 
+    // href=<%= u %> is a whole unquoted value; the next attribute is still one.
+    it('finds a handler and a style after an unquoted ASP value', () => {
+        const text = '<a href=<%= u %> onclick="go()" style="color:red">x</a>';
+        const { markup } = createZoneResolver(text);
+        assert.strictEqual(markup.eventHandlers.length, 1);
+        assert.strictEqual(markup.styleAttributes.length, 1);
+    });
 });

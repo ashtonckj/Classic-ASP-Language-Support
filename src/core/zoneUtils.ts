@@ -407,7 +407,10 @@ function scriptLanguage(attributes: Map<string, string>): 'javascript' | 'vbscri
 /** Reads the markup of `text`; see PageMarkup. */
 export function scanMarkup(text: string): PageMarkup {
     const aspBlocks = aspMarkupBlocks(text);
-    const masked    = maskAsp(text, undefined, aspBlocks);
+    // A block standing as an unquoted value (`href=<%= u %>`) is masked as a
+    // word, so the value ends where the block does; spaces would leave the
+    // `=` waiting and take the next attribute for the value.
+    const masked    = maskAsp(text, start => /=[ \t]*$/.test(text.slice(Math.max(0, start - 8), start)) ? 'x' : ' ', aspBlocks);
     const { TokenType } = loadHtmlService();
 
     const markup: PageMarkup = { masked, aspBlocks, tags: [], comments: [], scripts: [], styles: [], styleAttributes: [], eventHandlers: [] };
