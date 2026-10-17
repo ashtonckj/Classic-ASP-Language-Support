@@ -12,7 +12,7 @@ import { AspCompletionProvider } from './aspCompletionProvider';
 import { AspDefinitionProvider } from './aspDefinitionProvider';
 import { AspDocumentSymbolProvider } from './aspDocumentSymbolProvider';
 import { AspHoverProvider } from './aspHoverProvider';
-import { AspReferenceProvider, AspRenameProvider, registerIncludeUpdatesOnRename } from './aspRenameProvider';
+import { AspDocumentHighlightProvider, AspReferenceProvider, AspRenameProvider, registerIncludeUpdatesOnRename } from './aspRenameProvider';
 import { AspSignatureHelpProvider } from './aspSignatureHelpProvider';
 import { AspWorkspaceSymbolProvider } from './aspWorkspaceSymbolProvider';
 import { registerIncludeGraph } from './includeGraph';
@@ -67,6 +67,9 @@ export function registerAspFeatures(context: vscode.ExtensionContext): void {
         ),
         vscode.languages.registerRenameProvider(
             'asp', guarded('AspRenameProvider', new AspRenameProvider(), { userErrors: ['prepareRename', 'provideRenameEdits'] }),
+        ),
+        vscode.languages.registerDocumentHighlightProvider(
+            'asp', guarded('AspDocumentHighlightProvider', new AspDocumentHighlightProvider()),
         ),
         registerIncludeUpdatesOnRename(),
 

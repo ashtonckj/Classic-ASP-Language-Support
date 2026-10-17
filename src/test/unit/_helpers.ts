@@ -63,6 +63,15 @@ export function fakeDocument(
             const lineText = current.slice(starts[line], end).replace(/\r$/, '');
             return { text: lineText, lineNumber: line };
         },
+        getWordRangeAtPosition(position: vscode.Position, pattern = /\w+/) {
+            const text = document.lineAt(position.line).text;
+            for (const m of text.matchAll(new RegExp(pattern.source, 'g'))) {
+                if (m.index! <= position.character && position.character <= m.index! + m[0].length) {
+                    return new vscode.Range(new vscode.Position(position.line, m.index!), new vscode.Position(position.line, m.index! + m[0].length));
+                }
+            }
+            return undefined;
+        },
         setText(next: string) { current = next; version++; },
     };
     return document as unknown as FakeDocument;

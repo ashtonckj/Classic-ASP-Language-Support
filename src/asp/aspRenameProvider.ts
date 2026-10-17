@@ -6,7 +6,7 @@ import { getWorkspaceAspFiles } from '../platform/workspaceIndex';
 import { ASP_OBJECT_NAMES } from '../constants/aspKeywords';
 import { isReservedWord } from '../vbscript/parser';
 import { contextAt } from '../platform/documentState';
-import { findSites, resolveAt } from '../vbscript/references';
+import { findSites, resolveAt, sitesIn } from '../vbscript/references';
 import { editorWorkspace, siteToLocation } from './vbscriptWorkspace';
 import type { WorkspaceHost } from '../vbscript/references';
 import { isFile, pathKey } from '../core/paths';
@@ -77,6 +77,26 @@ export function findSymbolLocations(
         const { uri, range } = siteToLocation(document, site);
         return { uri, range, declaration: site.declaration };
     });
+}
+
+/**
+ * Every use of the VBScript name at the caret in this page, as a .vb or .js
+ * file highlights them. The page and its includes are bound as for hover, but
+ * no other page is read: this runs on every caret move.
+ */
+export class AspDocumentHighlightProvider implements vscode.DocumentHighlightProvider {
+    provideDocumentHighlights(document: vscode.TextDocument, position: vscode.Position): vscode.DocumentHighlight[] | undefined {
+        const found = wordAt(document, position);
+        if ('reason' in found) { return undefined; }
+        const resolved = resolveAt(editorWorkspace(document), document.uri.fsPath, document.offsetAt(found.range.start), false);
+        if (!resolved) { return undefined; }
+        return sitesIn(resolved.bound, resolved.target)
+            .filter(site => pathKey(site.file) === pathKey(document.uri.fsPath))
+            .map(site => new vscode.DocumentHighlight(
+                new vscode.Range(document.positionAt(site.start), document.positionAt(site.end)),
+                site.declaration ? vscode.DocumentHighlightKind.Write : vscode.DocumentHighlightKind.Read,
+            ));
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
