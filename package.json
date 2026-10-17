@@ -44,6 +44,16 @@
         "Snippets"
     ],
     "license": "MIT",
+    "capabilities": {
+        "untrustedWorkspaces": {
+            "supported": "limited",
+            "description": "Runs no code from the workspace. In Restricted Mode the virtual root and default includes are taken from your user settings only, so an untrusted folder cannot point include lookups elsewhere on your machine.",
+            "restrictedConfigurations": [
+                "classicAsp.virtualRoot",
+                "classicAsp.defaultIncludes"
+            ]
+        }
+    },
     "activationEvents": [
         "onLanguage:asp"
     ],
