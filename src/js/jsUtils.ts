@@ -428,15 +428,35 @@ function buildPreamble(
     // A browser puts every named form, image, embed and object, and every
     // named frame's window, on document as document.x. Only names the page and
     // its includes really have: one it lacks is still an error, as in the browser.
+    const markup = content + includeMarkup;
     const named = new Map<string, string>();
-    for (const m of (content + includeMarkup).matchAll(/<(form|img|embed|object|iframe)\b[^>]*?\bname\s*=\s*["']?([A-Za-z_$][\w$]*)/gi)) {
-        const type = NAMED_ELEMENT_TYPES[m[1].toLowerCase()];
+    const addNamed = (name: string, type: string) => named.set(name, named.has(name) ? 'any' : type);
+    for (const m of markup.matchAll(/<(form|img|embed|object|iframe)\b[^>]*?\sname\s*=\s*["']?([A-Za-z_$][\w$]*)/gi)) {
         // Two elements of one name are a collection in the browser.
-        named.set(m[2], named.has(m[2]) ? 'any' : type);
+        addNamed(m[2], NAMED_ELEMENT_TYPES[m[1].toLowerCase()]);
     }
-    if (named.size > 0) {
+
+    // Every element's id: getElementById('x') returns that element's own type,
+    // so an <input>'s value is a string; window.x is it too; and an <object>
+    // is document.x as well. The first element of an id is the one returned.
+    const ids = new Map<string, string>();
+    for (const m of markup.matchAll(/<([a-zA-Z][\w-]*)\b[^>]*?\sid\s*=\s*["']?([A-Za-z_$][\w$-]*)/gi)) {
+        const tag = m[1].toLowerCase();
+        if (ids.has(m[2])) { continue; }
+        ids.set(m[2], /^[a-z][a-z0-9]*$/.test(tag) ? `(HTMLElementTagNameMap & { [tag: string]: HTMLElement })['${tag}']` : 'HTMLElement');
+        if (tag === 'object' && /^[A-Za-z_$][\w$]*$/.test(m[2])) { addNamed(m[2], 'HTMLObjectElement'); }
+    }
+
+    if (named.size > 0 || ids.size > 0) {
         lines.push('interface Document {');
         for (const [name, type] of named) { lines.push(`    ${name}: ${type};`); }
+        for (const [id, type] of ids) { lines.push(`    getElementById(elementId: '${id}'): ${type};`); }
+        lines.push('}');
+    }
+    const windowIds = [...ids].filter(([id]) => /^[A-Za-z_$][\w$]*$/.test(id));
+    if (windowIds.length > 0) {
+        lines.push('interface Window {');
+        for (const [id, type] of windowIds) { lines.push(`    ${id}: ${type};`); }
         lines.push('}');
     }
 

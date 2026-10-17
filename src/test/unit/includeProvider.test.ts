@@ -169,12 +169,12 @@ describe('includeNamedElements', function () {
     beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'asp-include-named-')); });
     afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
-    it('gives the named forms, images and frames of the includes, nested ones too', async () => {
-        fs.writeFileSync(path.join(dir, 'header.inc'), '<!--#include file="form.inc"--><img name="logo" src="a.png"><div name="no">');
+    it('gives the tags with a name or id in the includes, nested ones too', async () => {
+        fs.writeFileSync(path.join(dir, 'header.inc'), '<!--#include file="form.inc"--><img name="logo" src="a.png"><div class="no">');
         fs.writeFileSync(path.join(dir, 'form.inc'), '<form name="webform" method="post"><input name="forder"></form>');
         const page = fakeDocument('<!--#include file="header.inc"-->', { fsPath: path.join(dir, 'page.asp') });
         await preloadIncludeSymbols(page as never);
         assert.deepStrictEqual(includeNamedElements(page as never).split('\n'),
-            ['<img name="logo" src="a.png">', '<form name="webform" method="post">']);
+            ['<img name="logo" src="a.png">', '<form name="webform" method="post">', '<input name="forder">']);
     });
 });

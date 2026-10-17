@@ -267,3 +267,26 @@ describe('embedded JS — named forms on document', () => {
         assert.deepStrictEqual(errors(page).map(m => m.includes("'nope'")), [true]);
     });
 });
+
+// getElementById returns the element the page gives that id, with its own
+// members, so an input's value is a string; window.x and an <object id> on
+// document are there too, as in the browser.
+describe('embedded JS — elements by id', () => {
+    const errors = (page: string, includes = '') => inProcess(page, includes).diagnostics.filter(d => d.code === 2339).map(d => d.message);
+    const run = (code: string) => `\n<script>\n${code}\n</script>`;
+
+    it('types getElementById by the tag with that id, in the page or an include', () => {
+        const code = "var v = document.getElementById('qty').value.substring(1); var n = document.getElementById('pick').selectedIndex;";
+        assert.deepStrictEqual(errors('<input id="qty"><select id="pick"></select>' + run(code)), []);
+        assert.deepStrictEqual(errors(run(code), '<input id="qty"><select id="pick"></select>'), []);
+        assert.strictEqual(errors('<input id="qty">' + run("document.getElementById('qty').nope;")).length, 1);
+    });
+
+    it('puts ids on window and an <object> id on document', () => {
+        assert.deepStrictEqual(errors('<div id="box"></div><object id="player"></object>' + run('window.box.style.color = "red"; document.player.data;')), []);
+    });
+
+    it('does not take data-id for an id', () => {
+        assert.strictEqual(errors('<div data-id="box"></div>' + run('window.box.style;')).length, 1);
+    });
+});

@@ -245,14 +245,14 @@ function appendCachedIncludeSymbols(target: FileSymbols, fsPath: string, visited
 }
 
 /**
- * The named forms, images, embeds, objects and frames a document's includes
- * write, as their tags, so the page's JavaScript knows `document.myForm` when
- * the form is in an include. Read from the cached include tree, and from each
+ * The tags with a name or an id that a document's includes write, so the
+ * page's JavaScript knows `document.myForm` and `getElementById('qty')` when
+ * the element is in an include. Read from the cached include tree, and from each
  * include once until an include changes.
  */
 const _namedTagsByFile = new Map<string, string>();
 let _namedTagsEpoch = -1;
-const NAMED_TAG = /<(?:form|img|embed|object|iframe)\b[^>]*?\bname\s*=[^>]*>/gi;
+const NAMED_TAG = /<[a-zA-Z][\w-]*\b[^>]*?\s(?:name|id)\s*=[^>]*>/gi;
 
 export function includeNamedElements(document: vscode.TextDocument): string {
     if (document.languageId !== 'asp') { return ''; }
