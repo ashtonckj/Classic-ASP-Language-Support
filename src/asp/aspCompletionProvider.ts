@@ -10,6 +10,8 @@ import { analysedPage } from './vbscriptWorkspace';
 import { COM_TYPE_MAP } from '../constants/comObjects';
 import { withObjectAt, withObjectType, type WithObject } from '../vbscript/pageAnalysis';
 import * as path from 'path';
+import { applyKeywordCase } from '../formatter/aspFormatter';
+import { formatterSettings } from '../platform/settings';
 
 
 // Builds a variable → progId map from the page's and its includes' COM variables
@@ -382,6 +384,11 @@ export class AspCompletionProvider implements vscode.CompletionItemProvider {
                 item.kind       = vscode.CompletionItemKind.Snippet;
             }
 
+            // In the casing Format Document would give it, so a block is not
+            // half lowercase until the page is next formatted.
+            if (item.insertText instanceof vscode.SnippetString) {
+                item.insertText = new vscode.SnippetString(applyKeywordCase(item.insertText.value, formatterSettings().keywordCase));
+            }
             item.preselect = false;
             item.sortText  = (item.insertText ? '0_' : '1_') + kw.keyword;
             return item;
