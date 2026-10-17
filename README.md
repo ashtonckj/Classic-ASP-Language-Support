@@ -22,7 +22,7 @@
 
 ## What it does
 
-- **Formats the whole page in one go.** VBScript, HTML, CSS, JavaScript and the SQL in your strings, with the keyword casing you choose.
+- **Formats the whole page in one go.** VBScript, HTML, CSS and JavaScript, with the keyword casing you choose, and SQL strings continued with `& _` lined up.
 - **Follows your includes.** Go to Definition, Find All References and Rename work across `#include` files, and moving a file offers to fix every include that pointed at it.
 - **Finds mistakes before IIS does.** An `If` without `End If`, a missing `Set`, an include that doesn't exist, an undeclared name under `Option Explicit` and a call with the wrong number of arguments.
 - **Knows your objects.** After `Set rs = Server.CreateObject("ADODB.Recordset")`, typing `rs.` lists its methods and properties; hover explains `Response`, `vbCrLf`, `Mid` and your own Subs.
@@ -95,6 +95,7 @@ This extension includes syntax highlighting and snippets, so it replaces **[Clas
 
 - **Formatting is refused while tags or blocks don't pair up** (see above). A page that opens a `<div>` in one include and closes it in another can't be formatted.
 - **`#include virtual` needs the right root.** It resolves from `classicAsp.virtualRoot`, or the open folder when that is empty.
+- **A `<script>` holding a `<% If %>` or other statement block is left as written.** Formatting the JavaScript around such a block could change which statements the condition covers.
 - **A `<%= %>` that writes a tag inside an `onclick="…"` can colour the rest of the line wrongly.** VS Code's HTML grammar owns attribute values; the page still runs correctly.
 
 ## Links
