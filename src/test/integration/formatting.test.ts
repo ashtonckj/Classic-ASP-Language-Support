@@ -39,6 +39,23 @@ suite('Classic ASP: Preview Formatting (integration)', () => {
         assert.strictEqual(doc.getText(), content, 'the page itself must not change');
     });
 
+    test('shows the page as it is now when previewed again with the first still open', async () => {
+        const doc = await vscode.workspace.openTextDocument({ language: 'asp', content: '<div>\n<p>one</p>\n</div>\n' });
+        await vscode.window.showTextDocument(doc);
+        await vscode.commands.executeCommand('classicAsp.previewFormatting');
+        await waitFor(() => vscode.window.visibleTextEditors.find(e => e.document.uri.scheme === 'asp-format-preview'));
+
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(doc.uri, new vscode.Range(0, 0, doc.lineCount, 0), '<div>\n<p>two</p>\n</div>\n');
+        await vscode.workspace.applyEdit(edit);
+        await vscode.window.showTextDocument(doc);
+        await vscode.commands.executeCommand('classicAsp.previewFormatting');
+
+        const preview = await waitFor(() => vscode.window.visibleTextEditors.find(e =>
+            e.document.uri.scheme === 'asp-format-preview' && e.document.getText().includes('two')));
+        assert.ok(preview, 'the second preview should show the page as edited');
+    });
+
     test('is offered in the Command Palette', async () => {
         const commands = await vscode.commands.getCommands(true);
         assert.ok(commands.includes('classicAsp.previewFormatting'));

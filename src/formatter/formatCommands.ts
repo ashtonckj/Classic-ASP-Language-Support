@@ -164,16 +164,20 @@ async function formatForDocument(
 
 // Opens VS Code's built-in diff editor showing current vs formatted.
 // Nothing is applied to the real file — purely a visual preview.
+//
+// One provider for the scheme, holding the latest preview of each page: a
+// provider registered per preview, for a URI VS Code had already loaded,
+// showed the first preview's text again on the next.
+const previews = new Map<string, string>();
+let previewChanged: vscode.EventEmitter<vscode.Uri> | undefined;
+
 async function openFormattingPreview(
-    context: vscode.ExtensionContext,
     document: vscode.TextDocument,
     formatted: string,
 ): Promise<void> {
-    const previewUri   = document.uri.with({ scheme: 'asp-format-preview' });
-    const provider     = new (class implements vscode.TextDocumentContentProvider {
-        provideTextDocumentContent() { return formatted; }
-    })();
-    const registration = vscode.workspace.registerTextDocumentContentProvider('asp-format-preview', provider);
+    const previewUri = document.uri.with({ scheme: 'asp-format-preview' });
+    previews.set(previewUri.toString(), formatted);
+    previewChanged?.fire(previewUri);
 
     await vscode.commands.executeCommand(
         'vscode.diff',
@@ -182,19 +186,23 @@ async function openFormattingPreview(
         `Formatting Preview — ${document.fileName.split(/[\\/]/).pop()}`,
         { preview: true },
     );
+}
 
-    const listener = vscode.window.onDidChangeVisibleTextEditors(() => {
-        const still = vscode.window.visibleTextEditors.some(
-            e => e.document.uri.toString() === previewUri.toString(),
-        );
-        if (!still) { registration.dispose(); listener.dispose(); }
-    });
-
-    context.subscriptions.push(registration, listener);
+function registerFormattingPreview(context: vscode.ExtensionContext): void {
+    previewChanged = new vscode.EventEmitter<vscode.Uri>();
+    context.subscriptions.push(
+        previewChanged,
+        vscode.workspace.registerTextDocumentContentProvider('asp-format-preview', {
+            onDidChange: previewChanged.event,
+            provideTextDocumentContent: uri => previews.get(uri.toString()) ?? '',
+        }),
+        vscode.workspace.onDidCloseTextDocument(closed => { previews.delete(closed.uri.toString()); }),
+    );
 }
 
 export function registerFormatting(context: vscode.ExtensionContext, deps: FormattingDeps): void {
     watchSaves(context);
+    registerFormattingPreview(context);
 
     const formatter = vscode.languages.registerDocumentFormattingEditProvider('asp', guarded('Format Document', {
         async provideDocumentFormattingEdits(document: vscode.TextDocument): Promise<vscode.TextEdit[]> {
@@ -240,7 +248,7 @@ export function registerFormatting(context: vscode.ExtensionContext, deps: Forma
             void vscode.window.showInformationMessage('No formatting changes — file is already formatted.');
             return;
         }
-        await openFormattingPreview(context, document, result.formatted);
+        await openFormattingPreview(document, result.formatted);
     });
 
     context.subscriptions.push(formatter, rangeFormatter, previewFormatting);
