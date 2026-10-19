@@ -51,6 +51,11 @@ describe('asp-ignore comments — what they silence', () => {
         assert.deepStrictEqual(directive.codes, ['html-tag', 'asp-tag']);
         assert.strictEqual('<!-- asp-ignore-file html-tag asp-tag -->'.slice(0, directive.codesEnd), '<!-- asp-ignore-file html-tag asp-tag');
     });
+
+    it('ends an HTML comment at --!> as browsers do', () => {
+        const [directive] = findIgnoreDirectives('<!-- asp-ignore-file html-tag --!>');
+        assert.deepStrictEqual(directive.codes, ['html-tag']);
+    });
 });
 
 describe('IgnoreCodeActionProvider — the quick fixes write the comment', () => {

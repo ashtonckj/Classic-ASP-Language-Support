@@ -39,7 +39,7 @@ const DIRECTIVE = /(?:'|\brem\b|<!--|\/\/|\/\*)[ \t]*asp-ignore-(next-line|file)
 
 /** The text of a directive's code list: up to the end of its comment. */
 function codeList(rest: string): string {
-    const end = rest.search(/-->|\*\/|%>/);
+    const end = rest.search(/--!?>|\*\/|%>/);
     return end === -1 ? rest : rest.slice(0, end);
 }
 

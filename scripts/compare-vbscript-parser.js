@@ -203,10 +203,10 @@ function oracleSource(page, segments) {
     }
 
     // Stop before anything runs. Option Explicit must stay the first statement.
-    const leadingOption = /^((\s|'.*)*)(option\s+explicit)/i;
+    const leadingOption = /^((?:\s|'[^\r\n]*(?=[\r\n]|$))*)(option\s+explicit)/i;
     let body = lines.join('\r\n');
     if (leadingOption.test(body)) {
-        body = body.replace(leadingOption, (m, pre, _s, opt) => `${pre}${opt} : WScript.Quit 0`);
+        body = body.replace(leadingOption, (m, pre, opt) => `${pre}${opt} : WScript.Quit 0`);
     } else {
         body = 'WScript.Quit 0\r\n' + body;
         map.unshift(-1);
