@@ -5,6 +5,16 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Major upgrades held back on purpose; revisit each when its tooling catches up:
+    # typescript 7 (typescript-eslint support), eslint 10 (flat config rewrite),
+    # @types/node (match the Node that VS Code runs).
+    ignore:
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+      - dependency-name: eslint
+        update-types: [version-update:semver-major]
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
     groups:
       dev-dependencies:
         dependency-type: development
