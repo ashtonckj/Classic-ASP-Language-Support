@@ -22,6 +22,9 @@ on:
         tags: ["v*.*.*"]
     workflow_dispatch:
 
+permissions:
+    contents: read
+
 jobs:
     publish:
         runs-on: windows-latest
