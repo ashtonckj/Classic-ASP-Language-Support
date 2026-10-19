@@ -545,7 +545,7 @@
     },
     "dependencies": {
         "@vscode/emmet-helper": "^2.11.0",
-        "prettier": "^3.8.1",
+        "prettier": "^3.9.10",
         "typescript": "^5.9.3",
         "vscode-css-languageservice": "^6.3.9",
         "vscode-html-languageservice": "^5.6.2",
@@ -554,8 +554,8 @@
     "devDependencies": {
         "@types/mocha": "^10.0.10",
         "@types/node": "^20.0.0",
-        "@types/vscode": "^1.80.0",
-        "@typescript-eslint/eslint-plugin": "^8.53.1",
+        "@types/vscode": "^1.140.0",
+        "@typescript-eslint/eslint-plugin": "^8.71.2",
         "@typescript-eslint/parser": "^8.53.1",
         "@vscode/test-cli": "^0.0.15",
         "@vscode/test-electron": "^3.0.0",
