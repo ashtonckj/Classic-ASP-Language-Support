@@ -12,7 +12,6 @@
     <a href="https://open-vsx.org/extension/ashtonckj/classic-asp-language-support"><img alt="Open VSX version" src="https://img.shields.io/open-vsx/v/ashtonckj/classic-asp-language-support?style=for-the-badge&label=Open%20VSX&labelColor=363a4f&color=c6a0f6&cacheSeconds=86400"/></a>
     <a href="https://marketplace.visualstudio.com/items?itemName=ashtonckj.classic-asp-language-support"><img alt="Installs, VS Code Marketplace and Open VSX together" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fashtonckj%2FClassic-ASP-Language-Support%2Fbadges%2Finstalls.json&style=for-the-badge&labelColor=363a4f&cacheSeconds=3600"/></a>
     <a href="https://github.com/ashtonckj/Classic-ASP-Language-Support/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-b7bdf8?style=for-the-badge&labelColor=363a4f&cacheSeconds=86400"/></a>
-    <a href="https://hub.xerj.org/contributors/ashtonckj"><img alt="XERJ Corpus Hub contributor" src="https://img.shields.io/badge/XERJ%20Corpus%20Hub-contributor-b7bdf8?style=for-the-badge&labelColor=363a4f&cacheSeconds=86400"/></a>
 </p>
 
 <p align="center">
@@ -113,7 +112,7 @@ This extension includes syntax highlighting and snippets, so it replaces **[Clas
 
 <p align="center"><sub>No need to install these alongside, as running two Classic ASP extensions makes them fight over colours.</sub></p>
 
-Built on [Prettier](https://prettier.io/) and the TypeScript, HTML and CSS language services. Region highlighting started from Zachary Becknell's [ASP Classic Support](https://github.com/zbecknell/asp-classic-support), and the snippets ideas were taken from Jintae Joo's [Classic ASP Syntaxes and Snippets](https://github.com/jtjoo/vscode-classic-asp-extension).
+Built on [Prettier](https://prettier.io/) and the TypeScript, HTML and CSS language services. Region highlighting started from Zachary Becknell's [ASP Classic Support](https://github.com/zbecknell/asp-classic-support), and the snippets ideas were taken from Jintae Joo's [Classic ASP Syntaxes and Snippets](https://github.com/jtjoo/vscode-classic-asp-extension). This extension is also selected as a contribution to the [XERJ Corpus Hub](https://hub.xerj.org/contributors/ashtonckj), which includes it in its AI data corpus.
 
 ---
 
