@@ -189,7 +189,9 @@ export class AspReferenceProvider implements vscode.ReferenceProvider {
         position: vscode.Position,
         context:  vscode.ReferenceContext,
     ): vscode.Location[] {
-        return findSymbolLocations(document, position)
+        // The kept include graph, as F12 and hover use: reading every page afresh, as rename
+        // must, blocked the extension host for seconds, and Copilot asks for references too.
+        return findSymbolLocations(document, position, editorWorkspace(document))
             .filter(location => context.includeDeclaration || !location.declaration)
             .map(location => new vscode.Location(location.uri, location.range));
     }
