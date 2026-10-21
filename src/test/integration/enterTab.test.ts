@@ -201,4 +201,20 @@ suite('Enter / Tab handlers (integration)', () => {
         const lines = editor.document.getText().split(/\r?\n/);
         assert.ok(!lines[2].includes('*'), `must not add JSDoc stars in VBScript; got ${JSON.stringify(lines[2])}`);
     });
+
+    // An edit already on its way when Enter is pressed (an auto-close insert,
+    // another extension's) makes VS Code reject the handler's edit as stale.
+    test('Enter still inserts a newline when another edit lands first', async () => {
+        const editor = await openAsp('<div>\n    text\n</div>');
+        setCursor(editor, 1, editor.document.lineAt(1).text.length);
+
+        const other = editor.edit(eb => eb.insert(new vscode.Position(0, 0), '<!-- x -->'));
+        await vscode.commands.executeCommand('asp.insertLineBreak');
+        await other;
+        const start = Date.now();
+        while (editor.document.lineCount === 3 && Date.now() - start < 3000) { await sleep(20); }
+
+        assert.strictEqual(editor.document.lineCount, 4);
+        assert.ok(editor.document.lineAt(0).text.startsWith('<!-- x -->'));
+    });
 });

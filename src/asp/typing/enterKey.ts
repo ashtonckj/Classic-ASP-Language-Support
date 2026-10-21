@@ -51,6 +51,14 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             return vscode.commands.executeCommand('default:type', { text: '\n' });
         }
 
+        // An edit that lands between reading the line and applying ours (an
+        // auto-close insert, another extension) makes VS Code reject it, and the
+        // keystroke was lost; the native newline still goes in.
+        const place = (at: vscode.Position | vscode.Range, text: string, caret: vscode.Position) =>
+            insertAndPlaceCaret(editor, at, text, caret).then(applied => {
+                if (!applied) { void vscode.commands.executeCommand('default:type', { text: '\n' }); }
+            });
+
         const position        = editor.selection.active;
         const document        = editor.document;
         const line            = document.lineAt(position.line);
@@ -69,7 +77,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         //   • after some indentation it carries that indent → content or a `}`
         //     following the cursor lands at the correct column instead of column 0.
         if (currentLineText === '') {
-            void insertAndPlaceCaret(editor, position, `\n${indent}`, new vscode.Position(position.line + 1, indent.length));
+            void place(position, `\n${indent}`, new vscode.Position(position.line + 1, indent.length));
             return;
         }
 
@@ -89,7 +97,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
                 if (rest === '' || rest === '*/') {
                     // `/**|` or `/**|*/` — either way, expand to the standard
                     // three-line skeleton and drop the caret on the middle line.
-                    void insertAndPlaceCaret(editor, new vscode.Range(position, new vscode.Position(position.line, line.text.length)), `\n${indent} * \n${indent} */`, new vscode.Position(position.line + 1, indent.length + 3));
+                    void place(new vscode.Range(position, new vscode.Position(position.line, line.text.length)), `\n${indent} * \n${indent} */`, new vscode.Position(position.line + 1, indent.length + 3));
                     return;
                 }
             }
@@ -99,7 +107,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             // part of the same, still-open comment.
             if (JSDOC_CONTINUATION_LINE.test(textBefore) && position.line > 0
                 && continuesOpenJsDocComment(document.lineAt(position.line - 1).text)) {
-                void insertAndPlaceCaret(editor, position, `\n${indent}* `, new vscode.Position(position.line + 1, indent.length + 2));
+                void place(position, `\n${indent}* `, new vscode.Position(position.line + 1, indent.length + 2));
                 return;
             }
         }
@@ -114,9 +122,9 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         if ((zone === 'js' || zone === 'css') && textBefore.trimEnd().endsWith('{')) {
             const rest = textAfter.trimStart();
             if (rest.startsWith('}')) {
-                void insertAndPlaceCaret(editor, new vscode.Range(position, new vscode.Position(position.line, line.text.length)), `\n${indent}${indentUnit}\n${indent}${rest}`, new vscode.Position(position.line + 1, indent.length + indentUnit.length));
+                void place(new vscode.Range(position, new vscode.Position(position.line, line.text.length)), `\n${indent}${indentUnit}\n${indent}${rest}`, new vscode.Position(position.line + 1, indent.length + indentUnit.length));
             } else {
-                void insertAndPlaceCaret(editor, position, `\n${indent}${indentUnit}`, new vscode.Position(position.line + 1, indent.length + indentUnit.length));
+                void place(position, `\n${indent}${indentUnit}`, new vscode.Position(position.line + 1, indent.length + indentUnit.length));
             }
             return;
         }
@@ -127,7 +135,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         // VBScript code sits at the same indent as <% itself — no extra level.
         // <% and %> are at HTML child level; code between them is at that same level.
         if (/^<%=?\s*$/.test(textBefore.trim()) && textAfter.trimEnd() === '%>') {
-            void insertAndPlaceCaret(editor, new vscode.Range(position, new vscode.Position(position.line, line.text.length)), `\n${indent}\n${indent}%>`, new vscode.Position(position.line + 1, indent.length));
+            void place(new vscode.Range(position, new vscode.Position(position.line, line.text.length)), `\n${indent}\n${indent}%>`, new vscode.Position(position.line + 1, indent.length));
             return;
         }
 
@@ -144,9 +152,9 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
                                     ?? targetIndent;
             if (targetIndent !== indent) {
                 const lineEnd = new vscode.Position(position.line, indent.length + currentLineText.length);
-                void insertAndPlaceCaret(editor, new vscode.Range(new vscode.Position(position.line, 0), lineEnd), `${targetIndent}${currentLineText}\n${htmlChildIndent}`, new vscode.Position(position.line + 1, htmlChildIndent.length));
+                void place(new vscode.Range(new vscode.Position(position.line, 0), lineEnd), `${targetIndent}${currentLineText}\n${htmlChildIndent}`, new vscode.Position(position.line + 1, htmlChildIndent.length));
             } else {
-                void insertAndPlaceCaret(editor, position, `\n${htmlChildIndent}`, new vscode.Position(position.line + 1, htmlChildIndent.length));
+                void place(position, `\n${htmlChildIndent}`, new vscode.Position(position.line + 1, htmlChildIndent.length));
             }
             return;
         }
@@ -160,9 +168,9 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             const caret = new vscode.Position(position.line + 1, next.length);
             if (snapped !== indent) {
                 const lineEnd = new vscode.Position(position.line, indent.length + currentLineText.length);
-                void insertAndPlaceCaret(editor, new vscode.Range(new vscode.Position(position.line, 0), lineEnd), `${snapped}${currentLineText}\n${next}`, caret);
+                void place(new vscode.Range(new vscode.Position(position.line, 0), lineEnd), `${snapped}${currentLineText}\n${next}`, caret);
             } else {
-                void insertAndPlaceCaret(editor, position, `\n${next}`, caret);
+                void place(position, `\n${next}`, caret);
             }
             return;
         }
@@ -173,13 +181,13 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         // close. Only the <script>/<style> tag just typed, which the caret is
         // already past, still opens its body.
         if (zone !== 'html' && !/<(script|style)\b[^>]*>$/i.test(textBefore)) {
-            void insertAndPlaceCaret(editor, position, `\n${indent}`, new vscode.Position(position.line + 1, indent.length));
+            void place(position, `\n${indent}`, new vscode.Position(position.line + 1, indent.length));
             return;
         }
 
         // HTML comment: <!-- | -->
         if (textBefore.trim().endsWith('<!--') && textAfter.trim().startsWith('-->')) {
-            void insertAndPlaceCaret(editor, new vscode.Range(position, line.range.end),
+            void place(new vscode.Range(position, line.range.end),
                 `\n${indent}${indentUnit}\n${indent}-->`, new vscode.Position(position.line + 1, indent.length + indentUnit.length));
             return;
         }
@@ -200,16 +208,16 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
                 if (closingTagRegex.test(afterCursorText)) {
                     if (textAfter.trim().startsWith(closingTag)) {
                         // <div>|</div> → expand
-                        void insertAndPlaceCaret(editor, new vscode.Range(position, line.range.end),
+                        void place(new vscode.Range(position, line.range.end),
                             `\n${indent}${indentUnit}\n${indent}${closingTag}`, new vscode.Position(position.line + 1, indent.length + indentUnit.length));
                     } else {
-                        void insertAndPlaceCaret(editor, position, `\n${indent}${indentUnit}`, new vscode.Position(position.line + 1, indent.length + indentUnit.length));
+                        void place(position, `\n${indent}${indentUnit}`, new vscode.Position(position.line + 1, indent.length + indentUnit.length));
                     }
                     return;
                 }
 
                 // No closing tag — create it
-                void insertAndPlaceCaret(editor, position, `\n${indent}${indentUnit}\n${indent}${closingTag}`, new vscode.Position(position.line + 1, indent.length + indentUnit.length));
+                void place(position, `\n${indent}${indentUnit}\n${indent}${closingTag}`, new vscode.Position(position.line + 1, indent.length + indentUnit.length));
                 return;
             }
         }
@@ -220,7 +228,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
             const tagName = incompleteTagMatch[1];
             if (!isSelfClosingTag(tagName)) {
                 const closingTag = `</${tagName}>`;
-                void insertAndPlaceCaret(editor, position, `>\n${indent}${indentUnit}\n${indent}${closingTag}`, new vscode.Position(position.line + 1, indent.length + indentUnit.length));
+                void place(position, `>\n${indent}${indentUnit}\n${indent}${closingTag}`, new vscode.Position(position.line + 1, indent.length + indentUnit.length));
                 return;
             }
         }
@@ -228,7 +236,7 @@ export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
         // Default HTML newline — maintain the current indent. The col-0 and
         // whitespace-only cases already returned to the native newline above, so
         // here the cursor is always past the line's leading whitespace.
-        void insertAndPlaceCaret(editor, position, `\n${indent}`, new vscode.Position(position.line + 1, indent.length));
+        void place(position, `\n${indent}`, new vscode.Position(position.line + 1, indent.length));
         return;
     });
 
