@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 // selection highlight. With a visible-enough ASP-region colour, selecting text
 // inside a <% %> block made the selection disappear — the decoration painted
 // right over it. Over the part a selection covers, the tint is now painted at
-// half strength (highlight.ts, splitBySelections), so the editor's own
+// half strength (regionTint.ts, splitBySelections), so the editor's own
 // selection shows through while the text still reads as ASP code. A selection
 // never affects a region it doesn't overlap.
 //

@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import {
     editorsToPaint, halfAlpha, outsideSelections, overlapWithSelections, splitBySelections,
-} from '../../asp/highlight';
+} from '../../asp/regionTint';
 
 // Reported upstream: a TextEditorDecorationType's backgroundColor paints on the
 // same layer as the text, above VS Code's own selection highlight, so a
