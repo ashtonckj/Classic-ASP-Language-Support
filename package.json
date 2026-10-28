@@ -91,6 +91,56 @@
                 }
             }
         ],
+        "semanticTokenTypes": [
+            {
+                "id": "sqlDml",
+                "description": "A SQL data keyword in a string: SELECT, INSERT, UPDATE, DELETE, FROM, WHERE, JOIN"
+            },
+            {
+                "id": "sqlDdl",
+                "description": "A SQL schema keyword in a string: CREATE, ALTER, DROP, TABLE"
+            },
+            {
+                "id": "sqlLogical",
+                "description": "A SQL logical operator in a string: AND, OR, NOT, IN, LIKE"
+            },
+            {
+                "id": "sqlKeyword",
+                "description": "Any other SQL keyword in a string"
+            },
+            {
+                "id": "sqlFunction",
+                "description": "A SQL function in a string: COUNT, SUM, GETDATE"
+            },
+            {
+                "id": "sqlType",
+                "description": "A SQL data type in a string: INT, VARCHAR"
+            },
+            {
+                "id": "sqlVariable",
+                "description": "A SQL variable or parameter in a string: @id"
+            },
+            {
+                "id": "sqlNumber",
+                "description": "A number in a SQL string"
+            },
+            {
+                "id": "sqlBracketPunct",
+                "description": "The brackets around a [quoted] SQL name"
+            },
+            {
+                "id": "sqlBracketContent",
+                "description": "A [quoted] SQL name, or a bare table name or alias"
+            },
+            {
+                "id": "sqlTable",
+                "description": "The table side of table.column in a SQL string"
+            },
+            {
+                "id": "sqlColumn",
+                "description": "The column side of alias.column in a SQL string"
+            }
+        ],
         "semanticTokenScopes": [
             {
                 "language": "asp",
