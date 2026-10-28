@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import type { FileSymbols } from '../vbscript/symbols';
 import type { ScopeRequest } from '../vbscript/pageChecks';
@@ -33,18 +34,15 @@ export function getVirtualRoot(documentPath: string): string {
  * is just a guess.
  */
 export function configuredVirtualRoot(documentPath?: string): string | undefined {
-    const userSetting = virtualRootSetting();
+    const uri    = documentPath ? vscode.Uri.file(documentPath) : undefined;
+    const folder = ((uri && vscode.workspace.getWorkspaceFolder(uri)) ?? vscode.workspace.workspaceFolders?.[0])?.uri.fsPath;
+    const userSetting = virtualRootSetting(uri);
+    if (!userSetting) { return folder; }
 
-    if (userSetting) {
-        // Expand a leading ~/ on macOS/Linux for convenience
-        const expanded = userSetting.startsWith('~/')
-            ? path.join(process.env.HOME ?? userSetting, userSetting.slice(2))
-            : userSetting;
-        return expanded;
-    }
-
-    const folder = documentPath ? vscode.workspace.getWorkspaceFolder(vscode.Uri.file(documentPath)) : undefined;
-    return (folder ?? vscode.workspace.workspaceFolders?.[0])?.uri.fsPath;
+    // `~` is the home folder on every platform; a relative path starts at the
+    // workspace folder, not at VS Code's own working directory.
+    const expanded = /^~(?=$|[\\/])/.test(userSetting) ? path.join(os.homedir(), userSetting.slice(1)) : userSetting;
+    return folder ? path.resolve(folder, expanded) : expanded;
 }
 
 /**
@@ -71,7 +69,7 @@ export function scopeRequest(document: vscode.TextDocument): ScopeRequest {
         text: document.getText(),
         docPath,
         configuredRoot: configuredVirtualRoot(docPath),
-        defaultIncludes: defaultIncludeCandidates(getVirtualRoot(docPath)),
+        defaultIncludes: defaultIncludeCandidates(getVirtualRoot(docPath), docPath),
         openFiles: openBuffers(document).texts,
     };
 }
@@ -126,8 +124,8 @@ function mergeSymbols(target: FileSymbols, source: FileSymbols): void {
  * Existence is not checked here: the worker finds out when it tries to read,
  * which keeps the completion hot path free of synchronous disk access.
  */
-export function defaultIncludeCandidates(virtualRoot: string): string[] {
-    const configured = defaultIncludesSetting();
+export function defaultIncludeCandidates(virtualRoot: string, documentPath?: string): string[] {
+    const configured = defaultIncludesSetting(documentPath ? vscode.Uri.file(documentPath) : undefined);
 
     return configured.map(entry => path.isAbsolute(entry)
         ? entry
@@ -140,7 +138,7 @@ function includeRoots(document: vscode.TextDocument): string[] {
     // so the completion hot path never does existsSync/statSync on an include.
     const roots = [
         ...resolveIncludePathsIn(document.getText(), document.uri.fsPath, virtualRoot),
-        ...defaultIncludeCandidates(virtualRoot),
+        ...defaultIncludeCandidates(virtualRoot, document.uri.fsPath),
     ];
 
     const seen = new Set<string>();

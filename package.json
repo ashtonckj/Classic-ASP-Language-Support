@@ -255,7 +255,8 @@
                     "classicAsp.virtualRoot": {
                         "type": "string",
                         "default": "",
-                        "description": "Absolute path to your IIS web application root, used to resolve #include virtual=\"...\" and root-relative links such as href=\"/css/site.css\". Leave empty to use the workspace folder root (the default, which works for most projects)."
+                        "scope": "resource",
+                        "description": "Path to your IIS web application root, used to resolve #include virtual=\"...\" and root-relative links such as href=\"/css/site.css\". A relative path starts at the workspace folder, and ~ is your home folder. Leave empty to use the workspace folder root (the default, which works for most projects)."
                     },
                     "classicAsp.defaultIncludes": {
                         "type": "array",
@@ -263,6 +264,7 @@
                             "type": "string"
                         },
                         "default": [],
+                        "scope": "resource",
                         "description": "Files that are always added to IntelliSense, hover, Go to Definition, and Peek Definition for every document — even if that document has no #include for them. Use this when common libraries are only pulled in through a shared bootstrap/layout page at runtime rather than directly by each module. Paths are resolved the same way as #include virtual=\"...\" (relative to classicAsp.virtualRoot, or the workspace folder root)."
                     }
                 }

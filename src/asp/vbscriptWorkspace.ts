@@ -32,7 +32,7 @@ export const parsedDocument = (document: vscode.TextDocument): ParsedPage => par
 const bound = new BindCache(20);
 
 /** What else decides where a page's includes are. */
-const includeSettings = (docPath: string) => `${configuredVirtualRoot(docPath) ?? ''}|${defaultIncludesSetting().join('|')}`;
+const includeSettings = (docPath: string) => `${configuredVirtualRoot(docPath) ?? ''}|${defaultIncludesSetting(vscode.Uri.file(docPath)).join('|')}`;
 
 /**
  * The files the parser reads for `document`. Which pages include a file comes
@@ -50,7 +50,7 @@ export function editorWorkspace(document: vscode.TextDocument, options: { freshI
         read: fsPath => samePath(fsPath, docPath) ? docText : readIncludeText(fsPath),
         resolve: (directive, fromPath) => resolveIncludeDirective(directive, fromPath, getVirtualRoot(fromPath)),
         parse: parseCached,
-        defaultIncludes: rootPath => defaultIncludeCandidates(getVirtualRoot(rootPath)),
+        defaultIncludes: rootPath => defaultIncludeCandidates(getVirtualRoot(rootPath), rootPath),
         includedBy: fsPath => (graph ??= includedByMap(document, options.freshIncludes)).get(pathKey(fsPath)) ?? [],
         bind: fsPath => bound.bind(host, fsPath, settings),
     };

@@ -28,9 +28,9 @@ const DEFAULTS: ReadonlyMap<string, unknown> = new Map(
         .flatMap(section => Object.entries(section.properties).map(([key, property]) => [key, property.default] as const)),
 );
 
-/** A `classicAsp.*` setting as the user set it, or its package.json default. */
-function read<T>(key: string): T {
-    const value = vscode.workspace.getConfiguration().get<T>(key);
+/** A `classicAsp.*` setting as the user set it (for `scope`'s folder, when given), or its package.json default. */
+function read<T>(key: string, scope?: vscode.ConfigurationScope): T {
+    const value = vscode.workspace.getConfiguration(undefined, scope).get<T>(key);
     return (value === undefined ? DEFAULTS.get(key) : value) as T;
 }
 
@@ -105,14 +105,14 @@ export function regionSettings(): RegionSettings {
     };
 }
 
-/** `classicAsp.virtualRoot`, trimmed; empty when unset. */
-export function virtualRootSetting(): string {
-    return (read<string>('classicAsp.virtualRoot') ?? '').trim();
+/** `classicAsp.virtualRoot` for the folder of `scope`, trimmed; empty when unset. */
+export function virtualRootSetting(scope?: vscode.ConfigurationScope): string {
+    return (read<string>('classicAsp.virtualRoot', scope) ?? '').trim();
 }
 
-/** `classicAsp.defaultIncludes`, as written. */
-export function defaultIncludesSetting(): string[] {
-    return read<string[]>('classicAsp.defaultIncludes') ?? [];
+/** `classicAsp.defaultIncludes` for the folder of `scope`, as written. */
+export function defaultIncludesSetting(scope?: vscode.ConfigurationScope): string[] {
+    return read<string[]>('classicAsp.defaultIncludes', scope) ?? [];
 }
 
 // ── Settings of VS Code and other extensions ─────────────────────────────────
