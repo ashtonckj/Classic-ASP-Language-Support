@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-    <img src="https://raw.githubusercontent.com/ashtonckj/Classic-ASP-Language-Support/main/images/demo.gif" alt="Format Document tidying a messy Classic ASP page, IntelliSense listing Recordset members, a hover and Ctrl+Click into a function in an #include file, F2 renaming a variable everywhere, and the same page in four colour themes">
+    <img src="https://raw.githubusercontent.com/ashtonckj/Classic-ASP-Language-Support/main/images/demo.gif" alt="Format Document tidying a messy Classic ASP page, IntelliSense listing Recordset members, a hover and Ctrl+Click into a function in an #include file, F2 renaming a variable everywhere, and the same page in four color themes">
     <br>
     <sub>Dark Modern, Light Modern, Monokai and <a href="https://github.com/catppuccin/vscode">Catppuccin</a></sub>
 </p>
@@ -26,7 +26,7 @@
 - **Follows your includes.** Go to Definition, Find All References and Rename work across `#include` files, and moving a file offers to fix every include that pointed at it.
 - **Finds mistakes before IIS does.** An `If` without `End If`, a missing `Set`, an include that doesn't exist, an undeclared name under `Option Explicit` and a call with the wrong number of arguments.
 - **Knows your objects.** After `Set rs = Server.CreateObject("ADODB.Recordset")`, typing `rs.` lists its methods and properties; hover explains `Response`, `vbCrLf`, `Mid` and your own Subs.
-- **Colours it properly.** ASP blocks get a tint, SQL inside strings is coloured as SQL, and your own variables, functions and Subs as what they are.
+- **Colors it properly.** ASP blocks get a tint, SQL inside strings is colored as SQL, and your own variables, functions and Subs as what they are.
 - **Helps in every part of the page.** HTML, CSS and JavaScript get their own completion, hover and checks, and none of them fire inside your VBScript.
 
 ## ✨ Getting started
@@ -85,7 +85,7 @@ rs = GetRecordset()
 
 ## Replacing another Classic ASP extension
 
-This extension includes syntax highlighting and snippets, so it replaces **[Classic ASP Syntaxes and Snippets][Classic ASP Syntaxes & Snippets]** and **[ASP Classic Support][ASP Classic Support]**. Two extensions that read the same `.asp` files fight over colours and completions, so when it finds one it offers to uninstall it, or to open it in the Extensions view so you can disable it. Your files are not touched.
+This extension includes syntax highlighting and snippets, so it replaces **[Classic ASP Syntaxes and Snippets][Classic ASP Syntaxes & Snippets]** and **[ASP Classic Support][ASP Classic Support]**. Two extensions that read the same `.asp` files fight over colors and completions, so when it finds one it offers to uninstall it, or to open it in the Extensions view so you can disable it. Your files are not touched.
 
 `editor.linkedEditing` does what [Auto Rename Tag] did, ASP between the tags or not. [Error Lens] and [Indent Rainbow] work well alongside it.
 
@@ -96,7 +96,7 @@ This extension includes syntax highlighting and snippets, so it replaces **[Clas
 - **Formatting is refused while tags or blocks don't pair up** (see above). A page that opens a `<div>` in one include and closes it in another can't be formatted.
 - **`#include virtual` needs the right root.** It resolves from `classicAsp.virtualRoot`, or the open folder when that is empty.
 - **A `<script>` holding a `<% If %>` or other statement block is left as written.** Formatting the JavaScript around such a block could change which statements the condition covers.
-- **A `<%= %>` that writes a tag inside an `onclick="…"` can colour the rest of the line wrongly.** VS Code's HTML grammar owns attribute values; the page still runs correctly.
+- **A `<%= %>` that writes a tag inside an `onclick="…"` can color the rest of the line wrongly.** VS Code's HTML grammar owns attribute values; the page still runs correctly.
 
 ## Links
 
@@ -110,7 +110,7 @@ This extension includes syntax highlighting and snippets, so it replaces **[Clas
 </tr>
 </table>
 
-<p align="center"><sub>No need to install these alongside, as running two Classic ASP extensions makes them fight over colours.</sub></p>
+<p align="center"><sub>No need to install these alongside, as running two Classic ASP extensions makes them fight over colors.</sub></p>
 
 Built on [Prettier](https://prettier.io/) and the TypeScript, HTML and CSS language services. Region highlighting started from Zachary Becknell's [ASP Classic Support](https://github.com/zbecknell/asp-classic-support), and the snippets ideas were taken from Jintae Joo's [Classic ASP Syntaxes and Snippets](https://github.com/jtjoo/vscode-classic-asp-extension). This extension is also selected as a contribution to the [XERJ Corpus Hub](https://hub.xerj.org/contributors/ashtonckj), which includes it in its AI data corpus.
 

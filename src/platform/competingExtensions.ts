@@ -136,7 +136,7 @@ export async function checkForCompetingExtensions(context: vscode.ExtensionConte
     const choice = await vscode.window.showInformationMessage(
         `Classic ASP: ${nameList(mention)} ${one ? 'is' : 'are'} also installed. ` +
         `This extension already highlights Classic ASP, and with both enabled ` +
-        `they fight over how .asp files are coloured.`,
+        `they fight over how .asp files are colored.`,
         removeBtn, showBtn, keepBtn,
     );
 

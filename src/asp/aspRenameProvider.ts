@@ -53,7 +53,7 @@ export function wordAt(
 /** A word no page can declare, or the name of an ASP object, which a page should not shadow. */
 const isKeyword = (word: string) => isReservedWord(word.toLowerCase()) || ASP_OBJECT_NAMES.has(word.toLowerCase());
 
-const notASymbol = (word: string) => `"${word}" is not a recognised VBScript symbol.`;
+const notASymbol = (word: string) => `"${word}" is not a recognized VBScript symbol.`;
 
 /**
  * Every place the VBScript symbol at `position` is used, in every file that can
