@@ -47,6 +47,10 @@ jobs:
             - name: Unit tests
               run: npx mocha
 
+            # The release runs this same check; failing here keeps it off the tag.
+            - name: Package
+              run: npx --yes @vscode/vsce@3 package --out ci.vsix
+
             # Downloads VS Code stable into .vscode-test/ and runs the suite in it.
             - name: Integration tests
               run: npx vscode-test

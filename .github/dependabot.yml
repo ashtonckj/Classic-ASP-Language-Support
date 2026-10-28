@@ -8,7 +8,10 @@ updates:
     # Major upgrades held back on purpose; revisit each when its tooling catches up:
     # typescript 7 (typescript-eslint support), eslint 10 (flat config rewrite),
     # @types/node (match the Node that VS Code runs).
+    # @types/vscode stays at engines.vscode: vsce refuses to package when the
+    # types are newer, and newer types would let code use APIs 1.80 lacks.
     ignore:
+      - dependency-name: "@types/vscode"
       - dependency-name: typescript
         update-types: [version-update:semver-major]
       - dependency-name: eslint
