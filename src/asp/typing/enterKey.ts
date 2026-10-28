@@ -38,7 +38,7 @@ export function continuesOpenJsDocComment(previousLineText: string): boolean {
 }
 
 export function registerEnterKeyHandler(context: vscode.ExtensionContext) {
-    const disposable = vscode.commands.registerCommand('asp.insertLineBreak', () => {
+    const disposable = vscode.commands.registerCommand('classicAsp.insertLineBreak', () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor || editor.document.languageId !== 'asp') {
             return vscode.commands.executeCommand('default:type', { text: '\n' });

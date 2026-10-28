@@ -13,7 +13,7 @@ teardown(async () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
 });
 
-// Tab is bound to `asp.insertTab` for .asp files, so everything Tab would
+// Tab is bound to `classicAsp.insertTab` for .asp files, so everything Tab would
 // otherwise do has to be done by that command. Emmet's Tab expansion is one of
 // those things: `ul>li*3` and Tab should become a real list. The keybinding
 // swallowed it, because the handler fell straight through to the native `tab`
@@ -79,7 +79,7 @@ async function pressTab(content: string, line: number, column?: number): Promise
     editor.selection = new vscode.Selection(line, col, line, col);
 
     // What the Tab key is actually bound to for this language.
-    await vscode.commands.executeCommand('asp.insertTab');
+    await vscode.commands.executeCommand('classicAsp.insertTab');
     for (let waited = 0; waited < 2000; waited += 50) {
         if (editor.document.getText() !== content) { break; }
         await sleep(50);

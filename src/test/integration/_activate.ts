@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 // The extension declares `onLanguage:asp`, so it does not exist until something
 // opens an .asp document — and activating it takes about a second. The first
 // test to open one therefore triggered activation and then acted immediately,
-// before `asp.insertTab` was registered, before the comment rules were loaded,
+// before `classicAsp.insertTab` was registered, before the comment rules were loaded,
 // before the auto-close and Emmet providers existed. Those tests failed with the
 // editor simply doing nothing: Tab inserted no indent, Toggle Comment returned
 // the line unchanged, the Emmet completion list came back without its items.

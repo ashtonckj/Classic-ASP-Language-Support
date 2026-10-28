@@ -183,12 +183,12 @@
         ],
         "keybindings": [
             {
-                "command": "asp.insertLineBreak",
+                "command": "classicAsp.insertLineBreak",
                 "key": "enter",
                 "when": "editorTextFocus && editorLangId == asp && !editorHasSelection && !suggestWidgetVisible && !renameInputVisible && !inSnippetMode"
             },
             {
-                "command": "asp.insertTab",
+                "command": "classicAsp.insertTab",
                 "key": "tab",
                 "when": "editorTextFocus && !editorReadonly && editorLangId == asp && !suggestWidgetVisible && !editorHasSelection && !inlineSuggestionVisible && !inlineEditIsVisible && !tabShouldAcceptInlineEdit && !tabShouldJumpToInlineEdit && !inSnippetMode && !editorTabMovesFocus"
             }

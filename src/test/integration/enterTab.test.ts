@@ -54,7 +54,7 @@ suite('Enter / Tab handlers (integration)', () => {
         const braceCol = editor.document.lineAt(1).text.indexOf('{') + 1;
         setCursor(editor, 1, braceCol);
 
-        await runAndWait(editor, 'asp.insertLineBreak');
+        await runAndWait(editor, 'classicAsp.insertLineBreak');
 
         const lines = editor.document.getText().split(/\r?\n/);
         assert.strictEqual(lines[1], '    function testing() {');
@@ -68,7 +68,7 @@ suite('Enter / Tab handlers (integration)', () => {
         const editor = await openAsp('<script>\n    for (var i=0;i<n;i++)\n</script>');
         setCursor(editor, 1, editor.document.lineAt(1).text.length);
 
-        await runAndWait(editor, 'asp.insertLineBreak');
+        await runAndWait(editor, 'classicAsp.insertLineBreak');
 
         assert.strictEqual(editor.document.getText().replace(/\r\n/g, '\n'), '<script>\n    for (var i=0;i<n;i++)\n    \n</script>');
     });
@@ -77,7 +77,7 @@ suite('Enter / Tab handlers (integration)', () => {
         const editor = await openAsp('<script></script>');
         setCursor(editor, 0, '<script>'.length);
 
-        await runAndWait(editor, 'asp.insertLineBreak');
+        await runAndWait(editor, 'classicAsp.insertLineBreak');
 
         assert.strictEqual(editor.document.getText().replace(/\r\n/g, '\n'), '<script>\n    \n</script>');
     });
@@ -86,7 +86,7 @@ suite('Enter / Tab handlers (integration)', () => {
         const editor = await openAsp('    ');
         setCursor(editor, 0, 0);
 
-        await runAndWait(editor, 'asp.insertLineBreak');
+        await runAndWait(editor, 'classicAsp.insertLineBreak');
 
         const lines = editor.document.getText().split(/\r?\n/);
         assert.strictEqual(lines[0], '');       // blank line above
@@ -97,7 +97,7 @@ suite('Enter / Tab handlers (integration)', () => {
         const editor = await openAsp('    ');
         setCursor(editor, 0, 0);
 
-        await runAndWait(editor, 'asp.insertTab');
+        await runAndWait(editor, 'classicAsp.insertTab');
 
         // Native tab inserts one indent (4 spaces) at the cursor; the original 4
         // trailing spaces remain → 8 spaces total.
@@ -108,7 +108,7 @@ suite('Enter / Tab handlers (integration)', () => {
         const editor = await openAsp('<script>\n    function testing() {\n        \n    }\n</script>');
         setCursor(editor, 3, 4); // line "    }", cursor right before the }
 
-        await runAndWait(editor, 'asp.insertLineBreak');
+        await runAndWait(editor, 'classicAsp.insertLineBreak');
 
         const lines = editor.document.getText().split(/\r?\n/);
         assert.strictEqual(lines[3], '    ');    // the 4 spaces before the cursor
@@ -122,7 +122,7 @@ suite('Enter / Tab handlers (integration)', () => {
         const eol = editor.document.lineAt(1).text.length; // end of "If x = 1 Then"
         setCursor(editor, 1, eol);
 
-        await runAndWait(editor, 'asp.insertLineBreak');
+        await runAndWait(editor, 'classicAsp.insertLineBreak');
 
         const lines = editor.document.getText().split(/\r?\n/);
         assert.strictEqual(lines[1], 'If x = 1 Then');
@@ -137,7 +137,7 @@ suite('Enter / Tab handlers (integration)', () => {
         const eol = editor.document.lineAt(1).text.length; // end of "    /**"
         setCursor(editor, 1, eol);
 
-        await runAndWait(editor, 'asp.insertLineBreak');
+        await runAndWait(editor, 'classicAsp.insertLineBreak');
 
         const lines = editor.document.getText().split(/\r?\n/);
         assert.strictEqual(lines[1], '    /**');
@@ -156,7 +156,7 @@ suite('Enter / Tab handlers (integration)', () => {
         const editor = await openAsp(`<script>\n${opener}${closer}\n</script>`);
         setCursor(editor, 1, opener.length);
 
-        await runAndWait(editor, 'asp.insertLineBreak');
+        await runAndWait(editor, 'classicAsp.insertLineBreak');
 
         const lines = editor.document.getText().split(/\r?\n/);
         assert.strictEqual(lines[1], '    /**');
@@ -169,7 +169,7 @@ suite('Enter / Tab handlers (integration)', () => {
         const eol = editor.document.lineAt(2).text.length; // end of "     * First line"
         setCursor(editor, 2, eol);
 
-        await runAndWait(editor, 'asp.insertLineBreak');
+        await runAndWait(editor, 'classicAsp.insertLineBreak');
 
         const lines = editor.document.getText().split(/\r?\n/);
         assert.strictEqual(lines[3], '     * ');   // continues at the same star column
@@ -182,7 +182,7 @@ suite('Enter / Tab handlers (integration)', () => {
         const editor = await openAsp('<script>\n    /**\n     *\n     */\n</script>');
         setCursor(editor, 2, editor.document.lineAt(2).text.length);
 
-        await runAndWait(editor, 'asp.insertLineBreak');
+        await runAndWait(editor, 'classicAsp.insertLineBreak');
 
         const lines = editor.document.getText().split(/\r?\n/);
         assert.strictEqual(lines[3], '     * ');
@@ -196,7 +196,7 @@ suite('Enter / Tab handlers (integration)', () => {
         const editor = await openAsp('<%\n    x = 1 /**\n%>');
         setCursor(editor, 1, editor.document.lineAt(1).text.length);
 
-        await runAndWait(editor, 'asp.insertLineBreak');
+        await runAndWait(editor, 'classicAsp.insertLineBreak');
 
         const lines = editor.document.getText().split(/\r?\n/);
         assert.ok(!lines[2].includes('*'), `must not add JSDoc stars in VBScript; got ${JSON.stringify(lines[2])}`);
@@ -209,7 +209,7 @@ suite('Enter / Tab handlers (integration)', () => {
         setCursor(editor, 1, editor.document.lineAt(1).text.length);
 
         const other = editor.edit(eb => eb.insert(new vscode.Position(0, 0), '<!-- x -->'));
-        await vscode.commands.executeCommand('asp.insertLineBreak');
+        await vscode.commands.executeCommand('classicAsp.insertLineBreak');
         await other;
         const start = Date.now();
         while (editor.document.lineCount === 3 && Date.now() - start < 3000) { await sleep(20); }
