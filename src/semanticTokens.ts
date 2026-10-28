@@ -13,7 +13,8 @@
 import * as vscode from 'vscode';
 import { guarded } from './platform/guardedProvider';
 import { AspSemanticTokensProvider } from './asp/aspSemanticProvider';
-import { JsSemanticTokensProvider, COMBINED_SEMANTIC_LEGEND } from './js/jsSemanticProvider';
+import { JsSemanticTokensProvider } from './js/jsSemanticProvider';
+import { COMBINED_SEMANTIC_LEGEND } from './semanticLegend';
 
 /** Reads delta-encoded token data one token at a time, at its absolute position. */
 class TokenReader {

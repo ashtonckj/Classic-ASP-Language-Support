@@ -1,11 +1,7 @@
 import * as vscode from 'vscode';
 import { collectIncludeSymbols } from './includeProvider';
 import { colourAspPage, SqlWarning } from '../workers/analysisClient';
-// Use COMBINED_SEMANTIC_LEGEND from jsSemanticProvider — it now includes the
-// SQL token types (indices 23–34) so all three providers (ASP, SQL, JS) share
-// one identical legend. VS Code maps token indices through whichever legend is
-// registered first; using a different legend here would corrupt all colours.
-import { COMBINED_SEMANTIC_LEGEND } from '../js/jsSemanticProvider';
+import { COMBINED_SEMANTIC_LEGEND } from '../semanticLegend';
 import { createAspDiagnosticCollection, DiagnosticCode, makeDiagnostic } from '../platform/diagnostics';
 
 /**

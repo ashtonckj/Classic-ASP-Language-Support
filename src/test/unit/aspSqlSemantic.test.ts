@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { AspSemanticTokensProvider } from '../../asp/aspSemanticProvider';
 import { colourAspPage } from '../../vbscript/aspColouring';
 import { colourAspPage as colourOnWorker, disposeAnalysisWorkers } from '../../workers/analysisClient';
-import { COMBINED_SEMANTIC_LEGEND } from '../../js/jsSemanticProvider';
+import { COMBINED_SEMANTIC_LEGEND } from '../../semanticLegend';
 import type { FileSymbols } from '../../vbscript/symbols';
 import { fakeDocument } from './_helpers';
 
