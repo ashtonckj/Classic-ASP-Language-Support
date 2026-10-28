@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { AspDocumentHighlightProvider } from '../../asp/aspRenameProvider';
+import { AspDocumentHighlightProvider } from '../../asp/aspHighlightProvider';
 import { fakeDocument } from './_helpers';
 
 // Clicking a VBScript name highlights its other uses, as a .vb or .js file
