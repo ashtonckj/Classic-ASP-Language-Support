@@ -26,7 +26,6 @@ interface Trip { char: string; detail: string; }
 
 /** Records every assertNever the language service reaches, and keeps throwing. */
 function recordAssertNever(trips: Trip[], char: string): () => void {
-    /* eslint-disable @typescript-eslint/no-explicit-any */
     const debug = (ts as any).Debug;
     const original = debug.assertNever;
     debug.assertNever = function (member: unknown, ...rest: unknown[]) {
@@ -34,7 +33,6 @@ function recordAssertNever(trips: Trip[], char: string): () => void {
         return original.call(this, member, ...rest);
     };
     return () => { debug.assertNever = original; };
-    /* eslint-enable @typescript-eslint/no-explicit-any */
 }
 
 /** Asks for completions at the end of `marker`, as the provider would. */
