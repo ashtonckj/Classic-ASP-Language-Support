@@ -52,6 +52,10 @@
                 "classicAsp.virtualRoot",
                 "classicAsp.defaultIncludes"
             ]
+        },
+        "virtualWorkspaces": {
+            "supported": "limited",
+            "description": "#include files, Ctrl+T and rename across pages read the files from disk, so in a virtual folder they see only the open page."
         }
     },
     "activationEvents": [
