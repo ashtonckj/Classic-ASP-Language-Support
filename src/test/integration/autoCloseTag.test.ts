@@ -157,6 +157,21 @@ suite('HTML tag auto-close (integration)', () => {
             `no closing tag in VBScript; got ${JSON.stringify(editor.document.lineAt(1).text)}`,
         );
     });
+
+    test('does not close a tag when html.autoClosingTags is off', async () => {
+        const html = vscode.workspace.getConfiguration('html');
+        await html.update('autoClosingTags', false, vscode.ConfigurationTarget.Global);
+        try {
+            const editor = await openAsp('<div\n');
+            editor.selection = new vscode.Selection(0, 4, 0, 4);
+
+            await typeAndWait(editor, '>', d => d.lineAt(0).text.includes('>'));
+
+            assert.strictEqual(editor.document.lineAt(0).text, '<div>');
+        } finally {
+            await html.update('autoClosingTags', undefined, vscode.ConfigurationTarget.Global);
+        }
+    });
 });
 
 // Picking an inline tag from the completion list used to lay it out like a
