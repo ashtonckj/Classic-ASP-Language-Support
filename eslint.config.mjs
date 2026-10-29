@@ -31,7 +31,7 @@ export default [
         },
     },
 
-    // ── The import direction (CLAUDE.md 3.1) ─────────────────────────────────
+    // ── The import direction ─────────────────────────────────────────────────
     // Core code runs on the worker threads and in unit tests with no vscode
     // module, so it may not import vscode or anything that does.
     {
