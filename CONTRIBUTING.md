@@ -87,6 +87,7 @@ feature is registered.
 src/
 ├── extension.ts          # Entry point — one register call per feature
 ├── semanticTokens.ts     # Merges the VBScript and JavaScript colouring
+├── semanticLegend.ts     # The one token legend both colourings use
 ├── core/                 # Text rules every language shares, no vscode import:
 │                         #   zones (<% %>, <script>, <style>), includes, paths,
 │                         #   VBScript strings/comments, HTML tag pairing, ignore comments

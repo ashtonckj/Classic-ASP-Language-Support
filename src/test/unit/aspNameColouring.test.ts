@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { colourAspPage } from '../../vbscript/aspColouring';
-import { COMBINED_SEMANTIC_LEGEND } from '../../js/jsSemanticProvider';
+import { COMBINED_SEMANTIC_LEGEND } from '../../semanticLegend';
 import type { FileSymbols } from '../../vbscript/symbols';
 
 // VBScript names are coloured from the binder: each is coloured as what it

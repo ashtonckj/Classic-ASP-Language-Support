@@ -5,6 +5,46 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### ✨ Added
+- **VBScript folding** - Sub, Function, Class, If, For, Do, While, Select and With blocks fold, and the page's indentation folding stays
+- **Highlight every use** - Clicking a VBScript name highlights each place the page uses it, as other languages do
+- **SQL colors by name** - Themes and `editor.semanticTokenColorCustomizations` can target the SQL token types, such as `sqlTable`
+
+### 🛠️ Fixed
+**Formatter**
+- **Formatting twice** - A second Format Document no longer changes a page the first one already formatted
+- **Keyword snippets** - `If…End If` and the other keyword snippets follow `classicAsp.keywordCase`
+- **Preview Formatting** - Running it again with the first preview open shows the page as it is now
+
+**Includes**
+- **`virtualRoot`** - A relative path starts at the workspace folder, `~` is the home folder on Windows too, and each folder of a multi-root workspace can set its own
+- **Restricted Mode** - The extension runs in untrusted folders, taking the virtual root and default includes from user settings only
+
+**VBScript**
+- **Find All References** - No longer freezes the editor on large sites, including when Copilot asks for references **resolves #93**
+- **Ignore comments** - An `asp-ignore` directive ends at an HTML comment closed with `--!>`
+
+**JavaScript**
+- **Elements by id** - `getElementById` returns the element type the page or its includes give that id, and ids are on `window`, as in a browser
+- **ASP before a call** - `onclick="<% If x %>a()<% End If %>"` no longer reports `';' expected`
+- **Unquoted ASP values** - `href=<%= u %>` no longer swallows the attribute after it
+
+**Typing**
+- **Tab in snippets** - Tab moves to the next placeholder of a snippet instead of indenting
+- **Tab moves focus** - With Ctrl+M on, Tab leaves the editor, as everywhere else in VS Code
+- **`html.autoClosingTags`** - Turning it off stops `.asp` pages closing tags too
+- **Lost Enter** - Enter no longer drops the keystroke when another edit lands first
+
+### ⚡ Performance
+- **Pages with thousands of ids** - JavaScript checks went from **881 ms** to **54 ms**
+
+### 🔄 Refactored
+- **Command names** - Enter and Tab now run `classicAsp.insertLineBreak` and `classicAsp.insertTab`, so rebind any custom shortcut that used `asp.insertLineBreak` or `asp.insertTab`
+
+---
+
 ## [0.7.2] - 2026-10-16
 
 ### ✨ Added
@@ -805,6 +845,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[Unreleased]: https://github.com/ashtonckj/Classic-ASP-Language-Support/compare/v0.7.2...HEAD
 [0.7.2]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.7.2
 [0.7.1]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.7.1
 [0.7.0]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.7.0

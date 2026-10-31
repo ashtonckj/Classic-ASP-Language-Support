@@ -68,7 +68,7 @@ export function looksLikeAbbreviation(token: string): boolean {
 /**
  * Emmet's Tab expansion, falling back to a plain Tab when nothing expanded.
  *
- * Tab is bound to `asp.insertTab` for this language, so everything the Tab key
+ * Tab is bound to `classicAsp.insertTab` for this language, so everything the Tab key
  * would otherwise do has to happen here — and one of those things is Emmet
  * turning `ul>li*3` into a real list, which is how HTML gets written by hand.
  * Going straight to the native `tab` command swallowed it, because that command
@@ -256,7 +256,7 @@ function warnEmmetUnavailableOnce(): void {
 }
 
 export function registerTabKeyHandler(context: vscode.ExtensionContext) {
-    const disposable = vscode.commands.registerCommand('asp.insertTab', () => {
+    const disposable = vscode.commands.registerCommand('classicAsp.insertTab', () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor || editor.document.languageId !== 'asp') {
             return vscode.commands.executeCommand('tab');

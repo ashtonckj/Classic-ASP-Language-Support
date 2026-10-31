@@ -3,11 +3,8 @@
  *
  * Semantic token colouring for JavaScript inside <script> blocks.
  *
- * COMBINED_SEMANTIC_LEGEND must be shared with aspSemanticProvider.ts.
- * VS Code maps token type indices through whichever legend it sees first for a
- * given language ID, so if two providers register with different legends the
- * colours for one of them will be wrong. aspSemanticProvider.ts imports it
- * from here, and semanticTokens.ts registers the one provider both share.
+ * Its tokens use COMBINED_SEMANTIC_LEGEND (semanticLegend.ts), shared with
+ * aspSemanticProvider.ts; semanticTokens.ts registers the one provider both share.
  *
  * TwentyTwenty encoding (from src/services/classifier2020.ts in the TS source):
  *   encoded = (tokenType << 8) | modifierBitmask
@@ -25,35 +22,10 @@
  */
 
 import * as vscode from 'vscode';
+import { COMBINED_SEMANTIC_LEGEND, TOKEN_MODIFIERS, TOKEN_TYPES } from '../semanticLegend';
 import { analyseEmbeddedJs } from '../workers/analysisClient';
 import { includeNamedElements } from '../asp/includeProvider';
 import { textOf } from '../platform/documentState';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Combined legend — shared with aspSemanticProvider.ts
-// ─────────────────────────────────────────────────────────────────────────────
-export const TOKEN_TYPES = [
-    // Standard VS Code token types — indices 0–22
-    'namespace', 'type', 'class', 'enum', 'interface', 'struct',
-    'typeParameter', 'parameter', 'variable', 'property', 'enumMember',
-    'event', 'function', 'method', 'macro', 'keyword', 'modifier',
-    'comment', 'string', 'number', 'regexp', 'operator', 'decorator',
-    // ASP/SQL-specific token types — indices 23–34
-    // Must match the numbering listed in vbscript/sqlTokens.ts exactly
-    'sqlDml', 'sqlDdl', 'sqlLogical', 'sqlKeyword', 'sqlFunction', 'sqlType',
-    'sqlVariable', 'sqlNumber', 'sqlBracketPunct', 'sqlBracketContent',
-    'sqlTable', 'sqlColumn',
-] as const;
-
-export const TOKEN_MODIFIERS = [
-    'declaration', 'definition', 'readonly', 'static', 'deprecated',
-    'abstract', 'async', 'modification', 'documentation', 'defaultLibrary',
-] as const;
-
-export const COMBINED_SEMANTIC_LEGEND = new vscode.SemanticTokensLegend(
-    [...TOKEN_TYPES],
-    [...TOKEN_MODIFIERS]
-);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TwentyTwenty token type constants (1-indexed wire values)

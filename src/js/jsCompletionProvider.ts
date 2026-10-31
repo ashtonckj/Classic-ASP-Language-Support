@@ -97,7 +97,6 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
             const isFunctionLike = item.kind === vscode.CompletionItemKind.Function
                                  || item.kind === vscode.CompletionItemKind.Method;
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (item as any).data = { document, name: entry.name, offset, source: entry.source, isFunctionLike } satisfies ItemData;
 
             return item;
@@ -116,7 +115,6 @@ export class JsCompletionProvider implements vscode.CompletionItemProvider {
         token: vscode.CancellationToken
     ): Promise<vscode.CompletionItem> {
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data = (item as any).data as ItemData | undefined;
         if (!data || data.document.isClosed) { return item; }
 

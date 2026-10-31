@@ -11,14 +11,14 @@ export interface TokenSink {
 // ─────────────────────────────────────────────────────────────────────────────
 // Token-type index reference.
 //
-// The live legend object is COMBINED_SEMANTIC_LEGEND (jsSemanticProvider.ts),
+// The live legend object is COMBINED_SEMANTIC_LEGEND (semanticLegend.ts),
 // created once and shared by every semantic provider. This block only documents
 // the index → token-type mapping the T_* constants below rely on; keep it in sync
 // with COMBINED_SEMANTIC_LEGEND.
 //
 // Layout (index order matters — must match COMBINED_SEMANTIC_LEGEND exactly):
 //
-// Standard VS Code token types (indices 0–22, from jsSemanticProvider.ts):
+// Standard VS Code token types (indices 0–22, from semanticLegend.ts):
 //   0  namespace
 //   1  type
 //   2  class

@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import { isSelfClosingTag } from '../../constants/htmlTags';
 import type { Zone } from '../../core/zoneUtils';
 import { zonesFor } from '../../platform/documentState';
+import { otherSetting } from '../../platform/settings';
 import { findAspOpenerIndent, findMatchingOpenerIndent, VBSCRIPT_EXACT_CLOSER } from './vbIndent';
 import { getIndentUnit } from './editing';
 import { parsedDocument } from '../vbscriptWorkspace';
@@ -204,6 +205,8 @@ export function registerAutoClosingTag(context: vscode.ExtensionContext) {
         // ---- HTML tag auto-close: <div> → <div></div>
         if (typed === '>') {
             if (!everyCursorTyped('>')) { return; }
+            // The user's switch for VS Code's own HTML tag closing, as a .html file honours it.
+            if (otherSetting<boolean>('html', 'autoClosingTags', event.document) === false) { return; }
 
             const sites: AutoInsertSite[] = [];
             for (const { line, character } of typedCharPositions(changes.map(c => c.range.start))) {

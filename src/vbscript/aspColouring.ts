@@ -292,7 +292,7 @@ export function colourAspPage(request: AspColouringRequest, page: ParsedPage = p
         for (const a of list) {
             if (a.isSelfAppend || looksLikeSql(a.stitchedValue) || isSqlExpression(a.stitchedValue)) { continue; }
             warnAt(a.stmt.target.start, a.written.length,
-                `SQL colouring may be incomplete here: '${a.written}' holds SQL elsewhere on the page, and this value does not read as SQL.`);
+                `SQL coloring may be incomplete here: '${a.written}' holds SQL elsewhere on the page, and this value does not read as SQL.`);
         }
     }
 
@@ -335,13 +335,13 @@ export function colourAspPage(request: AspColouringRequest, page: ParsedPage = p
             if (isCall) {
                 if (sqlFuncs.has(wordKey)) { return; }
                 warnAt(ident.start, word.length, nonStrFuncs.has(wordKey)
-                    ? `SQL colouring may be incomplete here: '${word}()' is joined into the SQL in '${a.written}', ` +
+                    ? `SQL coloring may be incomplete here: '${word}()' is joined into the SQL in '${a.written}', ` +
                       `and it may not return a string.`
-                    : `SQL colouring may be incomplete here: '${word}()' is joined into the SQL in '${a.written}', ` +
+                    : `SQL coloring may be incomplete here: '${word}()' is joined into the SQL in '${a.written}', ` +
                       `and what it returns could not be read as SQL.`);
             } else if (!sqlVars.has(wordKey)) {
                 warnAt(ident.start, word.length,
-                    `SQL colouring may be incomplete here: '${word}' is joined into the SQL in '${a.written}', ` +
+                    `SQL coloring may be incomplete here: '${word}' is joined into the SQL in '${a.written}', ` +
                     `and its value could not be read as SQL.`);
             }
         });

@@ -23,7 +23,7 @@ interface BlockPair {
 
 // Cached by document version. A rescan asks the VBScript worker to read the
 // whole page, so it waits for a pause in typing (the debounce below, as
-// highlight.ts does for the region tint) rather than running on every cursor
+// regionTint.ts does for the region tint) rather than running on every cursor
 // move: onDidChangeTextEditorSelection fires once per character typed.
 interface PairCache { version: number; pairs: BlockPair[]; }
 const _pairCache = new Map<string, PairCache>();

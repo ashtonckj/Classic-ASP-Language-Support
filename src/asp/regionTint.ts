@@ -146,7 +146,7 @@ interface DecorationTypes {
     codeBlockHalf: vscode.TextEditorDecorationType;
 }
 
-export function addRegionHighlights(context: vscode.ExtensionContext) {
+export function registerRegionTint(context: vscode.ExtensionContext) {
     let timeout: NodeJS.Timeout | null = null;
     let types: DecorationTypes | undefined;
     let configurationDidChange = false;

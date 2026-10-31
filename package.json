@@ -52,6 +52,10 @@
                 "classicAsp.virtualRoot",
                 "classicAsp.defaultIncludes"
             ]
+        },
+        "virtualWorkspaces": {
+            "supported": "limited",
+            "description": "#include files, Ctrl+T and rename across pages read the files from disk, so in a virtual folder they see only the open page."
         }
     },
     "activationEvents": [
@@ -89,6 +93,56 @@
                 "tokenTypes": {
                     "meta.tag string.quoted": "other"
                 }
+            }
+        ],
+        "semanticTokenTypes": [
+            {
+                "id": "sqlDml",
+                "description": "A SQL data keyword in a string: SELECT, INSERT, UPDATE, DELETE, FROM, WHERE, JOIN"
+            },
+            {
+                "id": "sqlDdl",
+                "description": "A SQL schema keyword in a string: CREATE, ALTER, DROP, TABLE"
+            },
+            {
+                "id": "sqlLogical",
+                "description": "A SQL logical operator in a string: AND, OR, NOT, IN, LIKE"
+            },
+            {
+                "id": "sqlKeyword",
+                "description": "Any other SQL keyword in a string"
+            },
+            {
+                "id": "sqlFunction",
+                "description": "A SQL function in a string: COUNT, SUM, GETDATE"
+            },
+            {
+                "id": "sqlType",
+                "description": "A SQL data type in a string: INT, VARCHAR"
+            },
+            {
+                "id": "sqlVariable",
+                "description": "A SQL variable or parameter in a string: @id"
+            },
+            {
+                "id": "sqlNumber",
+                "description": "A number in a SQL string"
+            },
+            {
+                "id": "sqlBracketPunct",
+                "description": "The brackets around a [quoted] SQL name"
+            },
+            {
+                "id": "sqlBracketContent",
+                "description": "A [quoted] SQL name, or a bare table name or alias"
+            },
+            {
+                "id": "sqlTable",
+                "description": "The table side of table.column in a SQL string"
+            },
+            {
+                "id": "sqlColumn",
+                "description": "The column side of alias.column in a SQL string"
             }
         ],
         "semanticTokenScopes": [
@@ -183,14 +237,14 @@
         ],
         "keybindings": [
             {
-                "command": "asp.insertLineBreak",
+                "command": "classicAsp.insertLineBreak",
                 "key": "enter",
                 "when": "editorTextFocus && editorLangId == asp && !editorHasSelection && !suggestWidgetVisible && !renameInputVisible && !inSnippetMode"
             },
             {
-                "command": "asp.insertTab",
+                "command": "classicAsp.insertTab",
                 "key": "tab",
-                "when": "editorTextFocus && !editorReadonly && editorLangId == asp && !suggestWidgetVisible && !editorHasSelection && !inlineSuggestionVisible && !inlineEditIsVisible && !tabShouldAcceptInlineEdit && !tabShouldJumpToInlineEdit"
+                "when": "editorTextFocus && !editorReadonly && editorLangId == asp && !suggestWidgetVisible && !editorHasSelection && !inlineSuggestionVisible && !inlineEditIsVisible && !tabShouldAcceptInlineEdit && !tabShouldJumpToInlineEdit && !inSnippetMode && !editorTabMovesFocus"
             }
         ],
         "commands": [
@@ -255,7 +309,8 @@
                     "classicAsp.virtualRoot": {
                         "type": "string",
                         "default": "",
-                        "description": "Absolute path to your IIS web application root, used to resolve #include virtual=\"...\" and root-relative links such as href=\"/css/site.css\". Leave empty to use the workspace folder root (the default, which works for most projects)."
+                        "scope": "resource",
+                        "description": "Path to your IIS web application root, used to resolve #include virtual=\"...\" and root-relative links such as href=\"/css/site.css\". A relative path starts at the workspace folder, and ~ is your home folder. Leave empty to use the workspace folder root (the default, which works for most projects)."
                     },
                     "classicAsp.defaultIncludes": {
                         "type": "array",
@@ -263,7 +318,8 @@
                             "type": "string"
                         },
                         "default": [],
-                        "description": "Files that are always added to IntelliSense, hover, Go to Definition, and Peek Definition for every document — even if that document has no #include for them. Use this when common libraries are only pulled in through a shared bootstrap/layout page at runtime rather than directly by each module. Paths are resolved the same way as #include virtual=\"...\" (relative to classicAsp.virtualRoot, or the workspace folder root)."
+                        "scope": "resource",
+                        "markdownDescription": "Files that are always added to IntelliSense, hover, Go to Definition, and Peek Definition for every document — even if that document has no `#include` for them. Use this when common libraries are only pulled in through a shared bootstrap/layout page at runtime rather than directly by each module. Paths are resolved the same way as `#include virtual=\"...\"` (relative to `#classicAsp.virtualRoot#`, or the workspace folder root)."
                     }
                 }
             },
@@ -554,12 +610,12 @@
     "devDependencies": {
         "@types/mocha": "^10.0.10",
         "@types/node": "^20.0.0",
-        "@types/vscode": "^1.140.0",
+        "@types/vscode": "~1.80.0",
         "@typescript-eslint/eslint-plugin": "^8.72.0",
-        "@typescript-eslint/parser": "^8.53.1",
+        "@typescript-eslint/parser": "^8.71.2",
         "@vscode/test-cli": "^0.0.15",
         "@vscode/test-electron": "^3.0.0",
-        "eslint": "^8.41.0",
+        "eslint": "^9.39.5",
         "mocha": "^12.0.3"
     },
     "overrides": {

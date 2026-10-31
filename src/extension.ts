@@ -15,7 +15,7 @@ import { registerAspStructureDiagnostics } from './asp/aspStructureDiagnosticsPr
 import { registerHtmlStructureDiagnostics } from './html/htmlStructureDiagnosticsProvider';
 import { registerCssDiagnostics } from './css/cssDiagnosticsProvider';
 import { registerJsDiagnostics } from './js/jsDiagnosticsProvider';
-import { addRegionHighlights } from './asp/highlight';
+import { registerRegionTint } from './asp/regionTint';
 import { disposeIncludeWatchers } from './asp/includeProvider';
 import { disposeWorkspaceIndex } from './platform/workspaceIndex';
 import { disposeAnalysisWorkers } from './workers/analysisClient';
@@ -39,7 +39,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     // ── Problems and highlights ───────────────────────────────────────────────
-    addRegionHighlights(context);
+    registerRegionTint(context);
     registerCssDiagnostics(context);
     registerJsDiagnostics(context);
     const htmlStructure = registerHtmlStructureDiagnostics(context);

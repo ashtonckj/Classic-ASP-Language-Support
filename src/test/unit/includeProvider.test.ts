@@ -26,6 +26,36 @@ describe('readIncludeText', () => {
     });
 });
 
+describe('getVirtualRoot', () => {
+    const site = path.join(os.tmpdir(), 'site');
+    const page = path.join(site, 'pages', 'a.asp');
+    beforeEach(() => { stub.workspace.workspaceFolders = [{ uri: { fsPath: site } }]; });
+    afterEach(() => {
+        stub.workspace.workspaceFolders = undefined;
+        stub.testSettings.delete('classicAsp.virtualRoot');
+    });
+
+    it('is the workspace folder when the setting is empty', () => {
+        assert.strictEqual(getVirtualRoot(page), site);
+    });
+
+    it("takes a relative setting from the workspace folder, not from VS Code's own folder", () => {
+        stub.testSettings.set('classicAsp.virtualRoot', 'wwwroot');
+        assert.strictEqual(getVirtualRoot(page), path.join(site, 'wwwroot'));
+    });
+
+    it('reads ~ as the home folder on every platform', () => {
+        stub.testSettings.set('classicAsp.virtualRoot', '~/sites/app');
+        assert.strictEqual(getVirtualRoot(page), path.join(os.homedir(), 'sites', 'app'));
+    });
+
+    it('keeps an absolute setting as it is', () => {
+        const elsewhere = path.join(os.tmpdir(), 'elsewhere');
+        stub.testSettings.set('classicAsp.virtualRoot', elsewhere);
+        assert.strictEqual(getVirtualRoot(page), elsewhere);
+    });
+});
+
 // An include open with unsaved edits is read from its buffer. Once that buffer
 // is gone without a save, nothing on disk changes, so the cache has to notice
 // by itself or the page keeps offering names that no longer exist.

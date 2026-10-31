@@ -23,7 +23,6 @@ interface AssertHit { kind: string; message: string; stack: string; }
 const hits: AssertHit[] = [];
 
 function installHook(): () => void {
-    /* eslint-disable @typescript-eslint/no-explicit-any */
     const debug = (ts as any).Debug;
     const originalFail = debug.fail;
     const originalAssert = debug.assert;
@@ -57,7 +56,6 @@ function installHook(): () => void {
         debug.assert = originalAssert;
         debug.assertNever = originalAssertNever;
     };
-    /* eslint-enable @typescript-eslint/no-explicit-any */
 }
 
 function sleep(ms: number): Promise<void> {
