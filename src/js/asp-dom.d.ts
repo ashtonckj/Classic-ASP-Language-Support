@@ -21,9 +21,10 @@
  * file), so `npm run compile` runs scripts/generate-dom-types.js to bake this file
  * into src/js/aspDomTypes.generated.ts. Edit THIS file, never that one.
  *
- * Keeping the declarations in a real .d.ts rather than a string literal means tsc
- * type-checks them as part of the build: a clash with lib.dom.d.ts fails the
- * compile with a line number, instead of silently doing nothing at runtime.
+ * Keeping the declarations in a real .d.ts rather than a string literal means
+ * scripts/generate-dom-types.js can type-check them on every compile: a clash
+ * with lib.dom.d.ts fails the build with a line number, instead of silently
+ * doing nothing at runtime. (tsc itself skips .d.ts files: skipLibCheck.)
  *
  * TWO RULES WORTH KNOWING BEFORE EDITING
  * --------------------------------------

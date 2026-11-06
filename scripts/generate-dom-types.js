@@ -17,8 +17,8 @@
  *     no runtime file read, so there is nothing to go missing from the package.
  *
  * Keeping the source of truth as a real .d.ts is what buys the type checking:
- * tsc compiles asp-dom.d.ts along with everything else in src/, so a declaration
- * that clashes with lib.dom.d.ts fails the build with a line number.
+ * the one-shot run checks it against lib.dom.d.ts (see check), so a declaration
+ * that clashes fails the build with a line number.
  *
  * Usage:
  *   node scripts/generate-dom-types.js            generate once
@@ -110,13 +110,38 @@ function watch() {
     });
 }
 
+/**
+ * Type-checks the declarations against lib.dom.d.ts, as the JS worker loads
+ * them. tsconfig.json sets skipLibCheck, which skips every .d.ts, so the build
+ * no longer catches a member that clashes with a DOM interface (TS2320) — and
+ * the language service then drops the whole augmentation without a word.
+ * Returns the errors, formatted.
+ */
+function check() {
+    const ts = require('typescript');
+    const program = ts.createProgram([SOURCE], {
+        noEmit: true, strict: true, types: [],
+        lib: ['lib.es2020.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts'],
+    });
+    const errors = ts.getPreEmitDiagnostics(program);
+    return ts.formatDiagnostics(errors, {
+        getCanonicalFileName: f => f, getCurrentDirectory: () => root, getNewLine: () => '\n',
+    });
+}
+
 if (require.main === module) {
     if (process.argv.includes('--watch')) {
         watch();
-    } else if (!generate()) {
-        // A missing source file is the only failure worth stopping the build for.
+    } else {
+        generate();
+        // A missing source file, or one that clashes with the DOM, stops the build.
         if (!fs.existsSync(SOURCE)) { process.exit(1); }
+        const errors = check();
+        if (errors) {
+            console.error(`[asp] ${rel(SOURCE)} clashes with lib.dom.d.ts:\n${errors}`);
+            process.exit(1);
+        }
     }
 }
 
-module.exports = { generate, watch, SOURCE, TARGET };
+module.exports = { generate, watch, check, SOURCE, TARGET };
