@@ -27,6 +27,7 @@ import { textOf, zonesFor } from '../platform/documentState';
 // on their own — which is why real-bug codes like 2339 (property does not exist)
 // and 2367 (comparison has no overlap) are deliberately NOT suppressed: they only
 // fire on real, fully-typed JS mistakes (e.g. calling a string method on a number).
+// The exception is ASP output inside a string literal; see LITERAL_CODES.
 export const SUPPRESSED_CODES = new Set([
     2304,   // Cannot find name 'X'          (functions/vars defined in other blocks/includes)
     2592,   // Cannot find name '$' / 'jQuery'
@@ -38,6 +39,23 @@ export const SUPPRESSED_CODES = new Set([
     2532,   // Object is possibly 'undefined'
     2349,   // This expression is not callable (e.g. window[name]() dynamic dispatch)
 ]);
+
+/**
+ * Codes that judge a string by its exact text. ASP output inside a string makes
+ * that text unknown, but TypeScript sees the stand-in: `"<%= id %>" != ""`
+ * compares `"_asp_id"` with `""` and reports that they never match. Shown only
+ * where the code they cover holds no ASP block.
+ */
+const LITERAL_CODES = new Set([
+    2367,   // This comparison appears to be unintentional because the types have no overlap
+    2678,   // Type 'X' is not comparable to type 'Y' (a switch case)
+]);
+
+/** Whether the diagnostic `code` covering `start`..`start + length` of the page `text` is shown. */
+export function isShown(code: number, text: string, start: number, length: number): boolean {
+    if (SUPPRESSED_CODES.has(code)) { return false; }
+    return !(LITERAL_CODES.has(code) && text.slice(start, start + length).includes('<%'));
+}
 
 async function getDiagnosticsForDocument(document: vscode.TextDocument): Promise<vscode.Diagnostic[]> {
     const fullText = textOf(document);
@@ -53,7 +71,7 @@ async function getDiagnosticsForDocument(document: vscode.TextDocument): Promise
     if (!analysis) { return []; }
 
     return analysis.diagnostics
-        .filter(d => !SUPPRESSED_CODES.has(d.code))
+        .filter(d => isShown(d.code, fullText, d.start, d.length))
         .map(d => makeDiagnostic(
             new vscode.Range(document.positionAt(d.start), document.positionAt(d.start + d.length)),
             d.message,
