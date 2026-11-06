@@ -4,7 +4,7 @@ import {
     getJsLanguageService, substituteAspBlock,
 } from '../../js/jsUtils';
 import { getJsBlockRanges } from '../../core/zoneUtils';
-import { SUPPRESSED_CODES } from '../../js/jsDiagnosticsProvider';
+import { isShown, SUPPRESSED_CODES } from '../../js/jsDiagnosticsProvider';
 
 // A VBScript Const is typed in the JavaScript by its value. The statements are
 // read with the engine's rules: a colon inside a string (a URL) is text, a real
@@ -34,7 +34,7 @@ describe('buildVirtualJsContent — VBScript Consts read by statement', () => {
     });
 });
 
-// A statement <% %> block is projected as `_asp;` (a complete statement) so that
+// A statement <% %> block between statements is projected as `;_asp;` so that
 // an inline block on the same line as other JS doesn't produce two juxtaposed
 // identifiers, which TypeScript rejects as a syntax error (1434). Expression
 // blocks stand in for a value and stay `_asp`/sentinel (no semicolon).
@@ -59,6 +59,48 @@ describe('substituteAspBlock — statement placeholder is terminated', () => {
         const out = substituteAspBlock('<%= userId %>', '_asp_userId');
         assert.ok(out.startsWith('_asp_userId'), `value token; got ${JSON.stringify(out)}`);
         assert.ok(!out.includes(';'), 'an expression value must not be semicolon-terminated');
+    });
+});
+
+// A statement block can sit anywhere in the JavaScript and write any of it, so
+// its stand-in must keep the code around it valid wherever it is: inside an
+// if condition, as a value, or between statements.
+describe('ASP blocks inside JavaScript give no false errors', () => {
+    after(() => { disposeJsLanguageService(); });
+
+    /** The codes the Problems panel would show for one <script> body. */
+    const shown = (body: string) => {
+        const text = `<script>\n${body}\n</script>\n`;
+        const svc = getJsLanguageService();
+        svc.loadPage(text);
+        return [...svc.getSyntacticDiagnostics(), ...svc.getSemanticDiagnostics()]
+            .filter(d => d.start !== undefined && isShown(d.code, text, d.start, d.length ?? 0))
+            .map(d => d.code);
+    };
+    const clean = (body: string) => assert.deepStrictEqual(shown(body), [], body);
+
+    it('a block that writes part of an if condition', () => {
+        clean('var exists = "YES";\nif(exists=="YES" <%if(source_typ="file")then response.write(" || true")%>){ }');
+        clean('var a = 1, b = 2;\nif (a == 1 <% If x Then %> && b == 2 <% End If %>) { }');
+    });
+
+    it('a block standing for a value', () => {
+        clean('var x = <% Response.Write 1 %>;');
+        clean('alert(<% Response.Write "1" %>);');
+    });
+
+    it('a block between statements, alone or next to another', () => {
+        clean('var a = 1; <% If x Then %> a++; <% End If %>');
+        clean('function f() {}\nf()<% If x Then %>f();<% Else %><% End If %>');
+    });
+
+    it('ASP output compared inside a string', () => {
+        clean('if("<%=example_id%>"!=""){ }');
+        clean('if ("id_<%= x %>" == "id_1") { }');
+    });
+
+    it('still reports a comparison with no ASP in it', () => {
+        assert.deepStrictEqual(shown('var s = "a"; if (s === 1) { }'), [2367]);
     });
 });
 

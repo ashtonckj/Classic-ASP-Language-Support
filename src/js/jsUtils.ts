@@ -479,20 +479,37 @@ function buildPreamble(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * What a statement block `<% %>` stands for, read from the JavaScript on either
+ * side of it (`prev` and `next`, the nearest non-blank characters, '' at the
+ * edge of the script). The block may write any JavaScript, so the stand-in is
+ * whatever keeps the code around it valid:
+ *   • after `=`, `(`, `,` or another operator a value is missing: `_asp`;
+ *   • before `)`, `]`, `}`, `,`, `;` or an operator the code around it is
+ *     already complete, as in `if (a == "Y" <% If b %> || c <% End If %>)`:
+ *     nothing, since a `;` there is a syntax error;
+ *   • otherwise it sits between statements: `;_asp;`, so that a statement
+ *     written straight before it (`a()<% End If %>`) or after it ends.
+ */
+function statementStandIn(prev: string, next: string): string {
+    if (/[=(,[!?:+\-*%&|^~<>]/.test(prev)) { return '_asp'; }
+    if (next === '' || /[)\]},;?:&|*%<>=]/.test(next)) { return ''; }
+    return ';_asp;';
+}
+
+/**
  * Replaces a single ASP block with its offset-preserving virtual-JS token.
  *
  * @param asp       The raw ASP block text, e.g. `<%= userId %>` or `<% ... %>`.
  * @param sentinel  For expression blocks, the pre-assigned `_asp_<sanitized>` name.
- *                  Pass `undefined` for statement blocks (they substitute to `_asp`).
+ *                  Pass `undefined` for statement blocks.
+ * @param prev      For statement blocks, the nearest non-blank JavaScript before it.
+ * @param next      For statement blocks, the nearest non-blank JavaScript after it.
  */
-export function substituteAspBlock(asp: string, sentinel: string | undefined): string {
+export function substituteAspBlock(asp: string, sentinel: string | undefined, prev = '', next = 'x'): string {
     const isExpression = asp.startsWith('<%=');
-    // Expression blocks stand in for a VALUE (`var x = _asp_foo`). Statement blocks
-    // stand in for a STATEMENT and get a trailing `;` so that when a <% %> sits
-    // inline with other JS (`a=1; <% If x %> a++;`) the placeholders don't become
-    // two juxtaposed identifiers — which TypeScript flags as a syntax error (1434).
-    // A leading `;` ends a statement written straight before it: `a()<% End If %>`.
-    const token        = isExpression ? (sentinel ?? '_asp') : ';_asp;';
+    // Expression blocks stand in for a VALUE (`var x = _asp_foo`); a statement
+    // block's stand-in depends on where it sits (statementStandIn).
+    const token        = isExpression ? (sentinel ?? '_asp') : statementStandIn(prev, next);
 
     const blanked = blankNonNewlines(asp);
     const totalLen = blanked.length;
@@ -559,8 +576,16 @@ export function buildVirtualJsContent(content: string, markup: PageMarkup = scan
             const sentinel = exprSentinels.get(absOffset);
 
             jsOut += between;
-            jsOut += substituteAspBlock(m[0], sentinel);
-            jsPrev = m.index + m[0].length;
+            // The text before is read as already substituted, so a block straight
+            // after another is judged by that one's stand-in, not by its `%>`.
+            const blockEnd = m.index + m[0].length;
+            let p = jsOut.length;
+            while (p > 0 && /\s/.test(jsOut[p - 1])) { p--; }
+            let n = blockEnd;
+            while (n < jsSection.length && /\s/.test(jsSection[n])) { n++; }
+            const next = jsSection.startsWith('<%', n) ? 'x' : jsSection.charAt(n);
+            jsOut += substituteAspBlock(m[0], sentinel, jsOut.charAt(p - 1), next);
+            jsPrev = blockEnd;
         }
         jsOut += jsSection.slice(jsPrev);
         body += jsOut;
