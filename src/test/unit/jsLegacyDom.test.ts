@@ -82,6 +82,15 @@ describe('legacy browser APIs are recognised', () => {
         clean('event.srcElement.setAttribute("data-x", "1");');
     });
 
+    // A control from a collection is typed Element, and an element looked up by
+    // a variable id is the widened HTMLElement, where rows and value used to be
+    // unions that no use got through.
+    it('accepts reading form controls found through a collection or a variable id', () => {
+        clean('var el = document.forms[0].elements[0]; if (el.type == "radio" || el.type == "checkbox") { }');
+        clean('var id = "grid"; var tab = document.getElementById(id); if (tab.rows.length <= 1) { }');
+        clean('var id = "q"; if (document.getElementById(id).value.length > 0) { }');
+    });
+
     it('accepts jQuery, including through a parent frame', () => {
         clean('$("#x").hide();');
         clean('parent.$("#myModalWindow").dialog("close");');
@@ -109,6 +118,7 @@ describe('ordinary mistakes are still reported', () => {
     it('reports a misspelt member on an element', () => {
         flagged('document.body.innerHTMLL = "x";');
         flagged('document.getElementById("x").innerHTMLL = "y";');
+        flagged('var el = document.forms[0].elements[0]; if (el.tpye == "radio") { }');
     });
 
     // Guards the pattern index signature: only the _asp_ prefix is accepted, so

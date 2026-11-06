@@ -62,9 +62,11 @@ interface HTMLElement {
     noValidate?:        boolean;
 
     // ── HTMLInputElement / HTMLTextAreaElement ────────────────────────────
-    // value is string|number to stay compatible with HTMLLIElement /
-    // HTMLMeterElement / HTMLProgressElement which declare value as number.
-    value?:             string | number;
+    // A member that is a different type on different elements is `any`: a union
+    // (string | number) let no use through, so `.value.length` was an error on
+    // an element looked up by a variable id. `any` is what an .html file's
+    // untyped DOM gives, and it still fits every element's own declaration.
+    value?:             any;
     defaultValue?:      string;
     checked?:           boolean;
     defaultChecked?:    boolean;
@@ -74,9 +76,9 @@ interface HTMLElement {
     required?:          boolean;
     maxLength?:         number;
     minLength?:         number;
-    // max / min are string|number: string on input[type=date/number], number on HTMLMeterElement.
-    max?:               string | number;
-    min?:               string | number;
+    // max / min: string on input[type=date/number], number on HTMLMeterElement.
+    max?:               any;
+    min?:               any;
     step?:              string;
     pattern?:           string;
     multiple?:          boolean;
@@ -97,8 +99,8 @@ interface HTMLElement {
     // HTMLSelectElement.options (HTMLOptionsCollection) extends HTMLCollectionOf so it's compatible.
     readonly options?:         HTMLCollectionOf<HTMLOptionElement>;
     selectedOptions?: HTMLCollectionOf<HTMLOptionElement>;
-    // size is string|number: number on HTMLSelectElement, string on HTMLFontElement/HTMLHRElement.
-    size?:            string | number;
+    // size: number on HTMLSelectElement, string on HTMLFontElement/HTMLHRElement.
+    size?:            any;
 
     // ── HTMLOptionElement ─────────────────────────────────────────────────
     selected?:  boolean;
@@ -120,9 +122,8 @@ interface HTMLElement {
     createTBody?():              HTMLTableSectionElement;
     deleteTHead?():              void;
     deleteTFoot?():              void;
-    // string | number | HTMLCollectionOf<...>:
-    //   HTMLFrameSetElement → string, HTMLTextAreaElement → number, HTMLTableElement → HTMLCollectionOf
-    rows?:                       string | number | HTMLCollectionOf<HTMLTableRowElement>;
+    // HTMLFrameSetElement → string, HTMLTextAreaElement → number, HTMLTableElement → HTMLCollectionOf
+    rows?:                       any;
     tHead?:                      HTMLTableSectionElement | null;
     tFoot?:                      HTMLTableSectionElement | null;
     tBodies?:                    HTMLCollectionOf<HTMLTableSectionElement>;
@@ -278,4 +279,12 @@ interface EventTarget {
     click?(): void;
     focus(options?: FocusOptions): void;
     blur(): void;
+}
+
+// A form control reached through `form.elements[i]`, `children[i]` or
+// `querySelector` is typed Element, and legacy code reads its `type` to tell a
+// checkbox from a text box. On Element, unlike EventTarget, `type` clashes
+// with no mixin: every element that has its own `type` declares it itself.
+interface Element {
+    type?:             any;
 }
