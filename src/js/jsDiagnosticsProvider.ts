@@ -44,17 +44,27 @@ export const SUPPRESSED_CODES = new Set([
  * Codes that judge a string by its exact text. ASP output inside a string makes
  * that text unknown, but TypeScript sees the stand-in: `"<%= id %>" != ""`
  * compares `"_asp_id"` with `""` and reports that they never match. Shown only
- * where the code they cover holds no ASP block.
+ * where neither the code they cover nor the types they name hold ASP output.
  */
 const LITERAL_CODES = new Set([
     2367,   // This comparison appears to be unintentional because the types have no overlap
     2678,   // Type 'X' is not comparable to type 'Y' (a switch case)
 ]);
 
-/** Whether the diagnostic `code` covering `start`..`start + length` of the page `text` is shown. */
-export function isShown(code: number, text: string, start: number, length: number): boolean {
+/**
+ * Whether the diagnostic is shown: `code` covering `start`..`start + length` of
+ * the page `text`, with its `message`. The message is read too because a case
+ * label is flagged for the `switch` expression's type, which may be the one
+ * holding the stand-in (`Type '"a"' is not comparable to type '"_asp_x  "'`).
+ */
+export function isShown(code: number, text: string, start: number, length: number, message = ''): boolean {
     if (SUPPRESSED_CODES.has(code)) { return false; }
-    return !(LITERAL_CODES.has(code) && text.slice(start, start + length).includes('<%'));
+    // A link found by `querySelector('a.x')` or `elements[i]` is a bare Element.
+    // No declaration of `href` on Element fits SVG's as well (asp-dom.d.ts), so
+    // this one message is hidden instead; `hrf` is still reported.
+    if (code === 2339 && message === "Property 'href' does not exist on type 'Element'.") { return false; }
+    if (!LITERAL_CODES.has(code)) { return true; }
+    return !(text.slice(start, start + length).includes('<%') || message.includes('"_asp'));
 }
 
 async function getDiagnosticsForDocument(document: vscode.TextDocument): Promise<vscode.Diagnostic[]> {
@@ -71,7 +81,7 @@ async function getDiagnosticsForDocument(document: vscode.TextDocument): Promise
     if (!analysis) { return []; }
 
     return analysis.diagnostics
-        .filter(d => isShown(d.code, fullText, d.start, d.length))
+        .filter(d => isShown(d.code, fullText, d.start, d.length, d.message))
         .map(d => makeDiagnostic(
             new vscode.Range(document.positionAt(d.start), document.positionAt(d.start + d.length)),
             d.message,

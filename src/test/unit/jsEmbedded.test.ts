@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import * as ts from 'typescript';
 import {
     buildVirtualJsContent, disposeJsLanguageService,
     getJsLanguageService, substituteAspBlock,
@@ -74,7 +75,8 @@ describe('ASP blocks inside JavaScript give no false errors', () => {
         const svc = getJsLanguageService();
         svc.loadPage(text);
         return [...svc.getSyntacticDiagnostics(), ...svc.getSemanticDiagnostics()]
-            .filter(d => d.start !== undefined && isShown(d.code, text, d.start, d.length ?? 0))
+            .filter(d => d.start !== undefined
+                && isShown(d.code, text, d.start, d.length ?? 0, ts.flattenDiagnosticMessageText(d.messageText, ' ')))
             .map(d => d.code);
     };
     const clean = (body: string) => assert.deepStrictEqual(shown(body), [], body);
@@ -97,6 +99,12 @@ describe('ASP blocks inside JavaScript give no false errors', () => {
     it('ASP output compared inside a string', () => {
         clean('if("<%=example_id%>"!=""){ }');
         clean('if ("id_<%= x %>" == "id_1") { }');
+    });
+
+    // The case label is flagged for the type of the switch expression, which is
+    // the one holding the stand-in, so the label itself shows no `<%`.
+    it('ASP output in a switch expression, flagged on a case label', () => {
+        clean('switch ("<%= x %>") { case "a": break; case "b": break; }');
     });
 
     it('still reports a comparison with no ASP in it', () => {
