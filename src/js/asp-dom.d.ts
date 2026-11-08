@@ -96,10 +96,14 @@ interface HTMLElement {
 
     // ── HTMLSelectElement ─────────────────────────────────────────────────
     selectedIndex?:   number;
-    // readonly HTMLCollectionOf<HTMLOptionElement>: matches HTMLDataListElement exactly.
-    // HTMLSelectElement.options (HTMLOptionsCollection) extends HTMLCollectionOf so it's compatible.
-    readonly options?:         HTMLCollectionOf<HTMLOptionElement>;
+    // Legacy code writes `sel.options.length = 0`, which a read-only
+    // HTMLCollectionOf refuses and the real HTMLOptionsCollection allows. The
+    // intersection makes `length` writable and keeps every other member checked.
+    readonly options?: HTMLCollectionOf<HTMLOptionElement> & { length: number };
     selectedOptions?: HTMLCollectionOf<HTMLOptionElement>;
+    // A select's `length` and `add`, reached through getElementById.
+    length?:          any;
+    add?(...args: any[]): any;
     // size: number on HTMLSelectElement, string on HTMLFontElement/HTMLHRElement.
     size?:            any;
 
@@ -167,6 +171,16 @@ interface HTMLElement {
     formMethod?:     string;
     formTarget?:     string;
     formNoValidate?: boolean;
+
+    // ── HTMLAnchorElement / HTMLTextAreaElement ───────────────────────────
+    // `href` is required and `string` because HTMLAnchorElement and
+    // HTMLAreaElement inherit it from HTMLHyperlinkElementUtils as well, and
+    // TypeScript allows that only when both declarations are identical. It is
+    // on HTMLElement and not Element: SVGAElement's href is an
+    // SVGAnimatedString, so no declaration on Element can fit both.
+    href:            string;
+    target?:         any;
+    cols?:           any;
 }
 
 // ── Internet Explorer era APIs ────────────────────────────────────────────
@@ -200,6 +214,41 @@ interface Window {
     // that only the generated prefix is accepted: window.somethingMisspelt
     // is still reported.
     [aspGenerated: `_asp_${string}`]: any;
+}
+
+// The dialog window opened by showModalDialog, which reads its arguments and
+// hands a result back through these.
+interface Window {
+    returnValue?: any;
+    dialogArguments?: any;
+    dialogWidth?: string;
+    dialogHeight?: string;
+    dialogLeft?: string;
+    dialogTop?: string;
+}
+
+// IE-only members of an element. All optional and new, as above.
+interface HTMLElement {
+    currentStyle?: any;
+    runtimeStyle?: any;
+    filters?: any;
+    fireEvent?(type: string, event?: any): boolean;
+    createTextRange?(): any;
+    attachEvent?(type: string, handler: (e?: Event) => void): boolean;
+    detachEvent?(type: string, handler: (e?: Event) => void): void;
+}
+
+// Date methods browsers kept after the standard dropped them.
+interface Date {
+    getYear?(): number;
+    setYear?(year: number): number;
+    toGMTString?(): string;
+}
+
+// A text node's `data`, read off `firstChild` or `childNodes[i]`, which are
+// typed with the base Node.
+interface Node {
+    data?: any;
 }
 
 interface Document {
@@ -241,10 +290,25 @@ interface HTMLAllCollection  { [name: string]: any; }
 // the mixin uses (required, not optional) because that is what makes them
 // identical and therefore legal. Do not "tidy" them into optionals.
 //
-// Deliberately absent, because no variant of them is safe: `id`, `type`,
-// `children` and `href`. Chains that go through `parentElement`, `form` or
-// `parentNode` still reach them, since those are typed `any`.
+// Deliberately absent, because no variant of them is safe: `id`, `children`
+// and `href` (which is on HTMLElement instead, see there). Chains that go
+// through `parentElement`, `form` or `parentNode` still reach them, since those
+// are typed `any`. `type` is here: what a form control or event target is
+// reads it to tell a checkbox from a text box, and it clashes with nothing.
+interface Event {
+    keyCode?:          number;
+    charCode?:         number;
+    which?:            number;
+    button?:           number;
+    clientX?:          number;
+    clientY?:          number;
+    ctrlKey?:          boolean;
+    shiftKey?:         boolean;
+    altKey?:           boolean;
+}
+
 interface EventTarget {
+    type?:             any;
     tagName?:          string;
     className?:        string;
     style:             CSSStyleDeclaration;
@@ -280,12 +344,4 @@ interface EventTarget {
     click?(): void;
     focus(options?: FocusOptions): void;
     blur(): void;
-}
-
-// A form control reached through `form.elements[i]`, `children[i]` or
-// `querySelector` is typed Element, and legacy code reads its `type` to tell a
-// checkbox from a text box. On Element, unlike EventTarget, `type` clashes
-// with no mixin: every element that has its own `type` declares it itself.
-interface Element {
-    type?:             any;
 }

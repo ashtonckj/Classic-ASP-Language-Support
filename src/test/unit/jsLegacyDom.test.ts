@@ -5,7 +5,7 @@ import {
     getJsLanguageService,
 } from '../../js/jsUtils';
 import { getJsBlockRanges } from '../../core/zoneUtils';
-import { SUPPRESSED_CODES } from '../../js/jsDiagnosticsProvider';
+import { isShown } from '../../js/jsDiagnosticsProvider';
 
 // Classic ASP pages were written for Internet Explorer, but TypeScript's DOM
 // library only describes modern standards-compliant browsers — so every IE-era
@@ -31,7 +31,7 @@ function shownCodes(scriptBody: string): number[] {
         .filter(d => {
             return jsRanges.some(r => d.start! >= r.start && d.start! <= r.end);
         })
-        .filter(d => !SUPPRESSED_CODES.has(d.code))
+        .filter(d => isShown(d.code, fullText, d.start!, d.length!, ts.flattenDiagnosticMessageText(d.messageText, ' ')))
         .map(d => d.code);
 }
 
@@ -91,6 +91,32 @@ describe('legacy browser APIs are recognised', () => {
         clean('var id = "q"; if (document.getElementById(id).value.length > 0) { }');
     });
 
+    // What a page written for Internet Explorer reads off an event, a select, a
+    // link, an element and a dialog window.
+    it('accepts the IE event fields', () => {
+        clean('function f(){ if (event.keyCode == 13) { event.returnValue = false; } }');
+        clean('function f(){ var x = event.clientX + event.button + event.which; }');
+        clean('function f(){ if (event.srcElement.type == "text") { } }');
+    });
+
+    it('accepts a select, a link and a textarea found by id', () => {
+        clean('var s = document.getElementById("s"); s.options.length = 0; var n = s.length; s.add(new Option("a", "b"));');
+        clean('var a = document.getElementById("a"); a.href = "x"; a.target = "_blank";');
+        clean('var t = document.getElementById("t"); t.cols = 40;');
+    });
+
+    // A link found by a selector or a collection is a bare Element.
+    it('accepts the href of a link found as a bare Element', () => {
+        clean('var a = document.querySelector("a.menu"); var h = a.href;');
+        clean('var el = document.forms[0].elements[0]; var h = el.href;');
+    });
+
+    it('accepts IE-only members, a dialog window and old Date methods', () => {
+        clean('var e = document.getElementById("x"); e.currentStyle.display; e.fireEvent("onchange"); e.attachEvent("onclick", function(){});');
+        clean('window.returnValue = 1; var a = window.dialogArguments; window.dialogWidth = "10px";');
+        clean('var y = new Date().getYear(); var c = document.getElementById("c"); c.firstChild.data = "x";');
+    });
+
     it('accepts jQuery, including through a parent frame', () => {
         clean('$("#x").hide();');
         clean('parent.$("#myModalWindow").dialog("close");');
@@ -119,6 +145,13 @@ describe('ordinary mistakes are still reported', () => {
         flagged('document.body.innerHTMLL = "x";');
         flagged('document.getElementById("x").innerHTMLL = "y";');
         flagged('var el = document.forms[0].elements[0]; if (el.tpye == "radio") { }');
+        flagged('var a = document.getElementById("a"); a.hrf = "x";');
+        flagged('var a = document.querySelector("a.menu"); var h = a.hrf;');
+    });
+
+    it('reports a misspelt event field', () => {
+        flagged('function f(){ if (event.keyCod == 13) { } }');
+        flagged('function f(){ var x = event.clientZ; }');
     });
 
     // Guards the pattern index signature: only the _asp_ prefix is accepted, so
