@@ -5,6 +5,18 @@ All notable changes to the "Classic ASP Language Support" extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🛠️ Fixed
+**JavaScript**
+- **ASP inside a condition** - `if (a == "Y" <% If x Then %> || b <% End If %>)` and `var x = <% … %>;` no longer report `')' expected`
+- **ASP output in a string** - `"<%= id %>" != ""` and a `switch` on it no longer report a comparison that can never match
+- **Legacy element members** - `form.elements[i].type`, `tab.rows.length`, `a.href`, `select.length`, `select.options.length = 0` and `.value.length` are no longer errors
+- **Internet Explorer members** - `event.keyCode`, `event.clientX`, `event.srcElement.type`, `currentStyle`, `fireEvent`, `window.returnValue`, `dialogArguments`, `Date.getYear` and `firstChild.data` are no longer errors
+( thanks to @ladis2000 - Bug report for #114 )
+
+---
+
 ## [0.7.3] - 2026-10-31
 
 ### ✨ Added
@@ -846,6 +858,7 @@ First public release focused on Classic ASP code formatting.
 
 ---
 
+[Unreleased]: https://github.com/ashtonckj/Classic-ASP-Language-Support/compare/v0.7.3...HEAD
 [0.7.3]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.7.3
 [0.7.2]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.7.2
 [0.7.1]: https://github.com/ashtonckj/Classic-ASP-Language-Support/releases/tag/v0.7.1
